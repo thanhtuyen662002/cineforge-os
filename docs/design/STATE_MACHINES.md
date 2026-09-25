@@ -762,3 +762,260 @@ Every state machine must have:
 - rights/policy guard tests when applicable.
 
 No feature is implementation-complete with only happy-path state transitions.
+
+
+# 36. Production task state
+
+```text
+PLANNED
+→ READY
+→ ACTIVE
+→ DONE
+```
+
+Alternate:
+- READY/ACTIVE → WAITING
+- READY/ACTIVE/WAITING → BLOCKED
+- BLOCKED → READY
+- any nonterminal → CANCELLED
+
+Task status is separate from job state.
+A ProductionTask can be BLOCKED because approval is missing while its previous render Job already COMPLETED.
+
+Critical-path projection recalculates after:
+- task duration change;
+- dependency change;
+- milestone change;
+- blocking DecisionRequest;
+- resource/capacity change.
+
+# 37. Milestone state
+
+- PLANNED
+- AT_RISK
+- BLOCKED
+- ACHIEVED
+- MISSED
+- CANCELLED
+
+AT_RISK is a projection based on task/resource evidence, not a manually selected mood.
+
+# 38. Policy and control-mode state
+
+Policy revision:
+- DRAFT
+- ACTIVE
+- SUPERSEDED
+- REVOKED
+
+Effective policy is calculated by precedence:
+Studio → Project → Sequence → Scene → Shot → Task.
+
+Control mode:
+- AUTO
+- GUIDED
+- ADVANCED
+- EXPERT
+
+Changing mode affects future command planning/routing only; it never rewrites past artifacts.
+
+# 39. Creative exception
+
+```text
+PROPOSED
+→ ACTIVE
+→ EXPIRED
+```
+
+Alternate:
+- PROPOSED → REJECTED
+- ACTIVE → REVOKED
+
+An active creative exception suppresses only the specific configured warning/repair policy and never erases evidence.
+
+# 40. Audio cue lifecycle
+
+- PLANNED
+- GENERATING_OR_RECORDING
+- CANDIDATES_READY
+- SELECTED
+- MIX_READY
+- APPROVED
+- STALE
+- REJECTED
+
+Cue type SILENCE can move PLANNED → APPROVED with creative authority and still participates in spotting/timing dependency.
+
+# 41. Music cue lifecycle
+
+- SPOTTED
+- DRAFT
+- CANDIDATES_READY
+- SELECTED
+- APPROVED
+- STALE
+- SUPERSEDED
+
+Timeline duration/edit changes create STALE only if the cue's timing/spotting dependencies are affected.
+
+# 42. Localization unit
+
+Translation unit:
+- DRAFT
+- REVIEWED
+- APPROVED
+- STALE
+
+Subtitle track:
+- DRAFT
+- TIMED
+- REVIEWED
+- APPROVED
+- STALE
+
+Dubbing track:
+- CASTING
+- RECORDING_OR_GENERATING
+- EDITING
+- MIXED
+- REVIEWED
+- APPROVED
+- STALE
+
+UI must distinguish translation approval from timing approval and voice/performance approval.
+
+# 43. Composition/VFX lifecycle
+
+Composition revision:
+- DRAFT
+- CANDIDATE
+- APPROVED
+- SUPERSEDED
+
+Render pass:
+- REQUESTED
+- PRODUCING
+- READY
+- VERIFIED
+- STALE
+- FAILED
+
+Replacing one layer invalidates only composition dependencies that include that layer/pass, not every unrelated shot asset.
+
+# 44. Worker lifecycle
+
+- STARTING
+- READY
+- BUSY
+- DRAINING
+- UNHEALTHY
+- RESTARTING
+- STOPPED
+- QUARANTINED
+
+Rules:
+- missing heartbeat beyond threshold => UNHEALTHY;
+- expired lease uses fencing token to prevent late worker writes;
+- DRAINING accepts no new work;
+- memory leak/poison detection may restart worker without retrying already-completed external actions.
+
+# 45. Package installation/provisioning
+
+```text
+DISCOVERED
+→ DOWNLOADING
+→ SIGNATURE_VERIFY
+→ STAGED
+→ INSTALLING
+→ HEALTH_CHECK
+→ ACTIVE
+```
+
+Failures:
+- FAILED_DOWNLOAD
+- FAILED_SIGNATURE
+- INCOMPATIBLE
+- FAILED_INSTALL
+- FAILED_HEALTH
+- QUARANTINED
+
+Removal:
+ACTIVE → DRAINING → REMOVAL_CHECK → REMOVED
+
+A pinned/required package blocks removal or creates an explicit impact DecisionRequest.
+
+# 46. Diagnostic bundle
+
+- REQUESTED
+- COLLECTING
+- REDACTING
+- READY
+- FAILED
+- DELETED
+
+No bundle reaches READY until redaction policy runs.
+Raw media inclusion requires explicit user selection.
+
+# 47. Projection health
+
+Projection state:
+- HEALTHY
+- LAGGING
+- REBUILDING
+- FAILED
+- STALE_SCHEMA
+
+If a read model is stale beyond UI tolerance:
+- Core returns freshness metadata;
+- UI must not present it as current truth;
+- canonical commands still validate against authoritative aggregate versions.
+
+# 48. Storage staging object
+
+- WRITING
+- COMPLETE
+- VERIFIED
+- REGISTERED
+
+Abnormal:
+- ORPHANED
+- QUARANTINED
+- FAILED
+
+After crash, reconciliation scans incomplete staging records:
+- verified orphan with proven job/import lineage may be registered;
+- ambiguous orphan is quarantined;
+- incomplete bytes never become READY assets.
+
+# 49. Rebuild recipe state
+
+- VALID
+- DEPENDENCY_MISSING
+- VERSION_UNAVAILABLE
+- NOT_REPRODUCIBLE
+- STALE
+
+GC cannot treat DERIVED_REBUILDABLE as safely rebuildable if recipe state is not VALID or policy explicitly accepts best-effort regeneration.
+
+# 50. Provider terms state
+
+- CURRENT
+- SUPERSEDED
+- UNKNOWN
+- REQUIRES_REVIEW
+
+If provider terms change materially:
+- future executions bind new snapshot;
+- existing outputs retain historical execution snapshot;
+- release policy may require fresh legal review;
+- no historical record is rewritten.
+
+# 51. Health freshness rule
+
+A health state always includes freshness.
+Example:
+- last heartbeat says HEALTHY;
+- heartbeat is older than threshold;
+- projected health becomes UNKNOWN/STALE, never HEALTHY.
+
+“No new failures” is not equivalent to healthy monitoring.
