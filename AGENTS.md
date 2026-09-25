@@ -8,15 +8,21 @@ Mọi implementation phải đọc:
 1. docs/FOUNDATIONAL_RISK_REGISTER.md
 2. docs/architecture/FINAL_ARCHITECTURE.md
 3. docs/design/FINAL_DETAILED_DESIGN.md
-4. docs/design/SCHEMA.md
-5. docs/design/STATE_MACHINES.md
-6. docs/design/API_CONTRACTS.md
-7. docs/design/UI_COMPONENT_SYSTEM.md
-8. docs/design/DETAILED_DESIGN_RED_TEAM.md
-9. docs/architecture/RISK_COVERAGE_MATRIX.md
-10. docs/architecture/CHARACTER_IDENTITY_SYSTEM.md
-11. docs/architecture/USER_ACTION_AND_COVERAGE_GAP_ANALYSIS.md
-12. docs/architecture/FOUNDATION.md
+4. docs/orchestration/FINAL_GITHUB_AGENT_OPERATING_MODEL.md
+5. docs/orchestration/TASK_AND_LEASE_PROTOCOL.md
+6. docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md
+7. docs/orchestration/BOTTLENECK_PLAYBOOK.md
+8. docs/orchestration/CAPACITY_CONTROL.md
+9. docs/design/SCHEMA.md
+10. docs/design/STATE_MACHINES.md
+11. docs/design/API_CONTRACTS.md
+12. docs/design/UI_COMPONENT_SYSTEM.md
+13. docs/design/DETAILED_DESIGN_RED_TEAM.md
+14. docs/orchestration/MULTI_AGENT_RED_TEAM.md
+15. docs/architecture/RISK_COVERAGE_MATRIX.md
+16. docs/architecture/CHARACTER_IDENTITY_SYSTEM.md
+17. docs/architecture/USER_ACTION_AND_COVERAGE_GAP_ANALYSIS.md
+18. docs/architecture/FOUNDATION.md
 
 `docs/architecture/FINAL_ARCHITECTURE.md` là kiến trúc authoritative cho boundaries/invariants. `docs/design/FINAL_DETAILED_DESIGN.md` cùng SCHEMA/STATE_MACHINES/API_CONTRACTS/UI_COMPONENT_SYSTEM là authoritative cho implementation contracts. Risk/red-team docs vẫn là yêu cầu đối kháng bắt buộc. Khi có xung đột, không được tự chọn: phải cập nhật architecture + detailed design + risk/test liên quan trước khi code.
 
@@ -128,6 +134,22 @@ Mỗi action làm thay đổi state phải xác định:
 - failure ownership.
 
 Các thao tác chưa có contract rõ ràng không được implement ad-hoc trong UI.
+
+## GitHub orchestration non-negotiables
+
+- GitHub Issues + Draft/Open PRs + exact-head CI là live development source of truth.
+- Role != slot; một slot có thể mang nhiều role và role có thể do nhiều slot phục vụ.
+- Task claim dùng deterministic branch + Draft PR lease; không duplicate live work.
+- Worker không được ngồi chờ CI/review/dependency nếu còn independent READY work.
+- Parked PR giữ ownership nhưng giải phóng execution capacity.
+- Independent review phải dùng logical AGENT_INSTANCE_ID khác author.
+- Planner duy trì bounded ready queue; không tạo backlog khổng lồ dễ stale.
+- Flow Governor có trách nhiệm phát hiện/gỡ critical-path bottleneck, stale lease, review/CI congestion và hotspot.
+- Integrator chỉ merge exact head sau đủ gate.
+- Waiting/blocked state phải được checkpoint đủ để agent khác resume từ GitHub.
+- Capacity Plan là single-writer guidance, không phải queue/lease truth.
+- Work chat là opportunistic super-slot; không được giả định là scheduled capacity thường trực.
+- Repo-native branch/ruleset guardrails hiện không được giả định đã bật; agent protocol phải tự tuân thủ cho tới khi enforcement được cấu hình.
 
 ## Development sequencing
 
