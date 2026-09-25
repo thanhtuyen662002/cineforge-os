@@ -8,6 +8,7 @@ Mọi implementation phải đọc:
 1. docs/FOUNDATIONAL_RISK_REGISTER.md
 2. docs/architecture/FOUNDATION.md
 3. docs/architecture/CHARACTER_IDENTITY_SYSTEM.md
+4. docs/architecture/USER_ACTION_AND_COVERAGE_GAP_ANALYSIS.md
 
 ## Architectural non-negotiables
 
@@ -27,6 +28,11 @@ Mọi implementation phải đọc:
 - Long-running operation phải expose human-readable state + needs_user + next_step.
 - Không silent downgrade chất lượng khi fallback.
 - Mọi external job/callback phải idempotent và stale-write safe.
+- Mọi mutating user action phải có auditable Action/Command record.
+- Bulk actions phải có explicit scope và impact analysis.
+- Natural-language requests compile thành auditable commands; không mutate DB trực tiếp.
+- Publish là irreversible boundary riêng, không đồng nhất với Export.
+- Autosave không bao giờ đồng nghĩa với approval.
 
 ## Product rules
 
@@ -38,6 +44,8 @@ Mọi implementation phải đọc:
 - Mọi lỗi phải nói rõ: CineForge tự xử lý / cần người dùng / không thể tiếp tục.
 - Safe changes ưu tiên undo thay vì modal confirmation.
 - Destructive/irreversible actions require explicit confirmation.
+- Mọi long-running action phải nói rõ: đang làm gì, có cần user không, tiếp theo là gì.
+- Không hiển thị “progress giả” nếu backend không có bằng chứng tiến độ thực.
 
 ## Character/voice rules
 
@@ -66,6 +74,8 @@ Cache/temp/rebuildable derivatives phải có lifecycle class và TTL.
 
 Trước batch lớn phải estimate storage.
 
+Cleanup phải dựa trên reference graph + retention policy, không dựa filename/folder heuristic.
+
 ## Connector rules
 
 Supported execution classes:
@@ -91,6 +101,24 @@ Mỗi connector phải khai báo:
 - reliability;
 - inputs/outputs.
 
+## User-action rules
+
+Mỗi action làm thay đổi state phải xác định:
+- intent;
+- scope;
+- preconditions;
+- affected entities;
+- dependencies becoming stale;
+- cost/storage estimate nếu đáng kể;
+- rights/privacy impact;
+- cancel semantics;
+- undo/compensation semantics;
+- external side effects;
+- human-readable progress;
+- failure ownership.
+
+Các thao tác chưa có contract rõ ràng không được implement ad-hoc trong UI.
+
 ## Development sequencing
 
 Không xây universal system toàn bộ trước khi có vertical slice.
@@ -99,10 +127,12 @@ Foundation:
 - desktop/core;
 - DB/event/audit;
 - asset store;
+- Action/Command Engine;
 - Universal Intake;
 - Capability Fabric;
 - jobs;
 - character/voice/continuity baseline;
+- canonical timeline baseline;
 - review;
 - deliverables;
 - storage manager.
