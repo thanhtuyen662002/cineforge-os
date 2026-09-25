@@ -7,12 +7,18 @@ CineForge OS là local-first Film Production OS, không phải một app AI vide
 Mọi implementation phải đọc:
 1. docs/FOUNDATIONAL_RISK_REGISTER.md
 2. docs/architecture/FINAL_ARCHITECTURE.md
-3. docs/architecture/RISK_COVERAGE_MATRIX.md
-4. docs/architecture/CHARACTER_IDENTITY_SYSTEM.md
-5. docs/architecture/USER_ACTION_AND_COVERAGE_GAP_ANALYSIS.md
-6. docs/architecture/FOUNDATION.md
+3. docs/design/FINAL_DETAILED_DESIGN.md
+4. docs/design/SCHEMA.md
+5. docs/design/STATE_MACHINES.md
+6. docs/design/API_CONTRACTS.md
+7. docs/design/UI_COMPONENT_SYSTEM.md
+8. docs/design/DETAILED_DESIGN_RED_TEAM.md
+9. docs/architecture/RISK_COVERAGE_MATRIX.md
+10. docs/architecture/CHARACTER_IDENTITY_SYSTEM.md
+11. docs/architecture/USER_ACTION_AND_COVERAGE_GAP_ANALYSIS.md
+12. docs/architecture/FOUNDATION.md
 
-`docs/architecture/FINAL_ARCHITECTURE.md` là kiến trúc authoritative. Các tài liệu còn lại là risk source, supporting detail và lịch sử reasoning. Khi có xung đột, không được tự chọn: phải cập nhật architecture/risk docs bằng một quyết định kiến trúc rõ ràng trước khi code.
+`docs/architecture/FINAL_ARCHITECTURE.md` là kiến trúc authoritative cho boundaries/invariants. `docs/design/FINAL_DETAILED_DESIGN.md` cùng SCHEMA/STATE_MACHINES/API_CONTRACTS/UI_COMPONENT_SYSTEM là authoritative cho implementation contracts. Risk/red-team docs vẫn là yêu cầu đối kháng bắt buộc. Khi có xung đột, không được tự chọn: phải cập nhật architecture + detailed design + risk/test liên quan trước khi code.
 
 ## Architectural non-negotiables
 
