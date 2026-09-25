@@ -1412,3 +1412,609 @@ A new feature may add tables only after answering:
 - How is it archived/restored?
 
 If these questions are unanswered, the schema is not implementation-ready.
+
+
+# 23. Global entity and revision registries
+
+Polymorphic dependency/audit references need referential integrity beyond free-form type/id pairs.
+
+## entity_registry
+Every logical domain entity registers exactly once.
+- id PK
+- entity_type
+- studio_id FK
+- project_id nullable FK
+- created_at_utc_us
+- archived_at_utc_us nullable
+- row_version
+UNIQUE(id, entity_type)
+
+Domain logical tables reuse the same ID and FK to entity_registry.
+
+## revision_registry
+Every immutable canonical/checkpoint revision registers here.
+- id PK
+- entity_id FK entity_registry
+- revision_type
+- revision_no
+- parent_revision_id nullable FK revision_registry
+- lifecycle_state
+- content_hash
+- schema_version
+- created_by_actor_id
+- created_at_utc_us
+- approved_by_actor_id nullable
+- approved_at_utc_us nullable
+UNIQUE(entity_id, revision_no)
+
+Typed revision tables reuse revision_registry.id as PK/FK.
+
+This registry makes dependency, review, rights and lineage references validate target existence while keeping typed domain tables.
+
+## projection_checkpoints
+- projection_name PK
+- last_event_seq
+- projection_schema_version
+- rebuilt_at_utc_us
+- health_state
+- error_details_json nullable
+
+# 24. Production planning and critical path
+
+## production_tasks
+- id PK FK entity_registry
+- project_id FK
+- task_type
+- subject_entity_id nullable FK entity_registry
+- title
+- workflow_stage
+- priority
+- state: PLANNED | READY | ACTIVE | WAITING | BLOCKED | DONE | CANCELLED
+- assigned_actor_id nullable
+- due_at_utc_us nullable
+- estimated_work_ms nullable
+- actual_work_ms nullable
+- row_version
+
+## production_task_dependencies
+- predecessor_task_id FK
+- successor_task_id FK
+- dependency_kind: FINISH_START | START_START | FINISH_FINISH | RESOURCE | APPROVAL
+- lag_ms
+PK(predecessor_task_id, successor_task_id, dependency_kind)
+
+Cycles that make planning invalid are rejected unless explicitly supported as soft coordination edges.
+
+## milestones
+- id PK FK entity_registry
+- project_id FK
+- title
+- target_at_utc_us nullable
+- state
+- completion_rule_json
+
+## milestone_tasks
+PK(milestone_id, production_task_id)
+
+## wip_policies
+- id PK
+- project_id FK
+- scope_type
+- scope_id nullable
+- max_active_items
+- overflow_behavior
+- priority_policy_json
+
+Critical-path and bottleneck are projections derived from tasks/dependencies/resources, not manually edited percentages.
+
+# 25. Policy hierarchy, control mode and creative exceptions
+
+## policies
+- id PK FK entity_registry
+- studio_id FK
+- policy_type
+
+## policy_revisions
+- id PK FK revision_registry
+- policy_id FK
+- policy_json
+- explanation_json
+
+## policy_bindings
+- id PK
+- policy_revision_id FK
+- scope_type: STUDIO | PROJECT | SEQUENCE | SCENE | SHOT | TASK | ASSET
+- scope_id
+- priority
+- effective_from_story_key nullable
+- effective_to_story_key nullable
+
+Effective policy is resolved with explicit precedence and returned with source binding.
+
+Control modes are represented as policy values:
+- AUTO
+- GUIDED
+- ADVANCED
+- EXPERT
+
+## creative_exceptions
+First-class intentional deviation, not merely a generic warning dismissal.
+- id PK FK entity_registry
+- project_id FK
+- exception_type
+- scope_type
+- scope_id
+- reason
+- authority_actor_id FK
+- valid_from_story_key nullable
+- valid_to_story_key nullable
+- expires_at_utc_us nullable
+- related_evidence_id nullable
+- state: ACTIVE | EXPIRED | REVOKED
+
+Examples:
+- intentional continuity break;
+- deliberate color shift;
+- stylized anatomy;
+- subtitle/dub semantic divergence.
+
+# 26. Audio scene, dialogue, ADR and mixing domain
+
+## conversation_sessions
+- id PK FK entity_registry
+- scene_id FK
+- title
+- acoustic_space_profile_id nullable
+- story_start_key
+- story_end_key
+
+## performance_contexts
+- id PK
+- conversation_session_id FK
+- character_id nullable
+- context_json
+- previous_context_id nullable
+
+## audio_cues
+- id PK FK entity_registry
+- project_id FK
+- scene_id nullable
+- cue_type: DIALOGUE | ADR | NONVERBAL | FOLEY | SFX | AMBIENCE | ROOM_TONE | MUSIC | SILENCE
+- start_target_json nullable
+- end_target_json nullable
+- intent_text
+- source_dialogue_line_id nullable
+- character_id nullable
+- state
+
+## audio_cue_revisions
+- id PK FK revision_registry
+- audio_cue_id FK
+- parameters_json
+- selected_asset_revision_id nullable
+- timing_dependency_revision_id nullable
+
+## adr_links
+- original_dialogue_take_id FK
+- replacement_dialogue_take_id FK
+- reason
+- approved_by_actor_id nullable
+PK(original_dialogue_take_id, replacement_dialogue_take_id)
+
+## acoustic_space_profiles
+- id PK FK entity_registry
+- environment_id nullable
+- name
+- profile_json
+
+## room_tone_assets
+- acoustic_space_profile_id FK
+- asset_revision_id FK
+- priority
+PK(acoustic_space_profile_id, asset_revision_id)
+
+## mix_buses
+- id PK FK entity_registry
+- project_id FK
+- parent_bus_id nullable
+- bus_type: DIALOGUE | MUSIC | SFX | FOLEY | AMBIENCE | MASTER | CUSTOM
+- name
+- channel_layout
+- processing_chain_ref nullable
+
+## stem_assignments
+- audio_cue_id FK
+- mix_bus_id FK
+- gain_db
+- pan_json nullable
+PK(audio_cue_id, mix_bus_id)
+
+# 27. Music continuity and spotting
+
+## music_themes
+- id PK FK entity_registry
+- project_id FK
+- name
+- semantic_identity_json
+- rights_identity_id nullable
+
+## music_theme_revisions
+- id PK FK revision_registry
+- music_theme_id FK
+- motif_description
+- harmony_language_json
+- instrumentation_json
+- reference_asset_revisions_json
+
+## music_cues
+- id PK FK entity_registry
+- project_id FK
+- scene_id nullable
+- theme_id nullable
+- cue_role
+- timing_start_json
+- timing_end_json
+- intent_text
+- silence_allowed BOOL
+- state
+
+## music_cue_revisions
+- id PK FK revision_registry
+- music_cue_id FK
+- theme_revision_id nullable
+- spotting_json
+- selected_asset_revision_id nullable
+- transition_intent_json
+
+## spotting_events
+- id PK
+- music_cue_id FK
+- time_json
+- event_type
+- narrative_reason
+- story_event_id nullable
+
+# 28. Localization, dubbing and accessibility
+
+## localization_packages
+- id PK FK entity_registry
+- project_id FK
+- locale
+- source_locale
+- state
+
+## translation_units
+- id PK FK entity_registry
+- localization_package_id FK
+- source_entity_id FK entity_registry
+- source_revision_id nullable FK revision_registry
+- source_text
+- translated_text
+- semantic_notes
+- state: DRAFT | REVIEWED | APPROVED | STALE
+- row_version
+
+## subtitle_tracks
+- id PK FK entity_registry
+- localization_package_id FK
+- timeline_id FK
+
+## subtitle_track_revisions
+- id PK FK revision_registry
+- subtitle_track_id FK
+- format_profile
+- font_asset_revision_id nullable
+- style_json
+- accessibility_mode
+
+## dubbing_tracks
+- id PK FK entity_registry
+- localization_package_id FK
+- timeline_id FK
+- language
+- state
+
+## dubbing_line_bindings
+- dubbing_track_id FK
+- dialogue_line_revision_id FK
+- localized_translation_unit_id FK
+- dialogue_take_id nullable
+- timing_policy
+PK(dubbing_track_id, dialogue_line_revision_id)
+
+## accessibility_tracks
+- id PK FK entity_registry
+- project_id FK
+- track_type: SDH | AUDIO_DESCRIPTION | TRANSCRIPT | OTHER
+- locale
+- asset_revision_id nullable
+- state
+
+# 29. VFX, compositing and 3D-derived artifacts
+
+## compositions
+- id PK FK entity_registry
+- project_id FK
+- shot_id FK
+- row_version
+
+## composition_revisions
+- id PK FK revision_registry
+- composition_id FK
+- width
+- height
+- working_color_space
+- coordinate_system_json nullable
+- unit_system nullable
+- camera_metadata_json nullable
+
+## composition_layers
+- id PK
+- composition_revision_id FK
+- order_index
+- layer_type
+- source_asset_revision_id FK
+- blend_mode
+- transform_json
+- mask_asset_revision_id nullable
+- depth_asset_revision_id nullable
+- alpha_mode nullable
+- effect_chain_ref nullable
+
+## render_pass_bindings
+- composition_revision_id FK
+- pass_role: BEAUTY | ALPHA | DEPTH | NORMAL | MOTION | MASK | MATTE | OTHER
+- asset_revision_id FK
+- coordinate_metadata_json nullable
+PK(composition_revision_id, pass_role, asset_revision_id)
+
+# 30. Worker and resource inventory
+
+## workers
+- id PK
+- worker_type: CORE | LOCAL_AI | CLI | BROWSER | MCP_PROXY | MEDIA | QC
+- host_id
+- lifecycle_state
+- process_instance_id nullable
+- started_at_utc_us
+- last_heartbeat_at_utc_us
+- connector_version_id nullable
+
+## worker_capabilities
+- worker_id FK
+- capability_id FK
+- limits_json
+PK(worker_id, capability_id)
+
+## resource_inventory
+- id PK
+- host_id
+- resource_type: GPU | CPU | RAM | DISK | NETWORK
+- resource_key
+- static_profile_json
+
+## resource_samples
+- id PK
+- resource_inventory_id FK
+- sampled_at_utc_us
+- utilization_json
+- health_state
+- temperature_c nullable
+- free_capacity_json nullable
+
+Scheduler never assumes installed == available.
+
+# 31. Runtime/model/package provisioning
+
+## packages
+- id PK
+- package_family
+- package_type: CORE | CONNECTOR | RUNTIME | MODEL | TOOL | POLICY | BENCHMARK
+- version
+- manifest_hash
+- publisher
+- signature_record_id nullable
+- schema_version
+UNIQUE(package_family, version)
+
+## package_dependencies
+- package_id FK
+- dependency_family
+- version_range
+- optional BOOL
+PK(package_id, dependency_family)
+
+## package_installations
+- id PK
+- package_id FK
+- storage_root_id FK
+- state: DISCOVERED | DOWNLOADING | VERIFIED | STAGED | INSTALLING | HEALTH_CHECK | ACTIVE | FAILED | QUARANTINED | REMOVED
+- installed_path
+- installed_at_utc_us nullable
+- last_verified_at_utc_us nullable
+
+## package_pins
+- id PK
+- project_id nullable
+- scope_type
+- scope_id
+- package_family
+- package_id FK
+- reason
+
+## package_signatures
+- id PK
+- package_id nullable
+- signer_identity
+- signature_type
+- signature_hash
+- verified_at_utc_us
+- verification_result
+
+## certification_records
+- id PK
+- package_id nullable
+- connector_version_id nullable
+- benchmark_profile
+- security_review_state
+- compatibility_json
+- certified_at_utc_us
+- expires_at_utc_us nullable
+
+# 32. Storage roots, staging and rebuild recipes
+
+## storage_roots
+- id PK
+- root_type: OBJECTS | PROJECTS | MODELS | CACHE | TEMP | BACKUP | EXPORT
+- root_path
+- volume_id
+- state
+- reserve_bytes
+- row_version
+
+## storage_volumes
+- id PK
+- volume_identity
+- filesystem_type
+- capacity_bytes
+- last_free_bytes
+- health_state
+- last_checked_at_utc_us
+
+## staging_objects
+- id PK
+- job_attempt_id nullable
+- import_item_id nullable
+- temp_path
+- expected_size nullable
+- current_size
+- sha256 nullable
+- state: WRITING | COMPLETE | VERIFIED | REGISTERED | ORPHANED | QUARANTINED | FAILED
+- created_at_utc_us
+
+## derived_recipes
+Proves rebuildability rather than using a label only.
+- id PK
+- output_asset_revision_id FK
+- recipe_type
+- recipe_version
+- input_manifest_hash
+- executable_dependency_manifest_hash
+- parameters_hash
+- reproducibility_level: EXACT | BEST_EFFORT | NOT_GUARANTEED
+
+A GC candidate marked rebuildable must have a valid recipe or policy-approved regeneration path.
+
+# 33. Provider terms, privacy and execution policy
+
+## provider_terms_snapshots
+- id PK
+- connection_id FK
+- connector_version_id nullable
+- captured_at_utc_us
+- terms_hash
+- storage_object_id nullable
+- structured_summary_json
+- effective_from_utc_us nullable
+
+## execution_terms_bindings
+- job_attempt_id FK
+- provider_terms_snapshot_id FK
+PK(job_attempt_id, provider_terms_snapshot_id)
+
+## privacy_policies
+- id PK FK entity_registry
+- studio_id FK
+
+## privacy_policy_revisions
+- id PK FK revision_registry
+- privacy_policy_id FK
+- egress_rules_json
+- provider_allowlist_json
+- sensitive_classes_json
+
+# 34. Notifications, diagnostics and support
+
+## notifications
+- id PK
+- actor_id FK
+- project_id nullable
+- notification_type
+- severity
+- title_key
+- body_key
+- args_json
+- decision_request_id nullable
+- created_at_utc_us
+- read_at_utc_us nullable
+- dismissed_at_utc_us nullable
+
+## notification_deliveries
+- id PK
+- notification_id FK
+- channel: IN_APP | WINDOWS
+- state
+- attempted_at_utc_us
+- delivered_at_utc_us nullable
+- error_code nullable
+
+## health_nodes
+Represents Core/DB/worker/connection/storage/monitor components.
+- id PK
+- node_type
+- node_key
+- parent_node_id nullable
+- health_state
+- last_heartbeat_at_utc_us
+- freshness_threshold_ms
+- details_json
+
+## diagnostic_bundles
+- id PK
+- actor_id FK
+- project_id nullable
+- created_at_utc_us
+- manifest_hash
+- storage_object_id FK
+- redaction_policy_version
+- included_classes_json
+- excluded_sensitive_classes_json
+
+Diagnostic bundles never include credentials and do not include raw unreleased media unless explicitly selected.
+
+# 35. Technical-media additions for editorial conform
+
+Extend technical_metadata with:
+- source_start_timecode_num/den or frame count equivalent
+- source_timecode_rate_num/den
+- drop_frame BOOL nullable
+- reel_name nullable
+- camera_media_id nullable
+- recording_start_utc_us nullable
+- rotation_degrees nullable
+- field_order nullable
+- variable_frame_rate BOOL
+- audio_start_sample nullable
+
+Handoff manifests include:
+- stable media UUID;
+- source/reel identifiers;
+- handles;
+- conform map;
+- proxy-to-original mapping;
+- timeline start timecode.
+
+# 36. Schema saturation rule
+
+After multi-role red-team, a new implementation should first attempt to map to these existing ownership domains:
+- command/action;
+- entity/revision;
+- dependency/staleness;
+- policy/rights;
+- job/resource;
+- asset/storage;
+- review/evidence;
+- timeline/story/canon;
+- deliverable/release.
+
+If a new problem cannot be expressed without abusing one of those domains, create an architecture decision before adding an ad-hoc field/table.
