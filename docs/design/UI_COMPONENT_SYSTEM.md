@@ -1246,3 +1246,59 @@ Before a new workspace/component is approved, test:
 - technical details are not required for normal completion.
 
 If a workflow passes only in Expert mode, normal UX is incomplete.
+
+
+# 49. Learning / Improvement UI (Advanced)
+
+This area is hidden from normal creative flow.
+
+Sections:
+- Failure Lake
+- Golden Examples
+- Benchmarks
+- Shadow Runs
+- Promotion Candidates
+- Systemic Monitors
+
+Rules:
+- no “Self-improve now” button;
+- production feedback is shown as evidence, not automatic truth;
+- promotion screen clearly separates current production version vs candidate;
+- blind comparison preferred where applicable;
+- rollback target shown before promotion.
+
+## PromotionCandidateCard
+Shows:
+- component/evaluator/router version;
+- benchmark coverage;
+- golden-set result;
+- shadow result;
+- out-of-domain failures;
+- systemic-monitor warnings;
+- human review status;
+- rollback target.
+
+Primary action only appears when governance gates pass.
+
+## SystemicMonitorPanel
+Shows warnings such as:
+- provider concentration rising;
+- repair oscillation;
+- fallback oscillation;
+- evaluation mix-shift;
+- creative-style convergence;
+- starvation/resource imbalance.
+
+These are warnings about system behavior, not automatic proof of quality failure.
+
+# 50. Provider Terms UI (Advanced / Rights)
+
+Connection detail includes:
+- current terms snapshot date;
+- whether legal review is required;
+- historical terms used by prior executions.
+
+Release readiness can surface:
+`Điều khoản của một dịch vụ đã thay đổi kể từ khi nội dung được tạo. Cần xem lại trước khi phát hành.`
+
+Do not force ordinary users to read provider legal text during every generation; only surface it when policy/rights requires action.
