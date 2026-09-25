@@ -1,5 +1,8 @@
 # CineForge OS — Product & System Architecture Foundation
 
+> **Authoritative architecture:** `docs/architecture/FINAL_ARCHITECTURE.md`  
+> Tài liệu này được giữ làm supporting foundation/history. Nếu có khác biệt, `FINAL_ARCHITECTURE.md` là nguồn chuẩn.
+
 > Trạng thái: Pre-implementation architecture baseline  
 > Ngôn ngữ sản phẩm mặc định: `vi-VN`; hỗ trợ `en-US`  
 > Mục tiêu: xây CineForge OS như một hệ điều hành sản xuất phim local-first, vendor-neutral, có thể gắn thêm “tay chân” qua Local Runtime, CLI, MCP, API, Browser/Web và Human.
