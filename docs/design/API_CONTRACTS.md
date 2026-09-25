@@ -990,3 +990,49 @@ Before adding an API:
 6. add contract tests.
 
 If any item is unknown, the action is not API-ready.
+
+
+# 45. Provider terms and legal execution API
+
+Queries:
+- `query.provider_terms.current(connection_id)`
+- `query.provider_terms.history(connection_id)`
+- `query.execution.terms_binding(job_attempt_id)`
+
+Commands:
+- CaptureProviderTermsSnapshot
+- MarkProviderTermsRequiresReview
+- ApproveProviderTermsForPolicy
+
+Before an external execution, policy may require a current accepted ProviderTermsSnapshot.
+Before release, Rights/Release engine can report executions whose provider terms changed materially after generation.
+
+Historical execution bindings are immutable.
+
+# 46. Learning governance API
+
+Queries:
+- `query.learning.failure_lake`
+- `query.learning.golden_sets`
+- `query.learning.benchmarks`
+- `query.learning.shadow_runs`
+- `query.learning.promotion_candidates`
+- `query.learning.systemic_monitors`
+
+Commands:
+- LabelFailureExample
+- CurateGoldenExample
+- StartBenchmarkRun
+- StartShadowEvaluation
+- RequestPromotionReview
+- PromoteComponentVersion
+- RollbackComponentVersion
+- DeprecateHeuristic
+
+Promotion command requires:
+- successful required benchmark stages;
+- policy-compatible human approval where configured;
+- rollback target;
+- no unresolved systemic-monitor blocking alert.
+
+Production feedback cannot directly call PromoteComponentVersion.
