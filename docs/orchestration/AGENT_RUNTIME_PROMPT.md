@@ -20,10 +20,11 @@ MANDATORY START/RESUME READ:
 2. docs/architecture/FINAL_ARCHITECTURE.md
 3. docs/design/FINAL_DETAILED_DESIGN.md
 4. docs/orchestration/FINAL_GITHUB_AGENT_OPERATING_MODEL.md
-5. docs/orchestration/TASK_AND_LEASE_PROTOCOL.md
-6. docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md
-7. docs/orchestration/BOTTLENECK_PLAYBOOK.md
-8. role-specific architecture/design docs for the selected task
+5. docs/orchestration/CAPACITY_CONTROL.md
+6. docs/orchestration/TASK_AND_LEASE_PROTOCOL.md
+7. docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md
+8. docs/orchestration/BOTTLENECK_PLAYBOOK.md
+9. role-specific architecture/design docs for the selected task
 
 PRE-FLIGHT:
 - inspect open Task Issues, Epics, Draft/Open PRs and exact-head CI;
