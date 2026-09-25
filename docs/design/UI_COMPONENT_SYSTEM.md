@@ -974,3 +974,275 @@ Every primary workflow tested at:
 
 Critical usability test:
 a person who does not know API/MCP/CLI/model/GPU must complete a short film flow without encountering those concepts unless a technical problem requires them.
+
+
+# 36. Producer / Project Management workspace
+
+This workspace answers:
+- what is blocking delivery?
+- what is on the critical path?
+- what is at risk?
+- where is work piling up?
+- which decision is waiting on whom?
+- how much budget/capacity remains?
+
+Primary modules:
+- MilestoneStrip
+- CriticalPathList
+- BottleneckCard
+- WipPressureCard
+- BudgetUsageCard
+- NeedsDecisionByRole
+- ResourceCapacitySummary
+
+Do not show a fake single percent as the primary truth.
+If progress percent is shown, pair it with:
+- source basis;
+- critical path;
+- confidence/uncertainty.
+
+# 37. Control Mode UI
+
+Scope-aware mode selector:
+- Tự động
+- Có hướng dẫn
+- Nâng cao
+- Chuyên sâu
+
+Rules:
+- user sees current effective mode;
+- show where it is inherited from;
+- allow “Đặt lại theo cấp trên”;
+- changing mode affects future behavior, not past outputs.
+
+Guided mode surfaces:
+- quality priority;
+- local/online preference;
+- cost limit;
+- privacy;
+- preferred capability pool;
+- review strictness.
+
+Expert mode may expose:
+- connector/model/workflow revision;
+- seed;
+- runtime parameters;
+- raw prompt;
+- timeout/retry policy.
+
+# 38. Creative Exception UI
+
+When CineForge flags something that is intentional:
+`Đây là chủ ý sáng tạo`
+
+Opens CreativeExceptionSheet:
+- issue/evidence;
+- scope;
+- why intentional;
+- applies until when;
+- who can approve;
+- whether release/QC should still warn.
+
+Exception never deletes evidence.
+
+# 39. Music workspace
+
+Sections:
+- Themes / Motifs
+- Spotting
+- Cues
+- Candidates
+- Approved Score
+
+## MusicThemeCard
+Shows:
+- motif identity;
+- associated characters/themes;
+- approved references;
+- usage count.
+
+## SpottingTimeline
+Places:
+- cue start/end;
+- hit points;
+- transitions;
+- intentional silence.
+
+When edit changes:
+`3 music cues need timing review`
+not immediate destructive regeneration.
+
+# 40. Localization workspace
+
+Tabs:
+- Translation
+- Subtitles
+- Dubbing
+- Accessibility
+
+Translation table:
+- source original;
+- target;
+- semantic notes;
+- review state.
+
+Subtitle editor:
+- player;
+- timing;
+- line length/readability warnings;
+- UTF-8/font coverage checks.
+
+Dubbing view:
+- character;
+- source line;
+- localized line;
+- voice binding;
+- timing;
+- selected take.
+
+User can intentionally approve subtitle/dub wording differences with recorded rationale.
+
+# 41. Composition / VFX workspace
+
+Default:
+- composite preview;
+- layers;
+- passes;
+- inspector.
+
+Layer row shows:
+- source;
+- mask/depth/alpha;
+- state;
+- dependencies.
+
+Replacing one layer previews exact impact before commit.
+
+Advanced inspector:
+- color space;
+- alpha mode;
+- coordinate system;
+- units;
+- camera metadata.
+
+# 42. Provisioning / Capability Pack UI
+
+Normal user sees capabilities, not package graph.
+
+Example:
+`Tạo video local — Chưa cài`
+`[Cài đặt]`
+
+Install sheet:
+- download size;
+- disk required;
+- GPU compatibility;
+- publisher/signature;
+- expected capability;
+- restart/reboot if any.
+
+Advanced:
+- package dependencies;
+- exact versions;
+- pins;
+- benchmark/certification.
+
+Do not expose Python/CUDA package trivia unless troubleshooting.
+
+# 43. Diagnostics UI
+
+Default health summary:
+`Mọi thứ đang hoạt động bình thường`
+
+If issue:
+- affected area;
+- what still works;
+- what CineForge is doing;
+- user action if required.
+
+Advanced HealthGraph:
+- Core
+- DB
+- workers
+- storage
+- connections
+- monitor heartbeat.
+
+Support action:
+`Tạo gói chẩn đoán`
+
+Before creation show:
+- included logs/metadata;
+- excluded credentials;
+- whether any media will be included;
+- file size estimate.
+
+# 44. Archive / Read-only compatibility UX
+
+Historical projects must open even if old execution dependencies are gone.
+
+Banner:
+`Dự án đang mở ở chế độ chỉ đọc vì một số công cụ cũ không còn khả dụng.`
+
+Still allow:
+- browse script/canon;
+- inspect timeline;
+- preview available media;
+- inspect approvals/rights/history;
+- export already available artifacts when safe.
+
+Do not force model/runtime reinstall merely to view history.
+
+# 45. External side-effect disclosure
+
+For actions that touch external providers, UI must distinguish:
+- local state rollback;
+- provider-side action;
+- money/credits already consumed;
+- data that may remain with provider.
+
+Example after deleting local project with prior cloud generation:
+`Project đã được chuyển vào Thùng rác. Nội dung đã gửi tới dịch vụ bên ngoài có thể vẫn được lưu theo chính sách của dịch vụ đó.`
+
+# 46. Folder/reparse-point import UX
+
+Folder pre-scan shows:
+- file count;
+- total size;
+- unsupported/suspicious entries;
+- symbolic link/junction/reparse-point exclusions.
+
+Default does not follow filesystem redirections outside selected root.
+
+User is not shown low-level reparse terminology unless they inspect details.
+
+# 47. Media conform / relink UI
+
+Offline media card:
+`Không tìm thấy file nguồn`
+
+Actions:
+- Tìm tự động bằng fingerprint/hash
+- Chọn thư mục mới
+- Bỏ qua tạm thời
+
+Conform detail can show:
+- reel/source ID;
+- source timecode;
+- proxy ↔ original mapping.
+
+# 48. UI architecture saturation test
+
+Before a new workspace/component is approved, test:
+- first-time user can identify primary action;
+- intermediate user can find override;
+- expert can inspect exact implementation;
+- slow operation is visible;
+- stale/conflict state is visible;
+- user can tell whether CineForge needs them;
+- irreversible effect is explicit;
+- keyboard/focus works;
+- vi-VN copy is natural;
+- technical details are not required for normal completion.
+
+If a workflow passes only in Expert mode, normal UX is incomplete.
