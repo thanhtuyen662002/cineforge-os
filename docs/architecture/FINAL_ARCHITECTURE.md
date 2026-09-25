@@ -1467,3 +1467,64 @@ The architecture deliberately separates:
 - **what can be undone** from **what has irreversible external effects**.
 
 This baseline is the authoritative reference for implementation until replaced by an explicitly reviewed architecture revision.
+
+
+# 34. Detailed-design domains promoted to architecture
+
+The multi-role detailed-design red-team found several concerns that are architectural, not optional implementation detail. They are therefore part of the authoritative architecture:
+
+## Production planning
+CineForge includes a production planning domain distinct from execution jobs:
+- ProductionTask;
+- TaskDependency;
+- Milestone;
+- WIP policy;
+- critical-path/bottleneck projections.
+
+## Audio/music
+CineForge models:
+- conversational/performance context;
+- dialogue/ADR/nonverbal/Foley/SFX/ambience/room-tone/music cues;
+- acoustic-space profiles;
+- mix buses/stems;
+- music themes/motifs and spotting events;
+- intentional silence.
+
+## Localization/accessibility
+Original-language content remains canonical while translation, subtitle, dubbing and accessibility tracks are independently versioned/approved derivatives.
+
+## VFX/compositing
+Layered compositions, masks/depth/alpha/render passes and coordinate/unit/camera metadata are first-class where needed; a flat rendered video is not the only editable representation.
+
+## Provisioning/package lifecycle
+Core/connector/runtime/model/tool/policy/benchmark packages have signed manifests, dependencies, installations, health checks, certification and project pins.
+
+## Policy inheritance
+Automation/control preferences resolve through:
+Studio → Project → Sequence → Scene → Shot → Task.
+Auto/Guided/Advanced/Expert behavior is policy, not hard-coded UI mode.
+
+## Diagnostics/support
+CineForge exposes a health graph and redacted diagnostic bundles so failures can be diagnosed without exposing credentials or private media by default.
+
+## Global entity/revision registry
+Logical entities and immutable revisions have global registries so polymorphic dependencies, reviews, rights and audit records can validate referential identity.
+
+# 35. Authoritative detailed implementation references
+
+Implementation must conform to:
+- `docs/design/FINAL_DETAILED_DESIGN.md`
+- `docs/design/SCHEMA.md`
+- `docs/design/STATE_MACHINES.md`
+- `docs/design/API_CONTRACTS.md`
+- `docs/design/UI_COMPONENT_SYSTEM.md`
+- `docs/design/DETAILED_DESIGN_RED_TEAM.md`
+
+This architecture remains authoritative for boundaries/invariants; the detailed design files are authoritative for implementation contracts.
+
+If implementation reveals a contradiction:
+1. stop the conflicting implementation;
+2. identify the affected risk/invariant;
+3. update architecture + detailed contracts together;
+4. add migration and regression test;
+5. only then resume code.
