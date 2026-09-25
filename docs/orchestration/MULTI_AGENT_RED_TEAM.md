@@ -215,3 +215,234 @@ After these passes, new failure scenarios reduce mainly to:
 - critical-path prioritization.
 
 Remaining validation must come from real concurrent agents working the repository.
+
+
+# Additional control-plane red-team passes
+
+# Role 26 — Planner unavailable
+
+Failure:
+“Primary Planner disappears; no new tasks are created and builders starve.”
+
+Control:
+- Capacity Plan is reconstructable from GitHub;
+- Flow Governor may assume temporary Planner role;
+- ready Issue/PR truth does not depend on Planner memory;
+- builders may still claim already READY tasks.
+
+# Role 27 — Capacity Plan stale
+
+Failure:
+“Plan says 10 slots but only 5 are active.”
+
+Control:
+- Capacity Plan is guidance, not lease/task truth;
+- Flow Governor detects persistent idle/stale SLOT_IDs;
+- Planner reduces WIP;
+- live PR ownership remains unchanged until lease liveness assessment.
+
+# Role 28 — Same GitHub account for all agents
+
+Failure:
+“GitHub user identity cannot prove independent review.”
+
+Control:
+- logical AGENT_INSTANCE_ID/SLOT_ID recorded in PR claims and review comments;
+- independent review policy is evaluated on logical agent identity;
+- GitHub account identity alone is insufficient.
+
+Residual limitation:
+true human/organization separation is not implied; this is engineering-agent independence.
+
+# Role 29 — GitHub/API rate pressure
+
+Failure:
+“15 workers repeatedly scan the entire repository and hit API/rate/latency limits.”
+
+Control:
+- stagger slots;
+- scope searches to open issues/PRs and current Epic;
+- reuse concrete Issue/PR IDs when known;
+- avoid refetching unchanged large documents repeatedly within one run;
+- control plane performs broad scans; builders perform narrow scans.
+
+# Role 30 — Orphan claim branch
+
+Failure:
+“Agent creates claim branch then dies before opening Draft PR.”
+
+Control:
+- Flow Governor scans agent/i* branches without matching PR;
+- if branch head equals claim base/no meaningful commits, retire/delete when tooling allows or mark orphan;
+- if meaningful commits exist, recover by opening/adopting Draft PR;
+- other workers must not silently reuse ambiguous branch.
+
+# Role 31 — Work chat and scheduled slot race
+
+Failure:
+“Work chat and S07 both see same READY issue.”
+
+Control:
+same deterministic claim branch attempt; only one creation succeeds. Loser selects another task.
+
+# Role 32 — Task becomes obsolete mid-implementation
+
+Failure:
+“Another merged PR changes architecture so current task is no longer needed.”
+
+Control:
+- Flow Governor/Integrator mark PR obsolete;
+- preserve useful commits/tests if reusable;
+- close without forcing merge;
+- Planner updates dependents;
+- no sunk-cost merge.
+
+# Role 33 — Upstream contract changes after dependent work started
+
+Failure:
+“Dependent PR compiles against old interface.”
+
+Control:
+- contract revisions are explicit;
+- Integrator requires branch update/compatibility;
+- dependent PR may remain parallel if compatibility adapter exists;
+- otherwise park only affected work.
+
+# Role 34 — Migration-number collision
+
+Failure:
+“Two data agents create same migration sequence.”
+
+Control:
+- migration namespace/order treated as HOTSPOT;
+- temporary migration owner or timestamp/UUID migration identity;
+- Integrator validates ordering before merge.
+
+# Role 35 — Generated file conflict
+
+Failure:
+“Multiple PRs regenerate the same derived file.”
+
+Control:
+- generated artifacts have one source contract;
+- avoid manual edits;
+- regeneration is Integrator/hotspot step when necessary;
+- independent PRs change sources, not shared generated output where possible.
+
+# Role 36 — Giant PR
+
+Failure:
+“PR is correct but too large to review, so reviews become superficial.”
+
+Control:
+- Planner/author split by contract/vertical slice;
+- reviewer may REQUEST_SPLIT before detailed review;
+- scope explosion is a flow defect.
+
+# Role 37 — User manually edits main
+
+Failure:
+“Human/user hotfix lands outside active task assumptions.”
+
+Control:
+- main is authoritative;
+- open PRs must verify base/head compatibility before merge;
+- Flow Governor re-evaluates tasks touched by the manual change;
+- no agent insists stale plan is correct.
+
+# Role 38 — Integrator unavailable
+
+Failure:
+“Everything is green/reviewed but waits for one integrator run.”
+
+Control:
+- Integrator is a capability, not one identity;
+- Flow Governor or QA-capable control slot may perform merge gate;
+- if repo auto-merge becomes available, use it for eligible PRs.
+
+# Role 39 — Review independence illusion
+
+Failure:
+“Same Work chat changes prompt and calls itself a different reviewer ID.”
+
+Control:
+- AGENT_INSTANCE_ID must be stable runtime identity;
+- a single runtime cannot mint a second identity to satisfy its own independent review;
+- degraded single-slot mode is explicitly marked, not disguised.
+
+# Role 40 — One-slot degraded mode
+
+Failure:
+“Only one worker exists; strict independent review deadlocks all work.”
+
+Control:
+- LOW/MEDIUM risk may use DEGRADED_SELF_REVIEW only under explicit repository policy with fresh diff reread + full required CI;
+- HIGH risk remains unmerged until a second logical reviewer becomes available unless an approved emergency policy exists;
+- degraded mode is visible in PR evidence.
+
+# Role 41 — Critical PR starves behind easy merges
+
+Failure:
+“Integrator clears small PRs while critical-path PR ages.”
+
+Control:
+merge/review priority uses critical-path/unblock value, not FIFO alone.
+
+# Role 42 — CI false freshness
+
+Failure:
+“Old green run on previous commit is shown next to current head.”
+
+Control:
+exact-head SHA is part of every merge/review record; no approximate check matching.
+
+# Role 43 — Scheduled clock/timezone drift
+
+Failure:
+“Slot schedules collide after timezone/DST/config changes.”
+
+Control:
+- SLOT_ID safety is independent of time;
+- staggering is performance optimization, not correctness;
+- Capacity Plan records schedule cycle/offsets explicitly.
+
+# Role 44 — Queue overproduction
+
+Failure:
+“Planner creates enough issues for 15 slots but capacity drops to 5; task specs rot.”
+
+Control:
+bounded ready horizon; Planned/blocked Epics can remain coarse until approaching execution.
+
+# Role 45 — Queue underproduction
+
+Failure:
+“Planner only creates one next task; 14 slots idle.”
+
+Control:
+ready-depth target scales with builder capacity; Planner cycle precedes builders in stagger plan.
+
+# Role 46 — Control-plane busy with reporting
+
+Failure:
+“Planner/Flow spends all cycles writing status summaries rather than unblocking work.”
+
+Control:
+- status is derived from GitHub;
+- control roles update only actionable metadata;
+- no mandatory verbose report per cycle;
+- bottleneck action takes precedence over prose.
+
+# Updated saturation conclusion
+
+New cases still reduce to:
+- GitHub-derived task/lease truth;
+- capability-based control roles;
+- exact-head evidence;
+- bounded queue;
+- deterministic claim;
+- hotspot ownership;
+- takeover/recovery;
+- critical-path prioritization.
+
+No additional coordination primitive is currently required. Real multi-agent execution is the next source of evidence.
