@@ -737,3 +737,256 @@ Required:
 - connector schema drift;
 - Core restart during long job;
 - safe-mode read access after migration failure.
+
+
+# 31. Production planning API
+
+Queries:
+- `query.production.plan`
+- `query.production.critical_path`
+- `query.production.bottlenecks`
+- `query.production.milestones`
+- `query.production.wip`
+
+Commands:
+- CreateProductionTask
+- UpdateProductionTask
+- AssignProductionTask
+- AddTaskDependency
+- RemoveTaskDependency
+- CreateMilestone
+- UpdateMilestone
+- SetWipPolicy
+
+Critical-path query returns:
+- critical tasks;
+- blocking DecisionRequests;
+- resource bottlenecks;
+- confidence/assumptions for estimated duration.
+
+No client sets “project 72% complete” directly; progress is derived from task/milestone/shot evidence.
+
+# 32. Policy and preference API
+
+Queries:
+- `query.policy.effective(scope)`
+- `query.policy.inheritance(scope)`
+- `query.policy.diff(parent, child)`
+
+Commands:
+- CreatePolicyRevision
+- BindPolicy
+- RemovePolicyOverride
+- ChangeControlMode
+- CreateCreativeException
+- RevokeCreativeException
+
+Effective-policy response includes origin for every significant value so UI can say:
+“Ưu tiên Flow — inherited from Scene 14.”
+
+# 33. Audio and dialogue production API
+
+Queries:
+- `query.audio.scene`
+- `query.dialogue.conversation`
+- `query.audio.mix_structure`
+- `query.audio.acoustic_profile`
+
+Commands:
+- CreateConversationSession
+- CreateAudioCue
+- RecordDialogueTake
+- GenerateDialogueTake
+- SelectDialogueTake
+- CreateADRReplacement
+- BindRoomTone
+- AssignCueToMixBus
+- ApproveAudioCue
+
+Audio generation requests receive conversation/performance context, not isolated text only.
+
+# 34. Music API
+
+Queries:
+- `query.music.themes`
+- `query.music.cues`
+- `query.music.spotting`
+
+Commands:
+- CreateMusicTheme
+- CreateMusicThemeRevision
+- SpotMusicCue
+- GenerateMusicCue
+- SelectMusicCueCandidate
+- ApproveMusicCue
+- MarkIntentionalSilence
+
+Timeline changes may return a music-impact set rather than regenerating automatically.
+
+# 35. Localization API
+
+Queries:
+- `query.localization.packages`
+- `query.localization.translation_units`
+- `query.localization.subtitle_track`
+- `query.localization.dubbing_track`
+
+Commands:
+- CreateLocalizationPackage
+- CreateTranslationUnit
+- ApproveTranslationUnit
+- CreateSubtitleTrack
+- TimeSubtitleSegment
+- ApproveSubtitleTrack
+- CreateDubbingTrack
+- BindLocalizedDialogueTake
+- ApproveDubbingTrack
+- CreateAccessibilityTrack
+
+Original creative text remains addressable alongside localization.
+
+# 36. Composition/VFX API
+
+Queries:
+- `query.composition.workspace`
+- `query.composition.layers`
+- `query.composition.passes`
+
+Commands:
+- CreateComposition
+- CreateCompositionRevision
+- AddCompositionLayer
+- ReplaceCompositionLayer
+- BindRenderPass
+- ApproveCompositionRevision
+
+Layer replacement command runs dependency impact scoped to composition graph.
+
+# 37. Worker/resource API
+
+Advanced queries:
+- `query.workers`
+- `query.resources`
+- `query.scheduler.capacity`
+
+Normal UI should use derived phrases, not raw telemetry.
+
+Internal worker methods:
+- `worker.register`
+- `worker.heartbeat`
+- `worker.claim`
+- `worker.release`
+- `worker.report_resource_sample`
+
+Worker claim requires fencing token and exact attempt ID.
+
+# 38. Provisioning/package API
+
+Queries:
+- `query.packages.available`
+- `query.packages.installed`
+- `query.packages.impact(package)`
+- `query.provisioning.recommendations`
+
+Commands:
+- InstallPackage
+- UpdatePackage
+- PinPackage
+- UnpinPackage
+- DrainPackageUsers
+- RemovePackage
+- RepairPackage
+- VerifyPackage
+
+Install/update responses include:
+- download size;
+- disk impact;
+- compatibility;
+- signature publisher;
+- restart requirement;
+- affected pinned projects.
+
+# 39. Storage root/library API
+
+Queries:
+- `query.storage.roots`
+- `query.storage.volumes`
+- `query.storage.staging_orphans`
+
+Commands:
+- AddStorageRoot
+- ChangeStorageReserve
+- MoveStorageRoot
+- ReconcileStaging
+- QuarantineOrphan
+- AdoptVerifiedOrphan
+
+No user-facing adoption of orphan output without verified job/import lineage.
+
+# 40. Diagnostics/support API
+
+Queries:
+- `query.health.graph`
+- `query.health.summary`
+- `query.diagnostics.recent_failures`
+
+Commands:
+- CreateDiagnosticBundle
+- DeleteDiagnosticBundle
+- RepairConnection
+- RestartWorker
+- RebuildProjection
+- EnterSafeMode
+- ExitSafeMode
+
+Diagnostic bundle plan must show:
+- included classes;
+- excluded sensitive classes;
+- approximate size;
+- whether raw media is included.
+
+# 41. Notification API
+
+- `query.notifications`
+- `notifications.mark_read`
+- `notifications.dismiss`
+
+Notification delivery is not authoritative task state.
+Needs You is derived from DecisionRequest, not notification-read status.
+
+# 42. Editorial conform metadata API
+
+`query.media.conform_metadata(asset_revision_id)`
+returns:
+- stable media UUID;
+- reel/source identifier;
+- source timecode;
+- frame/timebase;
+- VFR flag;
+- proxy/original relation.
+
+Handoff create request accepts handle duration policy and target editor capability profile.
+
+# 43. Read-only compatibility API
+
+When Core enters SAFE_MODE or historical package is unavailable:
+- queries remain available;
+- media preview for present assets remains available;
+- export of existing readable assets may be allowed by policy;
+- mutating/execution commands return SAFE_MODE/MISSING_DEPENDENCY.
+
+Archive readability must not require resurrecting obsolete AI runtimes.
+
+# 44. API red-team rule
+
+A new UI action is not allowed to call a newly invented ad-hoc method directly.
+
+Before adding an API:
+1. identify the typed command/query domain owner;
+2. define state transition;
+3. define idempotency/stale semantics;
+4. define human-readable long-operation projection;
+5. define rights/privacy/cost/storage impact;
+6. add contract tests.
+
+If any item is unknown, the action is not API-ready.
