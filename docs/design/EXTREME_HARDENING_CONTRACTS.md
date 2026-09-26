@@ -743,3 +743,117 @@ Installation plan includes:
 - target root.
 
 Version/name without digest never identifies executable bytes.
+
+
+
+# O. Authorization-scoped cache, tokens and idempotency
+
+## O1. Derived cache/index authorization scope
+Derived artifacts/index entries include an authorization scope key:
+- project/studio scope;
+- privacy policy revision/class;
+- rights scope when visibility/legality depends on it;
+- source revision/content identity;
+- derivation recipe/version.
+
+Global content equality never grants cross-project access.
+
+A privacy/revocation change can fence/delete derived cache/index visibility independently of immutable source identity.
+
+## O2. Idempotency records
+
+### idempotency_records
+- namespace
+- idempotency_key
+- canonical_request_hash
+- command_id/result_ref
+- actor/studio/project scope
+- created_at
+- expires_at nullable
+
+UNIQUE(namespace, idempotency_key)
+
+Same key + same request hash => replay prior result.
+Same key + different request hash => IDEMPOTENCY_CONFLICT.
+
+## O3. Local media/RPC capability tokens
+Token claims:
+- session_epoch;
+- OS user/session identity;
+- audience/process;
+- exact asset revision/representation;
+- operation/purpose;
+- nonce;
+- issued_at/expires_at.
+
+Tokens are never logged in full.
+Sensitive reads reauthorize current policy at use time.
+
+## O4. Read-path authorization fence
+Search/vector/cache/query result is a candidate read.
+Before returning confidential payload/snippet:
+- resolve canonical identity;
+- verify current actor/project scope;
+- verify current privacy/rights/revocation;
+- verify index/cache generation is not fenced.
+
+# P. Error, telemetry and temporary-data privacy
+
+## P1. Structured error boundary
+Normal error record stores:
+- stable error code/category;
+- sanitized user/technical fields;
+- correlation IDs;
+- redaction status.
+
+Raw provider/parser/tool evidence, when needed, is a separately protected artifact with stricter retention/ACL.
+
+No secrets, bearer tokens, full sensitive URLs, clipboard payloads or arbitrary media bytes in normal logs.
+
+## P2. Job temp isolation
+Each job_attempt gets a unique private staging/temp directory keyed by immutable attempt ID.
+- user/job ACL;
+- no shared predictable filename reuse;
+- manifest/hash validation on recovery;
+- cleanup policy;
+- no canonicalization based on filename alone.
+
+Sensitive media should not intentionally opt into unmanaged OS thumbnail/index caches.
+
+# Q. Financial ledger and budget serialization
+
+## Q1. Transactional reservation
+Budget availability check + reservation insert/update occur in one DB transaction scoped to the budget ledger.
+
+Concurrent reservations cannot both consume the same remaining hard limit.
+
+## Q2. Append-only usage adjustments
+
+### provider_usage_events
+- provider_usage_event_id
+- connection/account
+- job_attempt
+- event_type: CHARGE | CORRECTION | REFUND | CREDIT | FX_ADJUSTMENT
+- original_event_id nullable
+- currency
+- amount_minor_units
+- credits nullable
+- occurred_at
+- received_at
+- raw_evidence_hash
+
+Provider corrections append adjustments; historical records are not overwritten.
+
+Cross-currency budgets define an FX source/policy and uncertainty/exposure buffer.
+
+# R. Documentation contract integrity
+
+CI documentation lint verifies:
+- unique section IDs/headings where the file uses numbered sections;
+- one declared owner for each machine contract family;
+- no duplicate table/API/state definition in multiple authoritative owners;
+- valid cross-reference targets;
+- required AGENTS references exist;
+- extreme hardening belongs in this document rather than copied into all baseline detailed docs.
+
+A failed documentation contract lint blocks merge because agent implementation depends on these documents as executable context.
