@@ -285,3 +285,54 @@ Owner rule:
 - extreme adversarial extension: `docs/design/EXTREME_HARDENING_CONTRACTS.md`.
 
 Documentation contradiction is a correctness failure, not cosmetic lint.
+
+
+
+# 18. Autonomous source-dependency governance
+
+Adding/upgrading executable dependencies is not an ordinary invisible implementation detail.
+
+CI/review detects changes to:
+- package manifests/lockfiles;
+- runtime/model download manifests;
+- native binaries/toolchains;
+- postinstall/build scripts.
+
+Required evidence by risk:
+- expected source/registry;
+- integrity/lock update;
+- license classification;
+- vulnerability/advisory scan where available;
+- SBOM update for release paths;
+- explicit review of new install/build scripts and native binaries.
+
+Unexpected registry/source changes or unreviewed executable install scripts fail closed for privileged/release paths.
+
+# 19. Critical invariant-test protection
+
+Maintain a registry of tests guarding architecture/security/data-integrity invariants.
+
+Governance CI flags:
+- deletion/disablement;
+- material reduction of assertions;
+- exclusion from required test suite;
+- changes turning a forbidden behavior into an allowed expectation.
+
+The PR must explain the invariant change and update authoritative architecture/risk docs when appropriate.
+
+# 20. Task graph cycle validation
+
+Planner metadata tooling validates hard dependencies as a DAG.
+
+A cycle:
+- blocks READY projection for affected tasks;
+- is surfaced to Flow Governor;
+- cannot be “worked around” by assigning an arbitrary first worker.
+
+# 21. Control-plane trust-root change
+
+Changes to `TRUSTED_CONTROL_POLICY.md` use the stricter of:
+- policy currently on protected/base main;
+- proposed new policy.
+
+A PR cannot add its own reviewer/trusted actor and then use that newly added authority to approve itself.
