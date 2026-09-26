@@ -2011,3 +2011,71 @@ Recovery Center ranks unresolved external reality by risk/exposure and supports 
 ## X54 — Backup freshness/RPO policy (P1)
 Backup health includes required recovery-point freshness by durability class.
 An immutable backup that is too old is not “healthy enough” solely because it is immutable.
+
+
+# 17. Self-hostile process findings
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 221 | Baseline lock requires CI for governance changes, but repository has no CI workflow yet | **GAP/P0 bootstrap deadlock** | no governance PR can ever satisfy its own required gate |
+| 222 | Red-team hardening PR grows to 20+ files / 100+ commits | **GAP/P1 process self-violation** | giant PR becomes hard to independently review despite policy warning against giant PRs |
+| 223 | Bootstrap exception is made too broad to solve #221 | **GAP/P0** | a permanent bypass can become the easiest path around governance |
+| 224 | Initial CI workflow is malicious/incorrect but becomes trust root forever | **GAP/P0** | bootstrapping verifier requires explicit external/manual trust ceremony |
+| 225 | First branch protection/ruleset is misconfigured and locks out all maintainers/agents | **GAP/P1 availability** | repository protection rollout needs dry-run/recovery/admin path |
+| 226 | Required check name changes after workflow refactor | **GAP/P1** | ruleset can permanently block merges unless check identity migration is coordinated |
+| 227 | GitHub App integration loses permission after protection is enabled | **GAP/P1** | autonomous merge/control can deadlock despite healthy code |
+| 228 | Governance docs require runtime-independent review but only one runtime is currently available | **GAP/P1 bootstrap capacity** | strict assurance can deadlock necessary bootstrap fixes |
+| 229 | Same PR both defines and uses first machine parser for its own metadata | **GAP/P1 bootstrap circularity** | first parser cannot prove itself solely with itself |
+| 230 | Red-team PR changes too many authoritative documents at once, contradiction checker itself is part of diff | **GAP/P1** | need split promotion plan from exploratory branch to reviewable hardening PRs |
+
+# 18. New findings
+
+## X39 — Bootstrap-enablement deadlock (P0)
+The repository cannot require a non-existent CI system to approve the PR that creates the first CI system.
+
+**Fix:** define one narrow, one-time BOOTSTRAP_ENABLEMENT procedure:
+- only allowed while bootstrap readiness is explicitly false;
+- scope restricted to creating initial trusted CI/parser/ruleset plumbing and necessary governance corrections;
+- cannot change product architecture or weaken pre-existing trust policy;
+- requires explicit repository owner approval / credential-independent evidence because machine CI does not yet exist;
+- records exact commit and closes permanently once initial CI + protection are verified.
+
+After closure, the bypass cannot be reused without a separately documented disaster-recovery process.
+
+## X40 — Exploratory red-team branch != merge unit (P1)
+An adversarial exploration naturally grows cross-cutting and large.
+
+**Fix:** distinguish:
+- **Exploration PR/branch:** may collect broad findings, remains Draft and is never merged wholesale by default.
+- **Promotion PRs:** small reviewable hardening slices extracted from accepted findings, each with focused tests/review.
+
+PR #2 should be treated as an exploration/control artifact until split/promotion plan is created.
+
+## X41 — Initial verifier trust ceremony (P0)
+The first CI/parser/check producer cannot bootstrap trust recursively from itself.
+
+**Fix:** first trusted verifier version requires explicit owner/external review, pinned source digest, minimal permissions, and recorded bootstrap attestation. Subsequent changes follow normal governance gates.
+
+## X42 — Repository protection rollout rollback (P1)
+Branch/ruleset protection can itself create availability outage.
+
+**Fix:** stage protection rollout:
+1. observe-only/readiness check;
+2. verify App/agent permissions;
+3. test a disposable PR;
+4. enable enforcement;
+5. verify emergency admin recovery path;
+6. record required-check identities/version.
+
+## X43 — Required-check identity migration (P1)
+Changing workflow/check producer/path must coordinate with repository rules.
+
+**Fix:** two-phase migration:
+- add new check alongside old and verify;
+- update ruleset requirement;
+- only then remove old check.
+
+## X44 — Assurance availability (P1)
+A required review assurance level can exceed currently available capacity.
+
+**Fix:** gate planner reports `ASSURANCE_UNAVAILABLE` explicitly. It may not silently downgrade. Bootstrap enablement or user/external reviewer is the only path for required higher assurance.
