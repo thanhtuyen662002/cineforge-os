@@ -3856,3 +3856,93 @@ Loss of takedown capability does not rewrite publication history, but may raise 
 137. project template dependency closure excludes private source asset;
 138. cross-project learning memory opt-in enforcement;
 139. takedown capability lost after publication.
+
+
+# GJ. Fifth-wave data records
+
+## currency_semantics
+- currency_code
+- exponent
+- source_authority
+- source_version
+- valid_from
+- valid_to nullable
+
+## pricing_snapshots
+- id
+- connection/account/workspace
+- provider/model/service identity
+- currency
+- native_unit_price
+- pricing_revision/quote_id nullable
+- tax_fee_assumptions_json
+- credit_balance_snapshot nullable
+- cash_fallback_possible nullable
+- quote_expires_at nullable
+- captured_at
+- evidence_hash
+
+## provider_billing_events
+- provider_billing_identity
+- transport_event_id nullable
+- account/workspace
+- job_attempt nullable
+- event_type
+- original_billing_identity nullable
+- currency
+- native_amount
+- normalized_amount
+- settlement_state
+- occurred_at nullable
+- received_at
+- raw_evidence_hash
+
+Provider billing identity has a uniqueness policy scoped to provider/account.
+
+## retention_holds
+- id
+- scope_type
+- scope_id
+- hold_type
+- authority_actor
+- reason
+- effective_from
+- effective_until nullable
+- state: ACTIVE | EXPIRED | RELEASED | REVOKED
+- evidence_ref nullable
+
+## portable_archive_manifests
+- id
+- project_id
+- archive_format_version
+- semantic_schema_version
+- manifest_hash
+- required_object_manifest_hash
+- compatibility_profile
+- secret_exclusion_profile
+- rights_snapshot_hash
+- created_at
+
+## archive_external_materializations
+- archive_manifest_id
+- source_external_ref
+- materialized_asset_revision_id
+- materialization_reason
+
+## compensation_capability_snapshots
+- publication_id
+- connection/account/workspace
+- replace_capability_state
+- takedown_capability_state
+- credential_readiness
+- verification_support
+- sampled_at
+
+## project_transfer_scope_snapshots
+Used by clone/template/archive/export:
+- source_project_id
+- exact included entity/revision closure
+- excluded_secret/session/destination refs
+- cross-project reference findings
+- rights/privacy decision snapshot
+- manifest_hash
