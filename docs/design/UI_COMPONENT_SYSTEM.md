@@ -1891,3 +1891,96 @@ After wake/hibernate:
 
 User may continue local browsing where safe.
 Cloud/browser retry buttons remain temporarily disabled until reconciliation completes.
+
+
+
+# 93. Pricing / billing UX
+
+Before a paid large dispatch, show when material:
+- estimated spend;
+- current pricing freshness;
+- credits vs cash exposure;
+- maximum approved exposure.
+
+If provider price/credits changed beyond policy:
+`Chi phí đã thay đổi kể từ lúc bạn xác nhận. CineForge cần bạn xem lại trước khi tiếp tục.`
+
+Billing view separates:
+- Đã ghi nhận
+- Đang đối chiếu
+- Refund đang chờ
+- Điều chỉnh
+
+Do not increase “available budget” from an unsettled refund without policy.
+
+# 94. Rights effective-time UX
+
+When a right expires/revokes:
+- show exact effective time/territory in human language;
+- show impact: future generation / publish / takedown / internal-only;
+- avoid vague “license expired” when only one use purpose is blocked.
+
+Publish confirmation always reflects current legal state.
+
+# 95. Retention hold UX
+
+Delete/cleanup impact can say:
+`Không thể xóa vật lý mục này vì đang có yêu cầu giữ lại.`
+
+Show:
+- hold reason category;
+- authority/source if user is allowed to see it;
+- expiry/review date when applicable.
+
+Do not imply the hold grants publication/use rights.
+
+# 96. Portable Archive UX
+
+Separate actions:
+- Backup CineForge
+- Xuất project portable
+
+Portable archive wizard shows:
+- app/schema compatibility;
+- included media/evidence;
+- external refs that will be materialized;
+- excluded credentials/sessions;
+- expected size.
+
+Never expose a raw SQLite/database backup as the default portable handoff.
+
+# 97. Archive compatibility UX
+
+Opening old archive:
+- compatible → normal import;
+- migration required → show migration preview;
+- missing codec/runtime → use durable reference representation if present;
+- missing critical media → explicit degraded state.
+
+No silent semantic migration of canon/timeline/rights fields.
+
+# 98. Project clone/template privacy UX
+
+Before clone/template:
+`CineForge sẽ không sao chép tài khoản đăng nhập, browser session, lịch publish hoặc dữ liệu học dùng chung trừ khi bạn chọn rõ.`
+
+Show cross-project refs/private assets that would otherwise leak outside closure.
+
+# 99. Shared craft-memory UX
+
+Default project experience does not expose an unexplained global-memory toggle.
+
+When opting in:
+- explain what examples/metadata may be shared across projects;
+- show rights/privacy scope;
+- allow later revoke/purge workflow.
+
+# 100. Compensation readiness UX
+
+Publication detail may show:
+- Đã publish
+- Có thể takedown
+- Cần đăng nhập lại để takedown
+- Platform không hỗ trợ xác nhận tự động
+
+Do not claim “Có thể hoàn tác” merely because CineForge has a takedown button.
