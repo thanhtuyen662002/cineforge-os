@@ -1525,3 +1525,106 @@ Returns:
 `bulk.execute` streams and validates the exact pinned manifest.
 
 The command/event never requires loading 50k+ IDs into one model/UI payload.
+
+
+
+# 61. Secure URL intake API
+
+`imports.add_url` performs policy preflight and returns:
+- normalized origin;
+- scheme class;
+- network destination classification;
+- redirect/network policy;
+- size/time limits;
+- whether credentials/cookies may be sent.
+
+Fetcher revalidates every redirect/connect destination.
+Private/link-local/localhost access is denied unless an explicit trusted connector feature allows it.
+
+# 62. Callback ingress contract
+
+Provider callback endpoint/internal adapter:
+1. captures raw request bytes/hash;
+2. authenticates source using connector policy;
+3. enforces replay/timestamp policy where supported;
+4. resolves recovery epoch/correlation;
+5. only then writes a trusted inbox event.
+
+Failed authenticity never becomes an ordinary retryable provider event.
+
+# 63. Stable external-source import API
+
+For critical external/local linked files:
+- `imports.verify_external_source`
+- `imports.stage_stable_copy`
+- `imports.revalidate_link`
+
+Responses distinguish:
+- metadata match;
+- stable file identity match;
+- cryptographic match;
+- changed/replaced;
+- source unavailable.
+
+# 64. Dependency governance API
+
+Development/control tooling should expose:
+- dependency diff;
+- new/removed/upgraded executable packages;
+- license/security/provenance checks;
+- install/postinstall script risk;
+- SBOM delta.
+
+A dependency-changing PR can require a security/license review profile independently from ordinary feature risk.
+
+# 65. Integrity audit API
+
+Advanced/internal:
+- `integrity.run`
+- `integrity.findings`
+- `integrity.plan_repair`
+- `integrity.execute_repair`
+
+Repair requires evidence and a typed command.
+No endpoint offers “make audit green” by deleting unexplained evidence.
+
+# 66. Worker circuit-breaker API
+
+Internal:
+- `workers.report_crash`
+- `workers.enter_backoff`
+- `workers.quarantine`
+- `workers.repair_and_probe`
+
+Scheduler refuses QUARANTINED workers.
+
+# 67. Remote identity verification API
+
+Connection:
+- `connections.verify_remote_identity`
+- `connections.get_remote_identity`
+
+Dispatch requiring a pinned workspace/account fails with `REMOTE_IDENTITY_MISMATCH` if observed context differs.
+
+# 68. Bulk command snapshot API
+
+`command.plan` for bulk actions returns:
+- exact result count;
+- snapshot ID/hash;
+- included revisions;
+- exclusions;
+- expiration/revalidation policy.
+
+`command.execute` references that snapshot.
+
+It does not re-run the live UI filter and silently include newly matching entities.
+
+# 69. Storage scrub API
+
+Advanced/background:
+- `storage.plan_scrub`
+- `storage.run_scrub`
+- `storage.get_scrub_findings`
+
+Canonical/high-value objects can be periodically rehashed.
+If a valid mirror exists, repair creates/updates location evidence without changing logical asset identity.
