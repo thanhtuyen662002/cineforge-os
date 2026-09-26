@@ -2164,3 +2164,21 @@ One writable library has one Core writer epoch enforced by an OS-level exclusive
 
 ## Archive
 Sealed archives are immutable/read-only artifacts; viewing never migrates them in place.
+
+
+
+# 67. Collaboration/offline architecture boundary
+
+Multi-user/offline support is branch-and-reconcile, not shared mutable truth.
+
+Canonical project state remains Core-owned.
+Offline clients create bounded working branches against explicit base revisions.
+
+Merge semantics are domain-specific:
+- text/comment collaboration may use CRDT-like convergence;
+- timeline/structured edits use operation rebase only where safe;
+- approval/canon uses compare-and-set;
+- rights/security/irreversible actions require current online authority;
+- semantic conflicts become first-class conflict objects.
+
+Privacy purge/tombstone and current authorization dominate stale offline edits.
