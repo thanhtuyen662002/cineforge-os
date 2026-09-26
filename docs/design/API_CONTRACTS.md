@@ -2650,3 +2650,74 @@ Every relevant production terminal event maps explicitly to:
 - UNKNOWN
 
 Only policy-approved subsets are eligible as positive training/promotion evidence.
+
+
+
+# 67. Structured document parsing API
+
+Queries:
+- query.documents.parse_status
+- query.documents.semantic_coverage
+- query.documents.active_content
+- query.documents.signature_evidence
+- query.documents.ambiguities
+- query.spreadsheet.structure
+- query.document.text_regions
+
+Commands:
+- ParseDocument
+- ReparseDocumentWithProfile
+- SupplyDocumentPassword
+- AcceptDocumentMapping
+- RejectDocumentMapping
+- CommitStructuredDocumentImport
+
+Rules:
+- parse success and semantic completeness are separate;
+- CommitStructuredDocumentImport requires policy-approved handling of unsupported/ambiguous critical channels;
+- parser never refreshes external workbook/data connections automatically;
+- active content stays inert/quarantined.
+
+# 68. Spreadsheet formula/value contract
+
+Spreadsheet API returns separately:
+- source formula;
+- cached/display value;
+- normalized interpreted value;
+- calculation freshness;
+- external dependency state;
+- workbook date system;
+- sheet/range/cell identity.
+
+Caller cannot request “just give me the value” and silently lose whether it is stale/external/formula-derived when that distinction matters.
+
+# 69. OCR/layout evidence API
+
+OCR/layout result includes:
+- page/region;
+- reading order;
+- confidence;
+- parser/OCR version;
+- ambiguity flags.
+
+Canonical script/shot/canon mapping from low-confidence OCR requires review according to policy.
+
+# 70. Document protection state API
+
+Errors/states distinguish:
+- PASSWORD_REQUIRED
+- ENCRYPTED_UNSUPPORTED
+- SIGNED
+- SIGNATURE_INVALID
+- CORRUPT
+- UNSUPPORTED_FORMAT
+
+Password/credential material is scoped to the parse session and excluded from normal logs.
+
+# 71. Semantic-coverage gate
+
+Before using a document parse as authoritative structured project data:
+1. identify which semantic channels the intended use depends on;
+2. check coverage for those channels;
+3. if required channel is PARTIAL/UNKNOWN/UNSUPPORTED, create DecisionRequest or block automatic promotion;
+4. bind accepted mapping to exact document parse revision.
