@@ -400,3 +400,133 @@ Most dangerous themes:
 7. update rollback is unsafe unless database compatibility is designed explicitly.
 
 After these are hardened, the next layer of unknowns requires executable chaos tests rather than more prose-only review.
+
+
+# 15. Second-wave adversarial cases
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 171 | Planner creates A→B→C→A hard-dependency cycle | **GAP/P1** | READY queue can deadlock unless task graph cycle is rejected |
+| 172 | URL import points to `http://127.0.0.1/admin` | **GAP/P0/P1** | Universal URL intake can become SSRF against local services |
+| 173 | Public URL redirects to RFC1918/link-local/cloud metadata IP | **GAP/P0/P1** | redirect/DNS resolution must be revalidated, not only original URL |
+| 174 | DNS rebinding changes public host to private IP between validation/fetch | **GAP/P1** | URL fetcher needs connect-time address policy |
+| 175 | Browser connector follows `file://` or custom protocol from provider page | **GAP/P0/P1** | navigation/protocol allowlist needed |
+| 176 | ZIP contains `../../AppData/...` | PARTIAL | sandbox root exists; extraction canonical-path validation must be explicit |
+| 177 | ZIP contains NTFS ADS/device-name path | **GAP/P1 Windows** | path sanitizer must reject ADS/device semantics |
+| 178 | Source file/junction is swapped after validation but before parsing | **GAP/P1 TOCTOU** | copy/open-by-handle into private staging before parser |
+| 179 | CAS object is hardlinked into editable handoff; NLE modifies it | **GAP/P0 data integrity** | writable hardlink can mutate immutable canonical bytes |
+| 180 | Silent SSD bit rot corrupts old canonical asset months later | **GAP/P1** | periodic hash scrub/mirror repair policy useful for important storage |
+| 181 | SQLite backup is made by copying DB file while WAL contains latest commits | **GAP/P0 implementation rule** | must use SQLite backup/snapshot-safe method |
+| 182 | Backup target reports success but is same physical disk | PARTIAL | durability class added; UI/policy should distinguish failure domains |
+| 183 | Provider webhook/callback is forged by attacker | **GAP/P0** | idempotency does not authenticate event source |
+| 184 | Valid callback is replayed with new transport request ID | PARTIAL | provider_event_id dedupe helps; signature/timestamp/replay window needed |
+| 185 | MCP server returns path `../../secrets` as output | **GAP/P0/P1** | connector normalized outputs must stay inside staging sandbox |
+| 186 | Connector returns symlink/junction output escaping staging | **GAP/P1** | output registration must resolve/reject reparse escape |
+| 187 | Agent adds typosquatted npm/Python dependency | **GAP/P1 supply-chain** | autonomous dependency additions need provenance/license/security gate |
+| 188 | New dependency has incompatible copyleft/commercial license | **GAP/P1 legal** | source dependency license policy/SBOM required |
+| 189 | Dependency postinstall script phones home in CI/dev | PARTIAL | scripts are trust boundary; default policy should restrict/review |
+| 190 | Feature PR weakens the invariant test that would fail its code | **GAP/P1** | critical invariant tests need protected/governance review semantics |
+| 191 | Agent deletes a flaky failing test instead of fixing product | PARTIAL | review catches, but metric/test-coverage regression should flag |
+| 192 | One Windows account can read another user's CineForge library | **GAP/P1 privacy** | default local roots/IPC need user-scoped ACL |
+| 193 | Browser profile for Project A is accidentally reused for confidential Project B | **GAP/P1** | profile/session scoping must respect studio/project privacy |
+| 194 | Crash dump contains API key, prompt, unreleased frame | PARTIAL | risk known; explicit crash dump redaction/opt-in required |
+| 195 | Diagnostics bundle references media via path even though bytes excluded | **GAP/P2 privacy** | path/user-name metadata can still leak sensitive information |
+| 196 | External linked asset changes in place after approval | PARTIAL | fingerprint exists; revalidation policy must mark revision/source stale |
+| 197 | External source is replaced with same size/mtime | **GAP/P1** | critical relink verification needs cryptographic fingerprint, not metadata only |
+| 198 | GC deletes rebuildable output; later required model/package is uninstalled | **GAP/P1** | package removal/GC recipe dependency must be coupled |
+| 199 | Model package exists but its license becomes blocked after derivative was purged | **GAP/P1** | recipe legality is part of rebuildability, not just technical availability |
+| 200 | Main schema/event invariant drifts but audit event still writes | **GAP/P1** | periodic integrity reconciler should verify canonical rows/events/versions |
+| 201 | Event clock timestamp is earlier than causation event | CONTAINED if seq used | docs should prohibit wall-clock ordering assumptions |
+| 202 | Provider callback arrives with impossible timestamp but valid signature | CONTAINED if external time is evidence only |
+| 203 | FAT32 export target cannot store >4GB master | **GAP/P2** | storage target capability check needs max-file-size |
+| 204 | Removable drive disappears during export then returns with stale partial file | PARTIAL | export staging/verify; volume identity must prevent wrong-volume continuation |
+| 205 | Two identical removable drives swap drive letters | **GAP/P2** | use volume identity, not drive letter alone |
+| 206 | Windows Defender quarantines newly downloaded runtime/model executable | PARTIAL | package health detects missing; UX needs security-tool diagnosis |
+| 207 | Repeated failed worker restart loops every minute | **GAP/P1** | restart circuit breaker/quarantine/backoff needed |
+| 208 | GPU worker crash leaves reservation ACTIVE forever | PARTIAL | reservation expiry; reconciler must reap |
+| 209 | Browser session lease survives browser process crash | PARTIAL | worker/profile reconciliation needed |
+| 210 | User logs out of web provider in another browser while job queued | CONTAINED/PARTIAL | auth health recheck at dispatch |
+| 211 | Website account points to wrong tenant/workspace after re-login | **GAP/P1** | account/workspace identity must be verified, not only “authenticated” |
+| 212 | Provider changes region/data residency silently | **GAP/P1 privacy** | connection/provider policy should snapshot residency/egress-relevant metadata where available |
+| 213 | API base URL configured to attacker-controlled host mimicking provider | **GAP/P1** | endpoint identity/TLS/publisher policy needed for managed connectors |
+| 214 | TLS interception returns valid enterprise certificate but wrong provider behavior | PARTIAL | enterprise environments may be intentional; endpoint identity policy needs diagnostics |
+| 215 | Human approves 100 items using keyboard with focus moved unexpectedly | **GAP/P1 UX** | destructive/bulk review shortcuts need focus/selection guard and undo where possible |
+| 216 | “Approve all” includes items loaded after confirmation | **GAP/P1** | bulk command scope must pin exact IDs/query snapshot |
+| 217 | Search filter changes during bulk delete/approve | CONTAINED by explicit scope if implemented; needs query snapshot |
+| 218 | Undo restores local state but external provider deletion already happened | CONTAINED | compensatable/irreversible distinction |
+| 219 | Project clone shares browser/API connection policy unexpectedly | **GAP/P2 privacy** | duplication semantics must define which secrets/connections are inherited |
+| 220 | User exports support bundle and uploads publicly | PARTIAL | redaction helps; UI should classify bundle sensitivity and expiry |
+
+# 16. Additional findings
+
+## X25 — Hard-dependency cycles (P1)
+Planner must validate Task hard-dependency graph is acyclic before marking tasks READY.
+Flow reconciliation should detect cycles introduced by manual edits.
+
+## X26 — URL intake/browser SSRF and protocol escape (P0/P1)
+URL fetching/navigation requires:
+- scheme allowlist;
+- private/link-local/localhost policy;
+- DNS/redirect revalidation;
+- download size/time limits;
+- `file:`/custom protocol deny unless explicit trusted feature;
+- no automatic credential forwarding across origins.
+
+## X27 — Immutable CAS must never be exposed through writable hardlinks (P0)
+Managed immutable objects may be copied or safely reflinked with copy-on-write guarantees.
+Editable handoff/staging paths must never be writable aliases of canonical CAS bytes.
+
+## X28 — External callback authenticity (P0)
+Idempotency/deduplication is not authentication.
+Connector callback ingress must verify provider-specific signature/token/channel identity and replay policy before inbox registration.
+
+## X29 — Autonomous dependency supply-chain governance (P1)
+Adding/upgrading executable dependencies is a security/legal action:
+- lockfile/provenance;
+- package registry/publisher checks where available;
+- license policy;
+- vulnerability audit;
+- postinstall/build-script review;
+- SBOM for release.
+
+## X30 — Critical invariant test governance (P1)
+A feature PR may change tests, but weakening/deleting tests that protect architecture/security invariants requires explicit review/gate evidence.
+CI should flag unexplained invariant-test/coverage disappearance.
+
+## X31 — Local user isolation (P1)
+Default DB/media/runtime roots and IPC endpoints need OS-user scoped ACLs.
+Shared roots are explicit choices with clear privacy consequences.
+
+## X32 — External source TOCTOU/fingerprint (P1)
+For critical ingest/relink, copy/open stable handle into staging then hash.
+File size/mtime alone is not identity.
+
+## X33 — Rebuildability includes package/license dependencies (P1)
+A derived recipe is not safely rebuildable if:
+- required package/model is removed/unavailable;
+- required license/rights becomes blocked;
+- provider capability disappeared.
+
+Package removal and GC must evaluate recipe dependencies.
+
+## X34 — SQLite-consistent backup primitive (P0 implementation invariant)
+Backup implementation uses SQLite Online Backup API / validated snapshot method, never naive copy of only the main DB while WAL is active.
+
+## X35 — Canonical/event integrity auditor (P1)
+Because V1 is event/audit-backed rather than pure event-sourced, add integrity checks for:
+- aggregate version monotonicity;
+- command→event expectation;
+- orphan/missing audit events;
+- revision registry consistency;
+- outbox/event transaction invariants.
+
+## X36 — Worker restart circuit breaker (P1)
+Repeated crash/restart must enter UNHEALTHY/QUARANTINED with backoff rather than restart storm.
+
+## X37 — Web account/workspace identity (P1)
+“Authenticated” is insufficient.
+A connection can optionally pin/verify account/tenant/workspace identity so automation does not run in the wrong workspace.
+
+## X38 — Bulk command snapshot scope (P1)
+Bulk approve/delete/generate command binds exact entity IDs/revisions or a materialized query snapshot.
+Newly appearing items cannot silently enter the action after confirmation.
