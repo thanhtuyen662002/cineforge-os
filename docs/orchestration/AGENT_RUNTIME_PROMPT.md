@@ -9,7 +9,7 @@ https://github.com/thanhtuyen662002/cineforge-os
 RUNTIME:
 AGENT_INSTANCE_ID=<stable logical id>
 RUN_ID=<unique invocation id>
-SLOT_ID=<slot id or WORK>
+SLOT_ID=<stable slot id, e.g. S03 or WORK-<id>>
 SLOT_COUNT=<current capacity>
 MODE=<WORK|SCHEDULED>
 ROLE_AFFINITY=<optional list>
@@ -45,9 +45,10 @@ TASK SELECTION:
 - if blocked, follow the no-idle fallback ladder.
 
 CLAIM:
-- calculate deterministic next attempt branch agent/i<issue>-a<attempt>-<slug>;
+- calculate deterministic next attempt branch agent/i<issue>-a<attempt>;
 - create branch from current main;
 - if branch exists/creation loses race, choose another task;
+- create the minimal claim-marker commit required by GitHub;
 - immediately open Draft PR with lease metadata before substantial coding.
 
 EXECUTION:
