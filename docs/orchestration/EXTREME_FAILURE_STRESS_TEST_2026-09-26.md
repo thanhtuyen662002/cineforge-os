@@ -3032,3 +3032,110 @@ Partially created clone must not leak/lose shared objects.
 ## X73 — Honest durability classes (P2)
 Expose guarantees as classes/evidence rather than promising absolute power-loss durability on unknown consumer hardware.
 Independent verified backup remains the ultimate recovery layer.
+
+
+# 25. Identity, offboarding and authorization-revocation attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 341 | Actor is disabled but old IPC/session capability token remains valid for hours | **GAP/P0/P1** | session authorization needs revocation epoch/freshness |
+| 342 | Offline app window reconnects after actor offboarding and submits queued commands | **GAP/P1** | queued mutations must reauthorize current actor state |
+| 343 | Actor is removed while cloud publish job is queued but not dispatched | **GAP/P1** | queued high-impact work must revalidate authority at dispatch |
+| 344 | Actor is removed after provider accepted irreversible publish | CONTAINED/PARTIAL | external action cannot un-happen; audit/compensation/takedown |
+| 345 | Compromised actor made malicious approvals before compromise discovered | **GAP/P0/P1** | ordinary offboarding preserving approvals is insufficient for security revocation |
+| 346 | Security team wants to invalidate approvals after a known compromise time | **GAP/P1** | approval-taint/revalidation window needed |
+| 347 | Personal API credential belongs to offboarded actor but connection is shared by project | **GAP/P1** | credential ownership/shared-service-account distinction required |
+| 348 | Service account credential is mistakenly revoked because one human leaves | **GAP/P1** | reverse case; connection credential ownership must be explicit |
+| 349 | Actor owns manual creative locks; offboarding leaves project frozen | PARTIAL | lock reassignment/release exists conceptually; automatic policy needed |
+| 350 | Actor has dirty unsynced draft; offboarding discards valuable work | **GAP/P2** | preserve draft as quarantined/unowned branch where policy permits |
+| 351 | Actor's Windows notification still shows confidential project text after access revoked | **GAP/P1 privacy** | pending notification queue must honor current access on delivery |
+| 352 | Actor generated diagnostic bundle before offboarding and file remains readable locally | **GAP/P2 privacy** | diagnostic artifact ACL/lifecycle should follow actor/project access policy |
+| 353 | Actor has exported master on arbitrary filesystem path; access is later revoked | RESIDUAL | external bytes cannot be recalled; UI/audit must distinguish managed vs exported copies |
+| 354 | Actor's browser profile remains logged into provider after project access revoked | **GAP/P1** | profile/session scope and offboarding cleanup/rebind |
+| 355 | Actor transfers project ownership but queued personal-credential jobs remain | **GAP/P1** | transfer must drain/reconcile jobs tied to non-transferable credential bindings |
+| 356 | Actor is disabled in CineForge but provider account itself remains valid and automation worker can still use credential | **GAP/P1** | connection policy must bind credential authority independently of actor UI state |
+| 357 | A removed actor's historical approval is still valid after ordinary role change | CONTAINED | historical approval may remain valid if legitimate at decision time |
+| 358 | A removed actor's approval is invalidated retroactively by legal/security finding | **GAP/P1** | need approval validity/taint overlay rather than mutating history |
+| 359 | Actor changes role while review session is open | **GAP/P1** | review submit must revalidate current authority, not just session-start authority |
+| 360 | Actor starts destructive command, loses authority between plan and execute | CONTAINED/PARTIAL | execution-time revalidation exists; must include actor authority epoch |
+| 361 | Cached search/index still returns project snippets after actor access revoked | PARTIAL | auth-scoped index exists; revocation freshness must be enforced |
+| 362 | Global learning memory includes private project content after actor/project data-use revoked | PARTIAL/GAP | forward policy/deletion journal + dataset lineage; promotion datasets need taint recompute |
+| 363 | Offboarded actor remains assigned as DecisionRequest authority causing deadlock | CONTAINED | reroute valid authority |
+| 364 | All project admins are offboarded simultaneously | **GAP/P1** | break-glass ownership recovery / studio owner escalation required |
+| 365 | Studio owner account is compromised then deleted; no trusted recovery actor remains | **GAP/P0 ops** | account recovery/trusted ownership transfer policy outside ordinary RBAC |
+| 366 | Attacker offboards legitimate admins to take control | **GAP/P0** | high-impact role/ownership changes need stronger approval and recovery delay |
+| 367 | Project transfer to another studio accidentally carries hidden cross-studio dedup/index references | **GAP/P1 privacy** | transfer must re-scope derived/cache/search/storage authorization |
+| 368 | Actor offboarding races with long-running local worker holding temporary secret | **GAP/P1** | credential/session revocation must propagate to workers; phase boundary revalidation |
+| 369 | Actor is restored/re-enabled; old revoked tokens unexpectedly become valid again | **GAP/P0/P1** | revocation epoch/token generation must be monotonic; re-enable creates new auth epoch |
+| 370 | Actor ID is reused for a different human after deletion | **GAP/P0 audit** | actor IDs immutable/non-reusable; tombstone preserves historical identity |
+
+# 26. Identity/offboarding findings
+
+## X74 — Actor authorization epoch (P0/P1)
+Each actor/security principal has a monotonic authorization epoch.
+Sessions/capability tokens bind:
+- actor ID;
+- authorization epoch;
+- session scope;
+- expiry.
+
+Role/offboarding/security revocation increments epoch.
+Old tokens/queued mutations fail current-authority revalidation.
+Re-enable creates a new epoch; old tokens never revive.
+
+## X75 — Normal offboarding vs security compromise (P0/P1)
+Two distinct operations:
+- OFFBOARD: future access stops; legitimate historical approvals remain evidence.
+- SECURITY_REVOKE: future access stops **and** approvals/actions in a defined suspect interval/scope are tainted for revalidation.
+
+History remains immutable; a taint overlay marks dependent approvals/releases as REVIEW_REQUIRED/BLOCKED.
+
+## X76 — Credential ownership semantics (P1)
+Credential binding declares:
+- PERSONAL_ACTOR
+- SHARED_SERVICE_ACCOUNT
+- STUDIO_MANAGED
+- EXTERNAL_MANAGED
+
+Offboarding one human revokes personal credentials but does not accidentally destroy shared service credentials.
+Conversely, shared connection cannot continue using a personal credential whose owner lost authority.
+
+## X77 — Authority freshness at submit/dispatch (P1)
+Revalidate current authority:
+- on review submit;
+- DecisionRequest resolve;
+- high-impact command execute;
+- external dispatch;
+- publish/sign/delete;
+- manual lock mutation.
+
+Session-start authority is insufficient.
+
+## X78 — Access-revocation propagation to derived surfaces (P1)
+Revocation invalidates/filters:
+- search/index projections;
+- media tokens;
+- notifications;
+- diagnostic bundles;
+- browser profiles;
+- cached query results;
+- learning/dataset eligibility where applicable.
+
+## X79 — Break-glass ownership recovery (P0/P1)
+If no valid project/studio authority remains, recovery uses a separately governed break-glass path:
+- stronger identity verification;
+- delayed/audited action where feasible;
+- cannot be initiated solely by an untrusted project member;
+- preserves historical owner identity.
+
+## X80 — Privileged role/offboarding protection (P0)
+Removing/adding Studio Owner/Admin/security authority is itself irreversible/high-risk governance:
+- impact preview;
+- strong authority;
+- current auth revalidation;
+- optionally multi-party/credential-independent approval;
+- recovery delay/cooldown where policy requires.
+
+## X81 — Actor identity immutability (P0 audit)
+Actor IDs are never recycled.
+Deletion becomes tombstone/anonymization according to policy, while historical audit references remain unambiguous.
