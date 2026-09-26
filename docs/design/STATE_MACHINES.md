@@ -1148,3 +1148,62 @@ If snapshot membership/revisions become stale before execution:
 - require replan/reconfirm according to command risk.
 
 New entities matching the original UI filter are not automatically included.
+
+
+
+# 68. External reality state
+
+Installation recovery axis:
+- KNOWN
+- RECONCILING
+- PARTIALLY_KNOWN
+- UNKNOWN_EXTERNAL_REALITY
+- SAFE_TO_DISPATCH
+
+After full disaster restore without non-rollback ledger, state is UNKNOWN_EXTERNAL_REALITY.
+Risky external dispatch remains blocked until provider/manual reconciliation satisfies policy.
+
+# 69. Backup trust state
+
+- UNVERIFIED
+- HASH_VERIFIED
+- AUTHENTICATED
+- AUTH_FAILED
+- ENCRYPTION_WEAK
+- FAILURE_DOMAIN_WEAK
+- RESTORE_VERIFIED
+
+A plain matching checksum does not imply AUTHENTICATED.
+
+# 70. Cache validity state
+
+- VALID
+- TECHNICALLY_STALE
+- RIGHTS_BLOCKED
+- POLICY_BLOCKED
+- PRIVACY_BLOCKED
+- MISSING_DEPENDENCY
+- CORRUPT
+
+A cache hit is usable only if all required validity axes permit it.
+
+# 71. Callback scope state
+
+- AUTH_VERIFIED_SCOPE_MATCHED
+- AUTH_VERIFIED_SCOPE_UNKNOWN
+- AUTH_VERIFIED_SCOPE_MISMATCH
+- AUTH_FAILED
+- REPLAY_REJECTED
+
+Only MATCHED, or explicitly policy-approved UNKNOWN where provider cannot expose scope, may proceed.
+
+# 72. Staging finalization state
+
+- VERIFIED_CONTENT
+- VERIFYING_IDENTITY
+- FINALIZING
+- REGISTERED
+- IDENTITY_CHANGED
+- LINK_ESCAPE
+- CONTENT_CHANGED
+- QUARANTINED
