@@ -380,3 +380,55 @@ Feature PRs cannot weaken these recovery tests without explicit architecture/gov
 
 Tests for long/bulk commands should include rights/permission revocation mid-flight.
 A passing plan-time check alone is insufficient evidence.
+
+
+
+# 18. Autonomous source dependency governance
+
+Dependency changes are code-execution and legal-surface changes.
+
+For any added/upgraded package capable of executing in build/runtime:
+- verify expected registry/source;
+- pin lock/integrity metadata;
+- classify license;
+- review postinstall/build scripts and native binaries by risk;
+- run available vulnerability/advisory checks;
+- update SBOM for release-bound changes.
+
+Unexpected registry/package-name similarity/typosquat signals block autonomous acceptance.
+
+# 19. Critical invariant test protection
+
+Maintain a registry of tests that enforce:
+- authorization/trust boundary;
+- idempotency/stale-write fencing;
+- storage/GC/recovery safety;
+- signing/update security;
+- rights/release gates;
+- orchestration claim/review/merge invariants.
+
+A PR that deletes/weakens these tests is HIGH-risk governance work even if production code change is not.
+
+CI/reviewer require explicit replacement/equivalence evidence or architecture decision.
+
+# 20. Callback and URL/network security
+
+Provider webhooks/callbacks require source authentication before inbox registration.
+
+URL intake/browser connectors are not unrestricted server-side fetchers:
+- deny private/local/link-local targets by default;
+- revalidate redirects/DNS/connect-time destination;
+- deny unexpected file/custom protocols;
+- bound bytes/time/redirects.
+
+# 21. Local deployment ACL
+
+Default Windows deployment assumes user-scoped security.
+CI/security tests should verify:
+- local IPC not world-accessible;
+- browser/session/credential storage not broadly readable;
+- default DB/runtime roots inherit/restrict to intended user.
+
+# 22. CAS/handoff integrity
+
+Tests must prove an editable handoff cannot mutate canonical content-addressed bytes through a writable hardlink/reparse alias.
