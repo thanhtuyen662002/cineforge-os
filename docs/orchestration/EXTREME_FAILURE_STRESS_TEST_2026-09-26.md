@@ -3383,3 +3383,153 @@ Mitigations:
 - provider idempotency/correlation;
 - optional remote deployment registry for enterprise/high-assurance mode;
 - user-visible duplicate-deployment incident when detected.
+
+
+# 19. Fourth-wave OS/runtime/privacy/maintenance attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 251 | Malicious same-user process pre-creates predictable named pipe/socket before Core starts | **GAP/P0/P1** | ACL + token is not enough if client connects to wrong endpoint before identity handshake |
+| 252 | Old Core dies; OS reuses local TCP port for unrelated process | PARTIAL | Core epoch/session helps, but endpoint server identity handshake must be explicit |
+| 253 | `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` inherited by connector routes provider traffic through unintended proxy | **GAP/P1 privacy/security** | managed connector network route must be explicit, not ambient environment |
+| 254 | CLI worker inherits `PYTHONPATH/NODE_OPTIONS/LD_PRELOAD-like` environment and executes injected code | **GAP/P0/P1** | sanitized environment exists conceptually; dangerous variable deny/allowlist must be explicit |
+| 255 | Working directory contains attacker-controlled DLL/plugin searched before trusted runtime library | PARTIAL | trusted executable launch exists; loader search/CWD isolation must be tested |
+| 256 | Microphone remains active after recording UI says Stop | **GAP/P1 privacy** | capture-device lease and visible active state needed |
+| 257 | Wrong/default audio device changes mid-session and captures system/meeting audio | **GAP/P1 privacy** | capture must pin device identity and revalidate on change |
+| 258 | Future camera/screen capture feature continues after app loses focus/locks | **GAP/P1 privacy** | explicit capture session/OS permission/indicator boundary |
+| 259 | Clipboard is polled continuously “for convenience” and captures secrets unrelated to project | **GAP/P1 privacy** | clipboard access should be user-initiated/event-scoped |
+| 260 | Shared GPU worker retains sensitive frame/tensor data in reusable buffers for next project | **GAP/P1 privacy** | privacy class/process isolation/zeroization policy needed for sensitive jobs |
+| 261 | Third-party custom GPU node can inspect memory/buffers from another job in same process | **GAP/P0/P1** | untrusted plugins need process/sandbox isolation; same-process “plugin trust” is too weak |
+| 262 | Pagefile/hiberfile/crash memory contains decrypted project/credential material | **RESIDUAL/P1** | app cannot promise full physical secrecy solely from workspace encryption |
+| 263 | UI says “securely deleted” on SSD where physical overwrite cannot be guaranteed | **GAP/P1 honesty** | require crypto-erasure/retention wording instead of false physical deletion guarantee |
+| 264 | Windows 8.3 short-name/path alias bypasses textual allowlist | **GAP/P1** | security checks need final handle/file identity, not string-normalized path only |
+| 265 | Case/namespace alias refers to same file through different spelling after authorization | PARTIAL | file identity binding exists; must be used at privileged open/finalize |
+| 266 | Core write transaction accidentally spans slow provider/media work and blocks all writers | **GAP/P1 liveness** | canonical DB write transactions need bounded duration/no external awaits |
+| 267 | `VACUUM` or index rebuild needs large temporary disk and fills volume | **GAP/P1** | maintenance must reserve temp headroom and obey storage-pressure governor |
+| 268 | FTS/projection rebuild runs during active production and starves DB/IO | PARTIAL | maintenance admission exists; explicit resource budget needed |
+| 269 | Backup + integrity scrub + projection rebuild start together and saturate same disk | PARTIAL | maintenance compatibility matrix exists; shared IO budget/admission needed |
+| 270 | Memory pressure triggers heavy paging; worker heartbeat survives but progress effectively stops | PARTIAL | semantic progress watchdog exists; system memory pressure should influence admission |
+| 271 | GPU thermal throttling makes healthy render 10× slower and watchdog kills it as stalled | **GAP/P2** | progress baseline should account for resource thermal/degraded state |
+| 272 | GPU driver reset frees process but scheduler still believes reservation is physically active | PARTIAL | physical-release confirmation exists; reconciliation test needed |
+| 273 | Capture device driver hangs; cancellation UI says stopped before OS handle closes | **GAP/P1 privacy** | capture stop must distinguish REQUESTED vs CONFIRMED |
+| 274 | Browser download/worker creates file with inheritance ACL broader than project root | **GAP/P1 privacy** | finalization must verify ACL/security profile, not just path/hash |
+| 275 | User chooses system/protected directory as media/cache root; app falls back to admin/elevation | **GAP/P2 security/UX** | storage root validation should reject implicit elevation requirement |
+| 276 | Export target supports sparse/compressed file semantics; free-space estimate is misleading | **GAP/P2** | reserve physical headroom with filesystem capability awareness |
+| 277 | FAT/exFAT/removable target lacks atomic rename/fsync guarantees expected by export finalization | PARTIAL | filesystem compatibility preflight exists; per-operation guarantees must gate atomic claims |
+| 278 | Toast/native notification action refers to DecisionRequest that became obsolete while app was closed | **GAP/P1** | notification action must carry decision/version snapshot and revalidate on click |
+| 279 | OS notification displays untrusted filename that visually imitates a CineForge security warning | PARTIAL | structured args/control escaping exists; native notification path needs same sanitizer |
+| 280 | Machine sleeps while provider job continues; wake handler sees local timeout and retries expensive request | **GAP/P1** | resume must reconcile external job acceptance before timeout/retry logic resumes |
+| 281 | Hibernated browser process resumes with provider session/account changed server-side | PARTIAL | connection identity revalidation exists; resume should force it before privileged action |
+| 282 | OS user profile migration changes SID/secure-store binding and Core treats credentials as corruption | PARTIAL | REAUTH_REQUIRED exists; local security profile identity migration should classify |
+| 283 | Windows Search/indexer/backup agent reads sensitive media despite CineForge local privacy policy | **RESIDUAL/P2** | OS/external software is outside Core authority; high-security profile can warn/harden root |
+| 284 | AV/EDR cloud-submits a proprietary model/runtime/media sample | **RESIDUAL/P2** | outside app control; security/privacy docs must avoid claiming absolute local secrecy |
+| 285 | Trusted enterprise proxy terminates TLS and changes provider response semantics | **GAP/P2** | connector diagnostics need explicit proxy route identity, not silently “provider changed” |
+| 286 | Proxy bypass differs by process causing browser/API connectors to hit different regions/accounts | **GAP/P2** | effective network route becomes part of connection diagnostics/identity |
+| 287 | Maintenance transaction crashes after DB changes but before object/index companion state | PARTIAL | maintenance journal exists; each maintenance operation needs explicit commit boundary/reconcile |
+| 288 | OS reports 100GB free, another process allocates 95GB after CineForge reserves it | CONTAINED conceptually | storage-pressure governor must revalidate immediately before large commit/finalize |
+| 289 | Disk quota differs from physical free space; CineForge sees free bytes but writes fail | **GAP/P2** | storage validation should consider quota/effective writable capacity where OS exposes it |
+| 290 | Security-sensitive memory remains in long-lived process even after project closes | **GAP/P2** | secret/content minimization and process isolation/zeroization policy should exist |
+
+# 20. Fourth-wave findings
+
+## X49 — Local endpoint server-identity / squatting defense (P0/P1)
+IPC client must authenticate the actual Core endpoint, not only send a secret after connecting.
+Use:
+- unpredictable per-install/session endpoint component where feasible;
+- user-scoped ACL;
+- Core ownership epoch + nonce;
+- mutual/session challenge before privileged commands;
+- reject pre-existing endpoint not tied to current ownership record.
+
+## X50 — Explicit network-route / proxy policy (P1)
+Managed connector/browser/API workers must not accidentally inherit ambient proxy configuration.
+Record effective network-route class:
+- DIRECT
+- SYSTEM_PROXY
+- EXPLICIT_PROXY
+- ENTERPRISE_MANAGED
+- UNKNOWN
+
+Sensitive connectors may require route approval/identity.
+Proxy/environment changes invalidate connection health/identity as policy requires.
+
+## X51 — Worker environment hardening (P0/P1)
+Privileged workers launch with environment allowlist/minimal environment.
+Dangerous injection/search variables are stripped unless explicitly required by managed package policy.
+Working directory and loader/plugin search path are managed, not inherited from arbitrary project folders.
+
+## X52 — Capture-device privacy lifecycle (P1)
+Microphone/camera/screen capture is a leased privileged capability:
+- exact device identity;
+- OS permission state;
+- visible active indicator;
+- start/stop confirmation;
+- no background capture after session ends;
+- device-change event pauses/reconfirms when sensitivity policy requires.
+
+Clipboard access is explicit user action/event-scoped, not continuous polling by default.
+
+## X53 — Sensitive compute isolation (P0/P1)
+For untrusted plugins/high-sensitivity projects:
+- do not share one long-lived process address space/GPU plugin context across trust domains unless policy allows;
+- isolate custom nodes/plugins in worker process/sandbox;
+- zero/release sensitive CPU/GPU buffers best-effort on completion;
+- document that GPU/OS/pagefile physical remanence cannot be guaranteed by app logic alone.
+
+## X54 — Honest deletion/at-rest guarantees (P1)
+“Delete” distinguishes:
+- logical unlink/tombstone;
+- crypto-erasure by key destruction when encrypted;
+- best-effort overwrite where supported;
+- physical media erasure not guaranteed on SSD/snapshots/pagefile/external backup.
+
+UI/policy must not promise impossible secure physical deletion.
+
+## X55 — Final-handle Windows path authorization (P1)
+Text normalization is insufficient against aliases.
+For privileged file access:
+- open with safe flags;
+- inspect final resolved path/volume/file identity from OS handle;
+- reject namespace/reparse/short-name escape from allowed root;
+- authorize identity, then operate on that handle/staged copy.
+
+## X56 — Bounded SQLite write transactions (P1)
+Canonical writer transaction must not await:
+- network/provider;
+- media decode/encode;
+- user interaction;
+- long filesystem copy.
+
+Persist intent/outbox, commit quickly, then perform external work.
+Long write duration is a health finding.
+
+## X57 — Maintenance temp-space/IO admission (P1)
+VACUUM, migration, index/projection rebuild, backup and integrity scrub declare:
+- estimated temporary bytes;
+- DB/IO lock class;
+- expected duration;
+- resource bundle.
+
+Maintenance scheduler prevents incompatible/high-IO operations from starting together and reserves emergency headroom.
+
+## X58 — Notification action freshness (P1)
+Native/in-app actionable notification carries:
+- entity/decision ID;
+- expected version;
+- action nonce/snapshot.
+
+Click revalidates current state.
+An obsolete notification never executes the historical action blindly.
+
+## X59 — Suspend/resume retry barrier (P1)
+After sleep/hibernate:
+- pause timeout-based retries;
+- reconcile external acceptance/session/account state;
+- refresh leases/resources;
+- only then resume retry timers/dispatch.
+
+Elapsed wall-clock sleep is not treated as proof that provider work failed.
+
+## X60 — Security guarantee boundary (P2 but important)
+CineForge must state which privacy guarantees it controls versus OS/admin/EDR/hypervisor/storage-snapshot behavior.
+High-security mode can reduce exposure but cannot honestly promise protection from a compromised administrator/kernel or every physical remanence channel.
