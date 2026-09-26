@@ -91,7 +91,7 @@ CREATED
 → HASHING
 → DECODING
 → SEMANTIC_ANALYSIS
-→ WAITING_MAPPING? 
+→ WAITING_MAPPING 
 → READY_TO_COMMIT
 → COMMITTING
 → COMPLETED
@@ -161,7 +161,7 @@ DRAFT
 
 Alternative:
 - CANDIDATE → REJECTED
-- APPROVED → REVOKED only through rights/safety action
+- APPROVED content remains immutable; rights/safety revocation is represented on an independent blocking axis rather than rewriting historical approval.
 - APPROVED never returns to DRAFT
 
 APPROVED bytes/content are immutable.
@@ -609,7 +609,7 @@ A logical entity can be PURGED only after:
 ```text
 PLANNING
 → DRY_RUN_READY
-→ WAITING_APPROVAL? 
+→ WAITING_APPROVAL 
 → EXECUTING
 → VERIFYING
 → COMPLETED
