@@ -85,3 +85,41 @@ The next high-value validation is empirical:
 - public prompt-injection attempt;
 - GitHub partial failure;
 - Windows storage validation.
+
+
+
+# 8. One-time bootstrap enablement exception
+
+This baseline was locked before repository-native CI/protection existed. A strict requirement for CI to create the first CI would deadlock the repository.
+
+A one-time `BOOTSTRAP_ENABLEMENT` exception therefore exists **only while Bootstrap Readiness explicitly reports the required verifier/protection primitives as absent**.
+
+Allowed scope:
+- create the initial trusted CI workflow/parser/check producer;
+- create the initial machine metadata validator;
+- configure/test initial branch/ruleset protection;
+- make the minimum governance corrections required for those primitives to function.
+
+Forbidden scope:
+- product feature implementation;
+- unrelated architecture changes;
+- relaxing trust/review/security requirements;
+- broad dependency/runtime changes not required by bootstrap.
+
+Required evidence:
+- explicit repository-owner/external approval;
+- exact diff inspection;
+- pinned source digest/commit;
+- minimal GitHub token/workflow permissions;
+- no self-approval solely from the newly introduced verifier;
+- recorded bootstrap attestation.
+
+Closure condition:
+- initial trusted CI executes successfully on a disposable/controlled PR;
+- metadata parser/validator is independently inspected;
+- branch/ruleset protection is verified;
+- control actor/App permissions are verified.
+
+After closure, `BOOTSTRAP_ENABLEMENT` is permanently disabled for ordinary governance work.
+
+A future disaster-recovery bypass, if ever needed, is a separate mechanism and must not reuse this bootstrap exception casually.
