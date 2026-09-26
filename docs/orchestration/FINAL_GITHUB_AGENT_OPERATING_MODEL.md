@@ -539,7 +539,7 @@ Therefore:
 
 
 
-# 24. Exploration branches vs promotion PRs
+# 26. Exploration branches vs promotion PRs
 
 Adversarial/red-team investigation may legitimately become cross-cutting.
 
