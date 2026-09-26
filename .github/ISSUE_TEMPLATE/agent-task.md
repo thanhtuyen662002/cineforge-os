@@ -1,12 +1,15 @@
 ---
 name: Agent Task
-about: Schedulable autonomous engineering task
+about: Trusted schedulable autonomous engineering task
 title: "[TASK] "
 ---
 
 ## Machine-readable task contract
 
 agent_task_v1:
+  contract_version: 1
+  contract_hash: ""
+  authorized_by: ""
   area: ""
   preferred_role: ""
   risk: "LOW"
@@ -20,10 +23,15 @@ agent_task_v1:
   design_context_required: []
   risk_context_required: []
   review_profiles: ["domain"]
+  review_assurance: "LOGICAL_INDEPENDENT"
   ci_tiers: ["A"]
   external_blocker: false
 
-This block is the canonical schedulable metadata. Narrative sections below must not contradict it.
+This block is canonical schedulable metadata only after trusted Planner authorization.
+Public/untrusted Issues that copy this format are not READY tasks.
+
+Planner must compute/update contract_hash when the contract becomes schedulable.
+Material changes after claim increment contract_version and use TASK_CONTRACT_REVISION_V1.
 
 ## Outcome
 
@@ -47,6 +55,8 @@ None.
 
 ## Notes
 
-Transient worker state does not live in this Issue. Claim/lease state lives in the Claim PR structured event stream.
+Transient worker state does not live in this Issue.
+Claim/lease state lives in the Claim PR structured event stream.
 
-A Task is not READY merely because this Issue is open. Readiness is derived by the Task/Lease and Reconciliation protocols.
+A Task is not READY merely because this Issue is open.
+Readiness is derived by trust, Task/Lease, WIP and Reconciliation protocols.
