@@ -2242,3 +2242,82 @@ UI never invites unsafe force-kill because progress is invisible.
 ## X58 — Structured error/redaction pipeline (P1)
 Raw provider/tool responses do not automatically enter DB/log/support artifacts.
 Classify + redact secrets/content-sensitive fields before durable error evidence.
+
+
+# 21. Fifth-wave ambiguous-control and privacy attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 271 | GitHub creates claim branch but API response times out | **GAP/P1 control-plane** | worker cannot know whether it won claim or request failed |
+| 272 | Lease comment is created but client times out and retries, producing two ACQUIRE events | **GAP/P1** | structured events need idempotency/event IDs |
+| 273 | Draft PR is created but response times out; retry attempts a second PR | **GAP/P1** | mutation retry needs read-after-write reconciliation |
+| 274 | Merge succeeds server-side but Integrator sees timeout | **GAP/P0/P1** | blind retry/next merge can corrupt control assumptions |
+| 275 | Issue close/update succeeds but agent records failure locally | PARTIAL | reconciliation exists but mutation-unknown state should be general |
+| 276 | GitHub comment mutation is duplicated after network reconnect | **GAP/P1** | dedupe by CONTROL_EVENT_ID/RUN/action epoch required |
+| 277 | Two claimers both see deterministic branch but creator identity is unknowable after timeout | **GAP/P1** | branch-only claim needs trusted claimant election/association |
+| 278 | PR merge conflict status is stale while main changes rapidly | CONTAINED if merge revalidates current main/expected head |
+| 279 | User receives Windows notification on lock screen containing confidential project/character title | **GAP/P1 privacy** | notification privacy level not explicit |
+| 280 | Sensitive script copied to clipboard remains in Windows clipboard history/cloud sync | **GAP/P2 privacy** | private clipboard policy/useful warning may be needed |
+| 281 | CAS bit rot changes old object but no job reads it for months | **GAP/P1 durability** | periodic integrity scrub/mirror repair needed for protected classes |
+| 282 | Cross-project dedup tells Project B that a secret asset already exists by hash/timing | **GAP/P2/P1 privacy** | dedup must not expose existence across unauthorized scope |
+| 283 | Diagnostic/error redactor misses base64-encoded credential | PARTIAL | safest approach is deny-by-default field selection, not regex-only redaction |
+| 284 | Support bundle filename/path contains employee/user identity | PARTIAL | pseudonymization exists; path mapping must be default |
+| 285 | UI opens external link with auth token/query parameter copied from provider response | **GAP/P1** | external-link sanitizer must strip/block sensitive query data |
+| 286 | Browser/manual handoff copies prompt containing secret local path/API identifier | **GAP/P2** | context/export redaction policy should cover human handoff clipboard/text |
+| 287 | Project media dedup is shared physically; user asks secure delete in one project | **GAP/P1 semantics** | logical deletion vs physical shared bytes must be disclosed/enforced by policy |
+| 288 | CAS scrub discovers corruption but backup copy is also corrupted | PARTIAL | quarantine + repair hierarchy must report unrecoverable canonical damage |
+| 289 | Immutable backup is intact but audit archive segment needed to interpret it is missing | PARTIAL | archive recoverability must be included in backup completeness |
+| 290 | GitHub trusted actor account is compromised and posts perfectly valid control events | RESIDUAL P0 | protocol cannot distinguish attacker using same credential; native protection/separate credentials remain required |
+
+# 22. Fifth-wave findings
+
+## X59 — Ambiguous GitHub mutation outcome (P0/P1)
+Every correctness-critical GitHub mutation can end in:
+- CONFIRMED_SUCCESS
+- CONFIRMED_FAILURE
+- UNKNOWN_OUTCOME
+
+On UNKNOWN_OUTCOME:
+- stop dependent mutation;
+- read current GitHub truth using direct endpoints/IDs;
+- locate operation by stable operation/event identity;
+- only retry when absence is proven.
+
+Applies to branch/ref creation, control comments, PR creation/update, reviews and merge.
+
+## X60 — Control-event idempotency key (P1)
+Every structured control event carries `CONTROL_EVENT_ID` derived/generated before network mutation.
+Same logical event may appear more than once due transport retry, but reconciliation deduplicates by event ID + trusted author/schema.
+
+## X61 — Claim intent election before branch association (P1)
+For claim safety under branch-create ambiguity:
+1. trusted claimers append `CLAIM_INTENT_V1` with unique claimant/event ID;
+2. after complete scoped read, lowest valid GitHub comment ID wins;
+3. only winning claimant creates/associates deterministic branch;
+4. branch marker includes winning CLAIM_INTENT event/comment identity.
+
+Branch remains a physical collision guard, but claimant election makes timeout recovery attributable.
+
+## X62 — Merge unknown-outcome reconciliation (P0/P1)
+After merge timeout:
+- query PR merged state, merge commit, base/main;
+- do not issue another merge or close/unblock dependents until reconciled;
+- if state cannot be established, stop the merge lane.
+
+## X63 — Notification/clipboard privacy classes (P1/P2)
+Native notifications and clipboard/handoff text obey content sensitivity.
+Lock-screen notification defaults avoid confidential project/content detail.
+Sensitive clipboard operations can warn/offer auto-clear/private mode where platform allows.
+
+## X64 — CAS durability scrub (P1)
+Protected/canonical storage classes have periodic/sample integrity verification.
+Corruption quarantines affected revisions, attempts mirror/backup repair, and records unrecoverable loss explicitly.
+
+## X65 — Dedup privacy non-observability (P1/P2)
+Physical dedup is internal.
+Unauthorized project/user cannot infer existence, owner, prior import or timing of identical bytes from API/UI behavior.
+
+## X66 — Shared-byte deletion semantics (P1)
+Secure deletion request operates on legal/privacy identity and references.
+If physical bytes are still legitimately retained by another authorized identity, UI/policy must not falsely claim physical destruction.
+Crypto-erasure/encrypted workspace may provide stronger per-scope guarantees.
