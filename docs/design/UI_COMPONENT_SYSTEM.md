@@ -2251,3 +2251,53 @@ Advanced diagnostic capture explains:
 
 Profile recreation:
 `CineForge sẽ tạo profile sạch. Bạn có thể cần đăng nhập lại; project/media không bị xóa.`
+
+
+
+# 83. QC uncertainty UX
+
+Never render UNKNOWN/OUT_OF_DOMAIN as a green success.
+
+Examples:
+- `Chưa thể đánh giá đáng tin cậy`
+- `Bộ kiểm tra này chưa được hiệu chuẩn cho phong cách/điều kiện này`
+- `Đã kiểm tra 20% khung hình theo chiến lược lấy mẫu`
+
+Advanced detail shows evaluator/version/calibration/coverage.
+
+# 84. Human review anti-anchoring
+
+For configured review classes:
+- hide AI score until reviewer submits first verdict;
+- mix random unflagged samples with flagged samples;
+- show AI/evaluator evidence afterward for reconciliation.
+
+Do not place one giant “92/100” score next to the Approve button when it would bias judgment.
+
+# 85. QC coverage visualization
+
+Review can display:
+- Full scan
+- Sampled
+- Event-triggered
+- Adaptive
+
+Timeline overlay shows checked/unobserved ranges when useful.
+User can understand that sampled PASS is not identical to whole-master proof.
+
+# 86. Post-QC mutation warning
+
+If export/mux/transcode/edit changed approved bytes:
+`Bản này đã thay đổi sau lần kiểm tra trước. Cần xác minh lại trước khi phát hành.`
+
+Do not silently preserve old green badges on the new artifact.
+
+# 87. Benchmark/golden integrity UX
+
+Advanced Learning screen surfaces:
+- corrupt/quarantined examples;
+- rights-blocked examples;
+- hidden holdout health;
+- benchmark set revision changes.
+
+Promotion button remains unavailable while required benchmark integrity is not satisfied.
