@@ -7361,3 +7361,83 @@ A parser upgrade produces a new candidate parse and cannot silently change an al
 
 Document preview/import never auto-fetches remote linked content.
 An explicit network-enabled document action, if ever supported, uses the normal URL/network trust boundary and records exact fetched material/provenance.
+
+
+
+# MY. Asymmetric film continuity contract
+
+Identity/continuity can include left/right and orientation facts.
+Mirror transforms are semantically unsafe when they invert:
+- scars/marks/accessories;
+- dominant hand;
+- prop orientation;
+- logos/text.
+
+QC compares asymmetric evidence separately from face/body similarity.
+
+# MZ. Spatial film-grammar graph
+
+Scene spatial state supports relative positions, screen direction, eyeline targets and environment portals.
+A shot can be visually beautiful yet fail scene geography/180-degree continuity.
+
+These checks are advisory/required according to directing policy and may be waived by CreativeException.
+
+# NA. Long-take identity contract
+
+Long shots receive temporal coverage sufficient to detect drift after occlusion or through long motion.
+Coverage policy can be adaptive around:
+- occlusions;
+- face visibility changes;
+- costume/prop state transitions;
+- identity-confidence drops.
+
+# NB. Named-character distinctiveness and crowd exclusion
+
+Character identity QC checks both:
+- self-consistency;
+- distinction from other named/protected identities.
+
+Generic crowd synthesis must not leak protected hero face/voice without explicit intent.
+
+# NC. Retime/interpolation provenance
+
+Optical flow/interpolation/speed processing that synthesizes frames produces a derived artifact with exact time mapping and new visual QC.
+Dependent audio/lipsync/subtitle/music timing is revalidated against the mapped presentation timeline.
+
+# ND. Conversation overlap/performance contract
+
+Dialogue is not only a sequence of nonoverlapping lines.
+Conversation can represent overlap, interruption, backchannel and nonverbal vocalization.
+
+Speaker binding is explicit; diarization remains evidence.
+
+# NE. Multilingual voice-performance contract
+
+Voice identity supports language-specific certified performance profiles.
+Dubbing quality jointly evaluates:
+- semantic translation;
+- character timbre/age/emotion;
+- pronunciation;
+- intelligibility/pace;
+- timing/viseme fit.
+
+# NF. Deliverable audio/subtitle contract
+
+Validation is performed on final deliverable encoding/profile, not only pre-encode source.
+
+Audio target can include true peak/loudness/channel/mono/sync/track metadata.
+Subtitle target can include readability, safe area, shaping, font/glyph and format-loss checks.
+
+# NG. Editor adapter capability matrix
+
+Every editor/version adapter declares per-feature support:
+NATIVE / APPROXIMATED / FLATTENED / UNSUPPORTED.
+
+Handoff loss is explicit and versioned.
+Unknown editor version cannot silently reuse old certification.
+
+# NH. Alternate deliverable review isolation
+
+Materially different reframe/crop/platform variant gets its own framing/text/subtitle/audio checks and approval state.
+
+A master approval does not transitively approve a destructive reframe.
