@@ -114,3 +114,13 @@ Merge:
 
 Backpressure:
 - if CI/review/global WIP stage is saturated, do not create more implementation WIP; switch to review/CI/unblock work.
+
+
+## Context Manifest preflight
+
+For selected Task:
+- resolve required context to `path#stable-section-id` where possible;
+- materialize/validate Context Manifest;
+- load every MANDATORY item completely before substantive mutation;
+- if mandatory context is missing/truncated, set BLOCKED_CONTEXT and do not guess;
+- for HIGH-risk review, independently verify expected context coverage.
