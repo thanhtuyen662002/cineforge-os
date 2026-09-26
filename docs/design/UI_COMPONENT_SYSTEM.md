@@ -1430,3 +1430,45 @@ Actions:
 - Relink correct file
 
 Do not silently replace approved bytes behind the same asset revision.
+
+
+
+# 67. Recovery external-reality UX
+
+If a full restore cannot prove what happened in external services:
+`CineForge đã khôi phục dữ liệu cục bộ nhưng chưa thể xác nhận toàn bộ thao tác đã xảy ra trên các dịch vụ bên ngoài.`
+
+Show:
+- which providers/actions are uncertain;
+- possible duplicate charge/upload/publication risk;
+- automatic reconciliation attempts;
+- only necessary human decisions.
+
+Do not offer “Tiếp tục tất cả” as a casual default.
+
+# 68. Backup trust UX
+
+Backup status separates:
+- Nội dung đã kiểm tra
+- Nguồn backup đã xác thực
+- Đã mã hóa / Chưa mã hóa
+- Cùng ổ với dữ liệu chính / Khác vùng lỗi
+- Restore drill gần nhất
+
+A green backup card requires the policy's required dimensions, not only a successful copy.
+
+# 69. Cache eligibility UX
+
+Normally invisible.
+
+If a prior generated result cannot be reused because rights/privacy/policy changed, explain:
+`Bản cũ vẫn được giữ trong lịch sử nhưng không còn đủ điều kiện để dùng cho tác vụ này.`
+
+Do not tell users “cache lỗi” when the reason is legal/policy eligibility.
+
+# 70. Callback/account mismatch UX
+
+Connection diagnostic:
+`Dịch vụ đã gửi phản hồi hợp lệ nhưng phản hồi thuộc tài khoản/workspace khác với kết nối hiện tại.`
+
+The affected job remains unresolved/quarantined until reconciled.
