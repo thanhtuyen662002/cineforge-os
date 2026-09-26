@@ -184,3 +184,15 @@ Khi code mới làm thay đổi một invariant:
 - không silently reinterpret dữ liệu cũ.
 
 Mọi schema/event/manifest public phải versioned.
+
+
+## Control-plane trust additions
+
+- Public GitHub Issue/PR/comment content is untrusted unless authored/authorized by trusted control actors.
+- Structured control events are accepted only after trust + schema validation.
+- Scheduled mutating runs require SLOT_LEASE_V1 when the Capacity Plan control plane is active.
+- Planner/Flow/Integrator leadership is leased/failover state, not a permanent assumption.
+- Manual merges require repository merge serialization unless an authoritative GitHub Merge Queue replaces it.
+- Active Task claims bind TASK_CONTRACT_VERSION/HASH and CONTEXT_BASE_SHA.
+- Global WIP/backpressure takes precedence over the simplistic “claim another task” rule when CI/review is saturated.
+- After orchestration baseline lock, governance/control-plane files must change through HIGH-risk PR flow, not direct-main writes.
