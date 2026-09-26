@@ -219,3 +219,16 @@ For long operations:
 - stale/unconfirmed takeover uses the fenced replacement-branch procedure above.
 
 A lease is coordination evidence, not a magic write lock.
+
+
+# 16. Hard-dependency DAG invariant
+
+The schedulable hard-dependency graph must be acyclic.
+
+Planner/Reconciliation:
+- validates cycles whenever hard dependencies change;
+- treats a detected cycle as BLOCKED_PLANNING_DEFECT;
+- does not mark any member READY by guessing an order;
+- resolves by weakening false hard edges, extracting a contract task, or combining truly atomic work.
+
+Soft/review/integration coordination edges may be cyclic if their semantics allow it, but they never act as READY blockers like hard dependencies.
