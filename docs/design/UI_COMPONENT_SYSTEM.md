@@ -2035,3 +2035,93 @@ Policy may:
 - block.
 
 Do not label this as equivalent to fully current online verification.
+
+
+
+# 65. Privacy purge UX
+
+Delete/Purge progress separates:
+- Đã xóa khỏi project
+- Đang dọn thumbnail/cache/index
+- Bản sao backup đang được giữ theo chính sách
+- Dữ liệu đã từng gửi ra dịch vụ ngoài
+- Hoàn tất trong phạm vi chính sách hiện tại
+
+Never show “đã xóa hoàn toàn mọi nơi” unless policy/evidence can actually support it.
+
+# 66. External exposure view
+
+Privacy/Project detail can show:
+`Dữ liệu từng được gửi ra ngoài`
+
+Per entry:
+- destination/provider;
+- data class;
+- date;
+- purpose;
+- known provider retention/takedown status.
+
+This remains auditable after local purge according to retention policy.
+
+# 67. Semantic search privacy
+
+Search results never display cross-project content merely because semantic similarity is high.
+
+When shared-library search is enabled:
+- current scope is visible;
+- shared result provenance/project is visible;
+- permissions are checked before preview.
+
+# 68. Model/session isolation status
+
+Advanced Diagnostics may show:
+- runtime isolation class;
+- current project/session scope;
+- last reset;
+- TAINTED/RESET_REQUIRED state.
+
+Normal users see:
+`AI runtime đang được làm sạch trước khi chuyển sang project khác.`
+
+# 69. Learning derivative revocation UX
+
+When a rights/privacy revocation affects a trained derivative:
+`Nội dung này đã được dùng trong một mô hình/tập học trước đó.`
+
+Show possible actions:
+- Ngừng sử dụng mô hình này
+- Yêu cầu tái huấn luyện
+- Xem phạm vi ảnh hưởng
+
+Do not falsely claim one-click deletion “unlearned” the model.
+
+# 70. Core ownership UX
+
+If another valid Core already owns the library:
+`CineForge đang chạy ở phiên khác. Cửa sổ này sẽ kết nối vào phiên đang hoạt động.`
+
+If writer ownership is uncertain:
+`Không thể xác nhận phiên ghi dữ liệu. CineForge đang mở ở chế độ bảo vệ cho đến khi đối chiếu xong.`
+
+No second writer startup retry loop.
+
+# 71. Archive read-only UX
+
+Banner:
+`Đây là bản lưu trữ đã niêm phong. CineForge sẽ không thay đổi nội dung gốc.`
+
+Actions:
+- Xem
+- Kiểm tra
+- Tạo bản làm việc mới
+
+Never “upgrade this archive in place”.
+
+# 72. Notification privacy
+
+Settings:
+- Hiện đầy đủ
+- Ẩn nội dung khi máy khóa
+- Chỉ báo chung
+
+Decision notifications still remain actionable after unlock/revalidation; privacy mode never removes the underlying Needs You item.
