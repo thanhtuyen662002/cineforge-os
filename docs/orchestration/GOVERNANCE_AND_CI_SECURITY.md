@@ -432,3 +432,23 @@ CI/security tests should verify:
 # 22. CAS/handoff integrity
 
 Tests must prove an editable handoff cannot mutate canonical content-addressed bytes through a writable hardlink/reparse alias.
+
+
+
+# 23. Authoritative documentation integrity gate
+
+Architecture/design documents are executable context for agents and therefore require structural CI.
+
+Checks:
+- duplicate numbered section IDs in the same authoritative file;
+- duplicate machine schema/event definitions;
+- broken authoritative cross-references;
+- contract family with more than one declared detailed owner;
+- architecture hardening finding without mapped implementation owner when required.
+
+Current owner rule:
+- baseline domain contracts: SCHEMA / STATE_MACHINES / API_CONTRACTS / UI_COMPONENT_SYSTEM;
+- extreme adversarial extensions: `docs/design/EXTREME_HARDENING_CONTRACTS.md`;
+- no repeated append of the same hardening family across all detailed docs.
+
+A documentation-only contradiction is a correctness failure, not cosmetic lint.
