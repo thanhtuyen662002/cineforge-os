@@ -19,6 +19,8 @@ Control-plane roles phải đọc thêm khi thực hiện control work:
 - `docs/orchestration/BOTTLENECK_PLAYBOOK.md`
 - `docs/orchestration/FLOW_METRICS_AND_RECONCILIATION.md`
 - CI/merge work: `docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md`
+- governance/workflow/control-plane changes: `docs/orchestration/GOVERNANCE_AND_CI_SECURITY.md`
+- GitHub partial failure/outage: `docs/orchestration/GITHUB_OUTAGE_AND_PARTIAL_FAILURE.md`
 
 
 `docs/architecture/FINAL_ARCHITECTURE.md` là kiến trúc authoritative cho boundaries/invariants. `docs/design/FINAL_DETAILED_DESIGN.md` cùng SCHEMA/STATE_MACHINES/API_CONTRACTS/UI_COMPONENT_SYSTEM là authoritative cho implementation contracts. Risk/red-team docs vẫn là yêu cầu đối kháng bắt buộc. Khi có xung đột, không được tự chọn: phải cập nhật architecture + detailed design + risk/test liên quan trước khi code.
@@ -139,7 +141,7 @@ Các thao tác chưa có contract rõ ràng không được implement ad-hoc tro
 - Review/CI evidence phải bind đủ verification context, không chỉ một head SHA khi base/main đã đổi.
 - Planner/Flow/Integrator chạy reconciliation trước khi tạo duplicate/reassign/merge.
 
-- GitHub Issues + Draft/Open PRs + exact-head CI là live development source of truth.
+- GitHub Issues + Draft/Open PRs + current verification-context CI/review + merge history là live development source of truth.
 - Role != slot; một slot có thể mang nhiều role và role có thể do nhiều slot phục vụ.
 - Task claim dùng deterministic branch + Draft PR lease; không duplicate live work.
 - Worker không được ngồi chờ CI/review/dependency nếu còn independent READY work.
@@ -147,7 +149,7 @@ Các thao tác chưa có contract rõ ràng không được implement ad-hoc tro
 - Independent review phải dùng logical AGENT_INSTANCE_ID khác author.
 - Planner duy trì bounded ready queue; không tạo backlog khổng lồ dễ stale.
 - Flow Governor có trách nhiệm phát hiện/gỡ critical-path bottleneck, stale lease, review/CI congestion và hotspot.
-- Integrator chỉ merge exact head sau đủ gate.
+- Integrator chỉ merge khi verification tuple hiện tại (HEAD + BASE/merge context) đủ gate.
 - Waiting/blocked state phải được checkpoint đủ để agent khác resume từ GitHub.
 - Capacity Plan là single-writer guidance, không phải queue/lease truth.
 - Work chat là opportunistic super-slot; không được giả định là scheduled capacity thường trực.
