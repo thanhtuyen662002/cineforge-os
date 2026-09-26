@@ -6268,3 +6268,161 @@ No local taste adaptation silently becomes studio truth.
 ## X168 — Repair anti-Goodhart constraints (P2 but important)
 Repair optimization includes semantic/creative constraints and global-quality checks.
 Repeated score improvement with worsening crop/performance/composition triggers repair-strategy change/human review rather than infinite detector gaming.
+
+
+# 37. Thirteenth-wave authenticity, provenance and chain-of-custody attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 631 | Imported file claims “camera original” in metadata but was edited/exported | **GAP/P1** | metadata claim is not source authenticity proof |
+| 632 | EXIF/XMP capture time/camera model is spoofed | **GAP/P1** | descriptive metadata is evidence with trust class, not authority |
+| 633 | A valid signed provenance manifest comes from an unknown/untrusted signer | **GAP/P1** | signature validity != trusted provenance |
+| 634 | Provenance signature key is later revoked/compromised | PARTIAL | signing trust revocation exists; media provenance needs same trust model |
+| 635 | Transcode strips embedded provenance metadata | **GAP/P1** | internal lineage must survive independently of embedded metadata |
+| 636 | External editor strips/rewrites metadata but bytes are legitimately derived | **GAP/P1** | absence/change of metadata should not destroy internal lineage |
+| 637 | Sidecar provenance manifest is copied next to wrong media file | **GAP/P1** | manifest must bind exact digest/representation |
+| 638 | Watermark detector false-positively says provider watermark exists | **GAP/P2** | watermark detection is probabilistic evidence |
+| 639 | Watermark detector misses hidden/provider watermark | **GAP/P1 release** | detector FAIL/PASS cannot be absolute truth |
+| 640 | Provider adds watermark after successful preview/download stage | **GAP/P1** | final materialized bytes need recheck |
+| 641 | NLE export removes content credentials but release policy requires them | **GAP/P1** | release gate needs provenance-preservation/reattachment policy |
+| 642 | Platform recompress strips credentials/watermark after upload | **GAP/P1** | public platform derivative differs from uploaded master |
+| 643 | Platform adds its own visible watermark after upload | **GAP/P1** | publish verification should record public derivative |
+| 644 | User supplies a reference image and falsely claims ownership | CONTAINED conceptually | provenance cannot prove legal ownership; rights record remains separate |
+| 645 | A file has perfect chain-of-custody but license forbids commercial use | CONTAINED | provenance != rights |
+| 646 | Rights record says allowed but provenance/source identity is unknown | **GAP/P1** | release policy may require provenance confidence separately |
+| 647 | Source asset is synthetic but labeled as camera original by user | **GAP/P1** | origin claim needs confidence/evidence, not blind user field |
+| 648 | AI-generated output closely reproduces memorized copyrighted source | **GAP/P1 legal/QC uncertainty** | similarity evidence can flag risk but cannot automatically determine infringement |
+| 649 | Similarity detector flags common generic imagery as copyright match | **GAP/P2** | similarity score is advisory, requires provenance/rights/human review |
+| 650 | Chain-of-custody uses filesystem timestamps that changed during copy | **GAP/P1** | timestamps are metadata evidence, not canonical event order |
+| 651 | Camera/device clock was wrong by months | **GAP/P2** | capture time trust level needed |
+| 652 | Two files have identical bytes but distinct rights/provenance histories | CONTAINED | rights identity separated from byte identity |
+| 653 | Same logical asset revision is rewrapped into different container bytes | **GAP/P1** | semantic lineage vs byte artifact identity both need representation |
+| 654 | Lossless remux changes container hash but not media essence | **GAP/P2** | provenance graph should express transform, not call it unrelated asset |
+| 655 | External editor exports a flattened master with no editable lineage | CONTAINED/PARTIAL | FLATTENED lineage exists; chain-of-custody evidence should record external handoff/import |
+| 656 | User manually replaces exported file with another before reimport | **GAP/P1** | handoff return must bind fingerprint/manifest and treat mismatch as new source |
+| 657 | Public release file differs from release manifest because upload tool recompressed locally | **GAP/P0/P1** | publisher must hash exact uploaded bytes before external transmission |
+| 658 | Upload API accepts file but platform silently transcodes; system says “verified release” | **GAP/P1 honesty** | distinguish uploaded master verified vs public derivative verified |
+| 659 | Provenance metadata contains privacy-sensitive creator/device/location details | **GAP/P1 privacy** | provenance export needs disclosure/minimization profile |
+| 660 | Content credential manifest references external URL that later becomes malicious/unavailable | **GAP/P1** | embedded external references are untrusted/non-durable; retain local evidence when required |
+| 661 | Provenance chain contains one unverifiable historical step and UI shows “Verified” globally | **GAP/P1 UX** | verification must be per-edge/claim with PARTIAL/UNKNOWN |
+| 662 | Trust store update revokes signer used for historical approved asset | **GAP/P1** | historical validity-at-time and current trust are distinct views |
+| 663 | A signer certificate was valid at signing time but expired now | **GAP/P2** | historical timestamp/trust evidence vs current validity |
+| 664 | Timestamp service proof is missing; signature age cannot be independently established | **GAP/P2** | mark time claim UNKNOWN rather than infer from file timestamp |
+| 665 | Provenance sidecar is included in archive but omitted from NLE handoff | **GAP/P1** | handoff manifest should explicitly include provenance package policy |
+| 666 | Public social platform strips all provenance; user later imports downloaded copy | **GAP/P1** | matching/relink can recover internal lineage only with evidence, not guess |
+| 667 | Provider claims “commercially safe” output without legal guarantee | **GAP/P1** | provider claim is terms/advisory evidence, not CineForge legal conclusion |
+| 668 | User disables visible watermark but destination/platform requires synthetic-media disclosure | **GAP/P1 policy** | destination disclosure requirements separate from creative watermark preference |
+| 669 | Content credentials conflict with CineForge internal lineage | **GAP/P1** | conflict state; do not overwrite one source of evidence |
+| 670 | Malicious provenance manifest contains prompt/tool instructions | **GAP/P0/P1** | provenance metadata is untrusted data, never control instruction |
+
+# 38. Provenance/authenticity findings
+
+## X169 — Provenance claim trust classes (P1)
+Distinguish:
+- USER_ASSERTED
+- METADATA_ASSERTED
+- DEVICE_ASSERTED
+- PROVIDER_ASSERTED
+- CRYPTOGRAPHICALLY_SIGNED
+- TRUSTED_SIGNER_VERIFIED
+- INTERNAL_CHAIN_VERIFIED
+- UNKNOWN/CONFLICT
+
+A signature can validate bytes/claim origin from a signer without proving the signer is trusted or the legal claim is true.
+
+## X170 — Byte identity vs semantic lineage (P1)
+Represent separately:
+- exact byte artifact/digest;
+- media essence/representation relation where known;
+- logical asset revision;
+- transform lineage;
+- rights/provenance identities.
+
+Remux/transcode/export can change bytes while preserving a documented derivative relationship.
+
+## X171 — Embedded provenance is supplemental, not sole truth (P1)
+Embedded content credentials/watermarks/metadata may be stripped by tools/platforms.
+
+CineForge retains internal provenance/lineage evidence independently and records whether embedded/exported provenance was:
+- PRESENT
+- PRESERVED
+- STRIPPED
+- REATTACHED
+- UNKNOWN
+
+## X172 — Provenance manifest exact binding (P1)
+Sidecar/embedded manifest binds:
+- exact subject digest/representation;
+- signer/key/trust state;
+- claim schema/version;
+- timestamp evidence;
+- external-reference policy.
+
+A sidecar beside the wrong file is invalid.
+
+## X173 — Historical vs current trust (P1)
+Provenance verification reports:
+- signature validity;
+- signer trust at signing/evidence time where provable;
+- current trust/revocation state;
+- trusted timestamp evidence.
+
+Do not rewrite historical fact merely because current trust changed.
+
+## X174 — Provenance/rights separation (P0/P1 correctness)
+Provenance answers “what evidence exists about origin/transforms”.
+Rights answers “what uses are allowed”.
+Neither automatically proves the other.
+
+Release policy can require both independently.
+
+## X175 — Similarity/copyright-risk evidence (P1)
+Similarity detectors can:
+- flag for review;
+- record source/reference candidates;
+- abstain/UNKNOWN.
+
+They cannot autonomously decide legal infringement or commercial safety.
+
+## X176 — Handoff chain-of-custody (P1)
+External handoff manifest records:
+- exact exported inputs/digests;
+- destination/editor;
+- provenance package policy;
+- return/import fingerprints;
+- declared flattened/editable relation.
+
+A returned file mismatch is a new/unverified source until lineage is established.
+
+## X177 — Publish exact-upload vs public-derivative distinction (P0/P1)
+Publication records:
+- release/master digest;
+- exact bytes uploaded digest;
+- platform receipt;
+- public/platform derivative identity when obtainable;
+- verification state for each.
+
+“Uploaded master verified” does not mean “public transcoded output verified”.
+
+## X178 — Provenance privacy profile (P1)
+Exportable provenance may expose:
+- creator identity;
+- device;
+- location;
+- timestamps;
+- internal project IDs.
+
+Destination/privacy policy selects which claims may leave CineForge while preserving internal full evidence.
+
+## X179 — Provenance conflict state (P1)
+If external signed provenance conflicts with internal lineage/user claims:
+- state = CONFLICT;
+- preserve both evidence sets;
+- block claims requiring resolved authenticity confidence;
+- require review/reconciliation.
+
+Never silently prefer the newest metadata.
+
+## X180 — Provenance metadata is untrusted content (P0/P1)
+Manifest fields, external URLs, annotations and claims are parsed as bounded typed data.
+They cannot execute tools, fetch arbitrary URLs, alter policy or prompt-inject agents/evaluators.
