@@ -1,6 +1,7 @@
 # CineForge OS — Capacity Control and Slot Plan
 
-> Capacity guidance is single-writer and append/revision aware. It never overrides live Issue/PR/CI facts.
+> Capacity guidance is append-only/reconciled control state. It never overrides live Issue/PR/CI facts.
+> Read together with `CONTROL_PLANE_TRUST_AND_CONCURRENCY.md`.
 
 # 1. Purpose
 
@@ -8,154 +9,177 @@ The active slot count is runtime configuration.
 
 Planner converts available capacity into a role/offset plan without changing the GitHub coordination protocol.
 
-# 2. Capacity Plan
+# 2. Canonical Capacity Plan Issue
 
-Planner owns one canonical Capacity Plan Issue.
-
-Canonical discovery rule:
+Discovery:
 - exact title `[CONTROL] Agent Capacity Plan`;
-- if none exists, Planner creates one;
-- if more than one exists, the lowest-numbered open Issue is canonical until Flow reconciliation closes/marks duplicates;
+- if none exists, trusted Planner creates one;
+- if more than one exists, reconciliation selects the lowest-numbered trusted open Issue and marks others duplicate/obsolete;
 - workers do not create additional plans.
 
-The plan contains:
+The Issue body is bootstrap/display information only.
+
+Live plan state is the winning append-only `CAPACITY_PLAN_V2` chain in trusted comments.
+
+Fields include:
 
 ```text
-PLAN_VERSION:
-SLOT_COUNT:
-SCHEDULE_CYCLE:
-CONTROL_SLOTS:
-BUILD_SLOTS:
-FLEX_SLOTS:
-SLOT_BINDINGS:
-STAGGER_OFFSETS:
-CURRENT_CRITICAL_PATH:
-CURRENT_HOTSPOTS:
-CI_RUNNER_CAPACITY:
-REVIEW_CAPACITY:
-GLOBAL_ACTIVE_WIP_LIMIT:
-CI_HEALTH:
-REVIEW_HEALTH:
-READY_DEPTH:
-UPDATED_BY:
-UPDATED_AT:
+CAPACITY_PLAN_V2
+PLAN_VERSION=<n>
+PREV_PLAN_COMMENT_ID=<id|none>
+PRIMARY_PLANNER=<agent>
+PRIMARY_FLOW_GOVERNOR=<agent>
+PRIMARY_INTEGRATOR=<agent>
+SLOT_COUNT=<n>
+SCHEDULE_CYCLE=<...>
+SLOT_BINDINGS=<...>
+STAGGER_OFFSETS=<...>
+CI_RUNNER_CAPACITY=<...>
+REVIEW_CAPACITY=<...>
+MAX_ACTIVE_IMPLEMENTATION=<n>
+MAX_CI_IN_FLIGHT=<n>
+MAX_WAITING_REVIEW=<n>
+MAX_PARKED_TOTAL=<n>
+CURRENT_CRITICAL_PATH=<...>
+CURRENT_HOTSPOTS=<...>
+UPDATED_BY=<agent>
 ```
 
-Only the current PRIMARY_PLANNER edits the canonical plan.
-PRIMARY_FLOW_GOVERNOR is also named explicitly.
-A control role re-reads the current plan version before writing; stale controllers do not overwrite a newer plan.
-Workers treat it as read-only guidance.
+Conflict rule:
+- if two trusted plan comments reference the same PREV_PLAN_COMMENT_ID, the lower GitHub comment ID wins that version race;
+- losing sibling comments remain historical and are `SUPERSEDED_CONFLICT`;
+- next valid plan must extend the winning chain.
 
-The Capacity Plan is not:
-- the task queue;
-- a lease;
-- canonical task state.
+This avoids silent lost updates from Issue-body replacement.
 
-If it becomes stale, Issues/PRs/CI still provide safe operation.
+# 3. Control-role leases
 
-# 3. Work chat
+Planner, Flow Governor and Integrator are leased roles.
 
-A Work chat uses:
-- SLOT_ID=WORK
-- MODE=WORK
+Use `CONTROL_ROLE_LEASE_V1` on the canonical Capacity Plan Issue.
 
-It is an opportunistic super-slot.
+A control agent:
+1. appends ACQUIRE for the next role epoch;
+2. re-reads trusted competing events;
+3. lowest valid GitHub comment ID for that role/epoch wins;
+4. loser performs no conflicting control mutation.
 
-Planner must not assume WORK is permanent scheduled capacity.
+Lease expiry/failover uses GitHub server event time, not agent-local clock alone.
+
+Control operations remain idempotent/reconciled because comments are not database transactions.
+
+# 4. Scheduled slot run lease
+
+Each scheduled slot has:
+- stable SLOT_ID;
+- stable AGENT_INSTANCE_ID;
+- unique RUN_ID per invocation.
+
+Before starting mutating work, invocation acquires `SLOT_LEASE_V1`.
+
+Winner selection:
+- earliest valid trusted ACQUIRE comment ID for the slot/epoch;
+- loser exits or performs read-only analysis.
+
+This protects against scheduler overlap before a Draft PR exists.
+
+Task-level deterministic claim branch remains the authoritative duplicate-task protection.
+
+# 5. Work chat
+
+A Work chat is opportunistic capacity, not assumed scheduled capacity.
+
+If only one Work chat exists it may use a simple ID, but protocol is future-safe:
+- SLOT_ID=`WORK-<stable-short-id>`
+- AGENT_INSTANCE_ID=`cineforge-WORK-<stable-short-id>`
+- unique RUN_ID each invocation.
+
+Multiple Work chats must not share one logical identity.
 
 WORK may:
-- act as control plane;
-- take a critical builder task;
-- review;
-- integrate;
-- resolve bottleneck.
+- plan;
+- build;
+- review other agents;
+- integrate when it holds the required control lease;
+- resolve bottlenecks.
 
-It still uses normal atomic task claim and cannot bypass independent review rules on its own PR.
+It cannot satisfy independent review for its own PR by inventing another ID.
 
-# 4. Scheduled slots
-
-Each slot has a stable SLOT_ID and stable AGENT_INSTANCE_ID such as:
-- SLOT_ID=S03
-- AGENT_INSTANCE_ID=cineforge-S03
-
-Each invocation also has a unique RUN_ID.
-
-Slot examples:
-- S01
-- S02
-- ...
-
-Its role affinity can change between Capacity Plan versions without creating a new scheduled task if the runtime prompt reads the current plan.
-
-Therefore a generic scheduled prompt is preferable to hardcoding a permanent specialist identity into every task.
-
-# 5. Slot preflight
+# 6. Slot preflight
 
 At start:
-1. read current Capacity Plan if present;
-2. inspect open PRs containing SLOT_ID;
-3. if one ACTIVE claim from same slot appears live, do not start another active implementation;
-4. service parked/failed work when appropriate;
-5. otherwise claim READY work by current role affinity.
+1. read winning Capacity Plan version;
+2. validate current slot/control lease;
+3. inspect open PRs for same SLOT_ID/AGENT_INSTANCE_ID;
+4. service failed CI/review feedback on owned work when appropriate;
+5. ensure global/stage WIP budget permits a new implementation claim;
+6. otherwise switch to review/CI/unblock/read-only control work.
 
-# 6. Overlap safety
+# 7. Global WIP/backpressure
 
-Scheduled systems may start a new invocation while prior work is still running.
+“No waiting” must not become “infinite WIP”.
 
-Protection layers:
-- same SLOT_ID/AGENT_INSTANCE_ID preflight;
-- task-level atomic claim remains the correctness primitive even if a same-slot overlap slips through before Draft PR creation;
-- one-active-implementation policy;
-- Git branch/non-fast-forward protection;
-- deterministic issue claim branch;
-- verification-context review/merge;
-- Flow Governor stale takeover.
+Planner/Flow Governor uses stage budgets:
+- MAX_ACTIVE_IMPLEMENTATION;
+- MAX_CI_IN_FLIGHT;
+- MAX_WAITING_REVIEW;
+- MAX_PARKED_TOTAL;
+- per-slot parked limit.
 
-A second run that sees a fresh ACTIVE claim should perform read-only control/review work or exit without mutating that branch.
+If CI/review is saturated:
+- do not keep creating new implementation PRs merely because builders are free;
+- redirect compatible slots to review, CI repair, tests, integration, task decomposition or hotspot work.
 
-# 7. Duplicate planners
+Throughput > utilization.
 
-If multiple slots have Planner capability:
-- one is PRIMARY_PLANNER in Capacity Plan;
-- others may create concrete unblock/bug tasks but do not independently rebuild the whole backlog;
-- Flow Governor can become temporary planner if PRIMARY is unavailable.
+# 8. Duplicate planners
 
-Purpose: avoid contradictory task decomposition.
+Multiple slots may have Planner capability, but only the current Planner role lease holder writes the canonical plan/backlog policy.
 
-# 8. Plan update triggers
+Other agents may:
+- report bottlenecks;
+- create narrowly-scoped bug/unblock issues when allowed;
+- perform read-only planning analysis.
 
-Planner recalculates on:
+Flow Governor may acquire Planner lease after valid expiry/failover.
+
+# 9. Plan update triggers
+
+Recalculate when:
 - user changes slot count;
 - critical Epic changes;
 - READY starvation;
 - review/CI backlog;
-- specialist backlog imbalance;
+- specialist imbalance;
 - major blocker;
 - release phase;
-- slot repeatedly idle.
+- stage WIP saturation;
+- slot repeatedly idle;
+- CI runner capacity changes.
 
-# 9. Capacity degradation
+# 10. Capacity degradation
 
 If slots disappear:
-- no task is reassigned merely because its owner slot is temporarily absent;
-- Flow Governor inspects lease liveness;
-- critical stale work is taken over;
-- low-priority parked PR can wait;
-- Planner reduces new WIP.
+- do not immediately reassign live claims;
+- inspect lease liveness;
+- take over critical stale work;
+- reduce new WIP;
+- preserve parked low-priority work until needed.
 
-# 10. Capacity expansion
+# 11. Capacity expansion
 
 If slots increase:
-- Planner creates/splits enough READY work;
 - reserve control capacity;
-- prefer downstream-unlocking tasks;
-- avoid activating many hotspot-conflicting tasks;
-- do not duplicate already claimed work.
+- create/split enough safe READY work;
+- respect downstream CI/review capacity;
+- prefer tasks with downstream-unblock value;
+- avoid hotspot collisions;
+- never duplicate claimed work.
 
-# 11. Minimum continuity
+# 12. Minimum continuity
 
-The system must still operate safely if Capacity Plan is unavailable:
-- agents derive ready work from Issues;
-- claims from branches/PRs;
-- blockers from dependencies/CI/reviews;
-- control roles can reconstruct a new plan.
+If Capacity Plan/control comments are unavailable or stale:
+- Issues/PRs/CI remain durable work truth;
+- do not invent new ownership;
+- reconstruct plan after reconciliation;
+- GitHub outage protocol applies when control-plane reads/writes cannot be trusted.
