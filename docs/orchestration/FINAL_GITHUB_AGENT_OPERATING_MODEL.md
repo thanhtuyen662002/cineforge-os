@@ -536,3 +536,29 @@ Therefore:
 - stale/unconfirmed takeover uses fenced replacement branch/PR;
 - old branch is excluded from merge path after replacement;
 - exact-head review/CI binds only the active fenced PR.
+
+
+
+# 24. Exploration branches vs promotion PRs
+
+Adversarial/red-team investigation may legitimately become cross-cutting.
+
+Two different artifacts exist:
+
+## Exploration PR
+- Draft only by default;
+- broad findings/evidence may span many domains;
+- not presumed mergeable;
+- can accumulate attacks, prototypes and candidate remediations;
+- serves as source material for accepted findings.
+
+## Promotion PR
+- one cohesive hardening slice;
+- minimal authoritative files;
+- focused tests/evidence;
+- normal risk/review/CI gates;
+- intended to merge.
+
+Flow Governor should split an exploration PR once it becomes difficult to review or crosses multiple unrelated gate families.
+
+Do not merge a giant red-team exploration merely because every individual idea appears useful.
