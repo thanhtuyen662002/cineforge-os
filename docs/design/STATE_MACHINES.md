@@ -2193,3 +2193,62 @@ Interruptions:
 - RESUMED
 - NEEDS_RECONCILIATION
 - CANCELLED
+
+
+
+# 88. Evaluation lifecycle with OOD/coverage
+
+```text
+QUEUED
+→ RUNNING
+→ DOMAIN_CHECK
+→ EVIDENCE_COLLECTING
+→ RESULT_READY
+```
+
+Result:
+- PASS
+- FAIL
+- UNKNOWN
+- OUT_OF_DOMAIN
+- CONFLICT
+
+Operational failures:
+- EVALUATOR_FAILED
+- INPUT_UNAVAILABLE
+- CACHE_INVALIDATED
+- STALE
+
+UNKNOWN/OUT_OF_DOMAIN are terminal evaluation outcomes, not evaluator crashes.
+
+# 89. Benchmark example lifecycle
+
+- ACTIVE
+- INTEGRITY_FAILED
+- RIGHTS_BLOCKED
+- PRIVACY_BLOCKED
+- QUARANTINED
+- RETIRED
+
+Promotion/benchmark run ignores blocked examples only through an explicit new benchmark-set revision; it never silently changes denominator/baseline.
+
+# 90. Evaluation-cache lifecycle
+
+- VALID
+- STALE_SUBJECT
+- STALE_EVALUATOR
+- STALE_POLICY
+- STALE_REFERENCE
+- STALE_COVERAGE
+- INVALIDATED
+
+Only VALID entry can satisfy a requested claim/profile.
+
+# 91. Post-QC artifact state
+
+- QC_CURRENT
+- MUTATED_AFTER_QC
+- REVERIFY_REQUIRED
+- REVERIFIED
+
+Release gate accepts only evidence current for the exact release artifact revision/digest.
