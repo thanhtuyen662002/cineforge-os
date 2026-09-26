@@ -896,3 +896,101 @@ Local model/tool/plugin workers are constrained in:
 - crash dumps/temp files.
 
 A “local” tool cannot quietly create its own persistent prompt history outside managed policy.
+
+
+# 21. Fifth-wave encryption/CAS/resource/context attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 281 | Two confidential projects share the same plaintext hash; hash lookup reveals content equality across scopes | **GAP/P1 privacy** | global plaintext CAS identity can become a cross-scope correlation oracle |
+| 282 | Convergent/deterministic encryption is used to preserve dedup | **GAP/P0/P1 privacy** | leaks equality and weakens confidentiality for guessable content |
+| 283 | Same plaintext is encrypted under Project A key then cloned to Project B with stricter key policy | **GAP/P1** | logical dedup and physical encryption wrapping need separate scopes |
+| 284 | Ciphertext is corrupted but plaintext hash cannot be checked until decrypt; key is unavailable | **GAP/P1** | need ciphertext integrity/hash + plaintext identity separately |
+| 285 | Key rotation re-encrypts 10TB instead of rewrapping data key | **GAP/P1 ops** | envelope encryption should avoid massive rewrite when possible |
+| 286 | Encrypted backup has data but missing key manifest | CONTAINED after key policy if implementation verifies recoverability |
+| 287 | CAS dedup saves one physical object across projects; one project requires crypto-erasure | **GAP/P1** | deleting shared key/object can affect another project; per-scope wrapping/ref graph required |
+| 288 | An attacker guesses known public file hash and infers user imported it | **GAP/P2 privacy** | do not expose global content hashes to untrusted UI/API; scope identifiers |
+| 289 | Resource scheduler reserves GPU then waits for disk; another reserves disk then waits GPU | **GAP/P1** | resource reservation can deadlock |
+| 290 | Large batch reserves all VRAM for queued jobs and starves interactive preview | **GAP/P1 UX/flow** | reservations need admission classes/priority/aging and bounded future reservation |
+| 291 | Reservation expires while GPU kernel still running | PARTIAL | lease renewal exists; physical resource release/reconcile after crash must be explicit |
+| 292 | Worker holds browser profile while waiting user MFA for hours | **GAP/P1 capacity** | HUMAN_WAIT should downgrade/release reservable resources where safe |
+| 293 | Context Compiler fits every critical constraint, but provider silently truncates request server-side | **GAP/P1** | provider adapter needs observed/declared request limits and output evidence |
+| 294 | Provider changes max context/token behavior without version bump | **GAP/P1** | capability health/benchmark should re-certify on semantic behavior change |
+| 295 | Context compilation drops “do not reveal secret” because it is tagged low priority | **GAP/P0** | mandatory safety/privacy constraints need non-droppable class |
+| 296 | Same fact appears twice with conflicting authority levels and compiler picks latest text | **GAP/P1** | compiler needs explicit conflict resolution, not positional recency |
+| 297 | Prompt optimization translates Vietnamese nuance and changes character intent | PARTIAL | source/derived prompt separation exists; semantic regression test needed |
+| 298 | Tool adapter silently rewrites negative constraints into unsupported provider syntax | **GAP/P1** | compiled provider payload needs adapter conformance tests and unsupported-feature declaration |
+| 299 | Model claims it followed a constraint but output evidence shows otherwise | CONTAINED | QC/evidence + human review |
+| 300 | Context manifest itself is stale after canon revision changes between compile and dispatch | **GAP/P1** | dispatch must verify context dependency hash immediately before external execution |
+| 301 | Retry reuses old compiled context after policy/rights update | **GAP/P1** | retry must revalidate/recompile policy-sensitive context |
+| 302 | Long-running local model keeps old weights loaded after package revocation | **GAP/P1** | package revocation should drain/restart resident worker before new job |
+| 303 | Local model process loads files from arbitrary model repo custom code | PARTIAL | package sandbox exists; “trust_remote_code” equivalent must default deny |
+| 304 | Model output contains a fake JSON control object matching internal schema | CONTAINED only if output parser enforces provenance/trust channel |
+| 305 | Connector normalizer trusts provider-declared MIME but bytes are executable/archive | **GAP/P1** | output type determined by probe/magic/sandbox, not provider label |
+| 306 | Provider returns 200 OK with HTML login page saved as “video.mp4” | **GAP/P1** | materialization decode/probe catches if implemented |
+| 307 | Downloaded model weights exceed declared size and fill disk | **GAP/P1** | package download has hard byte/storage reservation ceiling |
+| 308 | CDN serves different model bytes for same version across regions | **GAP/P1 reproducibility** | package identity must be digest-pinned, not version-name pinned |
+| 309 | One provider’s SDK auto-telemetry sends prompts despite network policy expectation | **GAP/P1 privacy** | SDK/runtime egress must be observed/blocked, not trust docs only |
+| 310 | Browser connector screenshot sent to VLM includes password/PII fields | **GAP/P1** | browser observation redaction/privacy scope required |
+
+# 22. Fifth-wave findings
+
+## X59 — Logical content identity vs physical encrypted storage (P1)
+Separate:
+- logical plaintext content identity;
+- physical ciphertext object identity;
+- encryption/wrapping scope.
+
+Do not require global convergent encryption for dedup.
+Cross-project dedup is policy-controlled and must not create a confidentiality/crypto-erasure conflict.
+
+## X60 — Envelope encryption (P1)
+For CineForge-managed encryption, prefer per-object data keys wrapped by policy/root keys so routine key rotation can rewrap keys without rewriting huge media objects.
+
+Store/verify:
+- ciphertext digest/integrity;
+- plaintext logical digest after successful decrypt;
+- key/wrapping metadata.
+
+## X61 — Resource reservation deadlock/admission policy (P1)
+Multiple resource types require deterministic acquisition ordering or atomic admission planning.
+Reservations are bounded by priority class, interactive reserve and future horizon.
+
+HUMAN_WAIT releases resources not physically required to preserve session.
+
+## X62 — Non-droppable context constraints (P0/P1)
+Context segments have criticality:
+- MANDATORY_POLICY
+- MANDATORY_RIGHTS_PRIVACY
+- MANDATORY_CANON
+- TASK_CRITICAL
+- OPTIONAL_ENRICHMENT
+
+Compilation fails rather than dropping mandatory classes.
+
+## X63 — Context dependency fence (P1)
+Compiled context has dependency manifest/hash.
+Immediately before dispatch/retry:
+- revalidate dependencies/policies/rights;
+- recompile if stale;
+- bind provider payload hash to job attempt.
+
+## X64 — Provider semantic-limit certification (P1)
+Capability certification includes practical request limits/feature semantics, not only API schema.
+Observed truncation/semantic drift degrades connector health and can force re-certification.
+
+## X65 — Adapter semantic conformance (P1)
+Provider adapters declare supported/approximated/unsupported semantic features.
+Critical unsupported constraint cannot be silently approximated.
+
+## X66 — Package/download byte ceilings and digest pinning (P1)
+Model/runtime packages are downloaded under:
+- expected maximum bytes;
+- disk reservation;
+- digest pin;
+- publisher/signature policy.
+
+Version string alone is not identity.
+
+## X67 — Browser observation privacy (P1)
+Screenshots/DOM/recordings sent to AI evaluators must pass redaction/privacy policy, especially login/MFA/account pages.
