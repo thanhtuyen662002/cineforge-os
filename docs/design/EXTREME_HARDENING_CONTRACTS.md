@@ -5772,3 +5772,219 @@ Failure/recovery:
 178. release trigger from untrusted source;
 179. offline known-bad package with stale revocation knowledge;
 180. undeclared/unpinned release toolchain input.
+
+
+
+# IH. Privacy purge closure and completion barrier
+
+A privacy/delete/purge request owns a closure over:
+- canonical entities/revisions;
+- derived proxies/thumbnails/waveforms/transcripts;
+- semantic/FTS/vector indexes;
+- semantic caches;
+- temp/staging;
+- learning/failure/golden datasets;
+- diagnostics/log references according to retention;
+- portable archives/backups according to policy/hold;
+- external exposure records.
+
+Purge states:
+`REQUESTED → TOMBSTONED → CANONICAL_REMOVED → DERIVED_CLEANUP → RETENTION_RECONCILIATION → EXTERNAL_RECONCILIATION → COMPLETE_TO_POLICY_SCOPE`
+
+The strongest user-facing wording is shown only after the corresponding barrier.
+
+# II. Forward deletion/revocation journal
+
+Disaster restore must not resurrect later privacy/security decisions.
+
+Maintain a protected forward journal for:
+- purge tombstones;
+- rights revocations;
+- credential/key revocations;
+- package/update minimum-version floors;
+- critical trust/security policy floors.
+
+Journal entries have monotonic sequence and durable checkpoint outside ordinary restorable project snapshot where configured.
+
+Recovery applies the forward journal before recovered content becomes active.
+
+# IJ. Embedding/vector/semantic-index security scope
+
+Embeddings are sensitive derivatives.
+
+Every vector/index entry binds:
+- studio/project/shared-scope ID;
+- source entity/revision;
+- privacy/rights class;
+- embedding/index model + version;
+- generation epoch;
+- retention/purge lineage.
+
+Search/RAG query requires a scope token; index implementation must not retrieve outside authorized scope and “filter later” as the primary isolation mechanism.
+
+Cross-project/shared retrieval requires explicit shared collection authority.
+
+# IK. Model/session isolation
+
+Inference runtimes declare session isolation class:
+- STATELESS;
+- RESETTABLE;
+- PROCESS_ISOLATED;
+- PROVIDER_MANAGED_UNKNOWN.
+
+On project/privacy boundary:
+- reset conversation/KV/session state where applicable;
+- rotate project/job cache namespace;
+- clear transient reference state;
+- prefer process isolation for untrusted custom nodes/plugins/high-sensitivity work.
+
+A runtime unable to prove reset semantics cannot be reused across restricted scopes under strict privacy policy.
+
+# IL. Learning/training derivative governance
+
+Training examples, fine-tuning datasets, adapters and trained checkpoints are first-class derivatives with lineage and rights.
+
+Revocation handling may include:
+- exclude source from future training;
+- quarantine dataset/model;
+- rebuild/retrain;
+- prohibit distribution/use;
+- record that selective unlearning is unavailable/impractical.
+
+Deleting source bytes is never represented as proof that a trained model no longer encodes influence from them.
+
+# IM. Observability privacy plane
+
+Logs/traces/metrics/crash diagnostics have explicit schemas and data classes.
+
+Default production observability excludes raw:
+- prompts;
+- dialogue/script content;
+- media bytes/previews;
+- credentials/tokens;
+- unnecessary full paths/project names.
+
+Redaction/minimization happens before emission/storage, not only during later support-bundle export.
+
+Retention/purge policy applies independently to observability stores.
+
+# IN. Native notification privacy
+
+Notification payload is derived from a trusted template plus sanitized args and a privacy profile:
+- FULL_CONTENT;
+- REDACT_ON_LOCK_SCREEN;
+- GENERIC_ONLY.
+
+Sensitive content never depends on OS lock-screen behavior alone.
+
+Actionable notification carries DecisionRequest/entity ID + expected version and always revalidates state on click.
+
+# IO. Backup vs ephemeral authentication
+
+Project/system backup excludes live browser cookies/session tokens/worker secret leases by default.
+
+If secure credential backup is supported, it is a separate explicit encrypted mechanism with:
+- key/recovery policy;
+- target security classification;
+- import audit;
+- reauth/fallback semantics.
+
+Ordinary restore expects REAUTH_REQUIRED where secure material is unavailable.
+
+# IP. Single Core/library writer ownership
+
+Each writable CineForge library has:
+- library/deployment identity;
+- owner OS user/security context;
+- Core ownership epoch;
+- OS-level exclusive writer primitive;
+- DB ownership record.
+
+Startup:
+1. acquire OS exclusive primitive;
+2. open/validate library identity;
+3. reconcile prior Core epoch;
+4. become writer;
+5. expose IPC endpoint.
+
+A second UI connects to the existing Core; it does not start a second writer.
+
+Updater/new Core cannot acquire writer authority until the prior Core is drained/terminated and ownership is reconciled.
+
+# IQ. Archive immutability
+
+Sealed archive/package bytes are immutable.
+
+Viewing with a newer app:
+- uses compatible decoder/read-only mode; or
+- imports/copies to a new mutable working project.
+
+No in-place schema migration, index write, metadata normalization or decoder “upgrade” is allowed against sealed archive bytes.
+
+Derived preview/index output lives outside the sealed package and is disposable.
+
+# IR. Consent/privacy generation epoch
+
+Privacy/telemetry/cloud-consent policy has a generation number.
+
+Queued external emissions store expected consent generation.
+
+Immediately before transmission:
+- resolve current consent/privacy generation;
+- revalidate data class/destination;
+- cancel/block stale queued emissions when policy tightened.
+
+Turning off telemetry/cloud sharing affects queued-unsent work; it cannot erase already transmitted exposure.
+
+# IS. External exposure ledger
+
+Every outbound sensitive-data transfer records:
+- project/data class;
+- source revision/input closure;
+- provider/account/workspace;
+- purpose/job/command;
+- timestamp;
+- policy/consent generation;
+- ProviderTermsSnapshot;
+- known provider retention/deletion status.
+
+The ledger survives local purge according to audit/privacy policy so the UI can truthfully explain external residual exposure.
+
+# IT. Most-restrictive dependency privacy
+
+A command's effective egress class is computed from the full input/dependency closure.
+
+Default rule:
+- effective permission is the most restrictive applicable requirement;
+- project-level CLOUD_ALLOWED cannot override an input marked LOCAL_ONLY;
+- provider-specific restrictions propagate through derived assets;
+- explicit declassification/reclassification is a separate authorized audited command.
+
+# IU. Temp/cache/project isolation
+
+Per-job/project temp/cache roots are scope-bound.
+
+On crash/startup reconciliation:
+- identify stale temp by job/project;
+- purge/quarantine according to policy;
+- never expose another project's temp tree as a candidate input.
+
+Model/runtime package cache is separate from project-content cache.
+
+# IV. Required privacy/isolation tests
+
+181. purge project while thumbnails/vector index still contain data;
+182. restore backup after later privacy purge;
+183. vector query attempts cross-project retrieval;
+184. local model session reused across projects;
+185. revoked training example remains in fine-tuned checkpoint;
+186. telemetry disabled with queued batch pending;
+187. project backup containing browser cookies;
+188. two Core processes race same library;
+189. updater starts new Core before old writer exits;
+190. archived project opened by newer migration-capable app;
+191. LOCAL_ONLY dependency used by cloud-allowed project;
+192. purge under backup/legal hold;
+193. crash leaves Project A temp frames then Project B starts;
+194. lock-screen notification for confidential project;
+195. external provider exposure remains after local purge.
