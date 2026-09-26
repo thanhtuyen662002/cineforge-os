@@ -2688,3 +2688,175 @@ Rebalancing:
 43. locale decimal input `1,5` vs `1.5`;
 44. rights expiry across timezone/DST boundary;
 45. order-key exhaustion/rebalance.
+
+
+# DP. Signed-manifest freshness and activation identity
+
+A valid signature does not make an arbitrarily old package/update acceptable.
+
+Signed package/update metadata includes:
+- package family;
+- semantic/version identity;
+- monotonic release epoch or signed sequence;
+- minimum allowed security/trust floor where applicable;
+- publication time/effective window;
+- manifest digest.
+
+Activation rejects:
+- older-than-policy-floor versions;
+- replayed manifests below accepted epoch;
+- manifests signed by revoked/untrusted keys.
+
+Final activation records exact installed file-tree/content digests after staging/finalization.
+Downloaded archive verification alone is insufficient.
+
+# DQ. Signing pipeline ordering and final-byte attestation
+
+Release pipeline ordering is explicit:
+
+```text
+SOURCE COMMIT
+→ HERMETIC BUILD
+→ NORMALIZE/PACKAGE
+→ PLATFORM SIGN
+→ HASH FINAL SIGNED BYTES
+→ BUILD/RELEASE ATTESTATION
+→ PUBLISH STAGING
+→ VERIFY FINAL STAGED BYTES
+→ UPLOAD
+```
+
+Any mutation after signing invalidates later digest/attestation.
+
+Record separately:
+- pre-sign build digest;
+- final signed artifact digest;
+- signing key ID;
+- optional timestamp-authority evidence;
+- source commit/toolchain/SBOM;
+- publish-staged digest.
+
+# DR. Signing timestamp evidence
+
+Where platform trust uses a timestamp authority:
+- store timestamp token/authority identity;
+- verify it independently;
+- distinguish current cert validity from trusted signing-time validity;
+- policy decides whether missing/invalid timestamp blocks release.
+
+# DS. Portable project/archive trust and namespace
+
+A CineForge portable project/package is untrusted until verified.
+
+Import:
+- validates archive traversal/parser budgets;
+- authenticates package manifest when available;
+- remaps collision-prone project-local IDs into new destination identity;
+- preserves provenance mapping from imported IDs;
+- never restores active credential secret references as authenticated;
+- external connections enter DISABLED/UNVERIFIED/REAUTH_REQUIRED as appropriate;
+- current package/model/license/rights policy is reevaluated;
+- publication destinations are not active by default.
+
+# DT. Authenticated backup and decryptability
+
+Backup validity dimensions:
+- content hash integrity;
+- manifest authenticity;
+- encryption confidentiality;
+- recovery-key availability;
+- failure-domain independence;
+- restore drill result;
+- freshness/RPO.
+
+A matching checksum without authentic manifest provenance does not prove the backup is trustworthy.
+
+Encrypted backup is not healthy if the required key cannot be recovered according to policy.
+
+# DU. Forward policy journal across restore
+
+Certain governance/privacy/security events are forward-authoritative and cannot be erased by restoring older project state:
+- signing/package/model key revocations;
+- security package blocks/minimum version floors;
+- consent/rights revocations;
+- deletion/privacy revocations;
+- publication/takedown fences where policy requires.
+
+After restore, Core reapplies the current forward policy journal before normal activation/dispatch.
+
+A backup does not resurrect a later-revoked permission.
+
+# DV. Project clone semantics
+
+Clone plan classifies data:
+- COPY_VALUE
+- SHARE_REFERENCE
+- OMIT
+- RESET_UNVERIFIED
+- NON_TRANSFERABLE
+
+Examples:
+- creative canon may copy by value;
+- immutable media may share safe storage reference;
+- credentials are omitted/rebound;
+- publication destinations reset;
+- non-transferable consents/rights require fresh binding;
+- browser sessions never clone as authenticated state.
+
+Clone impact is reviewable before execution.
+
+# DW. Portable/export metadata allowlist
+
+Portable archives, handoffs and release outputs use an explicit metadata allowlist.
+
+By default exclude:
+- absolute local paths/usernames;
+- temp/cache locations;
+- API endpoints;
+- secret/credential references;
+- internal prompts;
+- hidden diagnostics/debug traces;
+- unrelated private project IDs.
+
+Sanitization is recorded in the export/handoff manifest.
+
+# DX. Publication final-byte and destination idempotency
+
+Each publication destination maintains:
+- destination identity snapshot;
+- exact final staged artifact digest;
+- idempotency/correlation key;
+- state;
+- external publication ID;
+- verification evidence.
+
+Retry does not republish destinations already confirmed delivered unless explicitly requested.
+
+# DY. Takedown/revocation publication fence
+
+A takedown/revocation creates a forward publication fence scoped to:
+- release;
+- destination/account/workspace;
+- rights/revocation reason.
+
+Queued/future publication attempts matching the fence are BLOCKED before dispatch.
+
+Clearing the fence requires explicit authorized decision and does not erase prior takedown evidence.
+
+# DZ. Required trust/package/release tests
+
+46. replay older valid signed update manifest;
+47. replace sidecar/file after package archive verification;
+48. mutate artifact after platform signing;
+49. pre-sign vs post-sign digest provenance;
+50. missing/invalid timestamp-authority evidence;
+51. portable project ID collision and credential stripping;
+52. imported old blocked connector/model package;
+53. tampered backup + recomputed plain checksum;
+54. encrypted backup with unavailable recovery key;
+55. restore older backup after key/rights/privacy revocation;
+56. project clone with non-transferable rights and publication destination;
+57. export metadata leaking local path/user/internal prompt;
+58. corruption/path swap in publish staging after release verification;
+59. multi-destination retry after partial success;
+60. takedown racing queued publication.
