@@ -7527,3 +7527,85 @@ Recovery reconciles current security policy/identity journal before team access 
 Cross-project drag/copy/reuse is a typed command with rights/privacy/provenance/data-use analysis.
 
 An opaque handle valid in one project does not imply permission to reuse its content in another.
+
+
+
+# NR. Canonical writer QoS
+
+High-frequency telemetry/resource/progress data cannot monopolize canonical writer throughput.
+
+Writer admission distinguishes interactive canonical, control/recovery, background metadata and maintenance/telemetry classes.
+
+Transactions are bounded; external/media waits occur outside DB write transaction.
+
+# NS. Projection snapshot/rebuild scaling
+
+Projection state has generation + event cursor/checkpoint.
+Large rebuild:
+- resumes incrementally;
+- can keep previous verified generation serving when safe;
+- does not force replay from genesis on every startup.
+
+# NT. Object-store/index scaling
+
+Filesystem is persistence, not the primary object index.
+CAS layout uses deterministic sharding/packing suitable for large file counts.
+
+GC/scrub/reconciliation are cursor-based incremental maintenance; full scan is repair mode.
+
+# NU. Backup recoverability SLO
+
+Backup policy includes RPO/RTO/durability/verification expectations.
+Overlapping backup runs are coalesced/serialized per scope.
+
+Incremental/content-addressed backup is allowed so backup cadence does not require repeatedly copying unchanged multi-TB media.
+
+# NV. Working-set/lazy-load contract
+
+Project open and ordinary queries are bounded by working set/window/page.
+Large library/timeline/history surfaces are virtualized.
+
+Canonical correctness never requires UI to hydrate the entire project into memory.
+
+# NW. Derived-media demand scheduling
+
+Thumbnail/waveform/proxy/embedding generation is demand-aware.
+Visible/current work outranks background precompute.
+Under pressure, optional derivation pauses before interactive editing/recovery.
+
+# NX. Fairness and starvation contract
+
+Scheduler provides project fairness/aging and declares preemption semantics.
+
+Long nonpreemptible GPU jobs, short interactive previews and background batches are distinct workload classes.
+
+Priority cannot create permanent starvation without explicit policy.
+
+# NY. Physical-resource contention model
+
+Logical storage/network resources map to physical bottlenecks where known.
+Backup/hash scrub/media playback on the same disk are scheduled as competing IO, not independent resources.
+
+# NZ. Incremental invalidation fence
+
+Mass invalidation uses a root generation fence so correctness becomes conservative immediately, while detailed descendant propagation proceeds asynchronously.
+
+No huge single DB transaction is required to mark every descendant before stale safety takes effect.
+
+# OA. Hot/cold history contract
+
+Cold operational/audit payload may move to verified immutable archive segments while searchable headers/indexes remain hot.
+
+History retention remains auditable; hot DB is not required to keep every verbose payload forever.
+
+# OB. Large working-copy persistence
+
+Autosave can use operation/delta checkpoints with periodic compaction.
+Durability semantics remain explicit.
+
+A large script/timeline edit does not require rewriting the entire document for every keystroke.
+
+# OC. Background power/thermal policy
+
+Optional background maintenance/derivation honors battery/thermal/user-focus policy.
+Correctness-critical persistence/recovery remains separate and cannot be disabled by an energy-saving hint.
