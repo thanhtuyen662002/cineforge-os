@@ -3750,3 +3750,217 @@ Promotion/rollback references bundle ID rather than only a model/router version 
 - verified_at_utc_us nullable
 
 A structured parse derived from signed bytes does not itself inherit the original signature.
+
+
+
+# 89. Film spatial/identity/asymmetry continuity
+
+## scene_spatial_entities
+- id PK
+- scene_revision_id FK
+- entity_id FK entity_registry
+- spatial_role
+- anchor_or_zone_json
+- screen_side nullable
+- eyeline_target_entity_id nullable
+- orientation_json nullable
+
+## scene_portals
+- id PK
+- scene_revision_id FK
+- from_environment_revision_id FK
+- to_environment_revision_id FK
+- portal_type
+- topology_json
+- continuity_state
+
+## asymmetric_identity_facts
+- id PK
+- subject_entity_id FK entity_registry
+- fact_type: LEFT_RIGHT_MARKING | SCAR | ACCESSORY | DOMINANT_HAND | LOGO_TEXT | PROP_ORIENTATION | OTHER
+- side_or_orientation
+- value_json
+- valid_from_story_key nullable
+- valid_to_story_key nullable
+- authority_revision_id nullable FK revision_registry
+
+## identity_distinctiveness_constraints
+- id PK
+- project_id FK
+- subject_a_entity_id FK entity_registry
+- subject_b_entity_id FK entity_registry
+- modality: VISUAL | VOICE | BOTH
+- minimum_distinctiveness_profile_json
+- state
+
+## protected_identity_exclusions
+- id PK
+- protected_entity_id FK entity_registry
+- target_scope_type
+- target_scope_id
+- modality: VISUAL | VOICE
+- policy_json
+
+# 90. Long-take / occlusion continuity evidence
+
+## temporal_identity_coverage
+- id PK
+- subject_asset_revision_id FK
+- character_id FK
+- start_num
+- start_den
+- end_num
+- end_den
+- coverage_type: KEYFRAME | SEGMENT | PRE_OCCLUSION | POST_OCCLUSION | CONTINUOUS_SAMPLE
+- identity_state
+- costume_state nullable
+- prop_state_json nullable
+- evidence_id nullable FK evidence
+
+# 91. Camera/lens calibration metadata
+
+## camera_calibration_profiles
+- id PK
+- asset_revision_id nullable FK
+- shot_revision_id nullable FK
+- focal_length_mm nullable
+- horizontal_fov_deg nullable
+- vertical_fov_deg nullable
+- sensor_profile_json nullable
+- crop_factor nullable
+- lens_distortion_json nullable
+- rolling_shutter_json nullable
+- camera_transform_json nullable
+- source_confidence: VERIFIED | ESTIMATED | PROVIDED | UNKNOWN
+
+# 92. Retime/interpolation artifacts
+
+## retime_artifacts
+- id PK FK entity_registry
+- source_asset_revision_id FK
+- output_asset_revision_id FK
+- method: FRAME_SAMPLE | OPTICAL_FLOW | FRAME_INTERPOLATION | SPEED_RAMP | OTHER
+- method_version
+- time_mapping_manifest_hash
+- synthesized_frame_ranges_json nullable
+- visual_qc_state
+- lipsync_dependency_state
+- subtitle_dependency_state
+- music_dependency_state
+
+# 93. Overlapping conversation events
+
+## utterance_events
+- id PK FK entity_registry
+- conversation_session_id FK
+- character_id nullable FK
+- dialogue_line_revision_id nullable FK
+- audio_cue_id nullable FK
+- utterance_type: DIALOGUE | INTERRUPTION | OVERLAP | NONVERBAL | BACKCHANNEL | CROWD
+- start_num
+- start_den
+- end_num
+- end_den
+- speaker_binding_state
+- performance_context_id nullable
+- overlap_group_id nullable
+
+# 94. Language-specific voice performance bindings
+
+## voice_language_profiles
+- id PK
+- voice_identity_revision_id FK
+- locale
+- certified_binding_id nullable FK voice_provider_bindings
+- pronunciation_profile_json
+- prosody_envelope_json
+- age_impression_profile_json
+- pace_range_json
+- certification_state
+
+## dubbing_fit_candidates
+- id PK
+- dubbing_track_id FK
+- dialogue_line_revision_id FK
+- translation_unit_id FK
+- target_duration_num
+- target_duration_den
+- phoneme_viseme_profile_json nullable
+- estimated_speech_rate
+- semantic_fit_score nullable
+- timing_fit_state
+- selected BOOL
+
+# 95. Delivery audio/subtitle target profiles
+
+## audio_delivery_profiles
+- id PK
+- profile_name
+- integrated_loudness_target nullable
+- true_peak_limit nullable
+- channel_layout
+- mono_compatibility_required BOOL
+- codec_profile_json
+- language_flag_policy_json
+
+## subtitle_delivery_profiles
+- id PK
+- profile_name
+- locale
+- max_cps nullable
+- max_chars_per_line nullable
+- max_lines nullable
+- safe_area_profile_json
+- bidi_shaping_profile_json nullable
+- font_embedding_policy_json nullable
+- supported_styling_json
+- target_format
+
+# 96. Editor adapter capability certification
+
+## editor_adapter_versions
+- id PK
+- editor_family
+- editor_version_range
+- adapter_version
+- certification_manifest_hash
+- state
+
+## editor_feature_capabilities
+- editor_adapter_version_id FK
+- feature_code
+- support_level: NATIVE | APPROXIMATED | FLATTENED | UNSUPPORTED
+- notes nullable
+PK(editor_adapter_version_id, feature_code)
+
+## handoff_loss_reports
+- id PK
+- handoff_manifest_id FK
+- feature_code
+- support_level
+- affected_entity_count
+- details_json
+
+# 97. External edit return comparison
+
+## external_edit_contract_diffs
+- id PK
+- external_edit_id FK
+- diff_type: MEDIA_PROFILE | FPS_TIMEBASE | START_TIMECODE | DURATION | MEDIA_IDENTITY | PROXY_ORIGINAL_ROLE | FLATTENING | AUDIO_LANGUAGE | SUBTITLE_LANGUAGE | OTHER
+- severity
+- before_json
+- after_json
+- resolution_state
+
+# 98. Alternate deliverable review scope
+
+## deliverable_variants
+- id PK FK entity_registry
+- release_candidate_id FK
+- variant_type: MASTER | VERTICAL | SQUARE | SOCIAL | TRAILER | PLATFORM_SPECIFIC | OTHER
+- media_profile_revision_id FK
+- crop_reframe_manifest_hash nullable
+- subtitle_profile_id nullable
+- audio_profile_id nullable
+- review_state
+- release_gate_state
