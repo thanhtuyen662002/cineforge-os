@@ -1041,3 +1041,161 @@ Rules:
 - promotion revalidates candidate/base dependencies before impact propagation;
 - resolving a group records the promoted revision;
 - non-promoted candidates remain historical/inspectable according to retention policy.
+
+
+# 52. Recovery epoch lifecycle
+
+```text
+RESTORE_REQUESTED
+→ RESTORING
+→ RECOVERY_RECONCILIATION
+→ READY_TO_ACTIVATE
+→ ACTIVE
+```
+
+Alternate:
+- any pre-ACTIVE → BLOCKED
+- BLOCKED → RECOVERY_RECONCILIATION
+- pre-ACTIVE → ABORTED
+
+Rules:
+- no new external dispatch during RECOVERY_RECONCILIATION;
+- restored outbox items are reconciled before resend;
+- external callbacks/events that cannot be mapped safely to the recovered epoch remain QUARANTINED;
+- browser/profile/provider sessions are revalidated;
+- activation requires all mandatory external-reality decisions resolved or explicitly waived by policy/authority.
+
+# 53. Database/storage pressure state
+
+Independent system pressure axis:
+- NORMAL
+- WARNING
+- CRITICAL
+- READ_ONLY_SAFE
+- RECOVERING
+
+Transitions consider:
+- free disk reserve;
+- WAL growth/checkpoint failure;
+- writer latency/queue;
+- object/temp/cache pressure.
+
+Actions:
+- WARNING: warn/schedule cleanup;
+- CRITICAL: stop new large disk consumers, prioritize checkpoint/cleanup;
+- READ_ONLY_SAFE: block canonical mutations that cannot persist safely while preserving browse/recovery functions.
+
+No background worker may continue creating large outputs merely because its own local disk check looked healthy earlier.
+
+# 54. External artifact materialization
+
+```text
+REMOTE_AVAILABLE
+→ DOWNLOADING
+→ MATERIALIZED
+→ HASHED
+→ DECODE_VERIFIED
+→ REGISTERED
+→ READY
+```
+
+Abnormal:
+- EXPIRED
+- FAILED_DOWNLOAD
+- CORRUPT
+- QUARANTINED
+- UNVERIFIED_ASSOCIATION
+
+REMOTE_AVAILABLE is never equivalent to READY for durable production media.
+
+# 55. Connection credential portability
+
+Authentication axis:
+- UNCONFIGURED
+- AUTHENTICATED
+- EXPIRING
+- EXPIRED
+- REVOKED
+- REAUTH_REQUIRED
+- MISSING_SECURE_MATERIAL
+
+Restore/machine move can transition AUTHENTICATED historical state to REAUTH_REQUIRED/MISSING_SECURE_MATERIAL without marking the connector implementation unhealthy.
+
+# 56. Manual creative ownership
+
+Manual control lock:
+- ACTIVE
+- RELEASED
+- SUPERSEDED
+
+Late AI result resolution:
+- CANDIDATE_ONLY if generated against an older revision/manual lock;
+- PROMOTABLE_BY_EXPLICIT_COMMAND;
+- never auto-canonical over newer human-owned state.
+
+# 57. Dispatch batch lifecycle
+
+```text
+PLANNED
+→ SAMPLING
+→ PAUSED_FOR_SAMPLE_DECISION
+→ DISPATCHING
+→ COMPLETE
+```
+
+Alternate:
+- PLANNED/SAMPLING/DISPATCHING → PAUSED
+- any active → CANCELLING → CANCELLED
+- upstream invalidation → INVALIDATED
+
+Already-dispatched jobs keep their own lifecycle and stale/recovery semantics.
+Cancelling the batch stops new dispatch; it does not pretend already accepted external jobs vanished.
+
+# 58. Resource reservation lifecycle
+
+- RESERVED
+- ACTIVE
+- RENEWING
+- RELEASED
+- EXPIRED
+- REVOKED
+
+Dispatch validates reservation fencing token.
+A worker that lost/revoked a reservation cannot start a new resource-consuming phase based only on old telemetry.
+
+# 59. Update/schema compatibility lifecycle
+
+Update:
+- PLANNING
+- COMPATIBILITY_CHECK
+- DRAINING
+- SNAPSHOTTING
+- INSTALLING
+- MIGRATING
+- HEALTH_CHECK
+- ACTIVE
+
+Failure branches:
+- ROLLBACK_BINARY_ONLY_ALLOWED
+- ROLLBACK_REQUIRES_DB_RESTORE
+- RECOVERY_REQUIRED
+- FAILED_SAFE_MODE
+
+The system must not expose a generic “Rollback” action unless the compatibility state proves what will be rolled back.
+
+# 60. Signing key/trust lifecycle
+
+Key:
+- ACTIVE
+- ROTATING
+- REVOKED
+- EXPIRED
+
+Verification:
+- VALID_TRUSTED
+- VALID_BUT_REVOKED
+- VALID_BUT_UNKNOWN_KEY
+- INVALID_SIGNATURE
+- EXPIRED_KEY
+
+Only VALID_TRUSTED passes a required signing gate.
