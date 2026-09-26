@@ -2831,3 +2831,98 @@ Commands:
 - ApproveVariant
 
 Each materially distinct crop/aspect/profile has independent review/release gates.
+
+
+
+# 79. Collaboration authorization API
+
+Queries:
+- query.membership.current
+- query.session.authorization
+- query.collaboration.working_copies
+- query.collaboration.conflicts
+- query.collaboration.merge_policy
+
+Commands:
+- InviteProjectMember
+- ChangeProjectMemberRoles
+- RevokeProjectMembership
+- BeginCollaborativeWorkingCopy
+- SyncCollaborativeWorkingCopy
+- ResolveCollaborationConflict
+- MergeCollaborativeWorkingCopy
+- AbandonCollaborativeWorkingCopy
+
+Sensitive command/approval submit rechecks current authorization epoch.
+
+# 80. Capability-token/subscription revocation API
+
+Internal methods:
+- auth.issue_scoped_capability_token
+- auth.revoke_project_tokens
+- auth.revalidate_session
+- events.reauthorize_subscription
+- events.terminate_subscription
+
+Media/preview tokens bind actor/session/project/purpose and authorization epoch.
+Membership/role revocation can invalidate sensitive tokens/subscriptions.
+
+# 81. Collaborative edit merge contract
+
+Per-domain merge policy is queried before sync/merge.
+
+Rules:
+- BRANCH_ONLY/EXCLUSIVE domains never auto-merge semantically;
+- stale offline work is preserved as branch/working copy;
+- last-write-wins is not the default for canon/rights/release/timeline critical edits;
+- structured text merge can produce unresolved conflicts rather than invent one truth.
+
+# 82. Collaborative undo API
+
+Undo/redo in shared state operates on the current actor/session operation graph.
+
+Command:
+- PlanCompensateCollaborativeOperation
+- CompensateCollaborativeOperation
+
+It does not rewind unrelated later operations by other actors.
+
+# 83. Concurrent approval/select API
+
+Canonical selection/approval commands require:
+- expected aggregate/canonical revision;
+- exact candidate revision;
+- current reviewer authority epoch;
+- review dependency hash.
+
+Conflicting simultaneous approvals return STALE/CONFLICT; both do not become canonical.
+
+# 84. Delegation/impersonation API
+
+Queries:
+- query.authority.delegations
+- query.authority.impersonation
+
+Commands:
+- GrantDelegation
+- RevokeDelegation
+- BeginImpersonationSession
+- EndImpersonationSession
+
+Every delegated/impersonated command records principal + effective actor and authority source.
+
+# 85. Cross-project reuse API
+
+Command:
+- PlanCrossProjectAssetReuse
+- ExecuteCrossProjectAssetReuse
+
+Plan evaluates:
+- rights;
+- privacy/data-use;
+- provenance;
+- storage/link mode;
+- learning scope;
+- target project policy.
+
+Raw asset ID/handle copy is not cross-project authorization.
