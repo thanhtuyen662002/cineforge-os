@@ -1935,3 +1935,130 @@ Bulk approve/delete/generate/review commands bind an immutable scope:
 Items that appear after user/agent confirmation do not silently join the operation.
 
 UI selection/focus changes cannot mutate the command scope after confirmation.
+
+
+# 63. Core singleton and DB ownership fencing
+
+CineForge V1 supports one authoritative Core process per live Core database.
+
+Protection has two layers:
+- OS-user scoped instance/process lock for fast duplicate-launch prevention;
+- DB ownership epoch/fencing record for crash/updater/restart correctness.
+
+Rules:
+- a second live Core cannot become active scheduler/writer for the same DB;
+- a stale lock file alone cannot permanently block restart;
+- Core startup proves previous owner is dead/expired before taking a new ownership epoch;
+- every external-dispatch scheduler/maintenance owner validates current DB ownership epoch;
+- V1 does not support two OS users/processes sharing one live SQLite database as a multi-user server.
+
+Updater must drain/stop old Core before activating new Core ownership.
+
+# 64. Database maintenance and SQLite connection invariants
+
+Every Core SQLite connection verifies required PRAGMAs, including foreign-key enforcement.
+
+Migrations/rebuild/VACUUM:
+- estimate/reserve worst-case temporary disk;
+- run under maintenance/safe-boundary policy;
+- use transactional/verified migration patterns;
+- compare applied migration checksum to repository migration identity;
+- fail safe on checksum drift.
+
+A user copy of only the main DB file while WAL is active is not an approved backup method.
+Approved backup uses SQLite-safe online backup/snapshot semantics plus object manifest checkpoint.
+
+# 65. Time semantics and clock uncertainty
+
+Separate:
+- monotonic duration/timeout measurement;
+- sequence/version ordering;
+- wall-clock civil/legal timestamps.
+
+Authoritative history ordering uses sequence/version, not UUIDv7 or wall-clock timestamp alone.
+
+If system clock changes beyond configured tolerance:
+- enter `TIME_UNCERTAIN`;
+- revalidate token/license/rights/schedule assumptions where material;
+- do not reorder history based on changed wall clock.
+
+# 66. Derived confidential-data lifecycle
+
+Privacy/rights scope propagates to derived artifacts and indexes:
+- thumbnails;
+- proxies;
+- waveforms;
+- OCR/transcripts;
+- embeddings/vector indexes;
+- search indexes;
+- diagnostics;
+- learning examples.
+
+Revocation/delete/privacy-scope change invalidates or removes derived copies according to policy.
+
+Cross-project/global retrieval cannot return derived confidential data without matching scope/authority.
+
+# 67. Local runtime network egress policy
+
+A “local” worker/package does not automatically have network permission.
+
+Runtime/package/connector manifest declares:
+- network DENY;
+- destination ALLOWLIST;
+- or explicitly REQUIRED network scope.
+
+Sensitive/local-only project policy can require network-denied workers.
+
+Unexpected egress is a health/security failure.
+
+# 68. Local service binding and IPC replay resistance
+
+Local services:
+- bind approved local interfaces only unless explicitly designed otherwise;
+- use OS ACL/firewall/session isolation;
+- do not expose MCP/Core/worker control APIs on `0.0.0.0` by default;
+- use short-lived/scoped authentication material;
+- protect privileged commands from replay with session/nonce/idempotency semantics;
+- never log bearer/session secrets.
+
+# 69. Timeline/undo/variant scale management
+
+Mutable edit histories are bounded by compaction/checkpoints.
+
+Rules:
+- periodic working-session snapshots reduce replay length;
+- undo-retained operations pin required dependent assets;
+- GC respects undo reachability until retention expires/checkpoint policy releases it;
+- candidate/variant sets have WIP/archive/retention policies;
+- UI/search do not require loading every historical candidate at once.
+
+# 70. Recovery projection/index invalidation
+
+Recovery epoch applies to derived read models too.
+
+After restore:
+- any projection/search/vector/cache built from events/state newer than restored checkpoint is invalid;
+- projections are rebuilt or version-fenced before authoritative UI/query use;
+- security-sensitive deletion/revocation may synchronously fence stale index versions so deleted confidential content is not queryable during rebuild.
+
+# 71. Release final revalidation
+
+Immediately before final signing/release/publish:
+- reverify required artifact hash/availability;
+- rights/consent/provider terms;
+- signing trust/readiness;
+- release manifest dependency versions;
+- no blocking recovery/integrity finding.
+
+A previous approval does not override current missing/corrupt/revoked release input.
+
+# 72. Large bulk scope manifests
+
+Large bulk command scope is stored as an immutable manifest object with digest rather than an unbounded JSON payload.
+
+The command/event references:
+- scope manifest ID/hash;
+- item count;
+- query/source snapshot metadata.
+
+Execution streams the pinned manifest and revalidates per-item revision policy.
