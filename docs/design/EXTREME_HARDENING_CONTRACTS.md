@@ -7299,3 +7299,65 @@ User override/emergency bypass/abandonment is not positive quality evidence by d
 “No further review” and “job ended” are not synonyms for success.
 
 Every learning-eligible outcome carries explicit terminal reason and curation status.
+
+
+
+# MR. Document semantic coverage contract
+
+A document parser publishes a versioned semantic coverage manifest.
+
+“Parsed” means the parser completed.
+It does not mean all meaningful document constructs were understood.
+
+Consumers declare required semantic channels.
+A required UNKNOWN/PARTIAL/UNSUPPORTED channel blocks automatic canonical promotion unless an explicit policy/user decision accepts the uncertainty.
+
+# MS. Office/PDF active-content inertness
+
+Document ingestion and preview never execute:
+- macro/VBA;
+- OLE/DDE;
+- external workbook/data refresh;
+- PowerQuery/data connection;
+- PDF JavaScript/Launch action;
+- embedded executable;
+- remote template/font/image fetch.
+
+These are inventoried as untrusted data.
+
+# MT. Spreadsheet structural truth
+
+Canonical parse preserves workbook/sheet/range/cell coordinates, hidden state, merge spans, formulas, cached values, calculation freshness, external dependency state, date system and encoding/locale interpretation.
+
+A flattened row view is derived convenience data only.
+
+# MU. Revision/signature separation
+
+Source-document digital signature applies to source bytes and signed byte ranges.
+
+Normalized text, OCR, extracted tables and mappings are derived revisions with provenance.
+They are never labeled “signed” merely because their source was signed.
+
+Track-change/current-document semantics are explicit.
+
+# MV. Layout/OCR uncertainty
+
+OCR/layout extraction carries region/confidence/model/parser provenance.
+
+Reading order, multi-column layout, handwriting, strike-through and merged-table ambiguity can produce UNKNOWN/AMBIGUOUS rather than fabricated certainty.
+
+# MW. Structured-document parser reproducibility
+
+Accepted mapping pins:
+- source digest;
+- parse revision;
+- parser/profile versions;
+- coverage manifest;
+- locale/encoding/date-system interpretation.
+
+A parser upgrade produces a new candidate parse and cannot silently change an already accepted mapping.
+
+# MX. Document remote-resource isolation
+
+Document preview/import never auto-fetches remote linked content.
+An explicit network-enabled document action, if ever supported, uses the normal URL/network trust boundary and records exact fetched material/provenance.
