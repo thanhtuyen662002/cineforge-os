@@ -2496,3 +2496,55 @@ Any artifact-transforming command reports whether it invalidates:
 - human review.
 
 Release readiness queries final artifact lineage and currently valid evidence only.
+
+
+
+# 92. Provenance API
+
+Queries:
+- `query.provenance.summary`
+- `query.provenance.claims`
+- `query.provenance.signatures`
+- `query.provenance.lineage`
+- `query.provenance.conflicts`
+
+Commands:
+- RegisterProvenanceClaim
+- VerifyProvenancePackage
+- ResolveProvenanceConflict
+- CreatePrivacyMinimizedProvenanceExport
+
+Provenance summary returns separate:
+- byte/subject binding;
+- signer validity/trust;
+- lineage completeness;
+- rights status;
+- conflict/unknown state.
+
+# 93. Handoff/import provenance API
+
+Handoff manifest exposes exact exported fingerprints.
+Return import:
+- verifies expected files;
+- detects mismatch;
+- creates transform/flattened edge only when evidence supports it;
+- otherwise registers a new UNVERIFIED source.
+
+# 94. Publication artifact API
+
+Publication query distinguishes:
+- approved master;
+- exact upload bytes;
+- public/platform derivative.
+
+Verification of one artifact role never marks all roles verified.
+
+# 95. Similarity-risk API
+
+Similarity analysis returns evidence/UNKNOWN/OOD and possible source matches.
+It cannot emit a binding legal verdict.
+
+# 96. Provenance parser network policy
+
+Manifest parsing never automatically dereferences external URLs.
+Optional external evidence retrieval uses the standard authorized URL-fetch security boundary.
