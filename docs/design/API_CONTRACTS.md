@@ -1921,3 +1921,164 @@ Returns a redacted/scoped observation and evidence:
 - retention.
 
 Raw login/password/MFA observation is not automatically sent to model services.
+
+
+
+# 61. Task dependency DAG API
+
+Planner/control queries:
+- `query.task_graph.validate`
+- `query.task_graph.cycles`
+
+Mutations that add/change hard dependencies validate the candidate graph before commit.
+A detected cycle returns an explicit cycle path and prevents READY state.
+
+# 62. Secure URL intake API
+
+Trusted network fetcher:
+- `url_intake.plan(url, policy)`
+- `url_intake.fetch(plan_id)`
+- `url_intake.get_receipt`
+
+Plan resolves:
+- scheme;
+- DNS/IP classification;
+- redirect policy;
+- expected content type/size;
+- credential/cookie policy.
+
+Fetcher revalidates every redirect and connect-time destination.
+Private/link-local/loopback/custom/file targets are blocked unless explicit policy permits.
+
+# 63. Provider callback authentication API
+
+Callback ingress pipeline:
+1. identify connector/provider;
+2. authenticate signature/token/channel;
+3. enforce replay window/deduplication;
+4. only then create canonical `external_inbox_event`;
+5. normalize/reconcile state.
+
+Failed authentication is logged as security evidence but never becomes a provider state transition.
+
+# 64. Dependency/SBOM API
+
+Queries:
+- `query.dependencies.current`
+- `query.dependencies.risk`
+- `query.sbom.current`
+
+Commands:
+- PlanDependencyChange
+- ApproveDependencyChange
+- RecordDependencyChange
+- GenerateSbom
+
+A dependency-changing PR/agent action exposes:
+- source registry;
+- integrity/provenance;
+- license;
+- scripts/native code;
+- vulnerability state;
+- review class.
+
+# 65. Invariant-test governance API
+
+Advanced CI/governance:
+- `query.invariants.active`
+- `query.invariants.diff_impact`
+
+CI compares PR diff with invariant registry.
+Deleting/weakening a protected invariant test creates a HIGH-risk governance finding requiring explicit review.
+
+# 66. External source revalidation API
+
+- `external_sources.verify(asset_revision_id)`
+- `external_sources.relink(asset_revision_id, new_path_handle)`
+
+Verification uses cryptographic content fingerprint for canonical/reviewed sources.
+Size/mtime can accelerate discovery but never prove identity.
+
+If content changes in place:
+- current source binding becomes CHANGED;
+- dependent approvals/staleness are recalculated according to dependency policy.
+
+# 67. Rebuildability API
+
+- `query.rebuildability(asset_revision_id)`
+- `query.recipe.dependencies(recipe_id)`
+
+Returns:
+- technical inputs;
+- package/model/provider availability;
+- rights/license state;
+- reproducibility level.
+
+GC/package-removal plan cannot claim “safe to delete/rebuildable” if any required dependency is missing/blocked.
+
+# 68. Integrity-auditor API
+
+- `integrity.run(scope)`
+- `query.integrity.findings`
+- `integrity.reconcile(finding_id, action)`
+
+Critical findings may:
+- enter safe mode;
+- block release/merge/import depending on scope;
+- create DecisionRequest when automatic truth cannot be established.
+
+The auditor never “repairs” ambiguity by guessing a preferred table/event.
+
+# 69. Worker crash-loop API
+
+Internal:
+- `workers.record_failure`
+- `workers.plan_restart`
+- `workers.quarantine`
+- `workers.release_quarantine`
+
+Restart plan uses budget/backoff.
+Once budget is exceeded, worker becomes QUARANTINED/UNHEALTHY rather than looping.
+
+# 70. Connection identity verification API
+
+- `connections.verify_identity(connection_id)`
+
+Returns:
+- account;
+- tenant/workspace;
+- region;
+- verification state.
+
+Before a job whose policy pins tenant/workspace/region, dispatch revalidates matching identity.
+
+# 71. Bulk snapshot API
+
+`command.plan` for bulk actions materializes exact scope:
+- member IDs;
+- revision IDs where relevant;
+- snapshot hash;
+- count;
+- impact.
+
+`command.execute` references `bulk_snapshot_id`, never re-runs an open-ended UI search/filter.
+
+If any member revision changed and command semantics require exact revision, execution returns STALE_SCOPE or replans.
+
+# 72. Backup failure-domain API
+
+`query.backup.resilience` reports:
+- same physical disk/failure domain;
+- offline/immutable status;
+- restore verification;
+- last successful drill.
+
+“Backup exists” and “independent failure protection exists” are separate facts.
+
+# 73. Local security profile API
+
+System diagnostics:
+- `query.security.local_profile`
+- `security.verify_local_acl`
+
+Verifies DB/media/runtime/browser/IPC access profile against expected OS-user deployment mode.
