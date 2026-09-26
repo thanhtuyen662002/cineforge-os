@@ -1745,3 +1745,125 @@ Show true detected media type/extension independently from deceptive Unicode pre
 
 ## X49 — Privacy sanitation cannot erase rights obligations (P1)
 Release sanitizer resolves privacy metadata policy together with attribution/license obligations and records what was removed/preserved.
+
+
+# 19. Fourth-wave adversarial cases — learning, collaboration, time, encryption and publication
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 261 | Malicious/low-quality production feedback poisons Failure Lake and gradually changes routing | PARTIAL | learning gates exist, but dataset poisoning/anomaly controls need explicit treatment |
+| 262 | Golden dataset accidentally contains near-duplicates of benchmark/shadow cases | **GAP/P1** | evaluation leakage can falsely validate promotions |
+| 263 | Generated examples dominate future training/evaluation and create self-reinforcing style | CONTAINED/PARTIAL | self-contamination known; dataset composition thresholds should be explicit |
+| 264 | Confidential Project A embeddings are included in a global retrieval index used by Project B | **GAP/P0/P1 privacy** | memory scope exists conceptually; physical index partition/access proof needed |
+| 265 | Deleted/private project content remains in vector index after source deletion | PARTIAL | derived purge exists; retrieval index tombstone/rebuild proof needed |
+| 266 | A promoted evaluator/router depends on a package/model later revoked | **GAP/P1** | promotion validity should depend on runtime/package trust state |
+| 267 | Human reviewer account is disabled while its old approvals remain | CONTAINED | historical approvals immutable; live authority offboarding exists |
+| 268 | Actor loses permission while a high-impact command is waiting_external then callback arrives | CONTAINED if execution-time authority revalidation occurs before canonical high-impact phase |
+| 269 | Actor is offboarded while holding manual edit locks | PARTIAL | offboarding says release/reassign; stale-client fencing must be explicit |
+| 270 | Two human editors make valid non-overlapping timeline changes, but exclusive lock blocks productivity | PARTIAL | session modes exist; typed-op merge should be used where safe instead of excessive locking |
+| 271 | Two editors change same clip timing offline then reconnect | **GAP/P1** | requires explicit conflict branch/merge semantics and no auto-merge |
+| 272 | Producer approves scene while editor has unsynced local working ops | **GAP/P1** | approval must bind server-side checkpoint; UI must expose unsynced local state |
+| 273 | Rights/consent expires halfway through a 500-item dispatch batch | PARTIAL | execution-time revalidation exists; batch must pause remaining items immediately |
+| 274 | Rights revoke arrives while release upload is 90% complete | PARTIAL | publication serialization exists; abort/compensate semantics by provider need explicit |
+| 275 | Machine clock jumps 24h forward and marks leases/certs/tokens expired | **GAP/P1** | local wall clock cannot be sole trust source for security/lease decisions |
+| 276 | Machine clock jumps backward and scheduled publish fires twice | **GAP/P1** | schedule occurrence identity/idempotency needed |
+| 277 | NTP/OS time is wrong but GitHub/provider server time is correct | **GAP/P1** | system needs time-health/uncertainty state for security-sensitive operations |
+| 278 | TLS/signature verification validity is evaluated with wildly wrong local clock | **GAP/P0/P1** | high-impact network/signing operations should fail safe when time is untrusted |
+| 279 | Signed URL expires because local queue delay exceeds provider TTL | PARTIAL | materialization state exists; urgency/expiry-aware scheduling needed |
+| 280 | Backup is encrypted but key is lost; backup still displayed “healthy” | **GAP/P1** | recoverability must include decryptability/key availability test |
+| 281 | Encryption key rotation crashes after half the objects are rewrapped | PARTIAL | key journal exists; mixed-key recovery path should be explicitly resumable |
+| 282 | Crypto-erasure deletes key but immutable backup still contains another wrapped copy | PARTIAL | key/delete journal exists; all key copies/wrappers must be scoped |
+| 283 | Attacker restores an old backup containing a previously revoked signing/trust key | **GAP/P0/P1** | trust/key revocation journal must move forward across restore epoch |
+| 284 | User changes Windows password/account security context; DPAPI decrypt fails | CONTAINED/PARTIAL | reauth for external credentials; locally encrypted app secrets/data recovery policy needs explicit behavior |
+| 285 | Publish to 5 platforms: 3 succeed, 1 fails, 1 status unknown | PARTIAL | PARTIAL/compensation exists; per-destination publication state aggregation should be explicit |
+| 286 | User retries multi-platform publish; already successful platforms receive duplicates | **GAP/P1** | destination-scoped publication idempotency key required |
+| 287 | Platform defaults visibility to PUBLIC when intended UNLISTED | **GAP/P0/P1 UX/privacy** | visibility/audience must be pinned in publication destination and verified after publish |
+| 288 | Platform silently changes scheduled publish timezone | **GAP/P1** | provider-reported effective schedule must be read back/verified |
+| 289 | Platform strips captions/chapters/thumbnail after processing | PARTIAL | published-output verification exists; expected attachment manifest should be compared |
+| 290 | Platform Content ID/muting alters music after successful upload | **GAP/P1 delivery** | post-publication compliance/availability status should be monitored/represented |
+| 291 | Takedown succeeds on one platform but fails/unknown on others | PARTIAL | per-publication state exists; aggregate release exposure view needed |
+| 292 | User deletes local release record while public publication still exists | **GAP/P1 audit** | publication identity/audit must survive local project trash/purge according to policy |
+| 293 | Provider says deleted but caches/CDN remain publicly accessible | RESIDUAL | cannot guarantee external erasure; evidence/unknown state required |
+| 294 | Private release link leaks through logs/support bundle | **GAP/P1** | publication URLs/tokens are sensitive telemetry class |
+| 295 | A connector API schema remains identical but semantics change (e.g. quality flag meaning reverses) | PARTIAL | semantic certification exists; canary/golden probe should gate important connector updates |
+| 296 | Provider returns safety-edited/censored output but does not declare transformation | **GAP/P2/P1 creative** | normalized result should record provider-side rewrite suspicion/evidence when detectable |
+| 297 | Two tasks touch different files but mutate the same semantic contract | **GAP/P1 orchestration** | path hotspot detection alone is insufficient; semantic contract hotspot ownership needed |
+| 298 | Two migrations use unique IDs but make incompatible logical assumptions | **GAP/P1** | migration semantic dependency/order must be reviewed, not only filename collision |
+| 299 | Agent modifies architecture docs to justify its implementation rather than conforming to approved intent | **GAP/P1 governance** | architecture-changing scope escalation and independent decision rationale needed |
+| 300 | Agent marks a P0 finding as “accepted risk” without authority to unblock itself | **GAP/P0 governance** | risk acceptance/waiver needs explicit authority and cannot be self-granted by implementer |
+
+# 20. Findings from fourth wave
+
+## X50 — Learning dataset integrity and leakage controls (P1)
+Golden/benchmark/shadow/failure datasets need:
+- immutable snapshot IDs;
+- duplicate/near-duplicate leakage checks;
+- source composition statistics;
+- synthetic/generated proportion thresholds;
+- project/privacy scope;
+- poisoned/outlier sample review;
+- package/model/runtime dependencies.
+
+Promotion validity can become STALE when required runtime/package trust is revoked.
+
+## X51 — Retrieval/index tenant isolation proof (P0/P1)
+Vector/search/embedding indexes are derived authorization-scoped projections.
+They must:
+- partition or filter by studio/project/purpose;
+- carry source revision + rights/privacy scope;
+- honor tombstones/revocations;
+- support purge/rebuild verification;
+- never return cross-scope data because similarity score is high.
+
+## X52 — Offline collaboration conflict model (P1)
+Working ops from stale/offline sessions:
+- replay only when commutative/safe;
+- otherwise create explicit conflict/branch;
+- never auto-overwrite canonical checkpoint.
+Approval only sees synchronized server-side immutable checkpoint.
+
+## X53 — Trusted time health (P0/P1)
+Security/release/scheduling needs a time-health state.
+Wall clock is not authoritative by itself.
+Use monotonic clocks for durations/TTL locally, server/provider timestamps for external ordering when available, and fail safe for signing/cert/lease decisions when time uncertainty exceeds policy.
+
+## X54 — Scheduled occurrence identity (P1)
+Recurring/scheduled external actions use unique occurrence IDs/idempotency keys so clock changes/restarts do not execute the same intended occurrence twice.
+
+## X55 — Backup recoverability includes decryptability (P1)
+A backup is VERIFIED only when its required keys/wrapped-key chain are available and restore drill can decrypt representative data.
+Old restored trust/key state cannot resurrect revocations because forward key/policy journals are replayed.
+
+## X56 — Multi-destination publication state (P1)
+Each destination has independent idempotency, visibility/audience, schedule, upload, platform-processing, verification and takedown state.
+Release-level status is an aggregate, never one boolean.
+
+## X57 — Publication audience/schedule postcondition verification (P0/P1)
+After publish/schedule, read back provider-effective:
+- account/workspace;
+- destination/channel;
+- visibility/audience;
+- schedule/timezone;
+- content identity.
+Mismatch blocks “VERIFIED” and can trigger compensation/takedown.
+
+## X58 — Public publication identity outlives project trash (P1)
+Audit/takedown evidence for external publication cannot disappear merely because a local project is trashed/purged.
+Retention policy preserves minimum external side-effect identity/evidence.
+
+## X59 — Semantic contract hotspots (P1)
+Planner/Integrator track semantic hotspots, not only paths:
+- DB aggregate/schema contract;
+- event/API contract;
+- auth/trust contract;
+- timeline/media timing contract;
+- release/signing contract.
+Parallel PRs affecting the same hotspot require contract-first sequencing/integration review even if files do not overlap.
+
+## X60 — Architecture/risk waiver authority (P0/P1)
+Implementer cannot self-authorize:
+- architecture intent change;
+- P0/P1 risk acceptance;
+- security/rights gate bypass;
+- invariant removal.
+Such changes require explicit decision record and role-appropriate independent authority.
