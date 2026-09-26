@@ -5549,3 +5549,166 @@ A stale mention cannot leak project names/content after access removal.
 ## X112 — Canonical promotion CAS (P1)
 Approving/selecting a canonical candidate is compare-and-set against the exact current canonical slot/revision.
 Two simultaneous approvals cannot both become canonical; loser receives a conflict/review state.
+
+
+# 29. Ninth-wave scheduler, quota, retry and fairness attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 461 | Provider outage ends and 10,000 queued retries wake simultaneously | **GAP/P1** | backoff exists but coordinated recovery/thundering-herd control must be explicit |
+| 462 | Provider returns malformed/zero/huge `Retry-After` | **GAP/P1** | retry policy must clamp/sanitize external retry hints |
+| 463 | Circuit breaker half-opens and all workers probe at once | **GAP/P1** | half-open probe budget/global coordinator needed |
+| 464 | Provider A fails; router sends all work to fallback B and overloads B | **GAP/P1 cascade** | fallback has admission/capacity ramp, not binary switch |
+| 465 | A and B both fail; router oscillates A↔B every cycle | **GAP/P1** | anti-oscillation/hysteresis/cooldown needed |
+| 466 | Same provider account is represented by 5 connections and each thinks it has full quota | **GAP/P1** | quota domain must aggregate by provider account/workspace, not connection only |
+| 467 | One project consumes entire shared provider daily quota | **GAP/P1 fairness/cost** | quota allocation/fair-share across projects/policies required |
+| 468 | Critical project reserves all quota forever “just in case” | **GAP/P2** | quota reservations need expiry/borrow/reclaim semantics |
+| 469 | Continuous foreground renders prevent backup from ever running | **GAP/P1 resilience** | mandatory maintenance gets bounded starvation deadline/reserved windows |
+| 470 | Integrity scrub is perpetually postponed by interactive work | **GAP/P1** | background safety work needs aging/deadline policy |
+| 471 | Upstream canon change cancels 5,000 jobs; cancellation requests flood provider | **GAP/P1** | cancellation batching/rate budget/backpressure needed |
+| 472 | Provider does not support cancel; scheduler retries cancel endlessly | **GAP/P1** | cancellation attempt budget/final CANNOT_CANCEL state |
+| 473 | Every user marks tasks “critical” so priority loses meaning | **GAP/P1** | priority authority/caps + scheduler effective priority policy |
+| 474 | Old low-value task ages until it outranks release-critical work | **GAP/P2** | aging should be bounded/class-aware |
+| 475 | One non-preemptible 4-hour GPU render blocks all urgent jobs | PARTIAL | fairness knows non-preemptible; chunkability/reserved pool policy may help |
+| 476 | VRAM reservations fragment capacity: enough total free but no contiguous fit | **GAP/P2** | allocator needs topology/fragmentation-aware admission where relevant |
+| 477 | Worker memory leak slowly shrinks capacity and scheduler repeatedly overcommits | PARTIAL | samples/watchdog exist; capacity trend/degradation quarantine useful |
+| 478 | Thermal throttling makes ETA explode; scheduler keeps assigning deadlines based on stale benchmark | **GAP/P2** | benchmark/environment health affects estimates/admission |
+| 479 | Retry count is held only in worker memory; restart resets it to zero | **GAP/P1** | retry budget/counter must be durable per logical operation/external effect |
+| 480 | Restore backup rewinds retry budget and causes more attempts than policy | **GAP/P1** | forward operational/recovery journal should prevent retry-budget resurrection |
+| 481 | Circuit-breaker state is lost on Core restart and provider is hammered again | **GAP/P1** | breaker state/cooldown should survive restart where externally meaningful |
+| 482 | Flow Governor manually requeues job and unintentionally resets retry/exposure budget | **GAP/P1** | requeue is new attempt under same logical retry budget unless explicit override |
+| 483 | Duplicate retry events increment attempt twice or dispatch twice | PARTIAL | idempotency helps; retry scheduler event identity/fencing needed |
+| 484 | Global provider rate limit is modeled per endpoint/connection | **GAP/P1** | shared rate-limit scope discovery/config required |
+| 485 | Provider changes rate-limit scope without warning | **GAP/P2** | adaptive observed-limit model + conservative fallback |
+| 486 | Cost price changes mid-batch after estimate but before dispatch | PARTIAL | exposure revalidation exists; price snapshot/freshness at dispatch required |
+| 487 | Budget is lowered while jobs are queued | **GAP/P1** | queued paid jobs revalidate current budget before each dispatch |
+| 488 | Cancelled provider job still incurs full charge hours later | PARTIAL | delayed billing ledger exists; cancellation is not cost refund |
+| 489 | Late charges make project exceed hard cap after no more jobs are running | **GAP/P1 honesty** | hard cap is prospective exposure control, not guarantee against delayed external settlement |
+| 490 | User sees “remaining budget” excluding unreconciled unknown charges | **GAP/P1 UX** | remaining must show actual + reserved + unreconciled exposure |
+| 491 | Provider returns partial result, retry creates another full paid job, both later succeed | PARTIAL/GAP | reconcile partial/external ID before replacement retry |
+| 492 | Batch sample-first passes, full fanout hits different provider degradation state | **GAP/P2** | sample evidence has freshness/environment scope |
+| 493 | Priority integer overflow/negative value bypasses scheduler ordering | **GAP/P1** | bounded typed priority enum/score domain |
+| 494 | Queue item with impossible deadline causes scheduler to starve everything else | **GAP/P2** | infeasible deadline detection/admission instead of infinite emergency priority |
+| 495 | Dead-letter queue grows indefinitely and fills disk | **GAP/P1** | DLQ retention/size quota/archive policy |
+| 496 | Retry journal grows without compaction and slows recovery | **GAP/P2** | retry history checkpoint/retention while preserving audit |
+| 497 | Thousands of blocked jobs each create identical Needs You prompt | CONTAINED/PARTIAL | dedupe exists for auth; general incident/decision coalescing should apply |
+| 498 | One project has 100k ready jobs; per-project fairness still consumes scheduling CPU | **GAP/P1** | hierarchical queue/index and admission horizon needed |
+| 499 | Maintenance reserved capacity sits idle while user waits, but cannot be borrowed | **GAP/P2 efficiency** | borrowable reservation with deterministic reclaim policy |
+| 500 | Borrowed maintenance capacity is still occupied when backup deadline arrives | **GAP/P1** | reclaim only preemptible work or reserve non-borrowable deadline buffer |
+
+# 30. Scheduler/retry findings
+
+## X113 — Coordinated retry recovery (P1)
+Retry scheduling is globally coordinated per external failure domain.
+
+Use:
+- exponential backoff + jitter;
+- clamped provider `Retry-After`;
+- per-account/provider retry rate budget;
+- bounded half-open probe count;
+- randomized/ramped recovery after outage.
+
+No worker independently decides “provider is back, retry everything”.
+
+## X114 — Fallback hysteresis and admission (P1)
+Fallback routing has:
+- cooldown/hysteresis;
+- target capacity/quota admission;
+- gradual ramp;
+- circuit-breaker state;
+- anti-oscillation memory.
+
+A failing provider cannot dump the entire queue instantly onto a fallback.
+
+## X115 — Account/workspace quota aggregation (P1)
+Quota/rate/billing state is scoped to the provider's actual limiting domain:
+- account;
+- workspace/tenant;
+- region/model;
+- API key;
+- connection
+
+as known/observed.
+
+Multiple CineForge connections sharing one provider account share quota accounting.
+
+## X116 — Project fair-share and quota allocation (P1)
+Scheduler supports weighted project fair share with:
+- project/user priority class;
+- quota budget;
+- critical-path boost;
+- bounded starvation aging;
+- optional reserved release/emergency share.
+
+One project cannot consume every shared external/local resource unless explicit policy grants it.
+
+## X117 — Mandatory maintenance deadline (P1)
+Backups, integrity checks and other mandatory safety maintenance have:
+- latest-start/deadline;
+- resource budget;
+- starvation age;
+- reserved/borrowable capacity policy.
+
+Foreground production may delay but not postpone them indefinitely.
+
+## X118 — Cancellation storm control (P1)
+Cancellation has:
+- per-provider/account rate budget;
+- batching/coalescing where supported;
+- bounded retries;
+- terminal `CANNOT_CANCEL`;
+- no assumption cancellation reverses billing.
+
+## X119 — Durable retry/exposure budget (P1)
+Retry count/budget is durable and scoped to logical operation/external-effect identity.
+
+Restart/requeue/restore cannot reset it accidentally.
+Manual override is explicit, audited and re-runs cost/risk exposure checks.
+
+## X120 — Persistent external circuit breaker (P1)
+Externally meaningful breaker/cooldown state survives Core restart/recovery sufficiently to avoid immediate hammering.
+
+Recovery may cautiously probe rather than trust stale breaker health.
+
+## X121 — Paid dispatch just-in-time budget/price revalidation (P1)
+Immediately before each paid dispatch:
+- refresh applicable price/quota where policy requires;
+- revalidate current budget;
+- include actual + reserved + unknown/unreconciled exposure;
+- block new exposure above ceiling.
+
+A hard budget is an admission ceiling, not a promise that delayed external settlement cannot later exceed displayed actuals.
+
+## X122 — Bounded scheduler numeric domains (P1)
+Priority, deadline, retry count, cost score and weights use bounded typed domains.
+Reject NaN/Infinity/overflow/out-of-range user/provider values.
+“Infeasible deadline” becomes explicit state, not infinite priority.
+
+## X123 — Dead-letter/retry journal lifecycle (P1/P2)
+DLQ/retry history has:
+- disk quota;
+- retention;
+- archival/checkpoint;
+- searchable summary;
+- protected evidence for high-impact external effects.
+
+It cannot grow forever on the Core volume.
+
+## X124 — Hierarchical queue/admission horizon (P1)
+Very large projects do not materialize 100k equally runnable jobs into the hot scheduler.
+
+Use:
+- project/batch hierarchy;
+- bounded active admission window;
+- pagination/indexing;
+- stage/fanout control.
+
+Scheduler cost scales with active horizon, not total historical task count.
+
+## X125 — Capacity reservation borrow/reclaim semantics (P1/P2)
+Reserved maintenance/release capacity may be borrowable only under explicit policy.
+
+Borrowed work:
+- is marked preemptible/reclaimable;
+- cannot occupy the deadline buffer with non-preemptible tasks;
+- is drained before reserved deadline.
