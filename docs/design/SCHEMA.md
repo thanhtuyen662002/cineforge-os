@@ -2749,7 +2749,7 @@ Purge/archival cannot remove the last recoverable revision while a required depe
 
 
 
-# 64. Canonical numeric domain constraints
+# SCHEMA-NUMERIC-01. Canonical numeric domain constraints
 
 Schema/migration layer must enforce basic impossible-state constraints where SQLite can express them, with deeper validation in Core.
 
@@ -2788,7 +2788,7 @@ Reusable conceptual value object:
 
 Usage records referencing credits also pin provider_credit_unit_id when unit semantics are versioned.
 
-# 65. Timecode/calendar semantics
+# SCHEMA-TIME-01. Timecode/calendar semantics
 
 Project/media timing stores separate fields for:
 - frame_rate rational;
@@ -2802,7 +2802,7 @@ Legal/calendar records requiring date-only semantics store:
 - boundary_policy
 - resolved UTC instant(s) when enforcement is evaluated.
 
-# 66. Order key maintenance
+# SCHEMA-ORDER-01. Order key maintenance
 
 Editable ordered entities may use a stable order-key scheme whose representation is explicitly non-semantic.
 
@@ -2814,7 +2814,7 @@ If rebalance is needed:
 
 
 
-# 67. Storage scrub and durability state
+# SCHEMA-STORAGE-01. Storage scrub and durability state
 
 ## storage_scrub_policies
 - id PK
@@ -2886,7 +2886,7 @@ PK(certification_record_id, environment_fingerprint_id)
 
 
 
-# 68. Library lineage and deployment identity
+# SCHEMA-DEPLOYMENT-01. Library lineage and deployment identity
 
 ## library_lineages
 - id PK
@@ -2932,7 +2932,7 @@ External-dispatch tables bind deployment_instance_id/deployment_generation as ap
 - issued_at_utc_us
 - revoked_at_utc_us nullable
 
-# 69. Backup generation namespace
+# SCHEMA-BACKUP-01. Backup generation namespace
 
 Extend `backups`:
 - library_lineage_id FK
@@ -2942,7 +2942,7 @@ Extend `backups`:
 - predecessor_backup_id nullable
 UNIQUE(library_lineage_id, backup_generation_id)
 
-# 70. Fork reconciliation records
+# SCHEMA-FORK-01. Fork reconciliation records
 
 ## fork_reconciliations
 - id PK
