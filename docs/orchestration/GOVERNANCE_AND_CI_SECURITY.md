@@ -386,3 +386,93 @@ If required review assurance exceeds currently available trusted runtime/credent
 - use explicit owner/external reviewer or valid bootstrap/disaster mechanism.
 
 Throughput pressure is not evidence that a lower assurance level is safe.
+
+
+# 27. Trusted artifact promotion
+
+Privileged release/sign/deploy jobs must verify artifact chain-of-custody before use.
+
+Required identity includes:
+- source commit;
+- workflow/run/job/matrix;
+- producer identity;
+- runner trust class;
+- content digest;
+- attestation/signature where policy requires.
+
+Artifact display name alone is never sufficient.
+
+# 28. Workflow permission/OIDC audit
+
+Governance CI treats effective GitHub workflow permissions as machine-audited policy.
+
+Flag:
+- unexpected `contents: write`;
+- `id-token: write` outside approved trusted jobs;
+- packages/releases/deployments write outside intended jobs;
+- secrets/environment access in untrusted PR context;
+- broad default permissions.
+
+OIDC is a credential-minting capability and receives the same scrutiny as static secrets.
+
+# 29. Privileged trigger isolation
+
+`workflow_run`, `repository_dispatch`, manual and scheduled privileged workflows must validate their input trust explicitly.
+
+They must not:
+- checkout an untrusted PR SHA and execute it with privileged secrets;
+- consume arbitrary PR executable artifacts without provenance;
+- accept arbitrary release SHA/channel from untrusted payload.
+
+# 30. Release toolchain integrity
+
+Privileged release flow resolves exact source/toolchain/dependency identities.
+
+CI flags:
+- mutable action/tool tags in privileged path where immutable pin is required;
+- unpinned native binary download;
+- network-fetched build tool without integrity;
+- submodule/LFS/source closure with unresolved mutable trust.
+
+# 31. Installer/elevation review class
+
+Changes to:
+- installer/updater;
+- elevation/UAC helpers;
+- service registration;
+- privileged filesystem writes;
+- update activation/rollback;
+- DLL/search-path configuration
+
+are HIGH-risk security/release work.
+
+Review includes:
+- safe absolute-path execution;
+- protected staging;
+- ACL/final-handle path validation;
+- no user-writable helper execution;
+- versioned/atomic activation;
+- rollback/schema compatibility.
+
+# 32. Release identity conflict gate
+
+A release job must fail if the canonical release key already maps to a different digest.
+
+No “overwrite latest version because this run is newer” behavior is allowed for immutable release identities.
+
+# 33. Signed-channel policy
+
+Stable/protected release channels require the configured signing/timestamp policy.
+
+If signing/TSA/provenance service is unavailable:
+- release blocks;
+- it does not silently fall back to unsigned output.
+
+Unsigned developer artifacts use a separate explicitly labeled non-production channel.
+
+# 34. CI/CD bootstrap implication
+
+When the repository first adds real GitHub Actions:
+- bootstrap verifier ceremony applies to workflow permission policy, artifact provenance and trusted check producer;
+- the first release workflow is not trusted merely because it lives on `main`;
+- controlled positive and negative release-chain tests are required before autonomous publication.
