@@ -6156,3 +6156,159 @@ Concurrent loser receives conflict and remains candidate/noncanonical.
 207. offline publish attempt;
 208. rights edit while offline;
 209. archive edited from stale offline branch.
+
+
+
+# JJ. Coordinated retry domains
+
+Retry is scheduled by a coordinator scoped to the external failure/rate-limit domain, not independently by each worker.
+
+State tracks:
+- provider/account/workspace/rate-limit scope;
+- logical operation;
+- durable retry count/budget;
+- next eligible time;
+- provider Retry-After evidence;
+- jitter seed/range;
+- breaker/cooldown state;
+- unreconciled cost exposure.
+
+Provider retry hints are parsed/clamped.
+Half-open state admits a bounded number of probes.
+
+# JK. Fallback hysteresis
+
+Router stores recent fallback history and cooldown.
+
+Failover from A→B:
+- checks B quota/capacity/health/privacy/rights;
+- ramps a bounded share;
+- observes results before wider migration;
+- avoids immediate B→A oscillation;
+- keeps failed-domain circuit state across Core restart where appropriate.
+
+# JL. Shared quota/rate-limit domains
+
+Connection records identify or infer the provider limiting scope:
+- credential/API key;
+- account;
+- tenant/workspace;
+- model/region;
+- endpoint;
+- unknown conservative scope.
+
+Quota/rate state is aggregated at the limiting scope.
+Multiple UI Connection cards do not imply independent quota.
+
+# JM. Project fair-share scheduling
+
+Scheduler calculates effective priority from:
+- policy priority class;
+- critical-path/unblock value;
+- deadline feasibility;
+- fair-share deficit/credit;
+- bounded starvation age;
+- resource/quota availability;
+- cost/privacy/rights constraints.
+
+User-entered priority is an input, not unrestricted scheduler authority.
+
+No numeric overflow/NaN/Infinity is accepted.
+
+# JN. Mandatory maintenance deadlines
+
+Safety maintenance declares:
+- earliest start;
+- latest safe start/deadline;
+- estimated resource bundle;
+- preemptibility;
+- minimum reserved capacity.
+
+If borrowed capacity is allowed, only reclaimable/preemptible work may occupy the deadline buffer.
+
+# JO. Cancellation coordinator
+
+Bulk cancellation:
+- coalesces/batches where provider supports it;
+- applies per-provider rate budget;
+- records one logical cancellation intent per attempt;
+- stops after bounded retries;
+- yields terminal CANNOT_CANCEL/UNKNOWN_EXTERNAL_STATE where needed.
+
+Cancellation never erases cost exposure evidence.
+
+# JP. Durable retry/exposure budget
+
+Logical external effect owns a durable retry budget independent from worker process.
+
+Budget survives:
+- worker restart;
+- Core restart;
+- requeue;
+- takeover;
+- restore/recovery according to forward operational journal.
+
+Manual retry-budget extension is a high-impact audited command.
+
+# JQ. Persistent external breaker state
+
+Breaker state persists enough evidence to avoid restart hammering:
+- failure domain;
+- opened_at;
+- cooldown_until;
+- failure class;
+- recent probes;
+- next half-open allowance.
+
+On recovery, stale state is revalidated conservatively.
+
+# JR. Paid dispatch revalidation
+
+Immediately before paid dispatch:
+- current price/credit unit snapshot when available;
+- current account quota/rate state;
+- current project/studio budget;
+- actual settled usage;
+- reserved exposure;
+- unreconciled unknown exposure;
+- retry/fallback exposure.
+
+Admission may block even if the original plan estimate was under budget.
+
+# JS. Dead-letter and retry-history lifecycle
+
+DLQ/retry evidence has:
+- bounded hot retention;
+- archival/checkpoint path;
+- disk quota;
+- priority retention for irreversible/paid/security events;
+- cleanup that never destroys unresolved compensation/reconciliation evidence.
+
+# JT. Hierarchical active queue
+
+Large batches/projects remain hierarchical.
+
+Hot scheduler materializes only a bounded active window per:
+- project;
+- batch;
+- capability/resource class.
+
+Completed/blocked/history remains queryable outside the hot queue.
+
+# JU2. Required scheduler storm tests
+
+210. outage recovery with 10k retries;
+211. malformed Retry-After;
+212. bounded half-open probes;
+213. A→B fallback overload prevention;
+214. A↔B oscillation;
+215. five connections sharing one provider quota;
+216. one project quota starvation attempt;
+217. backup deadline under continuous renders;
+218. 5k-job cancellation storm;
+219. retry budget across restart/requeue;
+220. breaker persistence across restart;
+221. budget reduced while jobs queued;
+222. delayed charges after cancellation;
+223. 100k-job project active-horizon behavior;
+224. borrowed maintenance capacity deadline reclaim.
