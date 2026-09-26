@@ -4854,3 +4854,181 @@ from
 253. alternate-ending branch continuity isolation;
 254. edit reorder preserves story-time semantics;
 255. slow-motion presentation-time vs story-event-time mapping.
+
+
+# 34. Tenth-wave observability / telemetry attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 481 | Trace span includes raw API Authorization header | **GAP/P0/P1 privacy** | observability must redact before exporter/storage |
+| 482 | Trace attribute contains signed media URL that grants temporary access | **GAP/P1** | URL/query credentials are secrets even if not called “token” |
+| 483 | Prompt/script text is emitted into logs for debugging | **GAP/P1 privacy** | creative content requires explicit debug-data policy |
+| 484 | User-controlled filename becomes metric label, exploding cardinality | PARTIAL | cardinality budget exists; untrusted labels need allowlist |
+| 485 | Job ID/project ID used as Prometheus-style label for every task | **GAP/P1 DoS/cost** | high-cardinality IDs belong in logs/traces, not bounded metrics |
+| 486 | Malicious worker reports fake low latency/high capacity and attracts scheduler load | **GAP/P1** | resource/health metrics need trusted producer identity and sanity bounds |
+| 487 | Provider-reported quota/latency is accepted as authoritative local health | PARTIAL | provider health is evidence; scheduler should distinguish observed vs claimed |
+| 488 | Monitor process dies; last sample still says HEALTHY indefinitely | PARTIAL | freshness rule exists; monitor-of-monitor should be explicit |
+| 489 | Telemetry exporter blocks on network and stalls application thread | **GAP/P1 liveness** | observability must be lossy/bounded, never canonical critical path |
+| 490 | Exporter queue grows without bound while offline | **GAP/P1** | bounded spool/drop policy needed |
+| 491 | Telemetry retry floods network after connectivity returns | **GAP/P2** | backoff/rate budget required |
+| 492 | Local-only project still exports metrics/traces containing project metadata to cloud collector | **GAP/P0/P1 privacy** | telemetry is data egress and must obey project/studio policy |
+| 493 | Child worker uses default OpenTelemetry env vars and exports to external collector | **GAP/P1** | worker env sanitization must cover telemetry exporters |
+| 494 | External traceparent/baggage from provider/browser is trusted and joins internal trace | **GAP/P1 cross-tenant** | external trace context must be sanitized/rebased |
+| 495 | Trace baggage carries project ID from Project A into Project B worker | **GAP/P1 privacy** | baggage is untrusted contextual input |
+| 496 | Correlation ID supplied by external provider collides with internal command ID | **GAP/P1** | external correlation IDs use separate namespace |
+| 497 | Sampling drops the one security-critical failure needed for incident response | **GAP/P1** | audit/security events need non-sampled durable channel |
+| 498 | Adaptive sampling favors common success and hides rare catastrophic failure | **GAP/P1** | sampling policy needs severity/rarity safeguards |
+| 499 | Alert dedupe collapses two different projects into one incident | **GAP/P1 ops** | dedupe key must include safe scope identity without leaking it externally |
+| 500 | Notification/alert flood causes operator to miss one P0 issue | PARTIAL | priority preservation exists; incident aggregation needed |
+| 501 | Log rotation deletes evidence under active security/legal hold | **GAP/P1** | observability retention must respect preservation holds |
+| 502 | Crash dump captures decrypted secret before app-level log redaction | RESIDUAL/P1 | crash dump policy/process isolation needed |
+| 503 | Windows Error Reporting uploads dump despite local-only project | **GAP/P1 privacy/residual OS** | high-security mode should disable/guide external dump upload where controllable |
+| 504 | Diagnostic bundle redacts values but leaks customer/project identity in filenames/paths | PARTIAL | path redaction exists; semantic identifiers also need classification |
+| 505 | Hashes of filenames/emails are assumed anonymous but are dictionary-reversible | **GAP/P1 privacy** | pseudonymization != anonymization |
+| 506 | Metrics aggregate across projects and reveal activity patterns to unauthorized user | **GAP/P1 multi-user** | metrics query authorization/scope required |
+| 507 | Flow Governor reads stale metrics from previous Capacity epoch | **GAP/P1 orchestration** | metric samples must bind control epoch/freshness |
+| 508 | Agent optimizes to dashboard metric and games throughput by closing trivial tasks | PARTIAL | critical-path rules exist; metrics are not objective truth |
+| 509 | Worker emits fake “semantic progress” heartbeat without actual artifact change | **GAP/P1** | progress evidence should be independently verifiable where possible |
+| 510 | Health check itself mutates provider state/consumes credits | **GAP/P1** | health probes need side-effect/cost classification |
+| 511 | Health probe causes rate limit and degrades production | **GAP/P1** | probe cadence shares provider rate budget |
+| 512 | Full health test uploads private sample to cloud without project consent | **GAP/P0/P1 privacy** | synthetic/non-sensitive probe data required unless explicit project scope |
+| 513 | Telemetry clock skew makes later event appear earlier and incident timeline wrong | PARTIAL | seq ordering exists; trace timestamps must be advisory |
+| 514 | NTP jump creates negative duration metric and autoscaler/scheduler misbehaves | **GAP/P2** | duration uses monotonic clock |
+| 515 | Metrics collector restarts and counter reset is interpreted as throughput collapse | **GAP/P2** | counter reset/generation semantics |
+| 516 | Duplicate telemetry after retry double-counts cost/jobs | **GAP/P2/P1** | metric/event identities or aggregation idempotency needed |
+| 517 | Audit event is emitted only through ordinary log pipeline and gets sampled/dropped | **GAP/P0/P1** | audit/control evidence must be separate durable channel |
+| 518 | Operational log is treated as authoritative task state during recovery | **GAP/P1** | logs are evidence, never canonical state |
+| 519 | Sensitive project turns telemetry off but already-running workers continue exporting | **GAP/P1** | telemetry policy revision must propagate/revalidate |
+| 520 | Redaction rule update misses old queued/spooled telemetry | **GAP/P1** | queued observability payload must bind/redact against current egress policy before export |
+
+# 35. Tenth-wave observability findings
+
+## X111 — Observability is a policy-governed egress surface (P0/P1)
+Logs, traces, metrics, crash diagnostics and health probes are data egress.
+
+They obey:
+- project/studio privacy policy;
+- local-only/cloud egress restrictions;
+- secret/content classification;
+- retention/hold policy;
+- current telemetry policy revision.
+
+Observability is never exempt because it is “just diagnostics”.
+
+## X112 — Telemetry trust classes and producer identity (P1)
+Samples record:
+- producer component/worker identity;
+- deployment/recovery/control epoch where relevant;
+- source class: LOCAL_OBSERVED | PROVIDER_CLAIMED | DERIVED | SYNTHETIC_PROBE;
+- sampled_at + freshness;
+- schema version.
+
+Scheduler/Flow Governor weights evidence by trust/freshness.
+Untrusted worker/provider metrics cannot redefine canonical resource capacity.
+
+## X113 — Metrics label allowlist/cardinality contract (P1)
+Bounded metrics use a fixed label allowlist.
+
+Do not label metrics by:
+- filename;
+- prompt;
+- user text;
+- arbitrary project/entity/job ID;
+- provider raw error string.
+
+High-cardinality identity belongs in structured logs/traces subject to retention/privacy policy.
+
+## X114 — Bounded non-blocking telemetry pipeline (P1)
+Observability pipeline:
+- asynchronous;
+- bounded queue/spool;
+- drop/sample priority rules;
+- disk/network quota;
+- retry/backoff;
+- never holds canonical DB write or production worker critical lock.
+
+When observability fails, production may degrade visibility but must not deadlock unless policy explicitly makes a particular audit record mandatory.
+
+## X115 — Audit/security evidence separate from sampled logs (P0/P1)
+Canonical audit/control/security evidence uses its own durable append path.
+
+It is:
+- not sampled;
+- not dropped due ordinary log quota;
+- independently integrity-checked;
+- subject to preservation hold.
+
+Operational logs may reference audit IDs but never replace them.
+
+## X116 — Trace/correlation namespace isolation (P1)
+External:
+- traceparent;
+- baggage;
+- correlation IDs
+
+are untrusted.
+
+CineForge creates internal trace/correlation namespace and stores external IDs as attributed evidence.
+External context cannot select internal project/actor/command scope.
+
+## X117 — Health probe effect/cost class (P1)
+Each probe declares:
+- READ_ONLY_LOCAL;
+- READ_ONLY_EXTERNAL;
+- PAID_EXTERNAL;
+- MUTATING_EXTERNAL;
+- AUTH_INTERACTIVE.
+
+Production health defaults to non-sensitive synthetic probe data.
+Probe cadence consumes the same quota/rate budget where provider does.
+
+MUTATING/PAID probes are not routine background health checks without explicit policy.
+
+## X118 — Telemetry policy hot-reload fence (P1)
+Telemetry exporter/worker binds current privacy/egress policy revision.
+
+On policy tightening:
+- stop new disallowed export;
+- revalidate queued/spooled payloads;
+- discard/quarantine payloads that can no longer egress;
+- running workers receive policy invalidation.
+
+## X119 — Monotonic duration / generation-aware counters (P2/P1)
+Use:
+- monotonic clock for local duration;
+- generation/reset identity for counters;
+- event sequence for canonical ordering.
+
+Wall-clock timestamp remains presentation/correlation evidence, not liveness arithmetic truth.
+
+## X120 — Progress evidence vs self-reported heartbeat (P1)
+Worker progress may include verifiable evidence:
+- output byte/frame count advancing;
+- provider status transition;
+- checkpoint/artifact creation;
+- task phase completion.
+
+Self-reported “still working” heartbeat alone cannot keep a poisoned worker alive forever.
+
+# 36. Required observability tests
+
+276. secret/signed URL in trace attribute;
+277. project text in logs under LOCAL_ONLY policy;
+278. user-controlled high-cardinality metric label;
+279. untrusted worker fakes capacity/latency;
+280. monitor dies leaving stale HEALTHY sample;
+281. exporter offline queue exhaustion;
+282. worker inherits external telemetry exporter env;
+283. external trace baggage cross-project injection;
+284. sampled log drops security failure but audit survives;
+285. legal/preservation hold vs log rotation;
+286. local-only crash diagnostic egress;
+287. telemetry policy tightens while queue/spool contains old payload;
+288. provider health probe consumes paid credit/rate quota;
+289. private sample accidentally used in cloud health test;
+290. clock jump/negative duration;
+291. metrics counter reset/restart;
+292. duplicate telemetry retry/double count;
+293. stale Capacity epoch metrics ignored by Flow Governor;
+294. worker fake heartbeat vs no semantic progress;
+295. operational log unavailable during recovery while canonical state remains usable.
