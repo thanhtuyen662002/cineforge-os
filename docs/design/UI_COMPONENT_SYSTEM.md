@@ -2125,3 +2125,64 @@ Settings:
 - Chỉ báo chung
 
 Decision notifications still remain actionable after unlock/revalidation; privacy mode never removes the underlying Needs You item.
+
+
+
+# 73. Offline collaboration UX
+
+When offline:
+`Bạn đang làm trên một nhánh cục bộ. Thay đổi sẽ được đối chiếu khi kết nối lại.`
+
+Do not say “Đã đồng bộ”.
+
+Reconnect states:
+- Đang đối chiếu
+- Có thể nhập tự động
+- Có xung đột cần bạn xử lý
+- Quyền truy cập đã thay đổi
+- Project đã bị lưu trữ/xóa trong khi bạn offline
+
+# 74. Collaboration conflict workspace
+
+Show side-by-side:
+- base;
+- thay đổi của bạn;
+- bản hiện tại;
+- affected timeline/story/canon scope;
+- why automatic merge is unsafe.
+
+Resolution actions:
+- Giữ bản hiện tại
+- Áp dụng thay đổi của tôi lên bản mới
+- Chọn từng phần
+- Lưu nhánh của tôi thành biến thể
+- Bỏ nhánh
+
+No generic “Use Mine / Use Theirs” when semantic invariants are involved.
+
+# 75. Permission revoked while offline
+
+Message:
+`Quyền của bạn đã thay đổi từ lần kết nối trước. Thay đổi cục bộ vẫn được giữ, nhưng CineForge không thể ghi chúng vào project hiện tại.`
+
+Options depend on policy:
+- export branch;
+- request access;
+- discard local branch.
+
+# 76. Concurrent approval conflict UX
+
+If another user approved first:
+`Một bản khác đã được duyệt trước khi thao tác của bạn hoàn tất.`
+
+Show current approved revision vs user's candidate.
+Do not silently replace either side.
+
+# 77. Collaboration privacy indicator
+
+If collaboration transport is cloud-based:
+- project privacy eligibility visible;
+- LOCAL_ONLY blocks cloud sync;
+- shared/local mode clearly distinguished.
+
+Normal editing UI should not imply “offline/local” when background collaboration is transmitting data.
