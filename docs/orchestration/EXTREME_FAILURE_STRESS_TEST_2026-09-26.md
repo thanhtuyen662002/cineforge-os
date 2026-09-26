@@ -7035,3 +7035,165 @@ Where policy requires user/human/external approval:
 - approval references a verifiable platform/user event or authorized identity;
 - PR author assertion “user approved” is invalid;
 - approval scope/action/version are explicit.
+
+
+# 29. Office/PDF/document-ingest adversarial wave
+
+This wave uses `DOC-xx`.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| DOC-01 | XLSX contains hidden sheet with critical scene/character mapping that parser ignores | **GAP/P1 correctness** | visible-cell extraction is not semantic completeness |
+| DOC-02 | Hidden rows/columns contain deprecated values and agent treats them as active | **GAP/P1** | hidden state must be preserved, not flattened ambiguously |
+| DOC-03 | Merged cells cause speaker/scene label to apply to rows parser detaches | **GAP/P1** | table structure and merge spans must survive parse |
+| DOC-04 | Formula cell displays cached value but formula references changed/external workbook | **GAP/P1** | formula, cached value and calculation state need separate representation |
+| DOC-05 | Workbook contains external links/Data Connection/PowerQuery that would fetch network data | **GAP/P0/P1** | import must not refresh active external data automatically |
+| DOC-06 | Macro-enabled XLSM contains VBA but only sheet values are needed | PARTIAL | macro danger known; execution must be disabled while preserving warning/provenance |
+| DOC-07 | Excel formula/DDE payload exported and later executed when user opens file | PARTIAL | formula injection known; trusted formulas vs untrusted text needs explicit output policy |
+| DOC-08 | Sheet uses named ranges and agent loses semantic labels after flattening | **GAP/P2/P1** | defined names can carry business meaning |
+| DOC-09 | Cell comments/notes contain critical direction but parser drops them | **GAP/P2** | semantic coverage report needed |
+| DOC-10 | Workbook has multiple tables with same headers; parser merges them incorrectly | **GAP/P1** | table identity/sheet/range are part of semantics |
+| DOC-11 | XLSX is password/encrypted; importer reports corrupt | **GAP/P2 UX** | distinguish encrypted/password-required from corruption |
+| DOC-12 | DOCX track-changes contains deleted original and inserted new dialogue; parser returns both | **GAP/P1** | accepted/rejected/current revision semantics must be explicit |
+| DOC-13 | DOCX comments/footnotes/endnotes contain important production constraints | **GAP/P2** | parse coverage must expose omitted semantic channels |
+| DOC-14 | DOCX header/footer contains page-level scene/episode identifier | **GAP/P2** | reading context can depend on header/footer |
+| DOC-15 | DOCX embedded OLE object is launched by viewer/parser | **GAP/P0** | embedded active objects remain inert/quarantined |
+| DOC-16 | PPTX speaker notes contain full narration but slide text is only bullets | **GAP/P1** | notes are independent semantic channel |
+| DOC-17 | PPTX hidden slide should not be treated as current approved content | **GAP/P1** | hidden/visibility state must survive parse |
+| DOC-18 | PPTX animation order changes narrative sequence but parser uses XML object order | **GAP/P2/P1** | presentation order semantics need coverage/UNKNOWN if unsupported |
+| DOC-19 | PDF includes JavaScript/action/launch attachment | **GAP/P0** | PDF active actions must never execute during preview/parse |
+| DOC-20 | PDF includes embedded file attachment and parser silently ignores it | **GAP/P1/P2** | attachments need explicit inventory/quarantine/coverage status |
+| DOC-21 | PDF has AcroForm values different from static appearance | **GAP/P1** | field values/appearance mismatch must be detected or marked uncertain |
+| DOC-22 | PDF digitally signed but parser modifies/normalizes bytes and UI still shows “signed” | **GAP/P1 evidence** | signature applies to original bytes; derived text is not signed content |
+| DOC-23 | Password-protected PDF is labeled corrupt/unsupported | **GAP/P2 UX** | protected/encrypted is a distinct state |
+| DOC-24 | PDF reading order differs from visual layout and dialogue becomes scrambled | **GAP/P1** | layout-aware parse + confidence/preview required |
+| DOC-25 | Scanned PDF OCR hallucinates character name/amount/shot ID | **GAP/P1** | OCR-derived text needs confidence and source-region evidence |
+| DOC-26 | OCR sees handwritten strike-through as live text | **GAP/P1** | low-confidence structural ambiguity cannot become canon automatically |
+| DOC-27 | Two-column script is read row-wise rather than column-wise | **GAP/P1** | reading-order/layout model must be explicit |
+| DOC-28 | Table parser converts blank merged cells to null and shifts Excel columns | **GAP/P1** | preserve coordinates/ranges, not only row objects |
+| DOC-29 | CSV delimiter/encoding/locale guessed wrong, corrupting Vietnamese text/numbers | **GAP/P1** | encoding/dialect/locale must be detected/confirmed when ambiguous |
+| DOC-30 | CSV begins UTF-8 BOM/legacy code page and importer normalizes differently across machines | **GAP/P2** | source encoding is provenance; canonical Unicode normalization defined |
+| DOC-31 | Spreadsheet date serial 60 / 1900 leap-year bug creates wrong schedule | **GAP/P1** | workbook date system and original serial must be preserved |
+| DOC-32 | Workbook uses 1904 date system and parser assumes 1900 | **GAP/P1** | date-system metadata required |
+| DOC-33 | Formula calculation mode is manual; cached values are stale | **GAP/P1** | formula freshness/calculation state must be visible |
+| DOC-34 | Pivot/chart summarizes data not represented in visible cells agent reads | **GAP/P2** | unsupported semantic objects need coverage warning, not silent omission |
+| DOC-35 | Excel conditional formatting/color carries status meaning | **GAP/P2/P1** | style-based semantics cannot be silently discarded when user maps workflow |
+| DOC-36 | User expects import to “understand everything”; parser supports only 60% of document semantics | **GAP/P1 UX/truth** | semantic coverage manifest + UNKNOWN is required |
+| DOC-37 | Parser version upgrade changes extracted structure of same document | **GAP/P1 reproducibility** | parse result binds parser/version/profile and source digest |
+| DOC-38 | Parsed structured candidate is later used after original file changed externally | PARTIAL | source fingerprints exist; parse revision must stale with source |
+| DOC-39 | Document contains links/images pointing to remote tracking resources and preview fetches them | **GAP/P1 privacy** | previews/importers must not auto-fetch remote resources |
+| DOC-40 | Embedded image contains malicious QR/text prompting agent to perform actions | CONTAINED if trust-channel separation is enforced | OCR/vision content remains USER_CONTENT data |
+
+# 30. Document-ingest findings
+
+## X114 — Structured document semantic coverage manifest (P1)
+A document parse does not claim “complete” merely because text extraction succeeded.
+
+Parse result records coverage for semantic channels such as:
+- visible text/cells;
+- hidden rows/columns/sheets/slides;
+- merged-cell/range structure;
+- formulas + cached values + calculation state;
+- comments/notes/footnotes;
+- speaker notes;
+- defined names;
+- tables/charts/pivots;
+- attachments/embedded objects;
+- revisions/track changes;
+- forms/signatures;
+- layout/reading order.
+
+Unsupported/ambiguous channels are UNKNOWN/UNSUPPORTED and surfaced before canonical import.
+
+## X115 — Office active-content inertness (P0/P1)
+Office/PDF import never executes:
+- VBA/macros;
+- OLE;
+- DDE;
+- external data refresh;
+- PowerQuery/data connections;
+- PDF JavaScript/Launch actions;
+- embedded executables.
+
+Active content is inventoried/quarantined as data/evidence only.
+
+## X116 — Spreadsheet structural identity (P1)
+Spreadsheet parse preserves:
+- workbook/sheet identity;
+- cell coordinates/ranges;
+- merge spans;
+- table/named-range identity;
+- hidden state;
+- source formula and displayed/cached value;
+- date-system/locale metadata.
+
+Flattened row JSON is a convenience view, not canonical parse truth.
+
+## X117 — Formula freshness and trust model (P1)
+A formula cell stores separately:
+- expression;
+- cached/display value;
+- calculation mode/freshness;
+- external dependency state;
+- trusted-formula vs untrusted-string interpretation.
+
+Importer never silently refreshes external data.
+
+## X118 — Document revision/signature provenance (P1)
+Track-changes/current-view semantics are explicit.
+Digital signature evidence binds original source bytes/signature state.
+Derived normalized text does not inherit “signed” status.
+
+## X119 — Layout/OCR evidence model (P1)
+OCR/layout-derived text includes:
+- confidence;
+- page/region coordinates;
+- reading-order evidence;
+- parser/OCR model/version;
+- ambiguity markers.
+
+Low-confidence/ambiguous extraction cannot become canonical script/shot mapping without review.
+
+## X120 — Encrypted/protected document state (P2)
+ENCRYPTED/PASSWORD_REQUIRED/SIGNED_BUT_LOCKED are distinct from CORRUPT/UNSUPPORTED.
+Credentials/passwords used for parsing stay scoped/ephemeral and are not logged.
+
+## X121 — Document parser reproducibility (P1)
+Structured parse revision binds:
+- source digest;
+- parser family/version;
+- parse profile/options;
+- semantic coverage manifest;
+- locale/encoding/date-system interpretation.
+
+Parser upgrade creates a new parse candidate/revision; it does not silently rewrite prior accepted structure.
+
+## X122 — CSV/locale canonicalization (P1)
+CSV/text import records:
+- encoding;
+- delimiter/dialect;
+- locale-sensitive numeric/date interpretation;
+- Unicode normalization policy.
+
+Ambiguous dialect/locale prompts review instead of silently coercing values.
+
+## X123 — Remote-resource deny-by-default in document preview (P1)
+Document/vector/PDF/Office preview/parser does not auto-fetch:
+- external images;
+- fonts;
+- linked workbooks;
+- remote templates;
+- tracking URLs
+
+unless an explicit network policy authorizes the exact fetch.
+
+## X124 — Semantic-import preview contract (P1)
+Before committing structured document content into Story/Canon/Production truth, UI shows:
+- original document/page/range;
+- parsed structured candidate;
+- omitted/unsupported semantic channels;
+- ambiguities/confidence;
+- field/range mapping;
+- parser/version.
+
+“Import successful” means bytes were ingested; it does not mean every semantic object was understood.
