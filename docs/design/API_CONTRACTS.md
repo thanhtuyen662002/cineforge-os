@@ -2721,3 +2721,113 @@ Before using a document parse as authoritative structured project data:
 2. check coverage for those channels;
 3. if required channel is PARTIAL/UNKNOWN/UNSUPPORTED, create DecisionRequest or block automatic promotion;
 4. bind accepted mapping to exact document parse revision.
+
+
+
+# 72. Film spatial/continuity API
+
+Queries:
+- query.scene.spatial_graph
+- query.shot.asymmetric_continuity
+- query.shot.identity_coverage
+- query.characters.distinctiveness
+- query.camera.calibration
+
+Commands:
+- SetSceneSpatialRelation
+- SetAsymmetricIdentityFact
+- SetIdentityDistinctivenessConstraint
+- SetProtectedIdentityExclusion
+- RecordTemporalIdentityCoverage
+- WaiveFilmGrammarContinuity
+
+QC can return:
+- mirrored/asymmetric mismatch;
+- screen-direction conflict;
+- eyeline/spatial-topology conflict;
+- hero-identity leakage into crowd;
+- ambiguous named-character distinctiveness.
+
+# 73. Retime/interpolation API
+
+Commands:
+- CreateRetimeArtifact
+- ApproveRetimeArtifact
+- ReplaceRetimeMethod
+
+CreateRetimeArtifact returns:
+- exact source→destination time mapping;
+- synthesized-frame ranges;
+- affected dialogue/lipsync/subtitle/music dependencies;
+- required visual QC profile.
+
+Retime methods that synthesize frames create a new asset revision and cannot inherit source visual approval automatically.
+
+# 74. Conversation overlap API
+
+Queries:
+- query.dialogue.utterance_timeline
+- query.dialogue.overlap_groups
+
+Commands:
+- CreateUtteranceEvent
+- BindNonverbalSpeaker
+- MarkInterruption
+- ResolveSpeakerAmbiguity
+
+Diarization may propose speaker binding but does not become canonical without policy/evidence.
+
+# 75. Multilingual dubbing-fit API
+
+Queries:
+- query.dubbing.voice_language_profile
+- query.dubbing.fit_candidates
+
+Commands:
+- CertifyVoiceLanguageProfile
+- CreateDubbingFitCandidate
+- SelectDubbingFitCandidate
+
+Fit analysis considers semantic text, duration, speech rate, pronunciation and viseme/phoneme compatibility where available.
+
+# 76. Deliverable audio/subtitle validation API
+
+Queries:
+- query.delivery.audio_validation
+- query.delivery.subtitle_validation
+
+Validation may include:
+- final-codec loudness/true peak;
+- channel/mono compatibility;
+- sync drift;
+- language/default flags;
+- subtitle CPS/line length;
+- safe area/occlusion;
+- font/glyph coverage;
+- bidi/script shaping;
+- target-format loss.
+
+# 77. Editor handoff capability API
+
+Queries:
+- query.handoff.adapter_capabilities
+- query.handoff.loss_preview
+- query.handoff.return_contract_diff
+
+Commands:
+- CertifyEditorAdapterVersion
+- CreateHandoffWithCapabilityProfile
+- AcceptExternalEditContractChange
+
+A handoff request names target editor/version.
+Unknown target version cannot inherit prior “native/editable” capability claims automatically.
+
+# 78. Alternate deliverable API
+
+Commands:
+- CreateDeliverableVariant
+- GenerateReframeVariant
+- SubmitVariantReview
+- ApproveVariant
+
+Each materially distinct crop/aspect/profile has independent review/release gates.
