@@ -1359,3 +1359,90 @@ Verification includes:
 - loader/plugin search policy.
 
 Unexpected binary/library resolution returns `TRUSTED_BINARY_PATH_MISMATCH`.
+
+
+
+
+# 81. Observability/storage-budget API
+
+Advanced queries:
+- `query.observability.retention`
+- `query.observability.storage_usage`
+- `query.audit.archive_health`
+- `query.projections.generations`
+
+Commands/internal:
+- RotateOperationalLogs
+- ArchiveAuditSegment
+- VerifyAuditArchive
+- RebuildProjectionGeneration
+- ActivateProjectionGeneration
+
+Archive/rotation actions obey legal/rights/security retention policy.
+
+# 82. Maintenance preflight API
+
+`maintenance.plan(operation)` returns:
+- final-space estimate;
+- worst-case temporary amplification;
+- IO/lock class;
+- incompatible active maintenance;
+- rollback/checkpoint needs;
+- required free-space reserve.
+
+`maintenance.execute(plan_id)` rejects stale resource/space assumptions materially outside policy.
+
+# 83. Account circuit-breaker API
+
+Queries:
+- `query.connection.incident(connection_id)`
+- `query.connection.blocked_jobs(connection_id)`
+
+Internal/commands:
+- TripConnectionCircuit
+- RequestSharedReauthentication
+- VerifyConnectionRecovery
+- ResetConnectionCircuit
+
+Many blocked jobs share one account-level DecisionRequest instead of spawning duplicate MFA/CAPTCHA prompts.
+
+# 84. Worker progress watchdog API
+
+Workers report:
+- heartbeat;
+- phase;
+- semantic checkpoint id;
+- progress evidence.
+
+Scheduler/health:
+- `workers.evaluate_progress`
+- `workers.diagnose_stall`
+
+Intervention requires task-specific policy; heartbeat alone is not progress.
+
+# 85. Queue storm/backpressure API
+
+Queries:
+- `query.queues.pressure`
+- `query.queues.dead_letters`
+
+Internal controls:
+- set bounded dispatch/inbox batch;
+- pause producer;
+- fair-drain by connection/project;
+- quarantine oversized/invalid message;
+- archive/dead-letter terminal failures.
+
+# 86. Durable error sanitation API
+
+All persisted connector/tool error detail passes:
+- `errors.sanitize_external_evidence(raw, policy)`
+
+Result includes:
+- redacted structured summary;
+- sensitivity class;
+- bounded diagnostic sample/hash;
+- secret-detection result;
+- optional quarantined raw reference under stricter local policy.
+
+Raw provider response is never implicitly copied into normal logs/support bundles.
