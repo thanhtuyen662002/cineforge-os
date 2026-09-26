@@ -1587,3 +1587,80 @@ Factual approval is independent from creative approval.
 - missing source snapshot/provenance.
 
 Policy decides which block publication for documentary/factual productions.
+
+
+
+
+# 95. Shared Canon Space API
+
+Queries:
+- `query.canon_spaces`
+- `query.canon_space.mounts(project_id)`
+- `query.canon_space.baseline(space_id)`
+- `query.canon_space.impact(revision_id)`
+
+Commands:
+- CreateCanonSpace
+- MountCanonSpace
+- PinCanonSpaceBaseline
+- BranchCanonSpaceForProject
+- ProposeSharedCanonPromotion
+- ReviewSharedCanonPromotion
+- ArchiveCanonSpace
+
+Project-local approval cannot directly mutate an AUTHOR_SHARED canon space without shared-canon authority.
+
+# 96. Shared canon rights API
+
+`query.canon_entity.production_eligibility(entity_revision_id, production_node_id)`
+
+Returns separately:
+- technical/canon availability;
+- rights/consent eligibility;
+- territorial/medium/purpose restrictions;
+- required performer/source bindings.
+
+Canon mounted != rights granted.
+
+# 97. Casting overlap API
+
+`casting.validate_scope(character_id, scope)` returns:
+- active bindings by role;
+- overlap policy;
+- conflicts;
+- explicit multi-cast allowances.
+
+Commands:
+- ResolveCastingConflict
+- ApproveIntentionalMultiCast
+
+No last-write-wins resolution.
+
+# 98. Credit identity API
+
+Queries:
+- `query.person.credit_identities`
+- `query.release.credit_snapshot`
+
+Commands:
+- CreateCreditIdentity
+- UpdateFutureCreditIdentity
+- BindReleaseCredit
+
+Historical release manifest pins exact credit identity/snapshot.
+
+# 99. Documentary source-lineage API
+
+Queries:
+- `query.documentary.source_lineage(source_id)`
+- `query.documentary.evidence_independence(claim_id)`
+- `query.documentary.corrections(source_id)`
+
+Commands:
+- LinkSourceLineage
+- MarkSourceCorrection
+- MarkSourceRetraction
+- MarkSourceSupersession
+- SetFactClaimTemporalScope
+
+Corroboration summary reports number of independent source groups, not merely raw source count.
