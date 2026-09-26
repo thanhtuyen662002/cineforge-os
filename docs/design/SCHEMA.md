@@ -4346,3 +4346,142 @@ Projection considers an entity conservatively stale when its dependency path cro
 - created_at_utc_us
 
 Large editable documents/timelines may persist operation/delta checkpoints instead of rewriting one giant JSON payload.
+
+
+
+# 115. Capability semantic certification
+
+## capability_certifications
+- id PK
+- connection_id FK
+- connector_version_id FK
+- capability_id FK
+- tool_or_action_id nullable
+- server_or_runtime_identity_hash
+- schema_fingerprint
+- semantic_certification_version
+- effect_class: READ | CREATE | MUTATE | DELETE | PUBLISH | PAID | OTHER
+- idempotency_class: IDEMPOTENT | IDEMPOTENT_WITH_KEY | NON_IDEMPOTENT | UNKNOWN
+- cancellation_class: CONFIRMED | REQUEST_ONLY | NOT_SUPPORTED | UNKNOWN
+- partial_output_policy: NONE | VALID_PARTIAL | QUARANTINE_PARTIAL | UNKNOWN
+- required_permission_manifest_hash
+- result_budget_json
+- stream_budget_json nullable
+- certification_state: TESTING | CERTIFIED | DEGRADED | EXPIRED | REVOKED
+- certified_at_utc_us
+- expires_at_utc_us nullable
+
+## tool_identities
+- id PK
+- connector_version_id FK
+- server_or_runtime_identity_hash
+- capability_id FK
+- tool_id
+- schema_revision
+- identity_hash UNIQUE
+
+# 116. Connector execution receipts
+
+## connector_execution_receipts
+- id PK
+- job_attempt_id FK
+- tool_identity_id nullable FK
+- execution_epoch
+- external_action_id nullable
+- effect_class
+- acceptance_state: NOT_ACCEPTED | ACCEPTED | UNKNOWN
+- semantic_result_state: SUCCESS | PARTIAL | FAILED | UNKNOWN
+- provider_account_id nullable
+- provider_workspace_id nullable
+- effective_region nullable
+- subprocessor_chain_json nullable
+- cost_receipt_json nullable
+- raw_receipt_hash
+- host_persisted_at_utc_us
+
+## connector_result_budgets
+- id PK
+- capability_certification_id FK
+- max_result_bytes
+- max_stream_event_count nullable
+- max_stream_bytes nullable
+- max_events_per_second nullable
+- idle_timeout_ms nullable
+- total_timeout_ms nullable
+
+# 117. CLI process execution context
+
+## cli_execution_contexts
+- id PK
+- job_attempt_id FK
+- executable_digest
+- executable_path_identity
+- process_tree_id
+- cwd_root_id
+- home_root_id
+- environment_manifest_hash
+- locale
+- stdin_policy
+- network_policy_revision
+- filesystem_policy_revision
+- started_at_utc_us
+- ended_at_utc_us nullable
+
+# 118. Local service epochs
+
+## local_service_epochs
+- id PK
+- connection_id FK
+- process_instance_id
+- runtime_manifest_hash
+- plugin_manifest_hash
+- started_at_utc_us
+- ended_at_utc_us nullable
+- epoch_state
+
+External queue/job IDs are scoped to local_service_epoch_id.
+
+# 119. API listing/completeness receipts
+
+## api_query_receipts
+- id PK
+- connection_id FK
+- query_type
+- request_hash
+- completeness_state: COMPLETE | PAGINATED_PARTIAL | EVENTUALLY_CONSISTENT | UNKNOWN
+- cursor_state_json nullable
+- provider_consistency_window_json nullable
+- observed_at_utc_us
+
+# 120. Browser semantic action checkpoints
+
+## browser_action_checkpoints
+- id PK
+- browser_interaction_session_id FK
+- action_type
+- effect_class
+- page_context_fingerprint
+- account_workspace_fingerprint
+- target_object_fingerprint nullable
+- semantic_action_fingerprint
+- idempotency_class
+- pre_action_trace_hash
+- post_action_trace_hash nullable
+- state: READY | EXECUTED | UNCERTAIN | RECONCILED | BLOCKED
+- created_at_utc_us
+
+# 121. Capability-specific health
+
+## capability_health_samples
+- id PK
+- connection_id FK
+- connector_version_id FK
+- capability_id FK
+- model_or_action_id nullable
+- health_state
+- auth_scope_state
+- availability_state
+- capacity_state
+- semantic_certification_state
+- sampled_at_utc_us
+- details_json
