@@ -2435,3 +2435,68 @@ Annotation itself remains historical, but projection can be:
 - RESOLVED
 
 Annotations never silently migrate to a newer revision when their original range/meaning cannot be mapped confidently.
+
+
+
+# 71. Capability certification lifecycle
+
+UNVERIFIED
+→ TESTING
+→ CERTIFIED
+→ DEGRADED
+→ TESTING
+→ CERTIFIED
+
+Terminal/alternate:
+- EXPIRED
+- REVOKED
+- INCOMPATIBLE
+
+Schema/server/runtime identity change can move CERTIFIED to UNVERIFIED/DEGRADED according to severity.
+
+# 72. Connector semantic action state
+
+VALIDATING_CONTEXT
+→ AUTHORIZED
+→ DISPATCHING
+→ ACCEPTANCE_KNOWN
+→ RESULT_NORMALIZING
+→ VERIFIED
+→ COMPLETE
+
+Uncertain branches:
+- DISPATCHING → ACCEPTANCE_UNKNOWN
+- ACCEPTANCE_UNKNOWN → RECONCILING
+- RECONCILING → ACCEPTED | NOT_ACCEPTED | NEEDS_HUMAN
+- any output → PARTIAL/QUARANTINED when certification says incomplete output cannot be canonical
+
+# 73. Browser guarded-action state
+
+CONTEXT_VERIFY
+→ READY
+→ EXECUTING
+→ EFFECT_CONFIRMED
+→ COMPLETE
+
+Alternate:
+- CONTEXT_VERIFY → BLOCKED_SEMANTIC_DRIFT
+- EXECUTING → UNCERTAIN
+- UNCERTAIN → RECONCILING
+- RECONCILING → EFFECT_CONFIRMED | NOT_EFFECTED | NEEDS_HUMAN
+
+UNCERTAIN never loops directly back to EXECUTING for a non-idempotent action.
+
+# 74. Local service epoch state
+
+STARTING
+→ CERTIFYING
+→ ACTIVE
+→ DRAINING
+→ STOPPED
+
+Abnormal:
+- DEGRADED
+- RESTARTING
+- QUARANTINED
+
+Queue/job identifiers are invalid outside the epoch in which they were issued unless connector explicitly proves continuity.
