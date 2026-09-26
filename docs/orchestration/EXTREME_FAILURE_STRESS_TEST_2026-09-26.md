@@ -3676,3 +3676,94 @@ For important publication targets, release operations may track:
 - platform postcondition verification support.
 
 “Publication succeeded” and “future compensation is available” are separate facts.
+
+
+# 23. Sixth-wave documentation/context attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 331 | Task references whole 120k-char hardening doc; agent context truncates before critical section | **GAP/P1 orchestration** | “read file” is not proof mandatory contract was loaded |
+| 332 | Two authoritative sections share same numeric identifier | **OBSERVED/P1** | audit found real collisions in architecture/schema/state/API/UI docs |
+| 333 | Task references “section 69”; two section 69s exist | **OBSERVED/P1** | ambiguous human context can send agent to wrong contract |
+| 334 | Task stores line range; later doc edit shifts lines | **GAP/P2** | line numbers are not stable contract identity |
+| 335 | Author omits a relevant high-risk section from Task context list | **GAP/P1** | reviewer/control must independently expand required context |
+| 336 | Whole-file hash changes due unrelated edit; every active task reloads giant file | **GAP/P2 throughput** | section-level digest can distinguish material context change |
+| 337 | Search snippet finds heading but omits following “must not” constraint | **GAP/P1** | partial snippet is not sufficient for mandatory section |
+| 338 | Deprecated old doc still exists and agent treats it as equally authoritative | **GAP/P1** | precedence/deprecation metadata must be machine-readable enough |
+| 339 | Agent summary drops a negation such as UNKNOWN != PASS | **RESIDUAL/P1** | critical invariants should be loaded verbatim/structured, not summary-only |
+| 340 | Task claimed on architecture revision A; main architecture changes section B relevant to task | PARTIAL | base/context revalidation exists; needs section-level materiality |
+| 341 | Reviewer trusts only author-provided Context Manifest on HIGH-risk change | **GAP/P1** | reviewer must independently resolve required owners/risks |
+| 342 | Red-team “finding” is interpreted as an active implementation contract although it was CONTAINED | **GAP/P2** | finding docs are evidence; implementation contract ownership must be explicit |
+| 343 | Baseline doc and hardening extension both appear authoritative with overlapping wording | PARTIAL | extension owner exists; contract index/precedence should be explicit |
+| 344 | Docs grow so large that code-review diff becomes superficial | **GAP/P2 throughput** | contract ownership + section-scoped diffs/lint needed |
+| 345 | New append adds another duplicate section ID later | **GAP/P1** | unique section ID must be CI-linted, not manually trusted |
+| 346 | Semantic section ID itself is accidentally reused | **GAP/P1** | uniqueness check must include semantic IDs repository-wide within owner namespace |
+| 347 | Generated contract/context index is stale vs document HEAD | **GAP/P1** | index must bind source revision/digest and be generated/verified |
+| 348 | Scheduled agent spends most run loading policy docs and never codes | **GAP/P2 flow** | context-load time/bytes is a throughput metric |
+| 349 | HIGH-risk task uses cached context from prior run after policy changed | **GAP/P1** | cache validity binds revision/digest and risk freshness |
+| 350 | Mandatory section is too large and still exceeds model/tool context budget | **GAP/P1** | contract should be decomposed or task blocked rather than silently truncating |
+
+# 24. Sixth-wave findings
+
+## X71 — Section-addressable authoritative context (P1)
+Task context references use:
+`path#stable-section-id`
+rather than only whole-file path or line number when the contract is sectional.
+
+Stable semantic IDs are preferred for newly hardened contracts.
+
+## X72 — Context Manifest (P1)
+At claim, materialize a Context Manifest containing:
+- context item ID;
+- path;
+- stable section ID or WHOLE_FILE;
+- source commit/revision;
+- normalized section digest;
+- importance: MANDATORY | ADVISORY;
+- owner class: ARCH | SCHEMA | STATE | API | UI | RISK | ORCHESTRATION;
+- reason/risk mapping.
+
+Before mutation, runtime confirms every MANDATORY item is loaded/validated.
+Missing/truncated mandatory context => BLOCKED_CONTEXT, not best-effort guessing.
+
+## X73 — Section-level change revalidation (P1/P2)
+Review/merge compares referenced section digests first.
+Unrelated edits elsewhere in a large file need not invalidate all tasks.
+Renamed/moved section uses explicit redirect/deprecation metadata.
+
+## X74 — Documentation contract lint as merge gate (P1)
+Lint checks:
+- duplicate numeric/semantic section IDs;
+- broken section refs;
+- missing owner docs;
+- deprecated-authority misuse;
+- duplicate machine contract owners;
+- required AGENTS/context links;
+- section index freshness.
+
+## X75 — High-risk independent context resolution (P1)
+For HIGH-risk review, reviewer does not trust only the author/task context list.
+Reviewer resolves likely required owner/risk sections from changed paths/contracts and compares with the Context Manifest.
+
+## X76 — Findings vs contracts separation (P2)
+Risk/red-team docs are evidence/questions.
+Only architecture/design/orchestration owner docs define active implementation contracts.
+A CONTAINED finding is not a request to add duplicate logic.
+
+## X77 — Context-load observability (P2)
+Track:
+- context bytes/sections fetched;
+- context load time;
+- cache hits;
+- mandatory-context misses;
+- context expansion count.
+
+Repeated context overhead consuming a large fraction of scheduled run becomes a Flow bottleneck.
+
+## X78 — No silent mandatory-context truncation (P1)
+If a mandatory contract cannot fit/read completely:
+- split/decompose the contract/task;
+- retrieve the full section through supported range/section mechanism;
+- or block the task.
+
+Never summarize away a mandatory security/data invariant merely to fit context.
