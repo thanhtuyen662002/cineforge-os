@@ -5546,3 +5546,229 @@ A live heartbeat with no semantic progress beyond task-specific threshold moves 
 312. stale Capacity epoch metrics rejected;
 313. fake heartbeat with no semantic progress;
 314. raw provider error redacted before general log sink.
+
+
+
+# HS. CI/release artifact provenance
+
+Privileged artifact identity binds:
+- repository identity;
+- workflow path/revision;
+- workflow run ID + attempt;
+- source commit/tree;
+- producer App/check identity;
+- runner trust class;
+- artifact storage ID;
+- content digest;
+- build manifest/attestation.
+
+Artifact display name is presentation only.
+
+A privileged workflow must not promote an untrusted/fork artifact merely because its name/path matches.
+
+# HT. GitHub Actions trust baseline
+
+Production CI/release policy:
+- third-party Actions pinned to immutable commit SHA;
+- explicit least-privilege `permissions`;
+- `id-token: write` only for the exact job needing OIDC;
+- controlled action upgrades through governance;
+- untrusted PR code never receives privileged release/signing identity.
+
+Mutable tags are convenience only for discovery, never release trust.
+
+# HU. Release identity and anti-rollback
+
+Release identity is one immutable tuple:
+- release epoch;
+- semantic version/build ID;
+- source commit/tree;
+- package digests;
+- release manifest hash;
+- signing key IDs.
+
+Rules:
+- branch names do not identify release bytes;
+- moved/recreated tags are detected;
+- installer/updater refuses policy-forbidden downgrade even if old signature is valid;
+- differential patch binds exact base digest and expected final digest.
+
+# HV. Signed update manifest closure
+
+Signed update manifest binds:
+- package digest + size;
+- platform/architecture;
+- allowed base versions/hashes;
+- required schema compatibility;
+- key ID/trust policy;
+- minimum allowed version/revocation floor;
+- bootstrap/updater minimum compatible version.
+
+Transport/CDN/mirror is untrusted.
+Digest trust comes from the signed manifest, not a hash fetched from the same mirror.
+
+# HW. Installer/elevation transaction
+
+Elevated installer operates from trusted staged bytes and managed working directory.
+
+It journals ownership/compensation for:
+- installed binaries;
+- services/tasks;
+- registry/protocol/file associations;
+- runtimes/packages;
+- updater/bootstrapper;
+- shared vs per-install components.
+
+Rules:
+- no helper execution from user-writable temp/current directory;
+- loader/plugin search path hardened;
+- user media/project/library roots are outside disposable app-binary root;
+- uninstall removes only owned/refcount-safe components;
+- repair preserves/reconciles newer user/security configuration.
+
+# HX. Signing authorization boundary
+
+Signing service accepts an approved **release manifest + exact digest**, not arbitrary caller-provided bytes.
+
+It revalidates:
+- release source commit;
+- build/artifact attestation;
+- required CI/security gates;
+- trigger/actor/environment authority;
+- signing key purpose/epoch/state.
+
+Signature response binds exact digest/key/timestamp evidence.
+
+# HY. Final-byte signature closure
+
+No signed executable/package is mutated after the signature-covered byte boundary.
+
+When packaging is layered:
+- inner binaries may be signed;
+- outer installer/package may also be signed;
+- manifest records both layers and hashes.
+
+Updater verifies final staged bytes before activation.
+
+# HZ. Updater/bootstrapper root of trust
+
+Updater/bootstrapper is separately versioned and recovery-tested.
+
+It:
+- validates signed update manifest;
+- enforces anti-rollback/revocation;
+- stages replacement atomically;
+- preserves a known-good recovery path;
+- cannot be replaced by an unverified package merely because the main app requests it.
+
+A failed main-app update must not destroy the only component capable of recovery.
+
+# IA. Hermetic release build
+
+Release inputs are declared and pinned:
+- compiler/toolchain;
+- package lock/transitives;
+- runtime/model/tool downloads;
+- build scripts;
+- environment-sensitive options.
+
+No release path depends on undeclared developer-global state or unpinned `latest` downloads.
+
+Where full bit reproducibility is impossible, policy records the expected nondeterminism and still requires content/provenance attestation.
+
+# IB. Packaged-content SBOM and legal closure
+
+Release compliance is derived from actual packaged contents.
+
+Gate compares:
+- file/package inventory;
+- native/runtime dependencies;
+- SBOM;
+- licenses/notices;
+- source dependency manifest;
+- approved exceptions.
+
+Source-tree SBOM alone is insufficient.
+
+# IC. Release artifact privacy/symbol handling
+
+Public/release artifacts are scanned for:
+- credentials/tokens;
+- private URLs;
+- local usernames/source paths;
+- confidential fixtures/media;
+- debug-only configuration.
+
+Debug symbols are a separately classified artifact:
+- bind exact build ID/hash;
+- have explicit storage/access/retention;
+- are not automatically public.
+
+# ID. Release trigger and protected environment authority
+
+Release execution validates:
+- allowed trigger/source;
+- source branch/tag/release state;
+- actor/automation authority;
+- GitHub Environment/rules identity when used;
+- current trust/governance policy;
+- exact immutable release commit.
+
+Missing/renamed/degraded protection becomes BLOCKED/ASSURANCE_UNAVAILABLE, not implicit approval.
+
+# IE. Offline install/update revocation policy
+
+Offline verification distinguishes:
+- cryptographic signature validity;
+- locally known revocation/trust floor;
+- freshness of revocation knowledge.
+
+Security profile may:
+- block packages older/below floor;
+- allow with explicit stale-revocation warning;
+- require online freshness for sensitive deployments.
+
+Offline mode must not claim revocation freshness it cannot observe.
+
+# IF. Installer/update lifecycle
+
+States:
+`PLANNED → PREFLIGHT → STAGED → VERIFIED → WAITING_SAFE_BOUNDARY → INSTALLING → ACTIVATING → HEALTH_CHECK → ACTIVE`
+
+Failure/recovery:
+- FAILED_PREFLIGHT
+- FAILED_SIGNATURE
+- FAILED_INSTALL
+- PARTIAL_SYSTEM_CHANGES
+- COMPENSATING
+- ROLLBACK_AVAILABLE
+- RECOVERY_BOOTSTRAPPER
+- SAFE_MODE
+
+“Rollback available” is exposed only when installer journal + schema compatibility prove it.
+
+# IG. Required supply-chain tests
+
+158. mutable third-party Action tag compromised;
+159. PR workflow accidentally receives OIDC/write permission;
+160. privileged workflow_run consumes fork artifact;
+161. artifact-name collision across workflow runs;
+162. release branch advances after approval;
+163. moved/recreated release tag;
+164. stale signed manifest replay;
+165. differential patch wrong-base application;
+166. CDN serves revoked/stale package;
+167. elevated installer DLL search hijack;
+168. elevated helper from writable temp;
+169. power loss mid installer transaction;
+170. uninstall with shared runtime/refcount;
+171. uninstall with user media under app path;
+172. signing service arbitrary-byte request;
+173. artifact swapped between build and signing;
+174. version mismatch binary/tag/manifest;
+175. SBOM vs actual packaged contents mismatch;
+176. public debug symbols leak paths/secrets;
+177. updater bootstrap corruption/recovery;
+178. release trigger from untrusted source;
+179. offline known-bad package with stale revocation knowledge;
+180. undeclared/unpinned release toolchain input.
