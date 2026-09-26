@@ -3533,3 +3533,146 @@ Elapsed wall-clock sleep is not treated as proof that provider work failed.
 ## X60 — Security guarantee boundary (P2 but important)
 CineForge must state which privacy guarantees it controls versus OS/admin/EDR/hypervisor/storage-snapshot behavior.
 High-security mode can reduce exposure but cannot honestly promise protection from a compromised administrator/kernel or every physical remanence channel.
+
+
+# 21. Fifth-wave financial/rights/archive/cross-project attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 291 | Provider reports JPY/KWD/other currency with exponent different from assumed 2 decimals | **GAP/P1 financial** | amount_minor_units needs currency metadata/exponent source |
+| 292 | Provider rounds per request while CineForge rounds only monthly aggregate | **GAP/P2** | billing reconciliation must preserve provider-native line amounts |
+| 293 | Tax/VAT/platform fee is added after generation estimate | **GAP/P1** | price exposure must include taxes/fees/unknown surcharge policy |
+| 294 | Provider changes price after user confirms plan but before dispatch | **GAP/P1** | dispatch needs quote/price snapshot freshness or max-price guard |
+| 295 | Promotional credits expire between estimate and dispatch, causing cash charge | **GAP/P1** | credit availability and cash fallback policy must be explicit |
+| 296 | Refund/correction arrives before original charge event | **GAP/P1** | ledger must support out-of-order provider billing events |
+| 297 | Provider sends duplicate invoice line under a new webhook event ID | **GAP/P1** | transport event ID dedupe is insufficient for financial identity |
+| 298 | FX source is stale/unavailable during cross-currency hard budget check | **GAP/P1** | FX freshness/uncertainty can block or reserve buffer |
+| 299 | Budget period reset uses local timezone/DST and resets twice/late | **GAP/P1** | period boundary needs explicit timezone/calendar semantics |
+| 300 | Refund drives “usage” negative and unlocks spending before cash is actually returned | **GAP/P1** | available budget vs pending refund/credit must be separated |
+| 301 | Rights expire at “end of day” but timezone/jurisdiction is ambiguous | **GAP/P1 legal** | rights interval must carry legal timezone/boundary semantics |
+| 302 | Consent revoked now: does it ban future generation only, future publication, or require takedown? | **GAP/P1 legal** | revocation effect scope must be explicit |
+| 303 | License valid for EU but connection/provider processing region changes to US | PARTIAL | provider region identity exists; rights/egress gate must bind territory/data-region rules |
+| 304 | Release was QC-passed yesterday; license expires today before Publish click | CONTAINED/PARTIAL | just-in-time release/publish revalidation must include legal effective time |
+| 305 | Font/music/stock asset has separate attribution/territory terms nested inside final master | PARTIAL | rights graph exists; release manifest should enumerate contributing obligations |
+| 306 | User requests purge but asset is under contractual/legal retention hold | **GAP/P1** | deletion/GC needs retention-hold axis distinct from rights/use |
+| 307 | Retention hold expires while offline; next GC purges without rechecking backup/release dependencies | **GAP/P2** | hold expiry triggers fresh dependency/policy evaluation |
+| 308 | Archive opens 10 years later but current app no longer supports old schema/event version | **GAP/P1 lifecycle** | archive needs documented self-describing compatibility/migration path |
+| 309 | Archive relies on proprietary codec/decoder that is no longer installable | **GAP/P1** | archive profile should include durable mezzanine/reference representation |
+| 310 | Archived project references external URL/cloud asset that later disappears | **GAP/P1** | archive seal should materialize required durable assets/evidence |
+| 311 | Archive package accidentally includes API tokens/browser session/DPAPI references | **GAP/P0/P1 privacy** | archive manifest needs strict secret-exclusion profile |
+| 312 | Cold archive sits untouched for years and bit rot is discovered only when needed | PARTIAL | scrub exists; archive durability policy needs scheduled/restore verification |
+| 313 | Old archive signature key is later revoked because compromised | **GAP/P1** | historical signature validation needs trusted timestamp/revocation semantics |
+| 314 | Timestamp authority response itself cannot be validated years later | **GAP/P2** | archive/release evidence should preserve timestamp chain/evidence |
+| 315 | Project clone inherits publication destination and queued scheduled publish | PARTIAL | fork invalidation exists; clone semantics must cover all external-action bindings |
+| 316 | Project template copies hidden reference to private source-project asset | **GAP/P1 privacy** | template export/import needs dependency closure/scope audit |
+| 317 | Shared craft memory learns confidential character/style from Project A and suggests it in Project B | **GAP/P1 privacy/IP** | cross-project learning memory must be opt-in/governed dataset |
+| 318 | Global semantic cache reveals existence/hash/timing of private asset across projects | PARTIAL | auth-scoped cache exists; side-channel/timing isolation should be considered |
+| 319 | Two projects dedupe same sensitive bytes; Project A requests crypto-erasure | PARTIAL | dedup privacy model exists; key/dedup domain must support per-policy deletion guarantee |
+| 320 | User exports “project archive” expecting portability but receives implementation-internal DB snapshot | **GAP/P1 UX/lifecycle** | portable archive ≠ disaster backup; formats/purpose must be distinct |
+| 321 | Portable archive imported into newer CineForge changes canonical semantics silently | **GAP/P1** | import migration must preserve/declare semantic transforms |
+| 322 | Release manifest omits a hidden/generated dependency that carries attribution obligation | **GAP/P1 rights** | release dependency closure must be complete and auditable |
+| 323 | Takedown is needed urgently but publication credential expired | **GAP/P1 ops** | compensation/takedown readiness should be checked/monitored for important releases |
+| 324 | Platform removed/changed takedown API; CineForge reports “requested” as “removed” | CONTAINED/PARTIAL | publication postcondition verification exists; UX must separate request vs confirmed |
+| 325 | Signing certificate expires while build waits in queue | **GAP/P2 release** | signing readiness/freshness recheck immediately before signing |
+| 326 | Valid signing cert but timestamp service unavailable, making long-term trust weaker | **GAP/P2** | signing policy should distinguish timestamp-required vs optional |
+| 327 | Provider invoice/account identity changed after workspace relogin; costs assigned to wrong tenant | PARTIAL | connection identity scope exists; billing ledger should bind account/workspace |
+| 328 | Price quote is correct but provider charges different model/version due silent fallback | **GAP/P1** | billing/usage evidence must bind actual model/service identity |
+| 329 | Rights evidence URL disappears but stored snapshot lacks full legal text/evidence | PARTIAL | license snapshot exists; evidence completeness policy needed |
+| 330 | Law/provider policy changes after publication | **RESIDUAL legal** | architecture can preserve release-time evidence and trigger review, but cannot make historical use permanently lawful |
+
+# 22. Fifth-wave findings
+
+## X61 — Currency and billing-unit semantics (P1)
+Financial records bind:
+- currency code;
+- currency exponent/scale source/version;
+- provider-native line amount;
+- normalized internal amount;
+- rounding rule.
+
+Do not globally assume “minor units = 2 decimals”.
+
+## X62 — Price/credit/tax exposure snapshot (P1)
+External dispatch plan should bind:
+- provider/model/service;
+- quoted unit price or pricing revision when available;
+- tax/fee assumptions;
+- credit balance/fallback behavior;
+- maximum acceptable money exposure;
+- quote freshness/expiry.
+
+Material price/credit change can require replan or stay within an approved ceiling.
+
+## X63 — Financial event identity and out-of-order reconciliation (P1)
+Financial dedupe uses provider billing/invoice/line identity when available, not webhook event ID alone.
+Ledger accepts out-of-order charge/refund/correction events and computes:
+- posted actual;
+- pending correction/refund;
+- available hard budget
+without prematurely spending a refund that is not settled.
+
+## X64 — Rights effective-time/territory semantics (P1)
+Rights/consent records carry:
+- effective instant or explicit legal calendar/timezone boundary;
+- territory/jurisdiction;
+- revocation effect scope: FUTURE_GENERATION / FUTURE_USE / FUTURE_PUBLICATION / TAKEDOWN_REQUIRED / OTHER;
+- evidence/policy authority.
+
+Release/publish gates evaluate the current instant and actual destination/processing context.
+
+## X65 — Retention/legal hold axis (P1)
+Deletion eligibility is also blocked by explicit retention holds independent from ordinary rights:
+- contractual retention;
+- audit preservation;
+- user preservation lock;
+- legal/compliance hold where applicable.
+
+Hold expiry does not auto-delete; it only makes the item eligible for fresh GC evaluation.
+
+## X66 — Portable archive vs disaster backup (P1)
+They are distinct products.
+
+Disaster backup:
+- restores CineForge deployment/state.
+
+Portable project archive:
+- self-describing project interchange;
+- no credentials/browser sessions;
+- versioned manifest/schema;
+- durable required media/evidence;
+- compatibility/migration declaration;
+- optional archival mezzanine/reference formats.
+
+UI must not call a raw DB backup a portable project archive.
+
+## X67 — Long-term archive durability (P1)
+Archive seal can require:
+- materialize required external references;
+- manifest all schemas/codecs/fonts/rights evidence;
+- preserve durable human-readable/rendered representations;
+- scheduled hash scrub/restore drill according to archive class;
+- documented migration/import path for future app versions.
+
+## X68 — Historical signature/timestamp semantics (P1/P2)
+Release/archive signature evidence records:
+- signer/key ID;
+- signing time evidence;
+- timestamp authority evidence when required;
+- trust/revocation state at verification time;
+- policy for signatures created before later key revocation/compromise.
+
+Current revocation does not silently rewrite history; policy decides whether historical evidence remains acceptable.
+
+## X69 — Cross-project/template/learning isolation (P1)
+Project template/clone/craft-memory export must perform dependency/scope closure.
+Private source-project assets, credentials, destinations, schedules and learned examples do not silently cross into another project.
+
+Cross-project craft/learning memory is explicit opt-in governed data, not accidental global memory.
+
+## X70 — Compensation readiness for external release (P1)
+For important publication targets, release operations may track:
+- takedown/replace capability;
+- current credential readiness;
+- platform postcondition verification support.
+
+“Publication succeeded” and “future compensation is available” are separate facts.
