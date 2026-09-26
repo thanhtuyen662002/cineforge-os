@@ -1867,3 +1867,25 @@ Implementer cannot self-authorize:
 - security/rights gate bypass;
 - invariant removal.
 Such changes require explicit decision record and role-appropriate independent authority.
+
+
+
+# 17. Third-wave recovery/authenticity attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 221 | Restore old DB whose stored recovery_epoch is lower than external jobs created later | **GAP/P0** | epoch inside rollback scope can forget future external reality |
+| 222 | Restored outbox reuses same logical intent but new local attempt ID | **GAP/P0** | requires non-rollback external side-effect ledger/idempotency fence |
+| 223 | Full-machine restore loses both DB and external-side-effect ledger | **IRREDUCIBLE/P0 mode** | must enter EXTERNAL_REALITY_UNKNOWN and reconcile provider/manual before risky resend |
+| 224 | Backup bytes and adjacent checksum manifest are both modified by attacker/ransomware | **GAP/P1** | hash without authenticated manifest cannot prove provenance |
+| 225 | Backup is correct but unencrypted removable disk is stolen | **GAP/P1 privacy** | backup confidentiality profile needed |
+| 226 | Temp/staging contains unreleased media after crash and normal cleanup never runs | **GAP/P1 privacy** | retention/encrypted-root/startup scavenger policy needed |
+| 227 | Valid provider webhook signature belongs to another tenant/account | **GAP/P0/P1** | source auth must bind scope, not signature only |
+| 228 | Valid callback references unknown external job after restore | PARTIAL | recovery quarantine; installation ledger strengthens decision |
+| 229 | Rights revoked, old cache key returns technically identical generated asset | **GAP/P1** | cache validity must include rights/policy semantics |
+| 230 | Privacy policy changes from cloud-allowed to local-only, old cloud-result cache is reused | **GAP/P1** | policy snapshot/validity must affect eligibility |
+| 231 | Connector output file is swapped after hash but before CAS registration | **GAP/P1** | stable file identity/finalize check needed |
+| 232 | Writable hardlink to CAS object is created outside CineForge after registration | **RESIDUAL/P1** | ACL/root isolation + periodic integrity scrub; cannot assume filesystem alone prevents privileged external mutation |
+| 233 | Backup restored on machine with different OS encryption posture | **GAP/P2** | recovery security profile should detect weaker local protection |
+| 234 | Release manifest is valid but signing key revoked between build and publication | **GAP/P1** | publication revalidates current signing trust, not only historical signature |
+| 235 | Callback signature verification library has clock-skew failure and rejects all real events | PARTIAL | quarantine/reconcile; monitor callback-auth failure surge |
