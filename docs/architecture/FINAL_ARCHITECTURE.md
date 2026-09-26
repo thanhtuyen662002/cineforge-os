@@ -1602,6 +1602,7 @@ ProviderTermsSnapshot and project policy determine the effective mode.
 
 This section is the architecture-level consolidation of findings from:
 - `docs/orchestration/EXTREME_FAILURE_STRESS_TEST_2026-09-26.md`;
+- `docs/design/EXTREME_HARDENING_CONTRACTS.md`;
 - detailed schema/state/API/UI contracts on the same reviewed branch.
 
 Detailed field/state/API definitions live in the implementation-contract documents; this architecture section owns the cross-cutting invariants.
