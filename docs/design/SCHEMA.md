@@ -28,10 +28,26 @@ This avoids two competing canonical models while preserving auditability and fut
 - File names, provider IDs and vector IDs are never canonical entity identity.
 - External provider IDs live in binding tables only.
 
+## 1.1.1 Canonical hashing and serialization
+
+- Raw media/content SHA-256 is computed over exact bytes.
+- Semantic revision/manifest hashes are computed over a versioned canonical serialization.
+- Canonical JSON rules: UTF-8, Unicode NFC for normalized semantic strings where policy permits, deterministic key ordering, deterministic array ordering only where the domain declares order-insensitive semantics, stable integer/decimal representation, no NaN/Infinity.
+- Film/media time uses rational integer pairs, never float serialization.
+- Hash records include/implicitly bind a serialization schema version so a future canonicalization change cannot masquerade as the same hash contract.
+- Two semantically different legal/right identities may still reference the same raw-byte hash.
+
 ## 1.2 Time
 - Database timestamps: signed INTEGER microseconds since Unix epoch UTC.
 - API/UI timestamps: RFC3339 UTC plus locale rendering.
 - Film/media time never uses wall-clock timestamps; it uses rational frame/sample time.
+
+## 1.2.1 Story/order keys
+
+Story/order keys are logical ordering values, not timestamps.
+V1 uses signed INTEGER sparse ranks within an owning sequence/list.
+Insertion may use gaps; a Core transaction may renumber a list without changing semantic story time.
+Do not use floating-point order keys.
 
 ## 1.3 Optimistic concurrency
 Mutable aggregate heads contain:
@@ -144,7 +160,7 @@ Authoritative mutation intent.
 - payload_json
 - expected_versions_json
 - reversibility: REVERSIBLE | COMPENSATABLE | IRREVERSIBLE
-- status: RECEIVED | VALIDATING | WAITING_DECISION | READY | EXECUTING | SUCCEEDED | FAILED | CANCELLED | PARTIAL
+- status: RECEIVED | VALIDATING | WAITING_DECISION | READY | EXECUTING | SUCCEEDED | FAILED | CANCELLED | PARTIAL | COMPENSATING | SUCCEEDED_WITH_WARNINGS | COMPENSATED | FAILED_COMPENSATION
 - correlation_id nullable
 - causation_id nullable
 - idempotency_key nullable
@@ -688,7 +704,7 @@ Legal/creative logical asset.
 - technical_metadata_id FK
 - provenance_record_id FK
 - semantic_role
-- availability_state: AVAILABLE | MISSING | CORRUPT | QUARANTINED | REVOKED
+- availability_state: AVAILABLE | MISSING | CORRUPT | QUARANTINED
 - review_state: UNREVIEWED | CANDIDATE | APPROVED | REJECTED
 - rebuildability: ORIGINAL | CANONICAL | REBUILDABLE | EPHEMERAL
 
@@ -1473,6 +1489,7 @@ Every immutable canonical/checkpoint revision registers here.
 - created_at_utc_us
 - approved_by_actor_id nullable
 - approved_at_utc_us nullable
+- supersedes_revision_id nullable FK revision_registry
 UNIQUE(entity_id, revision_no)
 
 Typed revision tables reuse revision_registry.id as PK/FK.
@@ -1856,7 +1873,7 @@ PK(package_id, dependency_family)
 - id PK
 - package_id FK
 - storage_root_id FK
-- state: DISCOVERED | DOWNLOADING | VERIFIED | STAGED | INSTALLING | HEALTH_CHECK | ACTIVE | FAILED | QUARANTINED | REMOVED
+- state: DISCOVERED | DOWNLOADING | SIGNATURE_VERIFY | VERIFIED | STAGED | INSTALLING | HEALTH_CHECK | ACTIVE | DRAINING | REMOVAL_CHECK | FAILED_DOWNLOAD | FAILED_SIGNATURE | INCOMPATIBLE | FAILED_INSTALL | FAILED_HEALTH | QUARANTINED | REMOVED
 - installed_path
 - installed_at_utc_us nullable
 - last_verified_at_utc_us nullable
