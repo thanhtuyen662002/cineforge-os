@@ -181,3 +181,26 @@ Track:
 - TASK_CONTRACT_REVISION_COUNT
 
 Repeated conflicts indicate scheduler/control design problems rather than normal productive work.
+
+
+# 13. Search/index consistency rule
+
+Reconciliation must not infer absence from GitHub Search alone.
+
+For claim/control correctness:
+- use direct branch/ref lookup;
+- direct PR/Issue collections or known IDs;
+- paginate to completion for the scoped set;
+- use search only to discover candidates.
+
+If API response is truncated/partial and completeness cannot be established, state is UNKNOWN and no duplicate claim/takeover/merge is authorized.
+
+# 14. Control epoch maintenance
+
+Monitor Capacity Plan comment/event count and payload size.
+Rotate to a new control epoch before parsing/fetching becomes a throughput bottleneck.
+
+Metric:
+- CONTROL_EVENT_COUNT_CURRENT_EPOCH
+- CONTROL_EVENT_FETCH_TIME
+- CONTROL_EPOCH_ROTATIONS
