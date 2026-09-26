@@ -7038,3 +7038,140 @@ Post-mux validation checks A/V/subtitle alignment against final bytes.
 282. rotated/anamorphic review geometry;
 283. conflicting header vs observed duration;
 284. final mux timestamp rebase A/V/subtitle check.
+
+
+# LW. Canonical source-tree materialization
+
+Trusted CI/release materializes source from a declared source manifest.
+
+Manifest binds:
+- canonical repository identity;
+- exact commit/tree;
+- submodule exact commits + expected origins;
+- LFS object IDs/materialization state;
+- declared generated files and generators;
+- permitted symlink policy;
+- expected Git attributes/line-ending policy.
+
+Before build, reject:
+- case-fold filename collisions;
+- Unicode-normalization filename collisions;
+- Windows reserved/device-name collisions for Windows targets;
+- source-tree symlinks escaping checkout policy;
+- missing LFS objects represented only by pointer files;
+- undeclared/untracked files consumed by build.
+
+Source-tree display path is not identity.
+
+# LX. Trusted Git checkout configuration
+
+Privileged/release checkout uses a clean Git configuration boundary.
+
+Reject/disable unexpected:
+- git replace refs;
+- alternate object databases;
+- arbitrary credential/helper URL rewrites;
+- user-global clean/smudge filters not declared by repository/build policy;
+- untrusted hooks;
+- unsafe sparse/partial checkout for release closure.
+
+The build records checkout policy/fingerprint.
+
+# LY. Working-tree transformation and line-ending contract
+
+Committed blob bytes may be transformed by Git attributes/checkout policy.
+
+Release provenance records:
+- committed blob/tree identity;
+- effective attributes/filter policy;
+- line-ending policy;
+- transformed working-tree manifest where material.
+
+Scripts/config whose semantics depend on line endings are tested under target checkout policy.
+
+No security/release decision assumes committed blob bytes equal working-tree bytes without declaring the transform.
+
+# LZ. Generated-code consistency
+
+Generated artifacts declare:
+- source-of-truth inputs;
+- generator package/binary digest;
+- generator config/schema revision;
+- expected output paths.
+
+CI for generated surfaces:
+1. regenerates from trusted source/tool;
+2. requires zero semantic/byte diff according to policy; or
+3. builds directly from regenerated output in isolated staging.
+
+Unexpected manual edits to generator-owned files fail the gate.
+
+# MA. Build-time network closure
+
+Stable/release builds do not depend on mutable network content during compilation/package assembly.
+
+Remote schemas, codegen inputs, binaries/toolchains, templates and assets are fetched in an explicit materialization step, validated, digest-pinned and included in build provenance.
+
+If a build intentionally requires network/non-reproducible input, release policy records that fact and cannot claim hermetic reproducibility.
+
+# MB. Tested/released build-configuration binding
+
+Verification evidence binds the actual build configuration:
+- target OS/arch;
+- feature flags;
+- compile-time cfg/features;
+- optimization/profile;
+- optional dependencies;
+- environment-sensitive build switches.
+
+Release packaging compares its configuration fingerprint with tested evidence.
+
+A materially different release configuration requires dedicated verification rather than inheriting green status from another feature matrix.
+
+# MC. Dependency resolver trust closure
+
+Trusted build records:
+- package manager;
+- resolver version;
+- configured registries/indexes/mirrors;
+- lockfile digest;
+- integrity hashes;
+- source URL/package identity;
+- relevant authentication source class.
+
+Home/workspace configuration such as npm/pip/cargo registry overrides does not silently alter privileged dependency resolution.
+
+Internal/private package namespaces use explicit source policy to prevent dependency-confusion fallback to public registries.
+
+# MD. Build-time executable dependency gate
+
+Dependencies able to execute during install/build are classified as active code, including:
+- npm lifecycle scripts;
+- Python build backends/setup hooks;
+- Rust build.rs and proc macros;
+- compiler plugins;
+- code generators.
+
+New or changed build-time executable dependencies receive elevated supply-chain review and sandbox/permission treatment appropriate to the build stage.
+
+# ME. Debug/symbol/source-artifact privacy policy
+
+PDBs, source maps, debug symbols, crash symbol bundles and compiler metadata are explicit release artifacts.
+
+Packaging policy declares whether each is public, private symbol-server only, or excluded.
+
+Scanner checks for source code leakage, absolute local paths/usernames, secret-bearing generated constants and proprietary internal metadata.
+
+# MF. Artifact signer handoff identity
+
+Signing/promotion accepts an immutable artifact tuple:
+- source verification tuple;
+- build run/job;
+- target/config fingerprint;
+- artifact storage ID;
+- exact digest;
+- package manifest.
+
+Filename/display name is never sufficient identity.
+
+Signer verifies the exact attested digest before signing and returns signature evidence bound to that digest.
