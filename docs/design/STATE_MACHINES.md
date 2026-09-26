@@ -1526,3 +1526,61 @@ Security/expiry-sensitive operations may block in UNTRUSTED until revalidation o
 - FAILED
 
 PAUSED_LIMIT is a normal bounded state, not an error.
+
+
+
+# 72. Encryption key lifecycle
+
+- ACTIVE
+- ROTATING
+- REVOKED
+- LOST
+- EXPIRED
+
+Rotation:
+`ACTIVE → ROTATING → ACTIVE(new version)`
+
+Old key remains available only as policy requires for decrypt/rewrap.
+LOST with no recovery key may make protected objects UNRECOVERABLE.
+
+# 73. At-rest protection state
+
+Per protected class/root:
+- PROTECTED_VERIFIED
+- PROTECTED_UNKNOWN
+- UNPROTECTED_ALLOWED
+- UNPROTECTED_BLOCKED
+- KEY_UNAVAILABLE
+- MIGRATION_REQUIRED
+
+# 74. Data-use purpose permission
+
+- ALLOWED
+- RESTRICTED
+- UNKNOWN
+- REVOKED
+- EXPIRED
+
+Revocation invalidates dependent derived/learning uses according to purpose scope.
+
+# 75. Clone rights review state
+
+Target cloned rights/consent:
+- INHERITABLE_VERIFIED
+- NEEDS_REVIEW
+- NOT_INHERITED
+- REVOKED
+
+No “copy = valid” shortcut.
+
+# 76. Diagnostic bundle lifecycle extension
+
+- REQUESTED
+- COLLECTING
+- REDACTING
+- CLASSIFYING
+- ENCRYPTING_OR_PROTECTING
+- READY
+- EXPIRED
+- PURGED
+- FAILED
