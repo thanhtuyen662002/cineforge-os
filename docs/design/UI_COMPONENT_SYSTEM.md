@@ -2523,3 +2523,80 @@ Vertical/social/square version appears as its own deliverable variant with:
 - target audio/subtitle profile.
 
 Approval of the landscape master is visible context, not automatic approval.
+
+
+
+# 74. Large-project loading UX
+
+Opening a very large project first renders:
+- project summary;
+- recent/active context;
+- Needs You;
+- active jobs;
+- current scene/timeline window.
+
+Library/history/timeline detail loads on demand.
+
+Never block project open on enumerating every asset/event or generating every thumbnail.
+
+# 75. Virtualized library/timeline
+
+Large lists/grids/timelines use virtualization and windowed queries.
+
+Timeline dynamically requests:
+- visible clip metadata;
+- appropriate thumbnail/waveform resolution for current zoom;
+- nearby context.
+
+No “render 50,000 DOM cards because data already exists” behavior.
+
+# 76. Background derived-work controls
+
+Activity Center groups optional background work:
+- Đang tạo thumbnail
+- Đang tạo waveform
+- Đang lập chỉ mục
+- Đang backup
+
+User can pause noncritical background work without pausing canonical saves/recovery.
+
+Foreground message:
+“Bạn có thể tiếp tục chỉnh sửa; phần xem trước còn lại sẽ được tạo khi cần.”
+
+# 77. Backup health UX
+
+Show:
+- backup age;
+- where it is stored;
+- same/different failure domain;
+- last verification/restore drill;
+- estimated restore time when known.
+
+Avoid one reassuring green check if restore would take days or has never been tested.
+
+# 78. Performance pressure UX
+
+When system pressure affects responsiveness:
+- explain which background class is throttled;
+- prioritize current edit/playback;
+- allow pause of noncritical work.
+
+Do not expose raw writer-queue jargon unless Advanced.
+
+# 79. Cold archive UX
+
+Archived project opens metadata/previews first.
+Cold/original media hydrates only when needed.
+
+Clearly distinguish:
+- metadata available;
+- preview available;
+- original media offline/cold;
+- execution dependency unavailable.
+
+# 80. Invalidation fanout UX
+
+Large canon change responds immediately with:
+“Đã khóa các kết quả phụ thuộc cũ. CineForge đang cập nhật 12.438 mục liên quan.”
+
+Until propagation finishes, affected descendants are conservatively shown stale/needs review rather than temporarily current.
