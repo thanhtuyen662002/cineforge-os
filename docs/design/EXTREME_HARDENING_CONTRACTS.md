@@ -2550,3 +2550,141 @@ This is distinct from SQL injection and must be tested with leading `=`, `+`, `-
 30. log/notification control-character injection;
 31. million-entity/deep-JSON input bomb;
 32. CSV/XLSX formula injection corpus.
+
+
+# DI. Numeric and rational invariants
+
+All numeric values crossing parser/API/domain boundaries are validated before arithmetic or allocation.
+
+## DI1. Checked arithmetic
+Use checked wide arithmetic for:
+- byte size = dimensions × channels × bytes;
+- sample/frame count conversions;
+- rational rescale;
+- duration/timestamp arithmetic;
+- money/credits;
+- allocation/index offsets.
+
+Overflow/underflow is a validation failure, never wraparound.
+
+## DI2. Rational canonicalization
+For canonical rationals:
+- denominator > 0;
+- sign stored in numerator;
+- reduce by gcd where equality/identity/cache depends on representation;
+- explicit rounding mode for conversion;
+- compare using overflow-safe arithmetic.
+
+A denominator of 0 is invalid.
+
+Frame rate, stream timebase and SMPTE timecode are separate typed concepts.
+
+## DI3. Finite floating values
+Where float is unavoidable:
+- reject NaN/±Infinity at Core/API boundary;
+- define acceptable range;
+- canonicalize negative zero where identity/hash matters;
+- never serialize non-finite values into canonical JSON/state.
+
+# DJ. Media physical-domain constraints
+
+Validated examples:
+- width/height > 0 and bounded by configured decode policy;
+- frame rate > 0 and under supported maximum;
+- pixel aspect numerator/denominator valid;
+- sample rate within supported configured range;
+- channel layout count bounded;
+- source_out >= source_in;
+- timeline_out >= timeline_in;
+- speed/scale/gain within explicit domain bounds;
+- transform matrices finite and valid for the operation;
+- unknown color metadata stays UNKNOWN, not silently defaulted.
+
+Policy can expand supported bounds, but malformed inputs cannot bypass them.
+
+# DK. Timecode and retime semantics
+
+## DK1. SMPTE/timecode
+Store:
+- frame-rate rational;
+- timecode rate;
+- drop-frame flag;
+- source frame number / timecode origin;
+- timezone only when wall-clock meaning exists.
+
+29.97 drop-frame counting is not represented as “30 fps with a label”.
+
+## DK2. Retime
+Canonical edit math retains rational source↔timeline mapping.
+Repeated edits do not destructively quantize the authoritative mapping to display milliseconds.
+
+Proxy/display rounding is derived.
+
+# DL. Financial arithmetic and unit identity
+
+## DL1. Money
+Money is represented using:
+- integer minor units or a fixed-decimal implementation with explicit scale;
+- ISO currency code;
+- checked arithmetic.
+
+Binary floating point is never authoritative money.
+
+## DL2. FX conversion
+When conversion is necessary, persist:
+- source amount/currency;
+- target currency;
+- rate;
+- rate source;
+- effective/captured time;
+- rounding rule;
+- converted result.
+
+Estimate conversion and actual billing conversion remain separate evidence.
+
+## DL3. Provider credits
+Credit quantities bind:
+- provider;
+- credit/unit type;
+- unit schema/version where semantics can change.
+
+Refunds/negative adjustments are append-only usage adjustments, not destructive edits of prior charges.
+
+# DM. Legal/calendar time semantics
+
+Rights/consent/terms effective periods specify:
+- instant vs date-only;
+- source timezone/IANA zone when meaningful;
+- inclusive/exclusive endpoints;
+- resolved UTC instants for enforcement.
+
+Date-only expiry does not rely on the current machine locale.
+
+For future wall-clock schedules, store timezone identifier + local intent; each emitted occurrence has stable occurrence identity.
+For audit, persist the resolved execution instant even if timezone rules later change.
+
+# DN. Stable order-key semantics
+
+Editable order keys must support deterministic rebalancing.
+
+Rebalancing:
+- does not change entity identity;
+- is recorded as structural ordering maintenance, not creative revision unless visible order changes;
+- supports concurrent/stale detection;
+- cannot overflow silently after repeated insertions.
+
+# DO. Required numeric/domain tests
+
+33. denominator-zero rationals;
+34. rational normalization/equality;
+35. 64-bit overflow on duration/byte allocation;
+36. NaN/Infinity metadata;
+37. absurd dimensions/frame/sample/channel counts;
+38. negative/reversed clip/subtitle intervals;
+39. 23.976/29.97 drop-frame/timecode edges;
+40. nested retime precision over long timelines;
+41. money overflow and cross-currency estimate/actual;
+42. refund/negative provider adjustment;
+43. locale decimal input `1,5` vs `1.5`;
+44. rights expiry across timezone/DST boundary;
+45. order-key exhaustion/rebalance.
