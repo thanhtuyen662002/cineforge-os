@@ -1767,3 +1767,56 @@ The scheduler may pause only affected capability classes rather than all CineFor
 - current rights/QC gates.
 
 On restart, `release.reconcile_master_activation` verifies bytes before publication can continue.
+
+
+
+# 89. Deployment identity API
+
+Queries:
+- `query.deployment.current`
+- `query.deployment.lineage`
+- `query.deployment.detect_clone`
+
+Commands:
+- BeginDeploymentMove
+- ActivateReplacementDeployment
+- BeginDeploymentFork
+- BeginDeploymentRestore
+- RetireDeployment
+- ReconcileDeploymentIdentity
+
+Writable activation requires current deployment binding.
+A missing/mismatched installation secret returns `DEPLOYMENT_RECONCILIATION_REQUIRED`, not silent activation.
+
+# 90. Fork/move/restore plan
+
+`command.plan` for MOVE/RESTORE/FORK returns distinct consequences:
+- lineage behavior;
+- deployment generation change;
+- recovery epoch requirement;
+- credentials/browser reauth;
+- schedules/publications disabled or preserved;
+- external side-effect namespace;
+- backup namespace;
+- environment requalification.
+
+The user does not receive one ambiguous “Use this library here?” action.
+
+# 91. Side-effect deployment binding
+
+External-dispatch request envelope includes:
+- library_lineage_id;
+- deployment_instance_id/generation;
+- recovery_epoch_id;
+- external operation correlation/idempotency identity.
+
+Dispatcher rejects an attempt whose deployment binding is no longer ACTIVE/current.
+
+# 92. Fork reconciliation API
+
+- `forks.plan_import`
+- `forks.compare_project`
+- `forks.import_revisions`
+- `forks.resolve_conflicts`
+
+No API exists to merge raw CineForge databases from independently mutated forks.
