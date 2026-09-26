@@ -40,7 +40,7 @@ Watches:
 - ready queue depth;
 - blocked issue count;
 - PR age/state;
-- exact-head CI age;
+- verification-context CI age;
 - review age;
 - merge conflicts;
 - dependency chain;
@@ -66,7 +66,7 @@ Owns merge safety.
 
 Checks:
 - dependency completion;
-- exact head SHA;
+- exact reviewed HEAD plus relevant BASE/merge context;
 - CI status;
 - independent review;
 - unresolved comments;
