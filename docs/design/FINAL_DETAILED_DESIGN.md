@@ -434,3 +434,52 @@ Further design changes should now be driven by:
 - connector/provider behavior observed in practice.
 
 New speculative complexity should not be added unless it maps to an observed failure or a documented risk that current controls cannot contain.
+
+
+
+# 18. Control maturity and anti-overengineering
+
+Implementation planning references `docs/design/CONTROL_REGISTRY.yaml`.
+
+## Maturity
+A control is:
+- DESIGNED
+- SPECIFIED
+- IMPLEMENTED
+- AUTOMATED_TESTED
+- CHAOS_TESTED
+- PRODUCTION_PROVEN
+
+Documentation alone never advances a control beyond SPECIFIED.
+
+## Applicability
+Controls classify as:
+- V1_FOUNDATION
+- V1_BEFORE_RELEASE
+- SCALE_HARDENING
+- FUTURE_MULTIUSER
+- OPTIONAL_HIGH_SECURITY
+
+A coding task implements only controls applicable to its current slice/risk profile unless doing so would make later compatibility impossible.
+
+## Anti-overengineering test
+Before implementing a major abstraction/control:
+1. Is it required by the current slice or current reachable P0/P1?
+2. Is it necessary to keep a future boundary compatible?
+3. Can it remain a specified interface/design reserve without code now?
+
+If yes to deferral, do not code it yet.
+
+The comprehensive schema/design is a compatibility map, not a big-bang backlog.
+
+# 19. Governance/product WIP balance
+
+Planner monitors WIP distribution among:
+- vertical product delivery;
+- control-plane/governance;
+- reliability/hardening;
+- testing/CI.
+
+Unbounded hardening cannot starve the first real 3–5 minute film unless a currently reachable unresolved P0 prevents safe continuation.
+
+The first real film remains a mandatory architecture validation milestone.
