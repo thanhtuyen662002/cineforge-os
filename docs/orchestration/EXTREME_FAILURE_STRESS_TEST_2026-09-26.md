@@ -8088,3 +8088,79 @@ Recovery reconciles historical key state with current forward:
 - recovery policy.
 
 Old backup cannot resurrect a key that current security policy considers compromised.
+
+
+# 41. Restore/client-epoch adversarial wave
+
+This wave uses `REC-xx`.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| REC-01 | UI holds after_seq=1,000,000, restored Core max event_seq=900,000 | **GAP/P1** | numeric cursor alone cannot detect “client is from future history” |
+| REC-02 | UI projection_seq/cache from pre-restore history is higher than restored projection | **GAP/P1** | cache generation must be recovery/deployment scoped |
+| REC-03 | Media preview token issued before restore still resolves after restored rights/project state differs | **GAP/P0/P1** | capability token must bind deployment/recovery generation |
+| REC-04 | Client retries command with old idempotency key that restored DB forgot | PARTIAL | external side-effect ledger helps; local-only command namespace still needs recovery-aware scope |
+| REC-05 | Browser session from pre-restore project epoch resumes and submits action | PARTIAL | browser/session revalidation exists; client recovery generation should be mandatory |
+| REC-06 | Desktop reconnects after Core reinstall/new deployment but treats event gap as temporary disconnect | **GAP/P1** | deployment/session epoch mismatch needs explicit reset response |
+| REC-07 | Cached DecisionRequest from pre-restore future is clicked after restore | **GAP/P1** | action token/version must include recovery/deployment epoch |
+| REC-08 | Offline working copy based on pre-restore future revision reconnects to older restored canonical | **GAP/P1** | must become divergent branch, not ordinary stale edit |
+| REC-09 | Notification center contains completion for job erased by restore | **GAP/P2/P1** | historical external event may remain evidence, but current project projection must distinguish superseded history |
+| REC-10 | Client sees event_seq reused after restore and assumes duplicate old event | **GAP/P1** | seq uniqueness is per stream/deployment epoch, not eternal installation truth |
+| REC-11 | Web/UI event subscription reconnects with old cursor and server silently returns zero events | **GAP/P1** | server must return EPOCH_MISMATCH/RESET_REQUIRED |
+| REC-12 | Old optimistic row_version is numerically greater than restored row_version | **GAP/P2/P1 UX** | error should identify recovery divergence, not generic stale revision |
+| REC-13 | Cached search/index generation from pre-restore future remains in browser memory | **GAP/P1 privacy/correctness** | generation tokens bind recovery/deployment epoch |
+| REC-14 | Long-lived worker reconnects to new Core and continues job from previous deployment generation | PARTIAL | deployment generation exists; handshake must reject old worker epoch |
+| REC-15 | Client pending command queue from before disaster automatically replays into restored Core | **GAP/P0/P1** | offline client queue needs recovery barrier/manual reconciliation for side-effectful commands |
+
+# 42. Restore/client epoch findings
+
+## X191 — Event stream epoch-qualified cursor (P1)
+Event/presentation cursor identity is:
+- deployment_instance/generation;
+- recovery epoch;
+- event stream generation;
+- sequence.
+
+Client sends the full cursor, not only after_seq.
+
+Mismatch returns a typed reset/reconciliation response, never an empty “nothing new” stream.
+
+## X192 — Client recovery handshake (P1)
+Desktop/UI/worker connection handshake receives:
+- installation/library lineage;
+- deployment generation;
+- recovery epoch;
+- API/session epoch;
+- active projection/event generations.
+
+If client state belongs to a superseded/future history:
+- invalidate cached projections/tokens;
+- clear/reconcile pending side-effectful command queue;
+- preserve unsynced user drafts as divergent branches;
+- reload current projections.
+
+## X193 — Recovery-scoped capability/session tokens (P0/P1)
+Media tokens, DecisionRequest actions, browser sessions, worker claims and similar capabilities bind deployment/recovery generation where stale use could violate rights/privacy/correctness.
+
+A successful cryptographic token check from an old recovery epoch is still unauthorized.
+
+## X194 — Event sequence is epoch-local ordering (P1)
+DB event_seq remains canonical order within its stream epoch.
+It is never treated as globally eternal across restore/deployment replacement.
+
+Audit identity uses epoch + sequence/event ID.
+
+## X195 — Offline pending-command recovery barrier (P0/P1)
+After recovery/deployment mismatch, pending client commands are classified:
+- local reversible draft edit → preserve/rebase;
+- idempotent read/query → discard/reissue;
+- side-effectful/paid/publish/delete → do not auto-replay; reconcile/confirm under current epoch.
+
+## X196 — Recovery divergence error semantics (P1)
+Errors distinguish:
+- STALE_REVISION;
+- RECOVERY_EPOCH_MISMATCH;
+- DIVERGENT_OFFLINE_HISTORY;
+- TOKEN_FROM_SUPERSEDED_DEPLOYMENT.
+
+This gives UI/support a correct recovery path instead of generic conflict noise.
