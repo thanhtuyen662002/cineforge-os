@@ -2615,3 +2615,156 @@ Before sending browser observations to AI/evaluator:
 - record whether observation left the local machine.
 
 Login/MFA/account-management pages default to stricter capture policy.
+
+
+
+# 51. Task dependency DAG integrity
+
+Hard scheduling dependencies form a DAG.
+
+Planner/reconciler must reject or surface cycles before tasks become READY.
+Manual Issue edits that introduce a cycle invalidate readiness until resolved.
+
+Soft/reference dependencies may be cyclic only when their semantics explicitly permit it.
+
+# 52. URL intake and browser network boundary
+
+Universal URL intake and browser automation are network-security boundaries.
+
+Required URL fetch policy:
+- explicit allowed schemes;
+- localhost, loopback, link-local, private RFC1918/RFC4193 and cloud-metadata ranges denied by default unless an explicit trusted feature permits them;
+- resolve and validate every redirect target;
+- validate connect-time resolved addresses to resist DNS rebinding;
+- bound response bytes, redirects, duration and content type;
+- credentials/cookies are not forwarded to unrelated origins;
+- file/custom protocols are denied unless specifically allowlisted.
+
+Browser navigation follows the same principle: website content cannot escape into `file:`, privileged custom schemes or unrestricted localhost services.
+
+# 53. Content-addressed storage immutability
+
+Canonical CAS bytes must be physically protected from writable aliasing.
+
+Rules:
+- no writable hardlink from CAS object to editable handoff/staging paths;
+- reflink/clone is allowed only when the filesystem guarantees copy-on-write semantics and CineForge verifies the destination is not a mutable alias;
+- otherwise copy bytes;
+- canonical object modification detection quarantines the object and all dependent revisions until repaired/reconciled.
+
+# 54. External callback authenticity
+
+Inbox idempotency is not source authentication.
+
+Provider callbacks/webhooks require provider-specific authentication before canonical inbox registration:
+- HMAC/signature/token/mTLS/channel identity as supported;
+- expected endpoint/account/provider identity;
+- bounded timestamp/replay window where available;
+- raw signed payload hash/evidence.
+
+Unauthenticated callback input remains untrusted and cannot drive state transitions.
+
+# 55. Autonomous dependency supply-chain policy
+
+An agent adding/upgrading executable source dependencies changes the trust and legal surface.
+
+Dependency changes require:
+- pinned lockfile/provenance;
+- expected registry/source;
+- license classification;
+- vulnerability/advisory checks where available;
+- build/postinstall script review according to risk;
+- SBOM update for releasable builds;
+- elevated review for new native/binary/install-script dependencies.
+
+Typosquatted or unexpected-registry packages are blocked, not “tested in production”.
+
+# 56. Critical invariant test protection
+
+Tests that enforce architecture/security/data-integrity invariants are governance assets.
+
+A feature PR may update them only with explicit explanation and review.
+CI/review flags:
+- removed invariant test;
+- reduced assertions/coverage for invariant paths;
+- changed expected failure into success without corresponding architecture decision.
+
+A PR cannot make itself green merely by deleting the guard that caught it.
+
+# 57. Local user isolation
+
+Default local deployment is user-scoped.
+
+Core DB, credential references, runtime state, browser profiles, logs and IPC endpoints use OS-user scoped ACL/permissions.
+
+Shared folders/multi-user execution are explicit deployment modes and require their own authority/locking model.
+
+# 58. Stable ingest and external-source TOCTOU defense
+
+For security/canonical ingest:
+- open/copy source into private staging using a stable OS handle where practical;
+- normalize/reject reparse escapes;
+- hash the staged bytes;
+- parse the staged immutable copy.
+
+External-link mode may monitor a path, but any canonical/review decision binds a cryptographic content fingerprint, not only size/mtime/path.
+
+# 59. Rebuildability is technical + rights + dependency availability
+
+A DerivedRecipe is rebuildable only when:
+- required source revisions remain available;
+- required package/model/provider capability remains available or policy-approved alternative is proven equivalent enough for that class;
+- required rights/license permit rebuilding;
+- recipe/toolchain identity is resolvable.
+
+GC/package removal/license revocation must reevaluate dependent rebuildability before deleting the last durable copy.
+
+# 60. SQLite-consistent backup invariant
+
+A live SQLite database is never backed up by naively copying only the main DB file while WAL may contain committed state.
+
+Backup uses:
+- SQLite Online Backup API; or
+- a validated equivalent consistent snapshot/checkpoint method.
+
+Backup manifest records the DB snapshot identity/event checkpoint and corresponding object manifest.
+
+# 61. Canonical/event integrity auditor
+
+Because CineForge V1 is event/audit-backed rather than pure event-sourced, a periodic integrity auditor verifies:
+- aggregate row_version/event version monotonicity;
+- expected command→event/outbox transaction relationships;
+- revision_registry ↔ typed revision consistency;
+- orphan/missing outbox/inbox evidence;
+- storage-object/revision references;
+- impossible state transitions.
+
+Detected inconsistency enters SAFE_MODE/RECONCILIATION according to severity; it is not silently “fixed” by whichever table seems newer.
+
+# 62. Worker crash-loop circuit breaker
+
+Repeated crash/restart of worker/runtime/connector uses exponential backoff, restart budget and quarantine.
+
+A poisoned runtime must not restart forever and consume the entire machine/queue.
+
+# 63. Web account/workspace identity
+
+A browser/API connection may pin:
+- provider account identity;
+- organization/tenant/workspace identity;
+- region/data-residency metadata where relevant.
+
+“Authenticated” does not mean “authenticated to the correct workspace”.
+
+Before privileged production action, connector verifies required identity scope.
+
+# 64. Bulk command snapshot scope
+
+Bulk commands never mean “whatever currently matches this filter when execution happens”.
+
+Planning materializes:
+- exact entity/revision IDs; or
+- an immutable query-result snapshot/hash.
+
+Execution operates on that pinned scope.
+New items arriving after confirmation are excluded unless the user explicitly replans.
