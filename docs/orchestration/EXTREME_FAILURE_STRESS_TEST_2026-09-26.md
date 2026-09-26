@@ -1632,3 +1632,116 @@ Release/archive policy retains:
 - release manifest/attestation;
 - actual published/transcoded output when retrievable/required;
 - open/documented interchange artifacts needed for future access.
+
+
+# 17. Third-wave adversarial cases — privacy, project packages, multi-window and release sanitation
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 221 | User opens the same project in two CineForge windows and edits the same timeline concurrently | **GAP/P1** | local single DB writer does not prevent semantic edit collisions across UI sessions |
+| 222 | One window is offline/suspended, resumes and submits stale autosave over newer manual work | **GAP/P1** | row_version helps, but working-copy/session reconciliation needs explicit UX/state |
+| 223 | Project package import contains IDs colliding with existing project/entity IDs | **GAP/P1** | imported project/archive needs namespace remap and trust boundary |
+| 224 | Project package references absolute paths outside package root | **GAP/P0/P1** | import must sandbox/remap paths rather than trust embedded locations |
+| 225 | Crafted project manifest exploits deserializer/schema migration path | **GAP/P0/P1** | project bundles are hostile documents, not trusted backups |
+| 226 | User imports a "backup" from unknown source and it carries active browser/session/credential references | **GAP/P0/P1** | credentials/session refs must never become trusted by package import |
+| 227 | Final MP4 retains GPS/device/user-path metadata from source media | **GAP/P1 privacy** | release needs metadata sanitation/privacy policy |
+| 228 | Thumbnail/proxy retains EXIF or embedded XMP even when final master is clean | **GAP/P2 privacy** | privacy sanitation applies to all outward deliverables/support artifacts |
+| 229 | Subtitle/ASS font attachment contains malicious font parser exploit | **GAP/P1** | fonts and subtitle attachments are executable-parser surface |
+| 230 | Malicious subtitle contains extreme cue count/huge text causing memory/UI lock | **GAP/P2** | subtitle parser/render budgets needed |
+| 231 | Crafted ICC/LUT/color profile triggers parser bug or enormous allocation | **GAP/P1** | color assets need the same parser sandbox/resource limits |
+| 232 | Local AI HTTP service binds 0.0.0.0 and becomes reachable from LAN | **GAP/P0/P1 privacy** | local services need loopback/default firewall/auth binding policy |
+| 233 | Local inference service has no auth because "it is only localhost", but browser origin can reach it | **GAP/P0** | browser/native/network boundary must include loopback service auth/origin controls |
+| 234 | Browser/WebRTC reveals local IP/network characteristics to provider page | **GAP/P2 privacy** | browser privacy profile needs WebRTC/device/network policy |
+| 235 | Crash leaves temp voice/video files in world-readable temp directory | **GAP/P1 privacy** | temp roots need ACL, cleanup journal and crash recovery |
+| 236 | Deleted project leaves thumbnails/search embeddings in cache/index | PARTIAL | deletion/derived-data purge exists; cache/index purge verification needed |
+| 237 | Redacted diagnostic bundle still includes user name/home path in logs | PARTIAL | redaction rules exist; environment/path pseudonymization should be explicit |
+| 238 | Release uploads the correct master to the wrong channel/account because display names are identical | PARTIAL | publication destination identity exists; UX must show immutable destination fingerprint |
+| 239 | Platform silently transcodes and strips/changes subtitles after publish | PARTIAL | actual published-output QC exists; delivery verification should include subtitle/attachment presence |
+| 240 | Published video exposes hidden audio/commentary/data stream not visible in normal player | CONTAINED by release stream manifest if implemented |
+| 241 | Export package contains leftover temp/source files not intended for handoff | **GAP/P1** | deliverables should build from explicit allowlist manifest, not directory sweep |
+| 242 | Support/export ZIP accidentally contains .env, auth cookies or browser profile because packaging walks a folder recursively | **GAP/P0** | archive/export builders need explicit manifest-only inclusion |
+| 243 | App logs full prompts containing client confidential data by default | **GAP/P1 privacy** | telemetry/log content-class policy needed |
+| 244 | Metrics/analytics include project titles or file paths without user realizing | **GAP/P1 privacy** | telemetry egress policy must be explicit and minimal |
+| 245 | Voice embeddings/face embeddings persist after user deletes reference media | **GAP/P1 privacy/biometric** | derived biometric-like features need purpose/retention/deletion lineage |
+| 246 | Consent revoked but embedding cache remains and influences matching/routing | **GAP/P1** | revocation must taint derived embeddings/indexes too |
+| 247 | User duplicates project and private connection bindings come along silently | PARTIAL | clone isolation exists; UI/default inheritance must exclude credentials/session bindings |
+| 248 | User changes OS account; files readable but ACL/secure-store references mismatch | PARTIAL | reauth exists; file ACL migration/ownership repair UX needed |
+| 249 | Two app versions run simultaneously against same DB after update | **GAP/P0/P1** | Core single-instance/schema compatibility lease must reject incompatible concurrent binaries |
+| 250 | Old desktop UI reconnects to newer Core with incompatible API contract | **GAP/P1** | Core/UI protocol negotiation/version gate required |
+| 251 | Rollback restores old UI but leaves new Core service running | **GAP/P1** | updater must treat Desktop+Core as coherent activation unit |
+| 252 | Antivirus quarantines only one sidecar but updater health check misses it | PARTIAL | package health exists; activation manifest must verify all required files |
+| 253 | Malicious project title/file name injects terminal escape/control chars into logs | **GAP/P2 security/ops** | logs/UI need control-character sanitization |
+| 254 | Unicode bidi spoof makes safe.exe appear as media file in UI | **GAP/P1 UX/security** | filename display must expose extension/type safely and flag bidi/control chars |
+| 255 | Extremely long Unicode names break exporter/NLE handoff | PARTIAL | Windows sanitization exists; deterministic truncation/mapping required |
+| 256 | User pastes an enormous base64/data URI into a URL/text intake | **GAP/P1 resource** | intake size/scheme limits must apply before decode/allocation |
+| 257 | Data URI contains HTML/SVG with active external references | **GAP/P1** | active document/image formats need sanitization/sandbox |
+| 258 | SVG preview loads remote resources or scripts | **GAP/P0/P1** | SVG must be rasterized/sanitized in unprivileged parser context |
+| 259 | PDF contains external launch/action/embedded-file behavior | **GAP/P1** | PDF parsing/rendering must ignore/disable active actions |
+| 260 | Release metadata sanitation removes legally required attribution | **GAP/P1** | privacy stripping and rights attribution must be reconciled, not blanket deletion |
+
+# 18. Findings from third wave
+
+## X39 — Multi-window/session edit fencing (P1)
+Each editable working session needs a session identity and revision fence.
+Unsafe merge domains (timeline/canon critical edit) use exclusive edit lease or explicit branching.
+A stale suspended window cannot overwrite a newer session.
+
+## X40 — Untrusted CineForge project/package import (P0/P1)
+Project/package import is not restore.
+It is hostile structured input:
+- schema/version validation;
+- namespace/ID remap;
+- no embedded credentials/session trust;
+- path sandbox/remap;
+- resource budgets;
+- migration in isolated staging;
+- explicit adoption into current studio/project.
+
+## X41 — Release/privacy sanitation policy (P1)
+Deliverable generation uses an explicit output manifest and metadata policy:
+- preserve required rights/attribution;
+- remove disallowed private/device/GPS/path metadata;
+- enumerate streams/attachments/fonts/subtitles;
+- verify actual emitted container metadata.
+
+## X42 — Manifest-only packaging (P0/P1)
+Support/export/release archives are assembled from explicit allowlisted artifacts.
+Never recursively zip a working/browser/profile/project directory.
+
+## X43 — Parser hardening extends to fonts/color/SVG/PDF/subtitles (P1)
+These are untrusted parser surfaces with size/time/memory/network/action restrictions.
+
+## X44 — Local service exposure boundary (P0/P1)
+Local model/media services:
+- bind loopback by default;
+- authenticate requests/capability tokens;
+- deny browser-origin ambient access;
+- explicit LAN exposure mode with warning/firewall/ACL policy.
+
+## X45 — Sensitive telemetry/logging policy (P1)
+Logs/metrics classify fields:
+- SAFE_TELEMETRY
+- PROJECT_METADATA
+- CONTENT_SENSITIVE
+- CREDENTIAL_SECRET
+and enforce redaction/egress/retention by class.
+
+## X46 — Derived biometric/identity feature lifecycle (P1)
+Face/voice embeddings and identity descriptors are derived sensitive artifacts with:
+- source lineage;
+- purpose;
+- retention;
+- consent/rights scope;
+- deletion/revocation propagation.
+
+## X47 — Desktop/Core coherent versioning (P0/P1)
+Desktop UI, Core and DB schema negotiate compatibility.
+Only one compatible active Core owns a database.
+Updater activates Desktop+Core as a coherent version set; incompatible old components fail closed.
+
+## X48 — Display/log spoofing hardening (P1/P2)
+Sanitize control/bidi characters in operational logs and security-sensitive filename display.
+Show true detected media type/extension independently from deceptive Unicode presentation.
+
+## X49 — Privacy sanitation cannot erase rights obligations (P1)
+Release sanitizer resolves privacy metadata policy together with attribution/license obligations and records what was removed/preserved.
