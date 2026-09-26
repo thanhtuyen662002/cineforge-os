@@ -3281,3 +3281,105 @@ Evaluation records pin exact representation:
 - resolution/audio profile.
 
 A result on a proxy cannot silently satisfy a master-quality benchmark unless policy declares equivalence.
+
+
+# 29. Installation/library clone and split-brain attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 401 | User copies entire library DB+assets to another PC and runs both | **GAP/P0/P1** | SQLite locking is local; two physical copies can both believe they are sole owner |
+| 402 | Restored VM snapshot includes same DB and local installation IDs | **GAP/P0/P1** | machine clone can resurrect identical control identity |
+| 403 | Both clones replay same restored outbox to provider | **GAP/P0** | local recovery epoch is identical across clones unless deployment identity differs |
+| 404 | Provider supports idempotency and dedupes duplicate request, but callbacks reach both clones differently | **GAP/P1** | external correlation needs deployment/install identity and reconciliation |
+| 405 | Provider does not support idempotency; clones create duplicate charges/publications | **GAP/P0** | local-only cannot guarantee global singleton across disconnected clones |
+| 406 | Browser profile/cookies are copied to second PC and both automate same account | **GAP/P1** | profile/session must bind to installation/deployment and reverify on clone |
+| 407 | Scheduled local jobs copied in DB and both installations dispatch them | **GAP/P1** | scheduled occurrence needs installation activation/fork semantics |
+| 408 | User intends “move to new PC” but old PC comes online later | **GAP/P1** | replacement/migration requires old-installation retirement where possible |
+| 409 | User intends “make independent copy” but external publication/account bindings remain active | **GAP/P1** | fork must disable/rebind external side-effect capabilities |
+| 410 | Machine clone includes OS secure-store/DPAPI state so secret still resolves | **RESIDUAL/P0** | full-machine/VM clone can defeat purely local uniqueness evidence |
+| 411 | Library copied while original Core is running gives internally inconsistent point-in-time DB/assets | CONTAINED/PARTIAL | raw folder copy unsupported; consistent backup/export required |
+| 412 | Two clones generate same logical occurrence/job IDs then sync results manually | **GAP/P1** | deployment identity must namespace side-effect/execution identity |
+| 413 | Clone A deletes asset, clone B later imports its old project package and resurrects it | PARTIAL | forward deletion journals help only when shared/imported deliberately |
+| 414 | Clone A revokes rights, clone B offline keeps producing | **RESIDUAL/P1** | disconnected independent fork cannot receive later policy without synchronization |
+| 415 | User mistakes read-only archive copy for active production workspace | **GAP/P2 UX** | archive/fork mode must be explicit |
+| 416 | External connection callback does not include installation identity | PARTIAL | correlation key may need provider job ID + local deployment mapping |
+| 417 | Same provider idempotency key reused intentionally after independent fork | **GAP/P1** | key namespace needs deployment/fork generation semantics |
+| 418 | New machine migration copies encrypted workspace but key is machine-bound | CONTAINED/PARTIAL | REAUTH/key recovery path; workspace migration needs explicit key transfer policy |
+| 419 | Full disk image rollback restores old installation activation record | **GAP/P1** | forward deployment retirement token/journal may be needed where available |
+| 420 | Two local installations access the same external media library but separate DBs | PARTIAL | asset fingerprint protects content identity; edits/deletion need separate coordination |
+| 421 | User places DB on shared NAS despite block by manually copying files | RESIDUAL | unsupported configuration should fail validation/open writable mode |
+| 422 | Portable project imported twice creates duplicate external side-effect intents | PARTIAL | import resets external bindings; should also regenerate execution identities |
+| 423 | Clone retains same local RPC token/IPC endpoint secret | **GAP/P1** | installation/session secrets must rotate on fork/restore |
+| 424 | Clone retains same diagnostic/support bundle access token | **GAP/P2** | ephemeral capability tokens invalidated on deployment fork |
+| 425 | Clone has same update-channel/package activation state but different hardware | CONTAINED/PARTIAL | environment requalification needed |
+| 426 | Original and clone both write to same cloud backup target path | **GAP/P1** | backup namespace includes deployment identity / immutable generations |
+| 427 | Two clones upload release artifact with same release ID to different accounts | **GAP/P1** | release identity vs publication attempt identity must separate |
+| 428 | Support sees same installation ID from two machines and cannot diagnose | **GAP/P2** | deployment instance identity + library lineage identity separate |
+| 429 | User merges work from two independent forks later | **GAP/P1 product** | no implicit DB merge; requires explicit project/import reconciliation workflow |
+| 430 | Offline fork is later reconnected to a synchronized/team deployment | **GAP/P1** | conflict/authority migration must be explicit, not “copy DB back” |
+
+# 30. Installation/library clone findings
+
+## X93 — Library lineage ID vs deployment instance ID (P0/P1)
+Separate:
+- `library_lineage_id`: identifies the durable history/family of a CineForge library;
+- `deployment_instance_id`: identifies one active physical installation allowed to perform side effects;
+- `deployment_generation`: changes on fork/restore/replacement.
+
+Core ownership prevents concurrent writers **within one deployment/storage**, not across copied physical clones.
+
+## X94 — Machine-bound deployment activation (P1)
+Writable activation binds the library to an installation secret held outside/cross-checked against the library, preferably OS-secure storage.
+
+If library is opened with missing/mismatched activation:
+- open READ_ONLY/RECOVERY;
+- require explicit MOVE/RESTORE/FORK decision;
+- rotate Core/IPC/session secrets;
+- do not dispatch external side effects.
+
+Full machine/VM clones can copy secure state; this remains a residual risk without a remote coordination authority.
+
+## X95 — Fork vs move semantics (P1)
+Three distinct operations:
+- MOVE/REPLACE INSTALLATION: preserve project history, retire old deployment where possible, new deployment generation;
+- RESTORE AFTER LOSS: enter Recovery Epoch reconciliation and new deployment generation;
+- FORK/INDEPENDENT COPY: new deployment identity; external connections/publication schedules/jobs disabled or require explicit rebind.
+
+Never infer intent from “folder appears on another machine”.
+
+## X96 — Side-effect identity namespace (P0/P1)
+External dispatch/idempotency/correlation identity includes:
+- library lineage;
+- deployment generation/instance;
+- recovery epoch;
+- command/job/attempt.
+
+Fork creates new execution namespace.
+Restore/replacement uses reconciliation policy to avoid blindly replaying prior side effects.
+
+## X97 — Deployment fork invalidates ephemeral state (P1)
+On deployment fork/migration:
+- IPC/session/media tokens invalid;
+- browser profiles require reverify/rebind;
+- scheduled jobs require activation;
+- temp/leases invalidated;
+- personal credentials reauth as needed;
+- environment certifications re-evaluated.
+
+## X98 — Backup namespace isolation (P1)
+Backup generations bind deployment + library lineage and immutable backup generation.
+Two installations do not overwrite a mutable “latest backup” path.
+
+## X99 — Explicit fork merge boundary (P1)
+CineForge V1 does not support arbitrary SQLite/database merge between independently mutated forks.
+Reconciliation occurs through explicit portable project/asset/import workflows with conflict/rights/provenance checks.
+
+## X100 — Honest split-brain residual risk (P0)
+Without remote coordination, a fully cloned machine including OS secure storage can appear identical to the original.
+
+The product must not claim absolute cross-machine singleton safety in that threat model.
+Mitigations:
+- explicit migration/fork workflows;
+- provider idempotency/correlation;
+- optional remote deployment registry for enterprise/high-assurance mode;
+- user-visible duplicate-deployment incident when detected.
