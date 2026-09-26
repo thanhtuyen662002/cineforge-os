@@ -4,40 +4,30 @@ about: Schedulable autonomous engineering task
 title: "[TASK] "
 ---
 
+## Machine-readable task contract
+
+agent_task_v1:
+- area:
+- preferred_role:
+- risk: LOW | MEDIUM | HIGH
+- size: S | M | L
+- parallel_class: SAFE | CONTRACT | HOTSPOT | SERIAL
+- hard_dependencies: []
+- soft_dependencies: []
+- unblocks: []
+- likely_touched_paths: []
+- arch_context_required: []
+- design_context_required: []
+- risk_context_required: []
+- review_profiles: [domain]
+- ci_tiers: [A]
+- external_blocker: false
+
+This block is the canonical schedulable metadata. Narrative sections below must not contradict it.
+
 ## Outcome
-<!-- One cohesive mergeable outcome. -->
 
 ## Why
-<!-- Why this matters / what it unblocks. -->
-
-## Scheduling metadata
-
-- Area:
-- Preferred role:
-- Risk: LOW | MEDIUM | HIGH
-- Size: S | M | L
-- Parallel class: SAFE | CONTRACT | HOTSPOT | SERIAL
-
-## Dependencies
-
-Hard dependencies:
-- None
-
-Soft dependencies:
-- None
-
-Unblocks:
-- None
-
-Likely touched paths/domains:
-- 
-
-## Architecture references
-
-- `AGENTS.md`
-- `docs/architecture/FINAL_ARCHITECTURE.md`
-- `docs/design/FINAL_DETAILED_DESIGN.md`
-- Add task-specific docs here.
 
 ## Acceptance criteria
 
@@ -49,16 +39,14 @@ Likely touched paths/domains:
 - [ ]
 - [ ]
 
-## Review profile
+## Architecture / design notes
 
-- Domain review:
-- QA/Security/Release review:
-- Exact-head CI tier:
+## External/manual blocker detail
 
-## External/manual blockers
-
-- None
+None.
 
 ## Notes
 
-<!-- Do not place transient worker state here. Claim/lease state lives in the Draft PR and PR comments. -->
+Transient worker state does not live in this Issue. Claim/lease state lives in the Claim PR structured event stream.
+
+A Task is not READY merely because this Issue is open. Readiness is derived by the Task/Lease and Reconciliation protocols.
