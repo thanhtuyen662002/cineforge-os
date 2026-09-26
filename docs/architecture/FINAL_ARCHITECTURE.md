@@ -1745,3 +1745,16 @@ The canonical hardening set also includes these controls salvaged from earlier a
 - **Derived confidential-data lifecycle:** privacy/rights scope propagates to thumbnails, proxies, waveforms, OCR, transcripts, embeddings, search indexes, diagnostics and learning examples.
 - **Local service replay/binding:** local control services bind approved local interfaces, use ACL/session isolation and replay-resistant scoped authentication.
 - **SQLite connection invariants:** required PRAGMAs/checksums are verified; VACUUM/rebuild/migration reserve temporary disk and fail safe on migration checksum drift.
+
+
+
+## 39.11 Authorization/cache/idempotency and documentation integrity
+
+- Derived caches, thumbnails, proxies, search/vector indexes are keyed/scoped by authorization/privacy context as well as source identity; content equality never grants cross-project access.
+- Idempotency keys bind a canonical request hash and namespace; same key with different payload is a conflict.
+- Local media/RPC capability tokens bind user/session, exact representation, purpose/audience, nonce and expiry, and are never logged as ordinary telemetry.
+- Sensitive read paths reauthorize current privacy/rights/revocation before returning stale cache/index content.
+- Connector/parser errors and diagnostics cross a redaction boundary before normal logging/telemetry.
+- Job temp/staging namespaces are per-attempt, private and manifest-verified.
+- Budget reservation is transactionally serialized; usage/correction/refund/credit is an append-only financial ledger.
+- Authoritative architecture/design documentation is machine-linted for duplicate/conflicting contract definitions and broken ownership/cross-references; documentation contradiction is a correctness failure.
