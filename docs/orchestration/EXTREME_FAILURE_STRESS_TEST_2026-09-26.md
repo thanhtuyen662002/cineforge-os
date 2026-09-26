@@ -2421,3 +2421,128 @@ High-risk activation may require online/current external trust evidence.
 ## X76 — Local security threat-model honesty (P2)
 OS-user ACL/encryption profile protections state their boundary.
 CineForge does not claim protection against fully compromised machine administrator/kernel malware.
+
+
+# 25. Seventh-wave universal-film-domain attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 321 | Film opens with Scene 40, flashes back to Scene 3; costume state is resolved by screen order instead of story chronology | **GAP/P0/P1 domain** | one linear story_key is insufficient |
+| 322 | Time-loop scene repeats same diegetic moment with different knowledge/injury state | **GAP/P1** | state needs continuity branch/context, not one interval axis |
+| 323 | Dream/hypothetical scene intentionally violates mainline continuity | PARTIAL | CreativeException exists, but a distinct narrative context is cleaner than waiving hundreds of facts |
+| 324 | Alternate universe has same character/prop IDs but different canonical state | **GAP/P1** | continuity realm/worldline scoping required |
+| 325 | One actor plays twins/two characters | **GAP/P1 casting** | performer identity cannot equal character identity |
+| 326 | Same character is played by child/adult performers | **GAP/P1 casting** | scoped casting over age/story/production range required |
+| 327 | Stunt/body double replaces performer for one shot | **GAP/P1** | production representation/casting role needed |
+| 328 | Digital double uses actor face scan but animated body/mocap performer from another person | **GAP/P1 rights** | multiple real-person sources/consents must bind one narrative character representation |
+| 329 | English dub voice actor differs from original on-camera performer | PARTIAL/GAP | voice package exists, but performer/casting/legal source relation is absent |
+| 330 | Motion-capture performer is neither face nor voice performer | **GAP/P1** | performance-source role must be first-class |
+| 331 | Performer consent revoked; character itself remains valid fictional canon | **GAP/P1 rights** | revocation must taint performer-derived representations, not delete narrative character |
+| 332 | Two cameras + two audio recorders capture one take | **GAP/P1 live-action** | no slate/take/multicam capture model |
+| 333 | Camera A and external audio drift despite matching starting timecode | **GAP/P1 media** | sync group needs drift/offset evidence |
+| 334 | Camera timecode resets or wraps while reel/source IDs differ | PARTIAL | conform metadata exists; capture/session identity missing |
+| 335 | Slate says Take 3 but file metadata says Take 2 | **GAP/P1** | metadata conflict needs candidate/review, not silent overwrite |
+| 336 | Camera card is copied twice, second copy partially corrupt | PARTIAL | hashes help; ingest/card manifest/verified-copy status absent |
+| 337 | Director marks circle take; editor later uses another take | **GAP/P2 workflow** | selection/preference should be metadata, not overwrite canonical footage |
+| 338 | Series has shared character canon across 12 episodes produced in parallel | **GAP/P1** | current project-only canon scope cannot express shared series canon cleanly |
+| 339 | Episode 8 retcons canon but Episodes 1–7 are already released | **GAP/P1** | canon change needs production/effective-scope and released-history semantics |
+| 340 | Season 2 is in production while Season 1 special reuses older canon revision intentionally | **GAP/P1** | production nodes must pin canon baseline rather than global latest |
+| 341 | Documentary interview quote is transcript-correct but edited to reverse meaning | **GAP/P1 editorial/factual** | fact/quote evidence needs source-time lineage and editorial context |
+| 342 | Documentary factual claim has three conflicting sources | **GAP/P1** | story fact and factual-evidence claim need separate epistemic model |
+| 343 | Interview participant retracts release after rough cut | **GAP/P1 rights** | participant/source release must taint exact footage/quotes/derivatives |
+| 344 | Archival clip license allows festival only, not online release | PARTIAL | rights supports territory/use, but documentary source representation needs binding |
+| 345 | B-roll is visually relevant but depicts wrong location/date | **GAP/P2 factual integrity** | documentary source metadata/evidence context needed |
+| 346 | News/web source disappears after fact was cited | **GAP/P1 archive** | evidence snapshot/provenance must preserve what was reviewed where legally allowed |
+| 347 | Same physical prop has hero prop, stunt prop, CG replacement | **GAP/P1 representation** | narrative prop vs production representation are conflated |
+| 348 | Real location, partial set and virtual environment represent one narrative place | **GAP/P1 hybrid** | environment identity needs representation bindings |
+| 349 | AI-generated shot uses a live-action actor reference but no casting/consent link | **GAP/P1 rights** | character ref alone does not capture real-person legal source |
+| 350 | One episode project closes, shared series canon update accidentally invalidates all released episodes | **GAP/P1** | released productions need pinned canon baseline and non-retroactive impact rules |
+
+# 26. Seventh-wave findings
+
+## X77 — Narrative context/worldline model (P0/P1 domain)
+Continuity cannot use one global linear `story_key`.
+Introduce continuity/narrative contexts with:
+- context identity/type;
+- parent/fork relation;
+- chronology key inside context;
+- causal ancestry;
+- screen/edit order independent from diegetic chronology.
+
+Character/prop/environment/knowledge/relationship state is scoped by narrative context + chronology.
+
+## X78 — Production hierarchy and shared canon baseline (P1)
+A workspace/project can contain production nodes:
+- FEATURE
+- SERIES
+- SEASON
+- EPISODE
+- SHORT
+- AD
+- MUSIC_VIDEO
+- DOCUMENTARY
+- TRAILER
+- TEST/EXPERIMENT
+
+Production nodes can pin a shared canon baseline/revision set.
+Released production history is not silently reinterpreted by later retcon.
+
+## X79 — Performer/casting identity separation (P1)
+Separate:
+- narrative Character;
+- real Person/Performer;
+- voice/mocap/stunt/body/face source roles;
+- digital/physical production representation.
+
+One performer may play many characters; one character may have many performers by scope.
+Rights/consent attach to real people/sources, not only fictional Character.
+
+## X80 — Production representation layer (P1)
+Narrative entities (character/prop/environment) bind to one or more production representations:
+- live performer;
+- costume/physical prop;
+- set/location;
+- digital double;
+- CG prop/environment;
+- AI identity package.
+
+Continuity stays on narrative entity; shot/build/render chooses a pinned representation set.
+
+## X81 — Live-action capture domain (P1)
+Add:
+- shoot day/unit;
+- slate;
+- production take;
+- camera/audio roll;
+- capture clip;
+- sync group;
+- card/ingest manifest;
+- take notes/preferences.
+
+A Take is a recorded performance attempt, not an AI generation candidate.
+
+## X82 — Multicam/sync evidence (P1)
+Sync groups store:
+- source clip/timecode identities;
+- offsets;
+- drift/time-stretch correction;
+- sync evidence/method;
+- verification state.
+
+Metadata conflicts remain explicit.
+
+## X83 — Documentary source/fact/quote evidence (P1)
+Separate narrative story facts from documentary factual claims.
+Fact claims bind:
+- source records;
+- exact quote/time range;
+- verification/conflict state;
+- archival snapshot/provenance;
+- participant/release/rights.
+
+Editing can change rhetorical meaning without changing transcript words; factual review must see source context.
+
+## X84 — Series/retcon non-retroactivity (P1)
+Canon changes carry effective production/narrative scope.
+Released productions retain pinned historical canon/evidence.
+Retcon affects future/current work according to explicit policy, not every historical shot automatically.
