@@ -1774,3 +1774,41 @@ Release screen distinguishes:
 - Sẵn sàng phát hành
 
 A path existing on disk is never presented as “release ready” by itself.
+
+
+
+# 78. Library opened on another machine UX
+
+When CineForge detects that a library is not bound to the current deployment:
+
+`Thư viện này đến từ một phiên CineForge khác.`
+
+Ask intent:
+- Chuyển sang máy này
+- Khôi phục sau sự cố
+- Tạo bản sao độc lập
+- Mở chỉ đọc
+
+Explain different consequences, especially external accounts/jobs.
+
+Do not offer “Continue anyway” writable mode.
+
+# 79. Fork UX
+
+Independent fork summary:
+- creative/media history copied;
+- external connections disabled until rebound;
+- scheduled publications/jobs not activated;
+- browser sessions not trusted;
+- new backup/execution namespace.
+
+# 80. Deployment incident UX
+
+If possible duplicate deployment activity is detected:
+`Có dấu hiệu cùng một thư viện đang hoạt động ở nhiều phiên triển khai.`
+
+Show:
+- which external actions are at risk;
+- current local deployment identity;
+- recovery/retirement options;
+- avoid claiming CineForge can automatically stop an offline/fully cloned machine without remote authority.
