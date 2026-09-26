@@ -1710,3 +1710,38 @@ Before broad autonomous scale, executable chaos tests must cover at minimum:
 - migration crash/rollback compatibility;
 - release hidden-stream/destination mismatch;
 - Windows filesystem/storage/ACL edge cases.
+
+
+
+## 39.10 Additional recovered hardening controls
+
+The canonical hardening set also includes these controls salvaged from earlier adversarial iterations:
+
+- **Execution-time revalidation:** long/high-impact work revalidates current rights, authority, recovery epoch, manual fence, package/runtime identity, resource reservation, budget exposure and connection identity before each unsafe/irreversible phase.
+- **Protection leases:** backup/restore/export/release/integrity/rebuild operations pin immutable objects/packages/runtimes against concurrent GC/uninstall.
+- **Bounded event/projection rebuild:** durable event/audit history uses snapshots/checkpoints/archive ranges; no runtime requires replay from event zero forever.
+- **Hermetic security-critical CI/release:** clean declared inputs, trusted caches or clean rebuild, pinned toolchain/package hashes and source/config/toolchain attestation.
+- **Search is navigation only:** search/vector/index results are never direct mutation authority; commands resolve canonical IDs, current rights/state and pinned bulk scope first.
+- **At-rest encryption policy:** ACL and encryption are distinct; sensitive classes may require OS-volume protection, CineForge-managed encryption or verified encrypted targets.
+- **Key lifecycle/crypto agility:** managed keys have stable identities, OS-backed protection, wrapping/recovery, rotation/revocation, algorithm metadata and decryptability verification.
+- **Project duplication policy:** project clones explicitly decide which canon/assets/rights/privacy/budgets/connections/preferences/data-use settings carry over; credentials/browser sessions do not clone by default.
+- **Purpose-specific data-use:** PRODUCTION, QC, SEARCH, CROSS_PROJECT_RETRIEVAL, FAILURE_ANALYSIS, LEARNING, TRAINING, EXTERNAL_PROCESSING, EXPORT and PUBLIC_RELEASE are distinct purposes.
+- **Diagnostic artifact security:** diagnostic bundles are sensitive managed artifacts with ACL/encryption, redaction, recipient/use scope and expiry.
+- **Honest deletion:** distinguish tombstone, policy purge, provider deletion request, cryptographic erasure and physical secure erase; never promise physical SSD/cloud erasure when unverifiable.
+- **Release privacy leakage scan:** validate local paths, internal names, hidden streams, embedded notes/comments, sensitive subtitles/transcripts and private identifiers separately from codec/copyright QC.
+- **Child-process containment:** local tools/plugins/models receive scoped filesystem/temp/log/crash-dump/network/env/clipboard permissions; unmanaged long-term histories are prohibited.
+- **Logical vs physical encrypted identity:** plaintext logical identity is distinct from ciphertext/object identity and key scope; cross-project dedup is policy, not universal.
+- **Envelope encryption:** large objects may use per-object data keys wrapped by policy/root keys; rotation may rewrap rather than rewrite terabytes.
+- **Multi-resource deadlock prevention:** acquire resources in deterministic global order or atomic admission; jobs must not deadlock while holding partial resource sets.
+- **Context dependency fence:** compiled context binds canon/policy/privacy/rights/task/provider semantic-profile revisions and payload hash; stale context is recompiled before dispatch/retry.
+- **Provider semantic-limit certification:** certify observed context/reference limits, ignored parameters, truncation/rewrite behavior and output materialization semantics.
+- **Adapter semantic conformance:** mappings declare NATIVE / APPROXIMATED / UNSUPPORTED / UNKNOWN; critical unsupported semantics cannot silently degrade.
+- **Package/model acquisition ceilings:** exact digest, expected/download/install-expanded bytes, disk reservation, publisher/signature and decompression budget.
+- **Browser observation privacy:** DOM/screenshots/accessibility trees/recordings are separate sensitive inputs; capture minimum scope, redact credentials/MFA and bound retention.
+- **Integrity incident containment:** canonical/audit inconsistency may freeze one aggregate/project/subsystem or whole mutation plane while allowing read/diagnostic/recovery.
+- **Recovery projection fencing:** restore invalidates projections/search/vector/cache newer than the checkpoint; confidential deleted/revoked content cannot remain queryable from stale indexes.
+- **Timeline/undo/variant scale:** compact working histories, checkpoint undo state, pin assets reachable by undo, and enforce candidate/variant retention/WIP.
+- **Large bulk manifests:** large pinned scopes live as immutable hashed manifests and stream during execution rather than unbounded command JSON.
+- **Derived confidential-data lifecycle:** privacy/rights scope propagates to thumbnails, proxies, waveforms, OCR, transcripts, embeddings, search indexes, diagnostics and learning examples.
+- **Local service replay/binding:** local control services bind approved local interfaces, use ACL/session isolation and replay-resistant scoped authentication.
+- **SQLite connection invariants:** required PRAGMAs/checksums are verified; VACUUM/rebuild/migration reserve temporary disk and fail safe on migration checksum drift.
