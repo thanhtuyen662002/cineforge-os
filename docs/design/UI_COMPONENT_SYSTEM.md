@@ -1708,3 +1708,34 @@ Examples:
 - sensitive subtitle note.
 
 User can inspect evidence before release.
+
+
+
+# 72. Context overflow UX
+
+Do not silently generate with missing critical context.
+
+If mandatory constraints cannot fit:
+`CineForge không thể gửi đầy đủ các ràng buộc bắt buộc bằng phương án hiện tại.`
+
+Options can include:
+- dùng công cụ/model khác;
+- chia tác vụ;
+- giảm phần tham chiếu không bắt buộc;
+- manual expert override only where policy permits.
+
+# 73. Provider semantic degradation UX
+
+If a previously certified provider starts ignoring/truncating important inputs:
+`Kết nối vẫn hoạt động nhưng hành vi đã thay đổi. CineForge đã tạm ngừng dùng kết nối này cho tác vụ cần độ chính xác cao.`
+
+This is different from “offline”.
+
+# 74. Browser observation privacy UX
+
+When assisted browser automation needs model vision on sensitive pages:
+- explain what part of screen may be analyzed;
+- redact credential fields;
+- provide human-only fallback where possible.
+
+Normal generation pages need not show intrusive privacy modals repeatedly if policy is already configured.
