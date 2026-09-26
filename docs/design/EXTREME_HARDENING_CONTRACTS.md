@@ -6529,3 +6529,211 @@ Recovery:
 239. human takeover resumes wrong page;
 240. CAPTCHA/MFA appears after submission;
 241. browser profile corruption recovery.
+
+
+
+# KK. Evaluator provenance and independence
+
+Every evaluation result records:
+- evaluator package/model exact digest;
+- evaluator semantic version;
+- environment/backend/precision;
+- calibration profile ID;
+- threshold/rubric profile ID;
+- input subject revision + representation digest;
+- relevant reference/canon revisions;
+- policy revision;
+- evidence type;
+- evidence independence/correlation class.
+
+Provider/connector self-score is ADVISORY unless explicitly promoted/certified as trusted evaluator evidence.
+
+# KL. OOD and calibration
+
+Evaluator capability profile declares calibrated/support domain:
+- media type;
+- style/domain tags;
+- language;
+- resolution/frame/audio conditions;
+- model/version;
+- calibration sample/reference.
+
+Result may be:
+- PASS
+- FAIL
+- UNKNOWN
+- OUT_OF_DOMAIN
+- CONFLICT
+
+OUT_OF_DOMAIN/UNKNOWN cannot silently coerce to PASS.
+
+# KM. Media-observation prompt isolation
+
+OCR/ASR/transcript/metadata/visible text/audio speech extracted from evaluated media is `UNTRUSTED_OBSERVATION`.
+
+It cannot:
+- modify evaluation rubric;
+- issue tool commands;
+- alter PASS threshold;
+- request secret/file/network access;
+- change evaluator system instruction.
+
+Evaluation controller passes observations as typed quoted data only.
+
+# KN. Multi-evidence identity evaluation
+
+Identity claims may combine:
+- embedding similarity;
+- track identity over time;
+- semantic role/context;
+- geometry/feature checks;
+- voice/speaker consistency;
+- human review.
+
+For hero/high-risk canonical identity, policy may require evidence diversity.
+One scalar embedding score never establishes identity truth alone.
+
+# KO. Evaluation-cache completeness
+
+Evaluation cache key includes:
+- exact subject bytes/revision;
+- representation/proxy/master digest;
+- evaluator digest/version;
+- environment/backend where material;
+- calibration/threshold/rubric;
+- QC policy;
+- relevant reference/canon revisions;
+- coverage/sampling profile.
+
+Changing any required dependency invalidates cache reuse.
+
+# KP. QC coverage profile
+
+Evaluation declares coverage:
+- FULL_SCAN
+- DETERMINISTIC_SAMPLE
+- RANDOM_SAMPLE
+- EVENT_TRIGGERED
+- ADAPTIVE
+
+Evidence stores:
+- scanned frame/sample/time ranges;
+- sampling seed/policy;
+- skipped ranges/reasons;
+- confidence/limitations.
+
+“No issue observed” is scoped to coverage; it is not proof that unobserved ranges are clean.
+
+# KQ. Aggregate/cross-modal QC
+
+Evaluation scopes include:
+- FRAME_SAMPLE
+- SHOT
+- SCENE
+- SEQUENCE
+- TIMELINE
+- MASTER
+- CROSS_MODAL
+
+Cross-modal checks can validate:
+- audio/video sync;
+- subtitle/dialogue sync;
+- speaker binding;
+- scene color continuity;
+- long-duration temporal drift.
+
+# KR. Golden/benchmark integrity
+
+Golden/benchmark examples bind:
+- content digest;
+- provenance;
+- labels/reviewer evidence;
+- rights/privacy use permissions;
+- domain tags;
+- integrity state;
+- benchmark profile version.
+
+Corrupt/revoked examples are quarantined and baseline changes are explicit.
+
+# KS. Benchmark anti-overfit
+
+Promotion policy may require:
+- development benchmark;
+- hidden/rotating holdout;
+- cross-domain set;
+- shadow production;
+- human preference/review.
+
+Repeated tuning against one public/static benchmark cannot be sole promotion gate.
+
+# KT. Trusted evaluator authority
+
+Authoritative QC result is accepted only from registered evaluator worker/service identity under an allowed evaluation policy.
+
+Connector/provider result metadata may be stored as evidence, but cannot set canonical QC PASS directly unless that source is certified for the exact claim type.
+
+# KU. Post-QC mutation fence
+
+QC/review binds exact artifact digest/revision.
+
+Any subsequent operation that changes bytes/semantics:
+- mux;
+- transcode;
+- crop;
+- audio normalize;
+- subtitle burn;
+- watermark;
+- package transform
+
+creates a new revision and invalidates byte-dependent evidence according to policy.
+
+Final release verification targets final packaged/master bytes.
+
+# KV. Human review anti-anchoring
+
+Review policy can:
+- hide AI score until human verdict;
+- include random/unflagged samples;
+- track review velocity/anomaly;
+- require secondary review for suspicious high-risk approval patterns.
+
+Automation may suggest; it must not turn human review into rubber-stamping by UI design.
+
+# KW. Preference model scope
+
+Preference/adaptation model has explicit scope:
+- ACTOR
+- TEAM
+- PROJECT
+- STUDIO
+
+Promotion to broader scope uses normal learning/promotion governance.
+
+# KX. Repair anti-Goodhart
+
+Repair planner tracks:
+- target defect;
+- protected creative constraints;
+- previous attempts;
+- metric improvements/regressions;
+- composition/performance side effects.
+
+Repeated metric gain with semantic/creative regression triggers strategy change, rollback or human review.
+
+# KY. Required adversarial-QC tests
+
+241. hidden text/QR attempts to prompt-inject VLM evaluator;
+242. spoken instruction attempts to prompt-inject ASR/evaluator;
+243. wrong-face lookalike embedding collision;
+244. similar-voice speaker collision;
+245. OOD animation style high-confidence score;
+246. evaluator version score-scale change;
+247. cache PASS reused after threshold/policy change;
+248. one-frame defect outside deterministic sample;
+249. long-duration A/V drift;
+250. corrupted golden example;
+251. revoked benchmark rights;
+252. provider fake QC PASS;
+253. post-QC transcode/mux changes bytes;
+254. reviewer AI-score anchoring/random audit;
+255. repair crops/hides defect to improve metric.
