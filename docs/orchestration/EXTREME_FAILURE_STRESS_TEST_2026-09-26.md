@@ -1144,3 +1144,100 @@ Publish plan pins provider account + channel/page/workspace identity and shows i
 
 ## X54 — Release stream whitelist (P1)
 Release validation enumerates allowed streams/tracks/attachments/metadata and rejects unexpected hidden streams or embedded content.
+
+
+
+# 19. Fourth-wave: documentation integrity, multi-tenant/cache and API replay attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 271 | Two authoritative docs define the same state/API differently | **GAP/P1** | agents can choose different “truth” and implement incompatible behavior |
+| 272 | One doc has duplicate numbered sections with conflicting semantics | **OBSERVED LIVE** | occurred on this Draft PR during repeated hardening |
+| 273 | A PR updates architecture but not schema/API/state owner doc | **GAP/P1** | cross-layer drift becomes latent implementation bug |
+| 274 | Cache key omits project/privacy scope and returns Project A result to B | **GAP/P0 privacy** | semantic equality does not imply authorization equality |
+| 275 | Global vector index retrieves confidential Project A chunk into Project B context | PARTIAL | memory scope principle exists; enforcement needs explicit security scope key |
+| 276 | Shared plaintext content hash lets one tenant infer another tenant possesses a file | **GAP/P1 privacy side-channel** | global dedup identity must not become external lookup oracle |
+| 277 | Idempotency key reused in another studio/project | **GAP/P1** | uniqueness must be scoped/qualified, not one untyped string |
+| 278 | Client retries same idempotency key with different payload | **GAP/P0/P1** | system may return/execute wrong prior command unless request hash is bound |
+| 279 | Client times out, command succeeds, user changes intent, retry tool replays old key | PARTIAL | idempotency binding/expiry and UI intent must be explicit |
+| 280 | Short-lived media token is copied from logs/browser history and replayed | **GAP/P1** | token needs scope/audience/expiry/nonce and must never be logged |
+| 281 | Media token for thumbnail also resolves original master | **GAP/P0/P1** | token purpose/scope must bind representation and operation |
+| 282 | Local RPC session token survives app logout/user switch | **GAP/P1** | session epoch and OS identity binding needed |
+| 283 | API pagination cursor exposes rows after permissions changed | **GAP/P1** | cursor must bind auth/policy snapshot or reauthorize each page |
+| 284 | Search index contains deleted/private content and returns snippet before canonical revalidation | PARTIAL | mutation authority safe, but read leakage still possible |
+| 285 | Error response includes connector raw body with secret/provider private URL | **GAP/P1** | technical_details need redaction boundary |
+| 286 | Trace/telemetry correlation ID contains customer/project name | **GAP/P2 privacy** | identifiers should be opaque by default |
+| 287 | Clipboard/paste imports huge base64 blob into logs/error | **GAP/P1** | payload size/redaction and bounded error serialization needed |
+| 288 | Same asset bytes have two privacy scopes but shared thumbnail cache ignores scope | **GAP/P0 privacy** | derived cache identity must include authorization/privacy scope |
+| 289 | User revokes access while another UI window holds old query result | **GAP/P1** | privileged reads/actions must reauthorize at use, not trust stale UI state |
+| 290 | Long-running export reads asset after rights/privacy revocation | PARTIAL | execution-time revalidation salvaged; needs per-sensitive-boundary use |
+| 291 | Two API commands both reserve same budget because read-check-write is non-atomic | **GAP/P1 financial** | reservation must be transactionally serialized within budget scope |
+| 292 | Hard budget uses one currency while provider bills another after FX change | **GAP/P2/P1** | budget needs currency/FX policy for cross-currency estimates/exposure |
+| 293 | Usage record arrives twice with different provider correction amounts | **GAP/P1** | usage ledger needs provider usage-event identity and adjustment semantics |
+| 294 | Refund/credit arrives later and code edits old usage row | **GAP/P1 audit** | financial usage should be append-only adjustment ledger |
+| 295 | Project clone shares budget/connection/cache scope accidentally | PARTIAL | clone semantics salvaged; cache/budget isolation should be explicit |
+| 296 | User switches Windows user while Core continues under prior user | **GAP/P1** | Core session/ACL identity must remain bound to launch user/session |
+| 297 | Service-mode future deployment breaks user-scoped ACL assumptions | **GAP/P2 future** | deployment mode must be explicit contract, not inferred |
+| 298 | Plugin reads global temp folder artifacts from another CineForge project | **GAP/P1 privacy** | job temp roots need per-job ACL/isolation and cleanup |
+| 299 | Crash recovery reuses temp filename from old job and mistakes stale bytes as new | **GAP/P1** | staging identity needs job/attempt-scoped unique path + manifest |
+| 300 | Derived thumbnail/proxy generated before privacy reclassification remains in OS thumbnail cache | **GAP/P2/P1** | unmanaged OS caches must be avoided/limited for sensitive media |
+
+# 20. Fourth-wave findings
+
+## X55 — Authoritative documentation integrity (P1)
+Treat authoritative docs as machine-governed contracts:
+- unique section IDs/headings where numbered;
+- one owner document per contract family;
+- no duplicate machine schema definitions;
+- cross-reference targets must exist;
+- PR CI lints architecture↔schema/API/state/UI owner declarations.
+Repeated append-only prose hardening is itself a risk; new controls go to designated extension owner.
+
+## X56 — Authorization-scoped derived cache/index identity (P0/P1)
+Cache/thumbnail/proxy/search/vector keys include:
+- source revision/content identity;
+- privacy/rights/authorization scope;
+- policy revision where output visibility changes.
+A global content hash is never sufficient authorization for a derived artifact.
+
+## X57 — Idempotency request binding (P0/P1)
+Idempotency record binds:
+- namespace (studio/project/actor/command class as applicable);
+- idempotency key;
+- canonical request hash;
+- first result/command ID;
+- creation/expiry policy.
+Same key + different request hash is a conflict, never replay/execute.
+
+## X58 — Scoped local media/RPC tokens (P0/P1)
+Tokens bind:
+- OS user/session;
+- exact asset revision/representation;
+- operation/purpose;
+- audience/process;
+- expiry;
+- nonce/session epoch.
+Tokens are redacted from logs and reauthorization occurs for sensitive access.
+
+## X59 — Read-path revocation/privacy fencing (P1)
+Canonical revalidation is required not only before mutation but before returning sensitive stale index/cache/query results.
+Revocation/privacy policy can synchronously fence derived read versions.
+
+## X60 — Redacted error/telemetry boundary (P1)
+Raw connector/provider/parser errors are untrusted sensitive data.
+Persist sanitized structured error plus separately protected raw evidence when needed.
+Logs/telemetry use opaque IDs, bounded payloads and secret/path/URL redaction.
+
+## X61 — Transactional budget reservation and financial adjustment ledger (P1)
+Budget availability+reservation is one serialized DB transaction.
+Provider usage is append-only:
+- charge;
+- correction;
+- refund/credit;
+- FX adjustment where applicable.
+Never mutate historical cost rows to “make total right”.
+
+## X62 — Job temp namespace isolation (P1)
+Every job/attempt gets unique private staging/temp namespace with ACL.
+Recovery uses manifest/hash, never filename coincidence.
+Sensitive media should not be intentionally registered with unmanaged OS thumbnail/index caches.
