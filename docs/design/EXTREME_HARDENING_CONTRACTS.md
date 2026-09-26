@@ -3463,3 +3463,200 @@ CineForge local-first operation must remain functional without it, but documenta
 106. copied browser profile/session on new deployment;
 107. copied scheduled jobs after fork;
 108. explicit project reconciliation from independently modified fork.
+
+
+# FL. Local endpoint attestation and squatting resistance
+
+A predictable local endpoint name is not trusted merely because it is loopback/named-pipe and user-scoped.
+
+Core endpoint bootstrap binds:
+- installation/library identity;
+- Core ownership epoch;
+- high-entropy endpoint/session nonce;
+- expected OS user/security descriptor;
+- protocol version;
+- server process identity evidence where the platform can provide it.
+
+Client connection:
+1. obtains current endpoint descriptor from the trusted Core ownership/bootstrap record;
+2. connects only to that exact endpoint;
+3. performs challenge/session binding before privileged commands;
+4. rejects stale/pre-existing endpoint identity.
+
+A malicious process already running with the same OS-user authority remains a residual local-malware boundary. V1 must not claim to defeat arbitrary same-user code execution.
+
+# FM. Explicit proxy/network route contract
+
+Managed API/browser/connector workers declare an effective network route:
+- DIRECT
+- SYSTEM_PROXY
+- EXPLICIT_PROXY
+- ENTERPRISE_MANAGED
+- UNKNOWN
+
+Workers do not silently inherit ambient `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, PAC or similar environment state unless the connector/network policy explicitly permits it.
+
+Connection certification records:
+- route class;
+- proxy identity/endpoint where allowed;
+- region/egress implications;
+- last verification time.
+
+Material route change can move connection health to REVERIFY_REQUIRED.
+
+# FN. Privileged worker launch environment
+
+Privileged workers launch from a managed runtime/package directory with:
+- explicit working directory;
+- environment allowlist/minimal inherited variables;
+- controlled PATH/search order;
+- dangerous loader/runtime injection variables removed unless explicitly required by trusted package policy;
+- explicit temp/home/cache directories;
+- connector-specific proxy/network variables supplied only from approved policy.
+
+Examples requiring scrutiny include runtime/module/plugin search variables and loader overrides.
+
+# FO. Capture-device privacy contract
+
+Capture sessions for microphone/camera/screen carry:
+- exact device/source identity;
+- OS permission state;
+- project/purpose;
+- actor;
+- start time;
+- visible active indicator state;
+- stop_requested_at;
+- stop_confirmed_at;
+- resulting asset/session identity.
+
+Stopping capture is two-phase:
+`ACTIVE → STOP_REQUESTED → STOP_CONFIRMED`.
+
+UI may not claim recording stopped before the OS/device capture handle is confirmed closed.
+
+If the selected/default device changes materially during sensitive capture, policy may pause and require reconfirmation.
+
+Clipboard access is user/event-triggered by default; no continuous ambient clipboard polling.
+
+# FP. Sensitive compute isolation profile
+
+Projects/jobs declare compute isolation class:
+- STANDARD
+- SENSITIVE_PROCESS_ISOLATED
+- UNTRUSTED_PLUGIN_ISOLATED
+
+For higher isolation:
+- untrusted/custom nodes run out-of-process;
+- sensitive jobs do not reuse a long-lived untrusted plugin address space;
+- per-job temp/runtime directories are isolated;
+- CPU/GPU buffers are released/overwritten best-effort after use;
+- process teardown may be used as a stronger cleanup boundary.
+
+CineForge does not claim guaranteed erasure of GPU VRAM, pagefile, hibernation file or kernel/driver memory against an administrator/kernel adversary.
+
+# FQ. Honest deletion guarantee classes
+
+Deletion result records one of:
+- LOGICAL_REMOVAL
+- CRYPTO_ERASURE_CONFIRMED
+- BEST_EFFORT_OVERWRITE
+- PHYSICAL_ERASURE_NOT_VERIFIED
+
+For SSD/snapshots/pagefile/cloud/provider copies, CineForge must not say “securely erased” unless the guarantee is actually established.
+
+Encrypted workspace policy may use key destruction/crypto-erasure as the meaningful high-assurance deletion primitive.
+
+# FR. Final-handle path authorization
+
+For privileged file operations, path-string validation is only preflight.
+
+Final authorization uses an opened handle/file identity where the OS supports it:
+- final resolved path;
+- volume identity;
+- file identity;
+- reparse/link status;
+- allowed-root relation.
+
+This closes aliases such as short-name/namespace/reparse changes that can survive textual normalization.
+
+# FS. Bounded canonical write transactions
+
+SQLite canonical writer transactions:
+- perform only bounded DB work;
+- never await network/provider/browser/user interaction;
+- never perform long media encode/decode or large file copies while holding the writer transaction;
+- persist intent/outbox/state, commit, then execute external/long work.
+
+Health metrics track write-transaction duration and flag policy violations.
+
+# FT. Maintenance resource admission
+
+Maintenance tasks such as:
+- VACUUM;
+- migration/index build;
+- projection rebuild;
+- backup;
+- integrity scrub;
+- encryption rotation;
+- library move
+
+declare:
+- temporary disk requirement;
+- IO class;
+- DB lock class;
+- CPU/RAM need;
+- cancellation/resume semantics.
+
+Maintenance scheduler acquires an atomic/ordered resource bundle and respects emergency free-space reserve.
+Incompatible high-IO maintenance does not start concurrently merely because each task is individually valid.
+
+# FU. Actionable notification freshness
+
+Native/in-app actionable notification carries:
+- action/decision/entity ID;
+- expected revision/version;
+- action nonce/snapshot;
+- expiry/materiality rule.
+
+Click re-enters normal command validation.
+If the underlying decision is obsolete/stale, the historical action is not executed.
+
+# FV. Suspend/resume retry barrier
+
+OS sleep/hibernate/resume creates a reconciliation barrier.
+
+On resume:
+1. pause timeout-driven retries/lease takeovers;
+2. refresh Core/control/resource ownership;
+3. reconcile provider/browser/external-job acceptance;
+4. reverify connection account/workspace where required;
+5. recalculate monotonic timers/health baselines;
+6. then resume dispatch/retry.
+
+Wall-clock sleep duration is not proof an external job failed.
+
+# FW. Security guarantee boundary
+
+Security/privacy documentation distinguishes:
+- controls enforced by CineForge;
+- controls delegated to OS/filesystem/account;
+- residual administrator/kernel/hypervisor/EDR/physical-storage risks.
+
+High-security profiles may reduce exposure but cannot promise secrecy against a fully compromised OS administrator/kernel.
+
+# FX. Required fourth-wave tests
+
+109. pre-create/squat predictable local IPC endpoint before Core startup;
+110. endpoint/port reuse after Core crash;
+111. ambient proxy variable hijack vs explicit connector route;
+112. injected runtime/module/loader environment variable;
+113. microphone STOP_REQUESTED vs confirmed device closure;
+114. device identity change during recording;
+115. isolated untrusted GPU/plugin process across two projects;
+116. crypto-erasure vs ordinary SSD logical deletion UI/result;
+117. Windows short-name/final-handle path alias escape;
+118. DB write transaction attempting external await;
+119. VACUUM/index rebuild under low-disk reserve;
+120. concurrent backup + scrub + projection rebuild IO admission;
+121. stale native notification action after DecisionRequest change;
+122. sleep/hibernate during accepted external generation then resume/retry.
