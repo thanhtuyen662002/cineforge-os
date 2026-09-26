@@ -201,3 +201,26 @@ When slots decrease:
 - stop new low-priority claims;
 - let parked tasks remain owned;
 - concentrate capacity on critical path/review/CI.
+
+
+# 12. Runtime overlap and backpressure clarifications
+
+Scheduled correctness does not depend on offsets.
+
+Before mutating work:
+- obtain SLOT_LEASE_V1;
+- re-read after acquisition and confirm this RUN_ID is winner.
+
+If previous invocation is still valid:
+- later invocation does not start a second active implementation;
+- it may exit or perform explicitly read-only analysis only.
+
+Global WIP/backpressure from Capacity Plan limits new claims.
+If CI/review stages are saturated, free builder capacity is redirected to downstream work rather than producing more parked PRs.
+
+# 13. Work chat identity
+
+If more than one Work chat can operate:
+- use unique stable `WORK-<id>` SLOT_ID per chat;
+- use matching stable AGENT_INSTANCE_ID;
+- never use one global WORK identity for multiple concurrent chats.
