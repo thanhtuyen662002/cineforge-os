@@ -164,3 +164,61 @@ If context overhead dominates scheduled execution:
 - narrow context;
 - split oversized owner section;
 - do not respond by silently skipping required context.
+
+
+
+# 11. Control-registry-driven context packs
+
+Task context selection uses `docs/design/CONTROL_REGISTRY.yaml`.
+
+A compiled context pack contains:
+- CONTEXT_PACK_VERSION
+- BASE_SHA
+- TASK_CONTRACT_HASH
+- CURRENT_IMPLEMENTATION_SLICE
+- touched domains/paths
+- applicable control IDs
+- owner document paths + content hashes
+- omitted control categories and reason
+- generated_at
+- invalidation rules
+
+Rules:
+- always include controls marked current-slice required when relevant to the touched domain;
+- include V1_BEFORE_RELEASE controls for release/update/storage/recovery tasks;
+- include SCALE_HARDENING for orchestration/10–15-slot tasks;
+- include FUTURE_MULTIUSER only for collaboration/multi-user work or when a current design boundary must preserve compatibility;
+- include OPTIONAL_HIGH_SECURITY only when the active security profile/task requires it.
+
+A context pack is derived cache, not authority.
+If any referenced owner doc/control changed materially from BASE_SHA, pack is stale.
+
+# 12. Bounded context reading
+
+Agent startup should not reread every architecture/risk document in full on every run.
+
+Use:
+1. AGENTS/control baseline;
+2. task contract;
+3. current context pack;
+4. exact owner sections for applicable control IDs;
+5. changed referenced docs since prior checkpoint.
+
+Broad corpus reread is reserved for:
+- Planner/Architecture review;
+- governance changes;
+- context-pack invalidation with uncertain impact;
+- deep audits.
+
+This reduces token/API cost without weakening authoritative-source precedence.
+
+# 13. Material invalidation
+
+A task is recontextualized only when:
+- applicable control semantics changed;
+- touched domain schema/API/state changed;
+- trust/governance floor changed;
+- dependency contract changed;
+- current implementation slice changed materially.
+
+Unrelated prose/style edits do not force all active agents to restart.
