@@ -19,6 +19,7 @@ Control-plane roles phải đọc thêm khi thực hiện control work:
 - `docs/orchestration/BOTTLENECK_PLAYBOOK.md`
 - `docs/orchestration/FLOW_METRICS_AND_RECONCILIATION.md`
 - `docs/orchestration/CONTROL_PLANE_TRUST_AND_CONCURRENCY.md`
+- `docs/orchestration/TRUSTED_CONTROL_POLICY.md`
 - CI/merge work: `docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md`
 - governance/workflow/control-plane changes: `docs/orchestration/GOVERNANCE_AND_CI_SECURITY.md`
 - GitHub partial failure/outage: `docs/orchestration/GITHUB_OUTAGE_AND_PARTIAL_FAILURE.md`
