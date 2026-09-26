@@ -1632,3 +1632,79 @@ Actions:
 - Relink another file
 
 Do not silently reinterpret the existing approved revision as the new bytes.
+
+
+
+# 66. At-rest protection UX
+
+Settings show distinct states:
+- “Được bảo vệ bằng mã hóa ổ đĩa”
+- “Được CineForge mã hóa”
+- “Chỉ giới hạn quyền truy cập”
+- “Chưa được mã hóa”
+
+Do not collapse all into one green lock icon.
+
+For managed encryption, explain recovery:
+- whether a recovery key/wrapped key exists;
+- consequences if key is lost.
+
+# 67. Project duplicate UX
+
+Duplicate wizard includes:
+- Creative content
+- Rights/consents
+- Connections/online tools
+- Budgets/policies
+- Learning/data-use permissions
+
+Defaults:
+- credentials/cookies not copied;
+- rights that depend on project/purpose are marked “Cần xem lại”.
+
+# 68. Egress permission UX
+
+If user can view but cannot send externally:
+`Bạn có thể xem nội dung này nhưng không có quyền gửi nội dung ra dịch vụ bên ngoài.`
+
+Actions depend on authority:
+- request approval;
+- use local-only method;
+- cancel.
+
+# 69. Diagnostic bundle sensitivity UX
+
+Before save/share:
+- classification;
+- what was redacted;
+- whether file paths/client names remain;
+- encryption status;
+- expiry;
+- raw media inclusion.
+
+Bundle file itself should not look like an ordinary harmless log when it contains sensitive production metadata.
+
+# 70. Honest deletion UX
+
+Use wording based on actual erasure class.
+
+Examples:
+- “Xóa khỏi CineForge”
+- “Xóa bản cục bộ”
+- “Xóa khóa mã hóa để dữ liệu không thể giải mã”
+- “Gửi yêu cầu xóa tới dịch vụ bên ngoài”
+
+Avoid “xóa vĩnh viễn khỏi mọi nơi” unless verifiable.
+
+# 71. Release privacy review UX
+
+Release Readiness adds:
+`Rò rỉ thông tin / metadata`
+
+Examples:
+- local Windows path embedded;
+- hidden internal track;
+- client/internal name in metadata;
+- sensitive subtitle note.
+
+User can inspect evidence before release.
