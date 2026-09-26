@@ -108,7 +108,7 @@ Protection layers:
 - one-active-implementation policy;
 - Git branch/non-fast-forward protection;
 - deterministic issue claim branch;
-- exact-head review/merge;
+- verification-context review/merge;
 - Flow Governor stale takeover.
 
 A second run that sees a fresh ACTIVE claim should perform read-only control/review work or exit without mutating that branch.
