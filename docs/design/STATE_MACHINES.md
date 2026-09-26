@@ -1630,3 +1630,161 @@ Dispatch accepts only VALID after immediate revalidation.
 - KEY_UNAVAILABLE
 - CORRUPT
 - REVOKED
+
+
+
+# 61. Task dependency graph state
+
+Validation result:
+- VALID_DAG
+- CYCLE_DETECTED
+- UNKNOWN_INCOMPLETE_READ
+
+A task with CYCLE_DETECTED/UNKNOWN_INCOMPLETE_READ hard-dependency state cannot become READY.
+
+# 62. URL intake state
+
+```text
+PROPOSED
+→ RESOLVING
+→ POLICY_CHECK
+→ FETCHING
+→ STAGING
+→ VERIFIED
+→ COMPLETE
+```
+
+Blocking/failure:
+- BLOCKED_SCHEME
+- BLOCKED_NETWORK_TARGET
+- REDIRECT_BLOCKED
+- DNS_REBIND_BLOCKED
+- SIZE_LIMIT
+- TIMEOUT
+- CONTENT_TYPE_BLOCKED
+- QUARANTINED
+
+# 63. Callback authentication state
+
+- RECEIVED_UNTRUSTED
+- AUTHENTICATING
+- AUTHENTICATED
+- REPLAY_REJECTED
+- AUTH_FAILED
+- REGISTERED_INBOX
+- PROCESSED
+
+Only AUTHENTICATED may proceed to REGISTERED_INBOX unless connector policy explicitly supports another secure channel mode.
+
+# 64. Dependency trust state
+
+Dependency:
+- DISCOVERED
+- PROVENANCE_VERIFIED
+- LICENSE_REVIEWED
+- SECURITY_REVIEWED
+- APPROVED
+- BLOCKED
+- DEPRECATED
+
+New executable/native/postinstall dependencies cannot jump directly to APPROVED.
+
+# 65. Invariant-test state
+
+- ACTIVE
+- MODIFICATION_PROPOSED
+- REPLACED_EQUIVALENT
+- DEPRECATED_BY_ARCH_DECISION
+- MISSING_UNEXPECTEDLY
+
+MISSING_UNEXPECTEDLY is a governance/CI failure.
+
+# 66. External linked source state
+
+- CURRENT
+- CHANGED
+- MISSING
+- ACCESS_DENIED
+- FINGERPRINT_UNKNOWN
+
+A reviewed/canonical source that becomes CHANGED cannot remain silently CURRENT by path alone.
+
+# 67. Rebuildability state
+
+Independent result:
+- EXACT_REBUILDABLE
+- BEST_EFFORT_REBUILDABLE
+- BLOCKED_DEPENDENCY
+- BLOCKED_RIGHTS
+- BLOCKED_LICENSE
+- PROVIDER_UNAVAILABLE
+- NOT_REBUILDABLE
+
+GC uses the current result at execution time, not only a stale historical label.
+
+# 68. Integrity audit state
+
+Run:
+- PLANNED
+- SCANNING
+- FINDINGS_READY
+- RECONCILING
+- CLEAN
+- DEGRADED
+- CRITICAL
+- FAILED
+
+Critical ambiguity may transition Core to SAFE_MODE until reconciliation.
+
+# 69. Worker crash-loop state
+
+Worker failure handling:
+- FAILURE_RECORDED
+- BACKOFF
+- RESTART_ELIGIBLE
+- RESTARTING
+- HEALTH_CHECK
+- READY
+
+Budget exceeded:
+- QUARANTINED
+
+Manual/controlled release:
+QUARANTINED → HEALTH_CHECK → READY or QUARANTINED
+
+# 70. Connection identity state
+
+- UNKNOWN
+- VERIFIED
+- CHANGED
+- MISMATCH
+- REVERIFY_REQUIRED
+
+A tenant/workspace mismatch blocks policy-scoped dispatch even if auth token is valid.
+
+# 71. Bulk command scope state
+
+Snapshot:
+- MATERIALIZING
+- READY
+- STALE
+- EXECUTING
+- COMPLETE
+- EXPIRED
+
+Execution never expands READY membership.
+If member revisions must match and drift occurs, snapshot becomes STALE.
+
+# 72. Backup resilience projection
+
+Backup copy state and resilience are separate.
+
+Resilience:
+- SAME_FAILURE_DOMAIN
+- SEPARATE_FAILURE_DOMAIN
+- OFFLINE
+- IMMUTABLE
+- RESTORE_VERIFIED
+- UNKNOWN
+
+A successful copy may still project SAME_FAILURE_DOMAIN.
