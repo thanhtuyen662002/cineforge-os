@@ -2988,3 +2988,161 @@ Partial clone cannot cause GC to delete source-referenced objects or permanently
 70. external drive letter reused by different volume;
 71. antivirus removes package file after install health check;
 72. storage target truncation despite copy API success.
+
+
+# EI. Actor authorization epochs
+
+Every security principal/actor has a monotonic authorization epoch.
+
+Sessions/capability tokens bind:
+- actor_id;
+- authorization_epoch;
+- session/capability scope;
+- issued_at;
+- expiry;
+- core/recovery epoch where relevant.
+
+Events that increment authorization epoch include:
+- role/authority reduction;
+- offboarding;
+- security revocation;
+- credential reset;
+- account recovery.
+
+Re-enabling an actor creates a new authorization epoch. Old tokens never become valid again.
+
+# EJ. Offboarding vs security revocation
+
+## EJ1. Normal offboarding
+Purpose: stop future access while preserving legitimate historical decisions.
+
+Effects:
+- actor DISABLED/TOMBSTONED;
+- live sessions/tokens revoked;
+- personal credentials disabled;
+- tasks/locks/decisions rerouted;
+- queued high-impact commands reauthorize;
+- historical approvals remain immutable valid evidence unless separately challenged.
+
+## EJ2. Security revocation
+Purpose: contain a compromised/untrusted actor.
+
+SecurityRevocation records:
+- actor_id;
+- suspect_from_utc_us nullable;
+- suspect_to_utc_us nullable;
+- scope;
+- reason;
+- authority;
+- evidence.
+
+It creates an approval/action taint overlay.
+Affected historical records are not mutated; dependent current state becomes:
+- REVIEW_REQUIRED;
+- BLOCKED;
+- INVALID_FOR_RELEASE;
+according to policy.
+
+# EK. Credential ownership semantics
+
+Credential binding declares owner type:
+- PERSONAL_ACTOR
+- SHARED_SERVICE_ACCOUNT
+- STUDIO_MANAGED
+- EXTERNAL_MANAGED
+
+Also records:
+- owner_actor_id nullable;
+- authorized project/studio scopes;
+- current auth epoch;
+- account/workspace identity.
+
+Offboarding:
+- revokes PERSONAL_ACTOR credential use;
+- does not blindly revoke studio/shared service credentials;
+- queued jobs bound to now-invalid personal credentials cannot dispatch/retry without replan/rebind.
+
+# EL. Authority freshness gates
+
+Current authority epoch/role is revalidated at:
+- review submission;
+- DecisionRequest resolution;
+- canonical approval;
+- manual-lock acquire/release;
+- high-impact command execute;
+- external dispatch;
+- publish/takedown;
+- signing;
+- destructive delete/purge;
+- ownership transfer.
+
+A valid session at workflow start is insufficient.
+
+# EM. Revocation propagation
+
+Access/security revocation invalidates or re-filters derived surfaces:
+- media/RPC capability tokens;
+- search/retrieval indexes;
+- cached query projections;
+- native notifications;
+- diagnostic/support bundles;
+- browser profiles/sessions;
+- temp/staging access;
+- learning/dataset eligibility;
+- pending export/share links where managed by CineForge.
+
+Derived data may remain physically present, but authorization is evaluated at read/delivery time.
+
+# EN. Break-glass ownership recovery
+
+When no valid project/studio authority remains:
+- ordinary members cannot self-promote;
+- use a separately governed break-glass recovery path;
+- require stronger identity/credential evidence;
+- record reason/evidence;
+- optionally delay/cooldown and notify surviving trusted contacts/owners where product supports it;
+- preserve prior owner audit identity.
+
+Break-glass capability is narrowly scoped and separately monitored.
+
+# EO. Privileged authority-change protection
+
+Changes to:
+- Studio Owner;
+- Admin;
+- Security/Trust authority;
+- signing/release authority;
+- break-glass recovery policy
+
+are high-risk operations.
+
+They require:
+- impact preview;
+- fresh current authority;
+- stronger review/approval policy;
+- non-retroactive governance rule;
+- optional multi-party/credential-independent approval for high-assurance deployments.
+
+# EP. Actor identity immutability
+
+Actor IDs are never reused for another human/service.
+
+Deletion is represented by:
+- DISABLED/TOMBSTONED;
+- optional personal-data anonymization/pseudonymization under policy;
+- preserved immutable actor ID for audit referential integrity.
+
+# EQ. Required identity/offboarding tests
+
+73. old capability token after actor offboarding;
+74. offline queued mutation reconnect after offboarding;
+75. open review submitted after role removal;
+76. security revocation taints prior approvals in suspect interval;
+77. personal credential vs shared service credential offboarding;
+78. browser profile cleanup/reverify after access revoke;
+79. search/index/media-token access immediately after revoke;
+80. re-enable actor and verify old tokens remain invalid;
+81. remove all admins then exercise break-glass recovery;
+82. malicious admin attempts to offboard all other owners;
+83. ownership transfer with non-transferable credentials/rights;
+84. actor ID tombstone/non-reuse audit.
