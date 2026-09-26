@@ -4518,3 +4518,149 @@ Conclusion:
 
 Residual:
 - the temporary probe branch remains because the currently exposed GitHub connector lacks branch-delete capability; it is not a task claim and must never be scheduled.
+
+
+# 28. Eighth-wave process sandbox / child-process escape attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 411 | Custom node spawns child process then exits; child keeps running | **GAP/P0/P1** | parent lifecycle alone does not contain process tree |
+| 412 | Worker kill stops parent but grandchild retains file/network access | **GAP/P0/P1** | need process-tree/job containment |
+| 413 | Child uses CREATE_BREAKAWAY_FROM_JOB or equivalent to escape containment | **GAP/P0/P1** | breakaway must be denied or explicitly authorized |
+| 414 | Worker spawns cmd/powershell through shell=True despite typed parent command | **GAP/P0** | shell spawning is a distinct capability, not inherited by ordinary worker |
+| 415 | Child inherits privileged file handle from Core/launcher | **GAP/P0** | handle inheritance must be deny-by-default |
+| 416 | Child inherits secret-bearing environment variable/token | PARTIAL | env hardening exists; child process inheritance policy must be explicit |
+| 417 | Child inherits stdout/stderr pipe and deadlocks parent by filling pipe | **GAP/P1 liveness** | bounded pipe draining/backpressure needed |
+| 418 | Worker writes GBs to stdout/log causing disk/memory pressure | PARTIAL | log quotas exist; per-process output cap needed |
+| 419 | Plugin opens network socket before network policy/firewall is attached | **GAP/P0/P1 race** | containment/network policy must exist before executable starts |
+| 420 | Plugin launches browser/system URL to exfiltrate data outside connector route | **GAP/P1** | shell-open/browser-launch capability must be separately denied |
+| 421 | Plugin opens arbitrary device path / raw disk | **GAP/P0** | OS token/device ACL restriction needed for untrusted runtime |
+| 422 | Plugin accesses microphone/camera without going through capture capability | **GAP/P0/P1 privacy** | device access must be constrained by sandbox/OS permission where feasible |
+| 423 | Plugin interacts with user desktop/clipboard/window messages | **GAP/P1** | untrusted worker should not get ambient desktop authority |
+| 424 | Plugin enumerates other project processes/windows | **GAP/P1 privacy** | process isolation/low-privilege token boundary |
+| 425 | Plugin creates scheduled task/service for persistence | **GAP/P0** | untrusted worker token must lack service/task-install authority |
+| 426 | Plugin writes startup folder/Run key | **GAP/P0** | persistence locations forbidden by worker policy |
+| 427 | Plugin injects into another CineForge process | **RESIDUAL/P0** | same-user/native-code adversary hard to defeat fully; high-risk plugin isolation required |
+| 428 | Worker leaks inherited mapped network drive credentials | **GAP/P1** | worker environment/filesystem namespace should not expose unrelated mounts by default |
+| 429 | Temporary file is created before ACL tightening; child races to open it | **GAP/P1 TOCTOU** | private temp root/ACL must exist before file creation |
+| 430 | Worker creates symlink/junction inside output root before finalization | PARTIAL | final-handle validation exists; sandbox should deny reparse creation where possible |
+| 431 | Child keeps GPU context alive after job cancellation, VRAM never returns | **GAP/P1** | process-tree kill + GPU release reconciliation |
+| 432 | Worker process hangs in uninterruptible native call; graceful cancellation never returns | **GAP/P1** | escalation ladder graceful→terminate→kill tree→quarantine runtime |
+| 433 | Kill tree during file write leaves partially valid-looking output | PARTIAL | staging/verify prevents READY; orphan cleanup required |
+| 434 | Child process survives app exit and writes into next app session temp root | **GAP/P1** | session/ownership epoch + process-tree cleanup |
+| 435 | Two worker trees share one temp directory and overwrite each other | **GAP/P1** | per-attempt private temp root |
+| 436 | Worker changes ACL on output so Core cannot read/cleanup | **GAP/P1** | finalization/ACL policy and restricted token |
+| 437 | Worker encrypts/ransomwares project files because project root mounted writable | **GAP/P0** | untrusted worker should receive staged inputs, not writable project/library root |
+| 438 | Worker reads browser profile/cookie DB through same user filesystem | **GAP/P0/P1 privacy** | sandbox filesystem scope excludes browser/credential roots |
+| 439 | Worker opens loopback Core RPC directly and tries privileged command | PARTIAL | Core auth/handle scopes exist; sandbox should not assume localhost trusted |
+| 440 | Plugin requests elevation/UAC itself | **GAP/P0** | worker token/process policy must deny elevation path; elevation only trusted installer boundary |
+
+# 29. Eighth-wave process containment findings
+
+## X94 — Worker process-tree ownership (P0/P1)
+Every worker attempt owns an OS process tree, not one PID.
+
+On Windows, use a Job Object or equivalent containment primitive where feasible:
+- assign root before untrusted work begins;
+- kill-on-job-close / tree termination semantics;
+- deny breakaway unless an explicitly trusted worker profile requires it;
+- track child process creation/resource use.
+
+A job attempt is not FINISHED until owned process tree is gone or quarantined as unresolved.
+
+## X95 — Deny-by-default handle/environment inheritance (P0/P1)
+Worker launch explicitly selects inheritable handles.
+Default:
+- no Core DB/file handles;
+- no credential handles/tokens;
+- no unrelated pipes;
+- minimal sanitized environment;
+- no project/browser/secret paths via ambient variables.
+
+Child processes inherit only worker-scoped handles/environment, never launcher/Core ambient authority.
+
+## X96 — Worker OS authority profile (P0/P1)
+Worker trust class maps to OS authority:
+- TRUSTED_MEDIA_TOOL
+- MANAGED_MODEL_RUNTIME
+- UNTRUSTED_PLUGIN
+- BROWSER_AUTOMATION
+- PRIVILEGED_INSTALLER
+
+Untrusted/plugin workers:
+- no admin/elevation/service/task persistence;
+- no arbitrary project/library root write;
+- no credential/browser-profile root access;
+- restricted network/device/desktop access where platform supports;
+- staged input/output only.
+
+## X97 — Pre-execution containment (P0/P1)
+Security controls must exist **before** executable code starts:
+- private temp/staging root;
+- ACL/token;
+- process-tree container;
+- environment;
+- network policy;
+- working directory.
+
+Do not launch then “attach sandbox” afterward.
+
+## X98 — Process cancellation escalation ladder (P1)
+Cancellation:
+`REQUEST_GRACEFUL → WAIT_BOUNDED → TERMINATE → KILL_TREE → VERIFY_GONE`.
+
+If process tree cannot be confirmed gone:
+- worker/runtime becomes QUARANTINED;
+- resources remain conservatively reserved;
+- no new jobs reuse contaminated temp/process context.
+
+## X99 — Per-attempt filesystem namespace (P1)
+Each attempt gets private:
+- input staging;
+- output staging;
+- temp/cache working root where practical.
+
+Cross-attempt/project shared writable directories are avoided.
+Finalization moves verified output into managed immutable storage.
+
+## X100 — Child I/O and log backpressure (P1)
+Stdout/stderr/IPC:
+- bounded buffers;
+- continuous drain;
+- per-attempt byte/rate limits;
+- structured log truncation/sampling;
+- kill/quarantine on pathological output according to policy.
+
+A child cannot deadlock Core or fill disk solely by never-ending output.
+
+## X101 — Residual native-code boundary (P0 residual)
+Arbitrary native code running as the same OS user cannot be made perfectly safe by application-level sandboxing alone.
+
+High-security policy may require stronger isolation:
+- separate low-privilege OS account;
+- AppContainer/restricted token;
+- container/VM/sandbox technology;
+- no untrusted native plugin support.
+
+CineForge must not market ordinary same-user process isolation as a perfect security boundary.
+
+# 30. Required process-containment tests
+
+195. child/grandchild survives parent exit attempt;
+196. breakaway process attempt;
+197. shell/powershell spawn from non-shell capability;
+198. privileged handle inheritance probe;
+199. secret environment inheritance probe;
+200. stdout pipe fill/deadlock;
+201. log flood quota;
+202. network socket before worker initialization completes;
+203. arbitrary browser/system URL launch;
+204. service/scheduled-task/startup persistence attempt;
+205. browser-profile/credential-root read attempt;
+206. writable project-root ransomware simulation;
+207. GPU context survives cancel;
+208. hung native call cancellation escalation;
+209. per-attempt temp collision;
+210. output ACL sabotage;
+211. child survives app shutdown/session restart;
+212. untrusted worker direct Core RPC probe.
