@@ -2138,3 +2138,29 @@ Release/update policy has a monotonic revocation/minimum-version floor.
 ## Release trigger
 Only an immutable authorized release source can enter privileged signing/publish.
 GitHub/environment configuration is verified state, not assumed.
+
+
+
+# 66. Privacy residue and library ownership architecture
+
+Privacy/deletion is a multi-store lifecycle, not a row delete.
+
+Core owns a purge coordinator spanning:
+- canonical relational state;
+- object/derived/cache stores;
+- semantic indexes;
+- learning datasets;
+- observability references;
+- backup/retention policy;
+- external exposure records.
+
+Recovery owns a forward deletion/revocation journal so older backups cannot silently resurrect later privacy/security decisions.
+
+## Semantic isolation
+RAG/vector/search/cache/session state is project/studio/privacy scoped at storage/query time, not merely filtered in UI.
+
+## Single writer
+One writable library has one Core writer epoch enforced by an OS-level exclusive primitive plus DB ownership record.
+
+## Archive
+Sealed archives are immutable/read-only artifacts; viewing never migrates them in place.
