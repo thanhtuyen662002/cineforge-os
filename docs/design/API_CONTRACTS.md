@@ -3037,3 +3037,93 @@ No UI/API may report a descendant as current merely because its materialized sta
 
 Release readiness query uses an event-maintained projection for responsiveness.
 Final release command performs authoritative current gate revalidation independent from cached projection.
+
+
+
+# 95. Capability semantic certification API
+
+Queries:
+- query.connections.capability_certification
+- query.connections.tool_identity
+- query.connections.capability_health
+- query.connections.execution_receipt
+
+Commands:
+- CertifyCapabilitySemantics
+- RevokeCapabilityCertification
+- ReverifyToolIdentity
+- MarkCapabilityDegraded
+
+Dispatch requires a current certification compatible with the requested effect/idempotency/cancellation profile.
+
+# 96. MCP/nested-call authorization contract
+
+Every nested tool/resource/callback request from a connector is authorized as a new host operation.
+
+It may not:
+- broaden project/file/network scope;
+- invoke a higher effect class;
+- access another credential/account;
+- forward extension data to an unrelated connector
+
+unless the host explicitly grants that typed bridge.
+
+# 97. Connector result/stream budget API
+
+Host enforces:
+- max metadata bytes;
+- max stream bytes/events/rate;
+- idle/total timeout;
+- spill-to-staging;
+- cancellation/backpressure.
+
+Oversized result becomes PARTIAL/QUARANTINED/FAILED per certification policy; it is not loaded unbounded into Core/UI memory.
+
+# 98. CLI runner semantic success API
+
+CLI result reports:
+- process exit status;
+- process-tree termination status;
+- expected artifact presence/validation;
+- partial artifact inventory;
+- structured machine output parse state;
+- stderr/log refs.
+
+Human stdout text is not parsed as authoritative success when a machine contract exists.
+
+# 99. API completeness/retry contract
+
+Adapter exposes:
+- per-item batch outcome;
+- pagination completeness;
+- creation receipt;
+- eventual-consistency state;
+- provider retry/backoff hint.
+
+A missing item in an incomplete/eventually-consistent listing is not proof it does not exist.
+
+# 100. Browser action guard API
+
+Before high-effect browser actions:
+- browser.verify_action_context(checkpoint)
+- browser.execute_guarded_action(checkpoint)
+- browser.reconcile_uncertain_action(checkpoint)
+
+Context verification includes account/workspace/page/action/target fingerprints.
+
+Timeout after click produces UNCERTAIN, not automatic retry.
+
+# 101. Capability health API
+
+Connection summary aggregates per-capability health.
+
+Routing asks for exact requested capability/model/action readiness.
+A green connection card alone does not authorize a critical action.
+
+# 102. Subprocessor/egress chain contract
+
+Execution receipt includes declared/observed effective provider/account/region/subprocessor metadata when available.
+
+Privacy/rights policy checks that chain before or immediately around dispatch according to connector capabilities.
+
+Unknown effective processing path can block sensitive jobs.
