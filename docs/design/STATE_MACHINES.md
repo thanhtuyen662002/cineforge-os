@@ -1685,3 +1685,98 @@ System:
 - RUNNING
 
 Scheduler external retry/timeout actions are blocked during RECONCILING.
+
+
+
+# 95. Pricing snapshot state
+
+- CURRENT
+- STALE_WITHIN_CEILING
+- STALE_MATERIAL
+- EXPIRED
+- UNKNOWN
+
+Material/expired price state may require REPLAN before paid dispatch.
+
+# 96. Billing reconciliation state
+
+- RECEIVED
+- IDENTITY_RESOLVED
+- PENDING_ORIGINAL
+- POSTED
+- CORRECTED
+- REFUND_PENDING
+- REFUND_SETTLED
+- DUPLICATE_LINE
+- DISPUTED
+- UNRECONCILED
+
+Transport event ordering does not determine financial event ordering.
+
+# 97. Retention hold lifecycle
+
+- ACTIVE
+- EXPIRED
+- RELEASED
+- REVOKED
+
+Purge eligibility is a separate projection after dependency/rights/backup checks.
+
+# 98. Portable archive lifecycle
+
+```text
+PLANNED
+→ CLOSURE_RESOLVED
+→ MATERIALIZING_EXTERNALS
+→ BUILDING
+→ VERIFYING
+→ SEALED
+```
+
+Alternate:
+- BLOCKED_SECRET_REFERENCE
+- BLOCKED_MISSING_MEDIA
+- BLOCKED_RIGHTS
+- INCOMPATIBLE
+- CORRUPT
+- MIGRATION_REQUIRED
+
+# 99. Historical signature verification state
+
+- VALID_CURRENT
+- VALID_HISTORICAL_POLICY_ACCEPTS
+- VALID_BUT_KEY_LATER_REVOKED
+- TIMESTAMP_EVIDENCE_MISSING
+- INVALID
+- UNKNOWN_TRUST
+
+Policy verdict is explicit; historical evidence is not rewritten.
+
+# 100. Project transfer scope state
+
+- PLANNING
+- CLOSURE_READY
+- NEEDS_DECISION
+- APPROVED
+- EXECUTING
+- COMPLETE
+- STALE_SCOPE
+- BLOCKED_PRIVACY
+- BLOCKED_RIGHTS
+
+# 101. Shared craft-memory eligibility
+
+- PROJECT_LOCAL_ONLY
+- OPT_IN_PENDING
+- ELIGIBLE_SHARED
+- REVOKED
+- PURGE_PENDING
+- PURGED
+
+# 102. Compensation readiness state
+
+Independent axes:
+- TAKEDOWN_READY | TAKEDOWN_UNAVAILABLE | TAKEDOWN_UNKNOWN
+- REPLACE_READY | REPLACE_UNAVAILABLE | REPLACE_UNKNOWN
+- CREDENTIAL_READY | CREDENTIAL_REAUTH_REQUIRED
+- VERIFY_SUPPORTED | VERIFY_UNSUPPORTED | VERIFY_UNKNOWN
