@@ -1,6 +1,9 @@
 ## Initial claim record
 
 agent_claim_v1:
+  control_event_id: ""
+  claim_intent_id: ""
+  claim_intent_comment_id: 0
   issue: 0
   attempt: 1
   agent_instance_id: ""
