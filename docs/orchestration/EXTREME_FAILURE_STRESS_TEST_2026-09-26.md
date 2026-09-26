@@ -1371,3 +1371,127 @@ Before move/restore:
 - sparse/reflink/atomic semantics where required;
 - free space;
 - volume identity/manifests.
+
+
+# 23. Sixth-wave: insider, Byzantine provider and supply-chain attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 351 | Trusted agent labels a security-sensitive task LOW to get weaker gates | **GAP/P0/P1** | risk class cannot rely only on author metadata |
+| 352 | Two “independent” logical reviewers collude under same credential/runtime family | PARTIAL | assurance levels help; semantic high-risk changes need stronger separation |
+| 353 | Malicious agent edits allowed file in a way that weakens security indirectly | **GAP/P1** | path scope is not semantic authorization |
+| 354 | Security change is split across 3 innocuous PRs so no single diff looks high-risk | **GAP/P1** | cumulative semantic risk across recent changes needed |
+| 355 | PR modifies generated source, not protected source-of-truth file, bypassing invariant review | **GAP/P1** | generated-file provenance/source ownership must be enforced |
+| 356 | Trusted CI runner is compromised and returns fake green + tampered artifact | **GAP/P0** | check producer identity alone cannot prove worker integrity |
+| 357 | Runner produces artifact different from source despite green tests | **GAP/P0/P1** | provenance/attestation + clean trusted builder needed |
+| 358 | Third-party GitHub Action tag is retargeted upstream | PARTIAL | governance should pin immutable action commit/digest |
+| 359 | Package registry serves different bytes for same version | CONTAINED if digest pinned | exact integrity mandatory |
+| 360 | Private package name is dependency-confused by public registry | **GAP/P1** | registry/source pin and namespace policy required |
+| 361 | Build tool/compiler binary compromised but dependency lock is clean | **GAP/P1** | toolchain digest/provenance needs same trust treatment |
+| 362 | Signing service signs wrong artifact path supplied by compromised runner | **GAP/P0** | signing request must bind expected attested digest/release manifest |
+| 363 | Online signing key compromised; attacker signs malware | PARTIAL | offline root/revocation exists; rapid revocation/distribution path needed |
+| 364 | Provider returns another customer's media under a valid signed callback | **GAP/P0 privacy** | signed callback authenticity != semantic ownership/correlation proof |
+| 365 | Provider reuses job ID after account migration | **GAP/P1** | external identity key must include provider/account/connection generation |
+| 366 | Provider returns different bytes from same artifact URL on second fetch | **GAP/P1** | receipt hash/materialized digest records inconsistency; retry must not overwrite silently |
+| 367 | Provider lies about usage/cost until invoice arrives | PARTIAL | exposure caps help; invoice reconciliation/variance alert needed |
+| 368 | Provider says delete succeeded but keeps serving artifact | CONTAINED as unverifiable external state | deletion status must remain REQUESTED/UNVERIFIED until checked |
+| 369 | Provider changes model behavior without version string change | PARTIAL | semantic recertification/benchmark drift monitor needed |
+| 370 | Provider returns unsafe/irrelevant content that passes technical decode | **GAP/P1 product** | content/policy moderation may be required by project/use-case |
+| 371 | Connector intentionally omits a reference from outbound request but reports it included | **GAP/P1** | egress/payload attestation must bind actual serialized request hash |
+| 372 | Connector sends additional undeclared data in multipart request | **GAP/P0 privacy** | network sandbox + serialized egress manifest enforcement needed |
+| 373 | Browser connector types prompt into wrong account tab/window | **GAP/P1** | browser session must bind expected origin/account/workspace/tab/session identity |
+| 374 | Browser page injects hidden prompt text into DOM observation to manipulate agent | **GAP/P0/P1** | browser page content is untrusted data; tool policy independent |
+| 375 | MCP server advertises benign schema then changes behavior without schema change | **GAP/P1** | behavioral certification/health and least privilege; cannot trust schema alone |
+| 376 | MCP tool returns secret-looking value causing agent to echo into GitHub | **GAP/P1** | output DLP/redaction before cross-boundary publication |
+| 377 | Local plugin has approved network domain but tunnels arbitrary data over it | **RESIDUAL/P1** | domain allowlist is not semantic DLP; egress payload/data manifest remains required |
+| 378 | Malicious model deliberately induces tool calls that are policy-valid but harmful in aggregate | **GAP/P1** | per-call authorization needs cumulative/rate/budget/action-sequence policy |
+| 379 | 100 individually allowed deletes become catastrophic bulk deletion | **GAP/P0/P1** | aggregate action budget and bulk detection required |
+| 380 | Agent slowly weakens tests/config over weeks below per-PR thresholds | **GAP/P1** | governance drift baseline/trend detection needed |
+| 381 | Agent commits large binaries/media into Git, bloating repo permanently | **GAP/P1 ops** | repository file-size/type policy + LFS/no-media rule |
+| 382 | Agent commits generated vendor directory/node_modules | **GAP/P1 ops** | repo hygiene policy/CI size/file-count checks |
+| 383 | Git history contains secret even after current file deletion | **GAP/P0/P1** | secret incident response must rotate + history remediation, not just delete HEAD |
+| 384 | Diagnostic artifact uploaded as GitHub Actions artifact with long public/org retention | **GAP/P1 privacy** | CI artifact retention/sensitivity policy required |
+| 385 | Build artifact contains absolute local path/user name from debug symbols | **GAP/P1 privacy/repro** | reproducible/path-sanitized build config + release scan |
+| 386 | Reproducible build differs because locale/timezone/environment not pinned | **GAP/P2/P1** | hermetic env must pin locale/timezone/source-date inputs |
+| 387 | Release archive embeds build timestamp making hash non-reproducible | **GAP/P2** | deterministic metadata policy where reproducibility is required |
+| 388 | Publishing metadata/title is correct locally but provider truncates/reformats it | **GAP/P2 product** | post-publication actual-state verification includes metadata, not only media |
+| 389 | Scheduled publish timezone interpreted differently by platform | **GAP/P1** | publish plan binds explicit target timezone/UTC and verifies remote scheduled time |
+| 390 | Partial publish uploads video but thumbnail/subtitle/visibility fails | **GAP/P1** | publication is multi-step partial external state, not one boolean |
+
+# 24. Sixth-wave findings
+
+## X77 — Independent semantic risk classification (P0/P1)
+Task-declared risk is advisory.
+CI/control plane independently elevates risk based on:
+- changed protected paths;
+- dependency/native/script additions;
+- auth/privacy/rights/storage/update/release semantics;
+- invariant-test changes;
+- cumulative related changes.
+Effective gate uses max(declared, detected, policy-required risk).
+
+## X78 — Cumulative governance drift detection (P1)
+Maintain baseline/trend checks for:
+- required tests/invariants;
+- permissions;
+- CI scopes;
+- branch/release/signing policy;
+- dependency trust surface.
+Several individually small changes cannot silently erode controls over time.
+
+## X79 — Trusted builder/artifact attestation (P0/P1)
+Security/release artifact trust requires:
+- clean trusted builder identity/class;
+- declared source commit/tree;
+- toolchain/package digests;
+- build recipe;
+- output digest;
+- signed/protected attestation.
+A green test status is not artifact provenance.
+
+## X80 — Signing request binds release digest (P0)
+Signing service only signs digest explicitly present in an authorized immutable ReleaseManifest/attestation.
+Runner cannot ask it to sign an arbitrary filesystem path.
+
+## X81 — External semantic correlation (P0/P1)
+Authenticated provider response/callback must also correlate to:
+- provider;
+- connection generation;
+- account/tenant;
+- external job/request nonce;
+- expected artifact role/session.
+Signed-but-wrong-customer response is quarantined.
+
+## X82 — Actual outbound payload attestation (P0/P1)
+Connector host, not connector self-report, hashes/records the final serialized outbound body/parts metadata and verifies it fits the authorized egress manifest.
+Where transport prevents exact capture, capability is lower-trust and policy reflects that.
+
+## X83 — Aggregate action policy/budget (P0/P1)
+Authorization considers cumulative action set/window, not only individual calls:
+- destructive count;
+- external spend;
+- data volume;
+- publication/delete actions.
+Threshold crossing converts repeated small calls into a bulk/high-risk DecisionRequest/gate.
+
+## X84 — Repository hygiene and secret incident response (P1)
+CI blocks unexpected large/binary/media/vendor files and enforces source-vs-generated ownership.
+Secret leak response includes immediate credential rotation/revocation and Git history/artifact remediation; deleting current file is insufficient.
+
+## X85 — CI artifact sensitivity/retention policy (P1)
+Actions artifacts/logs/test reports are classified and get minimum necessary retention/access.
+Sensitive diagnostics/media are not ordinary long-retention CI artifacts.
+
+## X86 — Reproducible release environment (P1)
+Where reproducibility is claimed, pin:
+- locale/timezone;
+- toolchain;
+- dependency digests;
+- SOURCE_DATE_EPOCH/deterministic archive metadata where supported;
+- path/debug-prefix mapping.
+Claims of reproducibility are tested, not assumed.
+
+## X87 — Publication actual-state verification (P1)
+Publication tracks independent substeps:
+media, title/description, thumbnail, subtitles, visibility, schedule/timezone.
+“Delivered” is not “verified exactly as intended”.
