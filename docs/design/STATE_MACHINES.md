@@ -1199,3 +1199,103 @@ Verification:
 - EXPIRED_KEY
 
 Only VALID_TRUSTED passes a required signing gate.
+
+
+# 61. Network fetch state
+
+- REQUESTED
+- VALIDATING
+- RESOLVING
+- CONNECTING
+- REDIRECTING
+- DOWNLOADING
+- COMPLETE
+
+Failure:
+- BLOCKED_SCHEME
+- BLOCKED_PRIVATE_NETWORK
+- DNS_CHANGED
+- REDIRECT_BLOCKED
+- SIZE_LIMIT
+- TIME_LIMIT
+- FAILED
+
+# 62. Callback authentication state
+
+- RECEIVED_UNVERIFIED
+- AUTHENTICATING
+- VERIFIED
+- REJECTED_AUTH
+- REJECTED_REPLAY
+- QUARANTINED
+- PROCESSED
+
+No transition to PROCESSED without connector-policy-compliant authentication.
+
+# 63. Storage scrub state
+
+- PLANNED
+- SCANNING
+- VERIFIED
+- CORRUPTION_FOUND
+- REPAIRING
+- PARTIAL
+- COMPLETE
+- FAILED
+
+# 64. Dependency governance state
+
+Dependency change:
+- PROPOSED
+- RESOLVING
+- SECURITY_LICENSE_REVIEW
+- ALLOWED
+- BLOCKED
+- NEEDS_REVIEW
+- APPLIED
+
+# 65. Worker crash circuit breaker
+
+Worker:
+`READY → CRASHED → BACKING_OFF → RESTARTING → READY`
+
+If restart budget exceeded:
+`CRASHED/BACKING_OFF → QUARANTINED`
+
+QUARANTINED requires explicit repair/revalidation before READY.
+
+# 66. Connection identity state
+
+Independent identity axis:
+- UNKNOWN
+- VERIFIED
+- CHANGED
+- MISMATCH
+- UNSUPPORTED
+
+Authentication VALID + identity MISMATCH is not “Ready”.
+
+# 67. Bulk action lifecycle
+
+```text
+DRAFT_SCOPE
+→ SNAPSHOT_CREATED
+→ IMPACT_ANALYZED
+→ CONFIRMED
+→ EXECUTING
+→ COMPLETED
+```
+
+If any required pinned revision changes:
+- STALE_SCOPE
+- command must re-plan or explicitly handle conflict.
+
+# 68. Integrity audit lifecycle
+
+- PLANNED
+- SCANNING
+- FINDINGS_READY
+- REPAIRING
+- VERIFIED
+- PARTIAL
+- FAILED
