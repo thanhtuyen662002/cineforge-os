@@ -1886,7 +1886,7 @@ Between verification and registration CineForge must defend against:
 Finalization verifies the same file identity/content that was hashed before atomically entering managed storage.
 
 
-# 65. Narrative context and nonlinear continuity
+# ARCH-NARRATIVE-01. Narrative context and nonlinear continuity
 
 CineForge separates:
 - screen/edit order;
@@ -1917,7 +1917,7 @@ A ShotContinuitySnapshot pins:
 - ancestry/baseline hash;
 - relevant entity-state revisions.
 
-# 66. Production hierarchy
+# ARCH-PRODUCTION-01. Production hierarchy
 
 Project is the technical/workspace boundary, not necessarily one finished film.
 
@@ -1941,7 +1941,7 @@ Production nodes pin:
 
 Shared series/franchise canon can evolve without retroactively mutating released production truth.
 
-# 67. Character vs performer vs representation
+# ARCH-CASTING-01. Character vs performer vs representation
 
 CineForge distinguishes:
 
@@ -1967,7 +1967,7 @@ Casting/representation bindings are scoped and versioned.
 Real-person consent/rights attach to Person/Performer and derived representations.
 Revoking performer rights does not delete the fictional Character; it taints dependent representations/assets.
 
-# 68. Live-action capture domain
+# ARCH-CAPTURE-01. Live-action capture domain
 
 Live-action/hybrid production adds:
 - ProductionUnit / ShootDay
@@ -1987,7 +1987,7 @@ One Shot may use material from many Takes.
 Capture original is immutable.
 Editorial selection/preference is metadata/revision, not destructive replacement.
 
-# 69. Documentary factual-evidence domain
+# ARCH-DOCUMENTARY-01. Documentary factual-evidence domain
 
 Documentary/factual projects add:
 - SourceRecord
