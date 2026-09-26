@@ -1,178 +1,194 @@
 # CineForge OS — Task, Claim and Lease Protocol
 
-> **v1.1 authoritative clarifications**
-> - Read `GITHUB_METADATA_CONVENTIONS.md` and `FLOW_METRICS_AND_RECONCILIATION.md` with this protocol.
-> - The PR body is the immutable initial claim record; live owner/state is the latest valid structured PR event.
-> - A merged Claim PR prevents re-claim of the same open Issue unless the Issue is explicitly reopened for rework.
-> - Claim attempts must reconcile orphan claim branches before selecting a new attempt.
-> - Only the designated primary Flow Governor/control authority initiates takeover of a stale PR; other agents may flag it.
-> - Review/merge liveness binds to current verification context, not just an old HEAD result.
+> Read with `GITHUB_METADATA_CONVENTIONS.md`, `FLOW_METRICS_AND_RECONCILIATION.md`, and `CONTROL_PLANE_TRUST_AND_CONCURRENCY.md`.
 
 # 1. Task Issue contract
 
-Every schedulable Task Issue contains:
+Every schedulable trusted Task Issue contains one `agent_task_v1` contract:
 
 ```text
-Outcome:
-Why:
-Area:
-Preferred role:
-Risk class:
-Size: S | M | L
-Parallel class: SAFE | CONTRACT | HOTSPOT | SERIAL
-Hard dependencies:
-Soft dependencies:
-Unblocks:
-Likely touched paths/domains:
-Architecture references:
-Acceptance criteria:
-Tests/evidence:
-Review profile:
-External/manual blockers:
+contract_version
+area
+preferred_role
+risk
+size
+parallel_class
+hard_dependencies
+soft_dependencies
+unblocks
+likely_touched_paths
+arch_context_required
+design_context_required
+risk_context_required
+review_profiles
+ci_tiers
+external_blocker
 ```
 
-L tasks should normally be split before claim unless they are inherently atomic.
+Planner computes/stores a canonical contract hash for claim/review reconciliation.
 
-# 2. Readiness
+L tasks should normally be split before claim unless inherently atomic.
 
-A task is READY when:
-- issue is open;
-- no merged Claim PR already completed the Issue unless explicit rework exists;
-- acceptance contract is clear;
-- all Hard dependencies are merged;
+# 2. Trust and readiness
+
+A Task is READY only when:
+- Issue/control source is trusted or explicitly adopted by trusted Planner;
+- Issue is open;
+- no merged Claim PR already completed it unless explicit rework exists;
+- contract version/hash is valid;
+- acceptance criteria are clear;
+- all Hard dependencies are currently satisfied;
 - no external/manual blocker;
 - no open Claim PR;
-- no unresolved architecture conflict.
+- no unresolved architecture conflict;
+- claiming would not violate global WIP/backpressure.
 
-Soft dependencies do not block scheduling.
+An external public Issue is never schedulable merely because it copies the template.
 
-# 3. Atomic claim
+# 3. Dependency satisfaction
 
-1. Re-read issue and dependencies.
-2. Reconcile merged/open PRs and orphan claim branches for this Issue.
-3. If any Claim PR merged and no explicit rework exists, reconcile/close the Issue instead of claiming.
-4. Search all prior claim attempts/branches and determine next attempt number.
-4. Derive branch:
+A hard dependency is satisfied by current main/contract evidence, not “this Issue was closed once”.
+
+If an upstream contract is reverted/superseded:
+- downstream readiness is recomputed;
+- affected active work becomes review/rework/stale as appropriate.
+
+# 4. Atomic task claim
+
+1. Re-read trusted Task contract and dependencies.
+2. Reconcile merged/open PRs and orphan claim branches.
+3. If a Claim PR already merged and no explicit rework exists, reconcile the Issue rather than claiming.
+4. Determine next attempt number from existing attempts/branches/PRs.
+5. Derive exact branch:
    `agent/i<issue>-a<attempt>-<slug>`
-5. Create that exact branch from current main.
-6. If branch creation conflicts, another agent won. Do not implement; choose another task.
-7. Immediately open Draft PR.
-8. Append an initial structured AGENT_STATE_V1 event.
-9. Only then start substantial code.
+6. Create branch from current main.
+7. If branch creation conflicts, another agent won; choose another task.
+8. Immediately create Draft Claim PR.
+9. Append initial `AGENT_STATE_V1`.
+10. Only then start substantial implementation.
 
-This branch creation is the claim race lock.
+Branch creation is the task claim race primitive.
 
-# 4. Claim PR record
+# 5. Claim context record
 
-Draft PR body contains the immutable `agent_claim_v1` block from the PR template:
-- issue
-- attempt
-- agent_instance_id
-- run_id_at_claim
-- slot_id
-- role_profile
-- claim_base_sha
-- architecture_refs
-- risk_profile
+Initial claim metadata records:
+- Issue;
+- attempt;
+- AGENT_INSTANCE_ID;
+- RUN_ID;
+- SLOT_ID;
+- role;
+- CLAIM_BASE_SHA;
+- TASK_CONTRACT_VERSION;
+- TASK_CONTRACT_HASH;
+- CONTEXT_BASE_SHA;
+- required architecture/design paths;
+- risk profile.
 
-The initial claim block is historical identity, not live lease state.
-Current owner/state is derived from the latest valid structured state/takeover events.
+The PR body is historical/display metadata and technically editable on GitHub; critical merge decisions revalidate live facts and structured events.
 
-Do not depend on GitHub username to distinguish logical agents; many slots may use the same connected account.
+# 6. Contract changes after claim
 
-# 5. Progress checkpoints
+Planner must not silently change an active task contract.
 
-At meaningful boundaries:
-- push code;
-- append structured progress event when state changes;
-- record observed HEAD_SHA + BASE_SHA, blocker and next action;
-- treat PR-body state summaries as convenience only.
+Material change:
+1. increment contract_version;
+2. update contract_hash;
+3. append `TASK_CONTRACT_REVISION_V1` with reason;
+4. active owner re-reads and ACKs/replans;
+5. reviewer/Integrator validates current contract hash before merge.
 
-State comments:
+If new contract invalidates the existing PR, close/repurpose explicitly instead of forcing sunk-cost merge.
+
+# 7. Authoritative context
+
+Referenced docs resolve at CONTEXT_BASE_SHA.
+
+At review/merge:
+- compare referenced paths against current verification base;
+- if materially changed, re-read affected docs and revalidate;
+- unrelated repository changes do not force full corpus reload.
+
+# 8. Progress events
+
+Append state event only on meaningful transition:
 - ACTIVE
 - PARKED_WAITING_CI
 - PARKED_WAITING_REVIEW
 - PARKED_BLOCKED_DEPENDENCY
 - READY_FOR_REVIEW
 - READY_FOR_MERGE
-- TAKEOVER
 - ABANDONED
 
-Do not spam heartbeat comments without a state/progress change.
+Record:
+- HEAD_SHA;
+- BASE_SHA/verification context;
+- blocker;
+- next action.
 
-# 6. Parking
+No no-op heartbeat spam.
 
-Parking preserves ownership but releases slot capacity.
+# 9. Parking
+
+Parking preserves claim ownership but releases execution capacity.
 
 Before parking:
-- push all safe work;
-- record observed HEAD_SHA + BASE_SHA;
-- record blocker;
-- record next action;
-- ensure another worker can resume from GitHub alone.
+- push safe work;
+- record current verification context;
+- blocker;
+- next action;
+- ensure GitHub alone is enough to resume.
 
-# 7. Waiting CI
+Parking does not authorize unlimited new WIP; global stage limits apply.
 
-When CI is pending:
-- mark PARKED_WAITING_CI;
-- do not duplicate CI blindly;
-- take another independent ready task if allowed;
-- owner revisits when scheduled again or Flow Governor sees failure/completion.
+# 10. Waiting CI/review/dependency
 
-If CI fails:
-- classify product failure vs flaky infra;
-- fix code/test if owned;
-- Governor may take over if owner inactive or critical-path impact is high.
+Do not spend a scheduled run idly waiting.
 
-# 8. Waiting dependency
+But when downstream CI/review queues are saturated:
+- prefer review/CI/unblock work over claiming additional implementation.
 
-A claimed task should rarely wait on an unmerged hard dependency.
+If dependency appears mid-task:
+- determine whether contract/stub can decouple;
+- split mergeable independent work;
+- park only truly blocked scope.
 
-If discovered mid-task:
-- determine whether interface/stub can remove hard block;
-- park only the dependent part;
-- split remainder into separate issue if it can merge independently;
-- do not hold a slot doing nothing.
+# 11. Orphan claim branch
 
-# 9. Takeover
+A branch without PR is ambiguous, not immediately abandoned.
 
-The designated primary Flow Governor/control authority may take over when:
-- original worker is stale/unavailable;
-- CI failure is unattended;
-- review changes are unattended;
-- critical path is blocked;
-- worker explicitly hands off.
+Flow Governor:
+1. append `ORPHAN_OBSERVED_V1` with branch/head;
+2. wait one reconciliation cycle/policy grace;
+3. re-read;
+4. if unchanged/no PR, classify ORPHAN_EMPTY or ORPHAN_WITH_WORK;
+5. recover/adopt/retire.
 
-Takeover steps:
-1. inspect issue/PR/diff/checks/comments;
-2. post TAKEOVER with new AGENT_INSTANCE_ID/SLOT_ID and reason;
-3. continue on same PR branch where safe;
-4. do not create duplicate implementation;
-5. preserve original authorship/history.
+Never race an agent that may be between branch creation and Draft PR creation.
 
-# 10. Abandon/retry
+# 12. Takeover
 
-Close a failed Claim PR only when preserving it no longer helps.
+Only current trusted Flow Governor/control authority initiates takeover.
 
-Reopened task uses next attempt branch number.
+Takeover:
+- inspects Issue, contract hash, PR/diff, checks, reviews;
+- appends trusted `AGENT_TAKEOVER_V1`;
+- continues same PR branch when safe;
+- preserves history;
+- does not duplicate implementation.
 
-Never force-push away useful evidence solely to make the history “clean”.
+# 13. One-slot WIP
 
-# 11. One-slot WIP policy
+Default:
+- at most 1 ACTIVE implementation per slot;
+- parked work does not count active but does count parked/global WIP;
+- default max parked ownership = 2 unless control policy says otherwise.
 
-Default per slot:
-- at most 1 ACTIVE implementation PR;
-- parked waiting-CI/review PRs do not count as active;
-- avoid more than 2 parked owned PRs unless Planner/Flow Governor approves.
+Scheduled slot run lease prevents overlapping invocations from violating this before PR visibility.
 
-Purpose:
-- allow productive work while waiting;
-- avoid each agent accumulating an unmanageable backlog.
+# 14. Hotspot lease
 
-# 12. Hotspot lease
-
-For declared integration hotspot:
-- only one ACTIVE PR may modify the hotspot contract/file range at a time;
-- other tasks can continue outside it;
-- Integrator/Planner sequences the narrow hotspot edit;
-- do not serialize the whole feature unnecessarily.
+For declared hotspot:
+- only one ACTIVE PR changes the hotspot contract/range at a time;
+- parallelize outside it;
+- Planner/Integrator sequences the narrow serial surface.
