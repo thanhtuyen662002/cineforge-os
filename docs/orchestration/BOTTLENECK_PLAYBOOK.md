@@ -198,86 +198,92 @@ Signal:
 - no member can become READY without another member in the same cycle.
 
 Actions:
-1. mark the cycle as a planning defect;
-2. do not “pick one anyway” as READY;
-3. identify whether edges are falsely hard;
-4. split/merge contract tasks to break the cycle;
-5. if an architecture contract genuinely requires simultaneous change, create one cohesive HOTSPOT/integration task rather than cyclic Issues;
-6. re-run DAG validation before scheduling.
+1. stop scheduling affected nodes;
+2. classify the cycle as a planning defect;
+3. identify falsely-hard edges;
+4. extract a contract/interface task where possible;
+5. if simultaneous change is truly required, create one cohesive HOTSPOT/integration task;
+6. update task contract hashes;
+7. re-run DAG validation before scheduling.
 
-Planner must validate the hard-dependency graph before publishing READY work.
-
-# 8. RESTART_STORM
-
-Signal:
-- worker/runtime repeatedly crashes and restarts within budget window.
-
-Actions:
-- stop new dispatch to affected worker;
-- enter backoff/quarantine;
-- redirect safe work;
-- create root-cause task;
-- do not let automatic restart become the throughput bottleneck.
-
-# 9. SUPPLY_CHAIN_BLOCKER
-
-Signal:
-- required new package/model/connector has UNKNOWN/BLOCKED provenance, security or license state.
-
-Actions:
-- create/review dependency-governance task;
-- seek safer existing capability/implementation if appropriate;
-- do not bypass the gate merely to keep a builder busy.
-
-
-
-# 7. DEPENDENCY_CYCLE
-
-Signal:
-hard-dependency graph contains a cycle.
-
-Actions:
-- stop scheduling affected nodes;
-- find smallest edge(s) that are not truly hard;
-- extract contract/interface task if possible;
-- split serial task;
-- remove erroneous dependency;
-- update task contract hashes.
-
-Do not “solve” by manually picking one cycle member as READY without changing the graph.
+Do not “solve” a cycle by arbitrarily marking one node READY.
 
 # 8. CRASH_RESTART_STORM
 
 Signal:
-worker/runtime repeatedly restarts within budget window.
+- worker/runtime repeatedly crashes and restarts within its restart-budget window.
 
 Actions:
 - trip circuit breaker;
-- quarantine worker/runtime;
-- stop assigning new work to it;
-- preserve crash evidence/redacted diagnostics;
+- quarantine affected worker/runtime;
+- stop assigning new work;
+- preserve redacted crash evidence;
 - route compatible work elsewhere;
 - create root-cause unblock task.
 
-# 9. EXTERNAL_REALITY_UNKNOWN
+# 9. SUPPLY_CHAIN_BLOCKER
 
 Signal:
-restore/disaster recovery cannot prove current state of provider-side actions.
+- package/model/connector/dependency has UNKNOWN/BLOCKED provenance, license, security or signature state.
 
 Actions:
-- freeze risky redispatch;
-- reconcile installation side-effect ledger/provider state;
-- classify possible duplicate charge/upload/publication;
-- request human decision only for unresolved external truth;
-- do not optimize for throughput until side-effect safety is known.
+- create dependency-governance task;
+- prefer safe existing capability when appropriate;
+- do not bypass simply to keep a builder busy.
 
-# 10. INVARIANT_GUARD_WEAKENING
+# 10. EXTERNAL_REALITY_UNKNOWN
 
 Signal:
-PR removes/disables/weakens a critical invariant test or verification gate.
+- restore/disaster recovery cannot prove current provider/browser/publication/charge state.
+
+Actions:
+- freeze risky redispatch in affected recovery scope;
+- reconcile side-effect ledger/provider state;
+- classify duplicate-charge/upload/publication exposure;
+- request human decision only when external truth remains unresolved;
+- do not optimize throughput until side-effect safety is known.
+
+# 11. INVARIANT_GUARD_WEAKENING
+
+Signal:
+- PR removes/disables/weakens a critical invariant test or verification gate.
 
 Actions:
 - classify HIGH-risk governance change;
-- require explicit architecture/risk rationale;
+- require architecture/risk rationale;
 - use trusted base/external verifier;
-- do not let the modified guard be the sole evidence approving itself.
+- do not let the modified guard be its sole approval evidence.
+
+# 12. STALE_UI_DECISION
+
+Signal:
+- destructive/high-impact command was planned from a projection/selection that is no longer current.
+
+Actions:
+- reject execution as stale;
+- re-materialize exact scope/impact;
+- show changed items to user/agent;
+- require fresh decision when consequences materially differ.
+
+# 13. CORE_OWNERSHIP_CONFLICT
+
+Signal:
+- multiple Core processes/instances appear capable of mutating the same database/library.
+
+Actions:
+- fail closed to one writer ownership epoch;
+- second instance enters attach/read-only/recovery path;
+- inspect stale owner lock before takeover;
+- never rely on “SQLite will probably serialize it” as application ownership.
+
+# 14. TRUSTED_BINARY_PATH_MISMATCH
+
+Signal:
+- runtime/CLI/sidecar resolves to an unexpected path/hash/publisher or environment search path.
+
+Actions:
+- block execution;
+- quarantine package/runtime;
+- re-resolve from managed absolute path;
+- verify signature/hash;
+- create supply-chain incident if trusted path was replaced.
