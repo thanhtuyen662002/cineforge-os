@@ -1304,3 +1304,58 @@ Valid signature + wrong scope => quarantine, not acceptance.
 - destination CAS path is not exposed through a writable alias.
 
 On mismatch, quarantine and do not register READY bytes.
+
+
+# 77. Core ownership and IPC APIs
+
+Internal/platform:
+- `core.acquire_ownership`
+- `core.renew_ownership`
+- `core.release_ownership`
+- `core.inspect_owner`
+- `ipc.begin_session`
+- `ipc.rebind_after_core_restart`
+
+Mutating request envelope includes:
+- installation/library identity;
+- core_ownership_epoch;
+- ipc_session_id;
+- expected protocol version.
+
+A request from an old Core/session epoch is rejected even if the local transport endpoint is reachable.
+
+# 78. Package anti-rollback API
+
+`packages.verify_activation(package_id)` validates:
+- trusted signing key/revocation state;
+- signed immutable manifest;
+- exact content digests;
+- package family/version;
+- minimum allowed trust/version floor;
+- compatibility.
+
+A downgrade below policy floor returns `ROLLBACK_BLOCKED`, not merely a warning.
+
+# 79. High-impact decision snapshot API
+
+`command.plan` for high-impact actions returns:
+- impact_snapshot_hash;
+- exact entity/revision scope;
+- relevant policy/rights versions;
+- snapshot expiry/materiality rules.
+
+`command.execute` requires that snapshot and revalidates current critical guards.
+Material drift returns `STALE_DECISION` / `REPLAN_REQUIRED`.
+
+# 80. Trusted executable launch API
+
+Internal launcher accepts a managed executable identity, not a free-form command name.
+
+Verification includes:
+- absolute managed path;
+- package/content identity;
+- signature/hash policy;
+- sanitized environment;
+- loader/plugin search policy.
+
+Unexpected binary/library resolution returns `TRUSTED_BINARY_PATH_MISMATCH`.
