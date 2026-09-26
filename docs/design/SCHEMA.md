@@ -3293,3 +3293,219 @@ Extend package manifests/installations:
 - external_processor_connection_id nullable
 - retention_until_utc_us nullable
 - created_at_utc_us
+
+
+
+# 51. Task dependency graph integrity
+
+## task_dependency_audits
+- id PK
+- analyzed_at_utc_us
+- task_count
+- hard_edge_count
+- cycle_found BOOL
+- cycle_path_json nullable
+- source_snapshot_hash
+- result
+
+Hard task dependency insertion/update must pass DAG validation.
+
+# 52. URL fetch security records
+
+## url_fetch_policies
+- id PK
+- policy_revision
+- allowed_schemes_json
+- deny_private_networks BOOL
+- max_redirects
+- max_bytes
+- max_duration_ms
+- allowed_content_types_json nullable
+
+## url_fetch_receipts
+- id PK
+- import_session_id nullable
+- original_url
+- final_url nullable
+- resolved_addresses_json
+- redirect_chain_json
+- policy_revision
+- fetch_state
+- byte_size nullable
+- content_hash nullable
+- blocked_reason nullable
+- created_at_utc_us
+
+# 53. Callback authentication evidence
+
+Extend `external_inbox_events`:
+- auth_state: UNVERIFIED | VERIFIED | FAILED | NOT_SUPPORTED
+- auth_method nullable
+- signer/provider_identity nullable
+- replay_window_state nullable
+- signed_payload_hash nullable
+
+Only VERIFIED or explicitly policy-approved NOT_SUPPORTED events can transition canonical provider state.
+
+# 54. Source dependency inventory / SBOM
+
+## source_dependencies
+- id PK
+- ecosystem
+- package_name
+- package_version
+- source_registry
+- package_integrity nullable
+- license_expression nullable
+- dependency_type: RUNTIME | BUILD | DEV | OPTIONAL | NATIVE
+- install_script_state
+- provenance_state
+- vulnerability_state
+- approved_policy_revision nullable
+
+## dependency_change_records
+- id PK
+- command_id nullable
+- pull_request_ref nullable
+- change_type: ADD | UPGRADE | DOWNGRADE | REMOVE | SOURCE_CHANGE
+- dependency_id FK
+- previous_dependency_id nullable
+- review_state
+- evidence_json
+
+## sbom_snapshots
+- id PK
+- source_commit_sha
+- format
+- storage_object_id FK
+- manifest_hash
+- created_at_utc_us
+
+# 55. Critical invariant registry
+
+## invariant_tests
+- id PK
+- invariant_code UNIQUE
+- description
+- test_path
+- test_symbol nullable
+- risk_class
+- governance_required BOOL
+- active BOOL
+- last_verified_commit nullable
+
+CI compares active invariant registry against changed/deleted tests.
+
+# 56. External linked source fingerprints
+
+Extend `asset_locations`:
+- content_hash_algorithm nullable
+- content_hash nullable
+- file_identity_json nullable
+- observed_size nullable
+- observed_mtime_utc_us nullable
+- revalidation_state: CURRENT | CHANGED | MISSING | UNKNOWN
+
+Canonical approvals relying on EXTERNAL_PATH bind a cryptographic fingerprint.
+
+# 57. Rebuild dependency edges
+
+## derived_recipe_dependencies
+- derived_recipe_id FK
+- dependency_type: ASSET_REVISION | PACKAGE | MODEL | CONNECTOR | PROVIDER_CAPABILITY | RIGHTS_RECORD | LICENSE_SNAPSHOT
+- dependency_id
+- required BOOL
+- current_state
+PK(derived_recipe_id, dependency_type, dependency_id)
+
+GC/package removal/license change checks these edges.
+
+# 58. Integrity audit records
+
+## integrity_audit_runs
+- id PK
+- started_at_utc_us
+- finished_at_utc_us nullable
+- scope
+- state
+- checked_event_seq_from nullable
+- checked_event_seq_to nullable
+- finding_count
+- critical_count
+- result_manifest_hash nullable
+
+## integrity_findings
+- id PK
+- audit_run_id FK
+- finding_type
+- severity
+- entity_type nullable
+- entity_id nullable
+- event_seq nullable
+- evidence_json
+- resolution_state: OPEN | RECONCILED | WAIVED | FALSE_POSITIVE
+- resolved_by_actor_id nullable
+
+# 59. Worker restart budget
+
+Extend `workers`:
+- restart_count_window
+- restart_window_started_at_utc_us nullable
+- restart_budget
+- next_restart_at_utc_us nullable
+- quarantine_reason nullable
+
+# 60. Connection identity scope
+
+Extend `connections`:
+- provider_account_id nullable
+- provider_account_display nullable
+- provider_tenant_id nullable
+- provider_workspace_id nullable
+- provider_region nullable
+- identity_verification_state: UNKNOWN | VERIFIED | CHANGED | MISMATCH
+- identity_verified_at_utc_us nullable
+
+# 61. Bulk operation snapshots
+
+## bulk_operation_snapshots
+- id PK
+- command_id FK
+- project_id nullable
+- query_descriptor_json nullable
+- member_count
+- member_manifest_hash
+- created_at_utc_us
+- expires_at_utc_us nullable
+
+## bulk_operation_members
+- snapshot_id FK
+- entity_id FK entity_registry
+- revision_id nullable FK revision_registry
+- order_index nullable
+PK(snapshot_id, entity_id, revision_id)
+
+Bulk execution reads members from snapshot, not a live filter.
+
+# 62. Backup failure-domain metadata
+
+Extend `backups`:
+- storage_volume_id nullable
+- physical_failure_domain nullable
+- same_failure_domain_as_primary nullable
+
+UI/policy can warn when “backup” is on the same physical failure domain.
+
+# 63. Local ACL/security profile
+
+## local_security_profiles
+- id PK
+- profile_version
+- os_user_identity
+- db_acl_state
+- media_root_acl_state
+- runtime_root_acl_state
+- browser_profile_acl_state
+- ipc_acl_state
+- last_verified_at_utc_us
+- findings_json
