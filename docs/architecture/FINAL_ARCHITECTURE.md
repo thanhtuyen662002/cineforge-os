@@ -1789,3 +1789,17 @@ The canonical hardening set also includes these controls salvaged from earlier a
 - Authorization has aggregate/bulk thresholds, preventing many individually allowed destructive/spending/egress calls from bypassing bulk gates.
 - Repository and CI artifact hygiene blocks accidental binaries/vendor trees/secrets and applies sensitivity/retention policy to CI artifacts.
 - Publication is a multi-step external state with explicit destination/timezone and post-platform verification; partial success remains visible.
+
+
+
+## 39.14 Disaster recovery, scale and long-term ownership
+
+- Canonical GitHub repo/trusted actors are pinned by stable IDs; repository visibility/ownership/default-branch/ruleset changes are governance incidents.
+- Merge/release archives retain compact verification evidence so long-term audit does not rely solely on hosted PR comments.
+- Threat model states honest root-compromise boundaries; compromised OS/root or top-level credential cannot be “solved” by logical agent IDs.
+- Backup recovery verifies key metadata/decryptability and forward deletion/revocation journals, not ciphertext/object existence alone.
+- Single-host SQLite mode has observable scale thresholds and a future migration path; unsupported shared-writer/multi-host behavior is rejected.
+- Large asset/timeline/history domains use pagination/virtualization/partitioned projections.
+- Historical migration compatibility is tested with retained old-format fixtures/tooling metadata.
+- Ownership transfer and actor offboarding are first-class workflows distinct from cloning/deletion.
+- Release archives preserve final bytes, manifests/attestations and open/documented interchange while representing reproducibility honestly.
