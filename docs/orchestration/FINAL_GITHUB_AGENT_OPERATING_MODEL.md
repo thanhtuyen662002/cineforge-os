@@ -247,12 +247,14 @@ Claim branch name:
 
 All workers attempting the same task must use the exact same next-attempt branch name. No descriptive/free-form slug is permitted in the lock key.
 
-Creating the branch is the atomic claim race:
-- first successful creation wins;
-- losers immediately select another ready issue;
-- no duplicate implementation.
+Claim uses a trusted two-stage election:
+1. contenders append CLAIM_INTENT_V1 with stable CONTROL_EVENT_ID;
+2. after a complete scoped reread, lowest valid GitHub comment ID wins;
+3. only the winner creates the deterministic branch;
+4. winner creates the minimal claim-marker commit binding the winning intent;
+5. winner immediately opens Draft PR before substantive work.
 
-Winner creates the minimal machine claim-marker commit required for a non-empty branch, then immediately opens a Draft PR with lease metadata before substantive work.
+The deterministic branch remains a physical collision/association guard, but branch-creation response alone is not trusted under ambiguous network outcomes.
 
 A Draft PR remains the authoritative claim until:
 - merged;
@@ -439,8 +441,9 @@ Planner should:
 ## Worker disappears
 - Claim PR remains.
 - Flow Governor inspects branch/PR/CI.
-- If safe, another slot takes over the same branch.
-- No new duplicate task branch.
+- Confirmed explicit handoff may continue the same branch.
+- Stale/unconfirmed takeover uses the fenced replacement branch/PR protocol.
+- Do not create a second independent implementation branch that can race the active merge path.
 
 ## PR CI fails
 - owner gets first repair opportunity if live;
