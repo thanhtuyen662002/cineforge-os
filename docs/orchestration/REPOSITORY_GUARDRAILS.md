@@ -77,3 +77,20 @@ Flow Governor/QA periodically verifies:
 - no disabled security/release gate.
 
 A detected guardrail drift becomes an infrastructure/control task.
+
+
+# 7. Deep-audit enforcement gaps
+
+Until repository-native rules are configured:
+- one compromised trusted write credential can bypass protocol;
+- logical AGENT_INSTANCE_ID separation is not cryptographic identity separation;
+- manual merge correctness requires the Integrator/MERGE_LEASE protocol;
+- public Issues/comments must be trust-filtered before scheduling.
+
+Target configuration should avoid requiring a GitHub “approval” that all same-account agents are technically unable to provide. Machine/agent review assurance may need a trusted custom gate or separate credential identities.
+
+# 8. Baseline-lock transition
+
+After `docs/orchestration/BASELINE_LOCK.md` exists, direct-main governance edits are forbidden by project policy except a separately defined emergency path.
+
+Repository-native enforcement remains a bootstrap target because policy-only enforcement is weaker.
