@@ -1880,3 +1880,109 @@ Reject if:
 - RECOVERY_MODE
 
 Main app failure cannot automatically mark updater HEALTHY if updater verification itself failed.
+
+
+
+# 66. Privacy purge lifecycle
+
+```text
+REQUESTED
+→ TOMBSTONED
+→ CANONICAL_REMOVED
+→ DERIVED_CLEANUP
+→ RETENTION_RECONCILIATION
+→ EXTERNAL_RECONCILIATION
+→ COMPLETE_TO_POLICY_SCOPE
+```
+
+Alternate:
+- BLOCKED_HOLD
+- PARTIAL_EXTERNAL_RESIDUE
+- FAILED_RETRYABLE
+- FAILED_FINAL
+
+The state is not COMPLETE merely because canonical DB rows are gone.
+
+# 67. Semantic index entry lifecycle
+
+- ACTIVE
+- STALE
+- PURGE_PENDING
+- PURGED
+- QUARANTINED
+
+A source rights/privacy change can move ACTIVE directly to STALE/PURGE_PENDING.
+
+# 68. Inference session lifecycle
+
+- CREATED
+- ACTIVE
+- RESET_REQUIRED
+- RESETTING
+- RESET
+- TAINTED
+- CLOSED
+
+A privacy/project scope change requires RESET_REQUIRED unless isolation class is STATELESS or a fresh process/session is used.
+
+TAINTED sessions cannot accept new production work.
+
+# 69. Learning derivative lifecycle
+
+- ACTIVE
+- QUARANTINED
+- RETRAIN_REQUIRED
+- BLOCKED
+- RETIRED
+
+Source revocation may propagate ACTIVE → QUARANTINED/RETRAIN_REQUIRED according to policy.
+
+# 70. Privacy generation lifecycle
+
+Privacy revision:
+- DRAFT
+- ACTIVE
+- SUPERSEDED
+
+Queued outbound operation:
+- AUTHORIZED_AT_PLAN
+- REVALIDATION_REQUIRED
+- AUTHORIZED_TO_SEND
+- BLOCKED_BY_NEW_POLICY
+- SENT
+
+# 71. Library writer ownership lifecycle
+
+- UNOWNED
+- ACQUIRING
+- OWNED
+- DRAINING
+- RELEASED
+- STALE
+- RECOVERING
+
+Only one process may be OWNED for a writable library.
+A second Core remains CLIENT_OR_BLOCKED, never co-writer.
+
+# 72. Archive lifecycle
+
+- BUILDING
+- SEALED
+- VERIFIED
+- READ_ONLY_OPEN
+- IMPORTED_COPY_CREATED
+- VERIFICATION_FAILED
+
+READ_ONLY_OPEN cannot transition into mutable migration of the sealed archive itself.
+
+# 73. External exposure lifecycle
+
+Exposure record:
+- RECORDED
+- PROVIDER_RETENTION_UNKNOWN
+- TAKEDOWN_REQUESTED
+- TAKEDOWN_CONFIRMED
+- RETENTION_EXPIRED
+- UNRESOLVED
+
+Local purge never deletes historical exposure truth merely to show a cleaner status.
