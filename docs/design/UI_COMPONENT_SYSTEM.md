@@ -2434,3 +2434,92 @@ When OCR/layout/semantic parse is uncertain:
 - do not force user to review high-confidence regions one by one.
 
 The goal is targeted human judgment, not making the user manually reconstruct the document.
+
+
+
+# 67. Film continuity diagnostics
+
+Review/Shot workspace can surface human-readable findings:
+- “Vết sẹo đã đổi bên.”
+- “Nhân vật A đang nhìn sai hướng so với vị trí nhân vật B.”
+- “Hướng di chuyển bị đảo sau cú cắt.”
+- “Gương/phản chiếu không khớp cảnh.”
+- “Khuôn mặt OTTO xuất hiện ở nhân vật nền.”
+- “Danh tính bị trôi sau đoạn nhân vật bị che khuất.”
+
+Advanced view shows spatial graph/evidence; normal users do not manage raw geometry.
+
+# 68. Long-take identity review
+
+For long shots, review can jump to:
+- drift hotspots;
+- pre/post occlusion;
+- costume/prop state changes;
+- identity confidence drops.
+
+Do not force frame-by-frame manual review unless policy requires it.
+
+# 69. Dialogue overlap / dubbing workspace
+
+Conversation timeline shows overlapping utterances as intervals.
+
+User can see:
+- speaker;
+- interruption/overlap;
+- nonverbal sounds;
+- localized line;
+- selected voice;
+- timing fit.
+
+If translation does not fit performance duration:
+- “Rút gọn bản dịch”
+- “Tạo cách diễn đạt khác”
+- “Điều chỉnh timing”
+rather than automatically speeding voice unnaturally.
+
+# 70. Subtitle/accessibility validation UI
+
+Before release:
+- reading-speed warnings;
+- glyph/font problems;
+- safe-area/face/story-text collisions;
+- bidi/script-render preview;
+- lossy subtitle-format conversion;
+- audio-description/dialogue overlap.
+
+Warnings link directly to affected time ranges.
+
+# 71. Handoff capability report
+
+Before exporting to CapCut/Premiere/Resolve/FCP/other target:
+show features as:
+- Giữ nguyên
+- Chuyển gần đúng
+- Sẽ gộp phẳng
+- Không hỗ trợ
+
+Never advertise “editable project” as one binary capability.
+
+Unknown/unverified target version produces a conservative compatibility report.
+
+# 72. External edit return reconcile UI
+
+When returned edit changes:
+- FPS/timebase;
+- start timecode;
+- proxy/original role;
+- duration;
+- track language/default state;
+- flattening
+
+show a reconcile sheet before accepting it as canonical.
+
+# 73. Alternate-format review
+
+Vertical/social/square version appears as its own deliverable variant with:
+- framing preview;
+- subtitle/safe-area overlay;
+- independent approval;
+- target audio/subtitle profile.
+
+Approval of the landscape master is visible context, not automatic approval.
