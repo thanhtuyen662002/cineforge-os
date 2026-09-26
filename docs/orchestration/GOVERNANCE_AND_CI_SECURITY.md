@@ -593,3 +593,60 @@ Broader adversarial suites run:
 - before scale-up gates.
 
 Security depth must not collapse throughput by running the entire chaos catalog on every trivial PR.
+
+
+# 34. Canonical checkout/source gate
+
+Privileged CI/release checkout verifies:
+- exact repository/commit/tree;
+- submodule exact commit + expected origin;
+- LFS objects fully materialized and hash-verified;
+- no case-fold/Unicode-normalization filename collisions for supported targets;
+- no source symlink escape;
+- no undeclared Git replace/alternate-object mechanism;
+- no unexpected untracked source consumed by build.
+
+Release jobs fail closed if source closure is incomplete.
+
+# 35. Resolver/toolchain environment gate
+
+Privileged build uses managed dependency/toolchain configuration rather than ambient developer/home state.
+
+Validate:
+- package registries/indexes/mirrors;
+- lockfile/integrity;
+- build-time executable dependencies;
+- compiler/runtime/tool binary identity;
+- relevant environment/PATH/search configuration.
+
+Unexpected source/registry/toolchain change is a supply-chain change requiring review.
+
+# 36. Codegen and working-tree consistency gate
+
+For generator-owned surfaces, CI regenerates and compares or builds from trusted regenerated output.
+
+CI also fails if verification/build steps mutate tracked source unexpectedly.
+
+Checkout transformation policy (attributes/line endings/filters) is explicit for supported targets.
+
+# 37. Release artifact/configuration closure
+
+Release evidence binds:
+- source commit/tree;
+- target OS/arch;
+- compile-time feature/config fingerprint;
+- toolchain/dependency closure;
+- generated/source manifest;
+- exact artifact digest.
+
+A green check for one build profile cannot authorize a materially different release profile.
+
+# 38. Debug/source artifact disclosure gate
+
+Release pipeline explicitly classifies PDB/source-map/debug bundles and scans them for source, local paths, usernames, secrets and proprietary metadata before publication.
+
+# 39. Exact signer input gate
+
+Signing/promotion consumes an immutable artifact identity and digest from trusted build attestation.
+
+Never sign or promote by filename, 'latest successful artifact', or mutable directory convention.
