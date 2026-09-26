@@ -6554,3 +6554,159 @@ If muxer shifts/rebases timestamps:
 - record exact transform;
 - verify A/V/subtitle alignment after mux;
 - bind final-master QC to post-transform bytes/timestamps.
+
+
+# 23. Build/source-tree provenance attack wave
+
+To avoid ambiguity with earlier numeric waves, this section uses `BW-xx` IDs.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| BW-01 | Git submodule points to a branch/floating ref and upstream changes between review and build | **GAP/P1** | release source graph must pin exact commit/digest |
+| BW-02 | Submodule URL is changed to attacker-controlled repository but commit shape looks similar | **GAP/P1** | submodule origin/provenance must be reviewed, not only SHA |
+| BW-03 | Git LFS pointer file is present but real binary content was not fetched in CI | **GAP/P1 correctness** | build/release must detect pointer-vs-materialized object state |
+| BW-04 | LFS object content differs/missing while pointer SHA remains in source tree | PARTIAL | artifact materialization needs source-object verification |
+| BW-05 | Repository contains `Foo.ts` and `foo.ts`; Linux CI passes, Windows checkout collides | **GAP/P1 Windows** | source tree needs case-fold collision gate |
+| BW-06 | Unicode-normalization-equivalent filenames differ on one filesystem but collapse on another | **GAP/P1 portability** | source tree filename normalization collision gate needed |
+| BW-07 | Repository symlink points outside checkout to local secret/tool | **GAP/P0/P1** | build scanner must reject/mediate source-tree escape |
+| BW-08 | Symlink target differs between Linux CI and Windows checkout semantics | **GAP/P1** | release source materialization must define symlink policy |
+| BW-09 | `.npmrc` changes registry to attacker/private proxy for one job | **GAP/P1** | package-manager registry/config is part of trusted build policy |
+| BW-10 | pip/cargo registry/index config differs between developer and CI | **GAP/P1** | dependency resolver provenance must be attested |
+| BW-11 | Internal package name is absent in private registry and public dependency-confusion package wins | **GAP/P0/P1** | namespace/source policy per dependency required |
+| BW-12 | npm postinstall / Python build backend / Rust `build.rs` executes arbitrary code during install | PARTIAL | generic dependency governance exists; build-time executable classes need explicit gate |
+| BW-13 | Rust proc-macro/build dependency is reviewed as “library” but executes in compiler process | **GAP/P1** | executable-at-build classification required |
+| BW-14 | PATH resolves malicious `ffmpeg.exe`, `node.exe`, `python.exe` or `git.exe` from workspace/CWD | **GAP/P0/P1** | trusted tool resolution must use pinned absolute identity |
+| BW-15 | Toolchain manager auto-downloads newer compiler patch during release | **GAP/P1 reproducibility** | compiler/runtime/toolchain versions need lock + digest/source |
+| BW-16 | Compiler/linker comes from unexpected PATH but reports same version string | **GAP/P1** | tool binary digest/provenance matters, not version text alone |
+| BW-17 | Generated API/client/schema code is stale but source definitions changed | **GAP/P1** | codegen consistency gate must regenerate/compare |
+| BW-18 | Generated file is manually edited so regeneration would overwrite reviewed fix | **GAP/P1** | generated-file ownership marker and reproducibility check required |
+| BW-19 | CRLF/LF conversion changes generated hash or script behavior between checkout environments | **GAP/P1** | line-ending policy is part of source normalization/build contract |
+| BW-20 | Git attributes/filters change working-tree bytes from committed blob | **GAP/P1** | release source must attest committed blob→working tree transform |
+| BW-21 | Shallow clone omits tags and version script derives wrong release version | **GAP/P1** | version derivation cannot silently depend on unavailable Git history |
+| BW-22 | Partial/sparse checkout omits required generated/template/runtime file but tests do not touch it | **GAP/P1** | release build requires complete declared source manifest |
+| BW-23 | `git replace`/alternate object database makes checkout resolve objects differently from canonical repo | **GAP/P0/P1** | trusted CI/release checkout must disable unexpected object substitution mechanisms |
+| BW-24 | Git credential helper or URL rewrite redirects dependency/submodule fetch unexpectedly | **GAP/P1** | clean Git config/environment for trusted build |
+| BW-25 | Release build embeds local username/absolute path in PDB/source map/metadata | PARTIAL | privacy/reproducibility noted; source-path remapping should be required |
+| BW-26 | Source maps include proprietary source code in public release unintentionally | **GAP/P1 privacy/IP** | release artifact policy must classify/debug artifacts |
+| BW-27 | Debug symbols contain secrets from generated constants/environment | **GAP/P1** | artifact scanning must include PDB/source maps/debug bundles |
+| BW-28 | Two build jobs use same cache key but different toolchain/registry config | **GAP/P1** | cache semantic key must include resolver/toolchain/build-policy identity |
+| BW-29 | Release runner builds from dirty workspace containing untracked/generated file | **GAP/P0/P1** | trusted release checkout must be clean/materialized from declared commit |
+| BW-30 | CI test job builds one target; release job builds different feature flags/cfg set | **GAP/P1** | tested configuration and released configuration need explicit relationship/attestation |
+| BW-31 | Rust/Node optional feature activated transitively only on release platform | **GAP/P1** | platform/feature lock matrix belongs to release provenance |
+| BW-32 | Windows executable search behavior loads DLL from user-writable directory during test/build | PARTIAL | loader hardening exists; build-tool process boundary also needs clean CWD/search path |
+| BW-33 | Compiler plugin/linter formatter auto-fixes files during CI before tests, so tested bytes differ from PR HEAD | **GAP/P1 evidence** | CI must distinguish verification from mutation and fail on uncommitted diff |
+| BW-34 | Code generation downloads remote schema/spec at build time and source changes | **GAP/P1** | remote build inputs must be pinned/materialized with digest |
+| BW-35 | Build reads current time/randomness/network to generate security-critical IDs/config | **GAP/P1** | deterministic/reproducible build policy for critical artifacts |
+| BW-36 | Release archive contains files not tracked in source or attested generated outputs | **GAP/P1** | package manifest allowlist/diff gate required |
+| BW-37 | Installer includes stale executable from previous build directory | **GAP/P0/P1** | packaging consumes fresh attested artifact set only |
+| BW-38 | Signing job signs artifact with correct filename but wrong digest from another matrix run | **GAP/P0** | signer receives exact attested artifact ID+digest+source tuple |
+| BW-39 | Git tag points to one commit at review, is moved/recreated before release | **GAP/P0/P1** | release references immutable commit and verifies tag object/signature policy |
+| BW-40 | Release notes/changelog generated from untrusted commit messages include injection into downstream HTML/Markdown | **GAP/P2/P1** | release-note rendering sanitizes untrusted commit text |
+
+# 24. Build/source-tree findings
+
+## X73 — Canonical source manifest (P0/P1)
+A trusted build starts from an explicit source manifest:
+- canonical repository;
+- exact commit;
+- submodule exact commits + expected origins;
+- LFS object identities/materialization state;
+- declared generated inputs;
+- source-tree path/symlink policy.
+
+Release builder rejects undeclared/untracked input.
+
+## X74 — Cross-filesystem source-tree collision gate (P1)
+Before Windows/release build, reject source trees with:
+- case-fold collisions;
+- Unicode-normalization filename collisions;
+- reserved/device-name collisions;
+- unsafe symlink/source escape.
+
+Git identity and filesystem identity must not disagree silently.
+
+## X75 — Dependency resolver configuration provenance (P0/P1)
+Package-manager configuration is part of build trust:
+- registries/indexes/mirrors;
+- auth source;
+- lockfile;
+- package integrity;
+- dependency source namespace.
+
+Resolver must not silently inherit arbitrary workspace/home config for trusted/release builds.
+
+## X76 — Build-time executable dependency classification (P1)
+Dependencies that execute during build/install are flagged separately:
+- npm lifecycle hooks;
+- Python build backends/setup hooks;
+- Rust build scripts/proc macros;
+- compiler plugins/codegen executables.
+
+New/changed executable-at-build dependencies receive elevated supply-chain review.
+
+## X77 — Trusted toolchain binary identity (P0/P1)
+Critical tools resolve from pinned/managed absolute locations.
+Record:
+- tool identity/version;
+- binary/package digest;
+- publisher/source;
+- config/profile.
+
+Version-string equality alone is insufficient.
+
+## X78 — Codegen consistency gate (P1)
+Generated artifacts declare source-of-truth and generator identity.
+CI either:
+- regenerates and requires zero diff; or
+- builds generated output from source in trusted stage.
+
+Manual edits to generated files are rejected unless design explicitly marks them user-owned.
+
+## X79 — Working-tree transformation policy (P1)
+Line endings, Git attributes, filters, symlinks and sparse/partial checkout are part of source materialization.
+Release source must be reproducibly derived from committed blobs under an attested checkout policy.
+
+## X80 — Clean release checkout (P0/P1)
+Release/package/sign jobs build from clean, isolated checkout/staging:
+- no untracked workspace carry-over;
+- no unexpected Git alternates/replace refs/hooks;
+- no user home registry/tool overrides unless explicitly approved;
+- no stale build directory artifacts.
+
+## X81 — Tested-vs-released configuration attestation (P1)
+Release manifest binds:
+- source commit;
+- feature flags/build profile;
+- target platform/arch;
+- toolchain;
+- dependency lock;
+- configuration revision.
+
+A release configuration materially different from tested configuration requires its own verification evidence.
+
+## X82 — Debug/source artifact disclosure policy (P1)
+PDB/source maps/debug symbols/reports are classified deliverables.
+Public release packaging explicitly includes/excludes them and scans for:
+- source code leakage;
+- local paths/usernames;
+- secrets/tokens;
+- proprietary debug data.
+
+## X83 — Build input network closure (P1)
+Stable/release build should not depend on mutable remote content at build time.
+Remote schema/model/spec/input is materialized and digest-pinned before trusted build or the build is marked non-reproducible/blocked by policy.
+
+## X84 — Exact artifact handoff to signer/installer (P0)
+Artifact promotion/signing uses immutable artifact identity:
+- source verification tuple;
+- build run/job;
+- artifact digest;
+- target;
+- manifest.
+
+Filename alone is never artifact identity.
+Packaging cannot pull “latest successful” output by name.
+
+## X85 — Release tag/reference immutability (P0/P1)
+Release authority resolves immutable commit/object identity and verifies configured tag/signature policy.
+A mutable/moved tag cannot silently redirect a previously approved release.
