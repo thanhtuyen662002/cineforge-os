@@ -69,7 +69,7 @@ REVIEW:
 
 MERGE:
 - only Integrator/authorized flow merges after all gates;
-- use expected head SHA;
+- use expected head SHA and confirm base-drift policy before merge;
 - unblock dependents after merge.
 
 ESCALATE USER ONLY FOR:
