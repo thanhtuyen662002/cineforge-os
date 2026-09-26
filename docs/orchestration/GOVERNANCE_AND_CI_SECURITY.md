@@ -269,3 +269,49 @@ Installer/update/first-run tests verify:
 - local RPC endpoint ACL;
 - browser-profile/credential isolation;
 - explicit behavior for shared roots.
+
+
+# 23. Agent write-scope and protected-file gate
+
+CI/review validates PR diff against task `allowed_write_paths` and protected write classes.
+
+Unexpected changes to:
+- governance;
+- workflows/actions;
+- trust policy;
+- signing/release;
+- credentials/security;
+- schema migrations;
+- protected tests
+
+cause automatic risk escalation/block.
+
+The scope validator itself is protected by the governance non-self-approval rule.
+
+# 24. Secret and public-repo data classification gate
+
+Because the repository is public, pre-merge scanning must block/flag:
+- API keys/tokens/passwords/private keys;
+- browser cookies/session state;
+- signing secrets;
+- real customer/client data;
+- unreleased production media;
+- user medical/private content;
+- machine-specific credential stores;
+- sensitive diagnostic bundles;
+- raw files uploaded by users unless explicitly synthetic/public fixture.
+
+Test fixtures should be synthetic/minimized.
+
+A secret scanner is one signal; data classification/review is also required because not all sensitive data looks like a credential.
+
+# 25. GitHub Actions provenance
+
+Security/release-sensitive workflows:
+- pin third-party Actions to immutable commit SHA rather than mutable tags where practical;
+- document/update pinned action source intentionally;
+- minimize `GITHUB_TOKEN` permissions;
+- separate untrusted PR build artifacts from privileged release artifacts;
+- record artifact digest/producer/source workflow identity before privileged consumption.
+
+A release/signing job never assumes a downloaded CI artifact is trusted merely because its filename matches.
