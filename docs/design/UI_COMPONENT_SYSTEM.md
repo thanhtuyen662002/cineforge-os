@@ -1573,3 +1573,62 @@ Immediately before final release/publish show a short final gate:
 
 If anything changed since earlier approval:
 `Một điều kiện đã thay đổi kể từ lần duyệt trước. Cần kiểm tra lại trước khi phát hành.`
+
+
+
+# 61. URL import security UX
+
+Ordinary user sees actionable language:
+- “Liên kết này trỏ tới địa chỉ nội bộ và đã bị chặn.”
+- “Liên kết chuyển hướng tới vị trí không được phép.”
+- “File vượt giới hạn an toàn để tải tự động.”
+
+Do not expose raw internal IP/security details unless Advanced diagnostics is opened.
+
+# 62. Remote account/workspace identity UX
+
+Connection cards can display:
+`Đã kết nối · Workspace: <name>`
+
+If identity changes:
+`Tài khoản/Workspace hiện tại khác cấu hình đã dùng cho dự án. CineForge đã tạm dừng thao tác tự động.`
+
+Actions:
+- Dùng workspace hiện tại
+- Đăng nhập lại đúng workspace
+- Xem ảnh hưởng
+
+# 63. Worker quarantine UX
+
+Normal users should not see crash-loop spam.
+
+System/Advanced:
+`Worker tạo video local bị tạm cách ly sau nhiều lần lỗi.`
+
+Offer:
+- Repair/restart safely
+- Use another allowed capability
+- View diagnostics
+
+# 64. Bulk action scope UX
+
+Bulk confirmation states an exact count:
+`Duyệt 84 shot đã chọn`
+
+If list changes after confirmation:
+- new items are not silently included;
+- changed revisions can be shown as skipped/stale.
+
+Avoid ambiguous labels like `Approve all current and future filtered items` unless that continuous rule is an explicit feature.
+
+# 65. External linked file change UX
+
+If linked source changes:
+`File nguồn đã thay đổi kể từ lần CineForge xác minh.`
+
+Actions:
+- Kiểm tra bản mới
+- Giữ revision đã nhập
+- Relink another file
+
+Do not silently reinterpret the existing approved revision as the new bytes.
