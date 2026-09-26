@@ -1,5 +1,7 @@
 # CineForge OS — CI, Review and Merge Protocol
 
+> **v1.1 verification rule:** “exact-head” alone is insufficient when main/base moved. Required evidence is a verification tuple of HEAD_SHA plus BASE_SHA/merge-base context and, when applicable, the synthetic PR merge SHA used by CI.
+
 # 1. CI objective
 
 CI exists to give fast, trustworthy merge evidence.
@@ -48,7 +50,7 @@ Includes:
 - cache dependencies/build outputs safely;
 - path-filter expensive jobs;
 - split flaky tests from deterministic gates;
-- exact-head result required;
+- verification result must match current required HEAD + BASE/merge context;
 - do not rerun a deterministic failure without a change;
 - infrastructure/flaky rerun must be recorded/classified;
 - a red main is P0 flow work.
@@ -76,12 +78,14 @@ Review checklist:
 - tests;
 - security/rights;
 - user-visible UX states if relevant;
-- exact head SHA.
+- exact HEAD_SHA and reviewed BASE_SHA/merge context.
 
 Review comment records:
 ```text
 REVIEW_AGENT_INSTANCE_ID:
 REVIEW_HEAD_SHA:
+REVIEW_BASE_SHA:
+VERIFICATION_MERGE_SHA:
 REVIEW_PROFILE:
 VERDICT: APPROVE | REQUEST_CHANGES | COMMENT
 BLOCKERS:
@@ -132,7 +136,7 @@ Gate:
 
 A PR is MERGE_READY only when:
 - linked task still valid;
-- exact-head required checks green;
+- required checks match the current verification tuple;
 - required independent review(s) tied to current head;
 - no unresolved blocking review thread;
 - no unmet dependency;
@@ -142,6 +146,20 @@ A PR is MERGE_READY only when:
 If author pushes after review:
 - material code changes invalidate review according to policy;
 - reviewer/integrator rechecks exact head.
+
+# 7.1 Base drift and stale verification
+
+Before merge, Integrator compares the PR verification context with current main.
+
+If main advanced after CI/review:
+- determine whether changed main files/contracts overlap the PR's touched paths, dependencies, migrations or architecture context;
+- if overlap/material semantic risk exists, update/rebase/merge main into the branch according to repo policy and rerun impacted CI/review;
+- if change is demonstrably unrelated, record that judgment and continue;
+- HIGH-risk and HOTSPOT PRs default to fresh-base verification unless policy explicitly says otherwise.
+
+A review on the same HEAD can still be stale if the effective diff/dependency context changed because BASE moved.
+
+If CI runs on GitHub's synthetic pull-request merge commit, record that merge SHA in the verification evidence.
 
 # 8. Merge
 
