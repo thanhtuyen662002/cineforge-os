@@ -2256,3 +2256,77 @@ UI can answer:
 - when;
 - under which policy/terms;
 - what deletion/takedown state is known.
+
+
+
+# 75. Collaboration/offline API
+
+Queries:
+- `query.collaboration.branch`
+- `query.collaboration.conflicts`
+- `query.collaboration.presence`
+- `query.collaboration.authority`
+
+Commands:
+- BeginOfflineBranch
+- AppendOfflineOperation
+- PlanBranchRebase
+- SubmitBranchForMerge
+- ResolveCollaborationConflict
+- AbandonCollaborationBranch
+
+Offline operation upload never writes canonical state directly.
+
+# 76. Reconnect/rebase contract
+
+`PlanBranchRebase` returns:
+- base/current revision;
+- authority/membership status;
+- tombstone/purge findings;
+- merge class per operation/domain;
+- automatically rebasable ops;
+- semantic conflicts;
+- expired/unsupported operation-schema findings.
+
+`SubmitBranchForMerge` re-runs the plan against current state before committing.
+
+# 77. Collaboration authority revalidation
+
+At sync/submit:
+- actor account enabled;
+- current role/membership;
+- device state;
+- project state;
+- rights/privacy policy;
+- current lock/fencing token.
+
+If authority was revoked, branch remains exportable/inspectable according to policy but cannot mutate canonical project.
+
+# 78. Canonical promotion CAS API
+
+`PromoteCandidate` requires:
+- canonical slot ID;
+- expected current revision/version;
+- candidate revision.
+
+Conflict returns current observed canonical revision.
+No automatic last-write-wins.
+
+# 79. Offline irreversible-action API
+
+Offline client may call plan/draft APIs but final methods:
+- PublishRelease
+- ExecuteExternalDelete
+- SignReleaseArtifact
+- ExecuteHighCostDispatch
+- ChangeCredentialAuthority
+- ChangeRightsAuthority
+
+require an online current Core session and fresh authority token.
+
+# 80. Notification delivery authorization
+
+Before collaboration mention/review/task notification is emitted:
+- resolve current recipient access;
+- apply lock-screen/privacy mode;
+- drop/redact if access was removed.
