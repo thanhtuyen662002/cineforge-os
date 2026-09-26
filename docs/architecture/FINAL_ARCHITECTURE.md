@@ -1759,3 +1759,19 @@ The canonical hardening set also includes these controls salvaged from earlier a
 - Job temp/staging namespaces are per-attempt, private and manifest-verified.
 - Budget reservation is transactionally serialized; usage/correction/refund/credit is an append-only financial ledger.
 - Authoritative architecture/design documentation is machine-linted for duplicate/conflicting contract definitions and broken ownership/cross-references; documentation contradiction is a correctness failure.
+
+
+
+## 39.12 Recovery/deletion/learning and maintenance interactions
+
+- Restore invalidates/fences ephemeral leases/tokens/reservations and replays forward privacy/right/consent/key revocations newer than the backup checkpoint before data becomes authoritative.
+- Key rotation/rewrap is resumable; deletion/crypto-erasure understands backup/archive key-wrap retention; archive health includes decryptability drills.
+- Project clone separates creative assets/policies from execution history, reservations, usage ledger, credentials, sessions and authorization-scoped caches.
+- Learning/evaluation datasets have immutable scoped lineage; consent/privacy withdrawal blocks future use and can trigger promoted-component deprecation/retrain decisions.
+- Search/vector/projection rebuild uses immutable generations + atomic activation/fencing.
+- Protection leases cover dependency sets, not only output files.
+- Publish/replace/takedown for one external publication are serialized/fenced.
+- Logs, metrics, audits, scrubs and backups have quotas/priorities so safety workloads cannot self-DoS production.
+- Backup durability class cannot silently downgrade.
+- Storage move/restore validates filesystem semantics against the existing corpus.
+- Historical actor provenance survives actor disable/tombstone.
