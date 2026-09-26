@@ -7609,3 +7609,69 @@ A large script/timeline edit does not require rewriting the entire document for 
 
 Optional background maintenance/derivation honors battery/thermal/user-focus policy.
 Correctness-critical persistence/recovery remains separate and cannot be disabled by an energy-saving hint.
+
+
+
+# OD. Connector semantic certification contract
+
+A connector is production-ready only when the specific capability/action has certified:
+- effect class;
+- idempotency;
+- cancellation;
+- partial-result behavior;
+- permissions/account scope;
+- output materialization;
+- result/stream budgets.
+
+Schema compatibility and successful health ping are insufficient.
+
+# OE. Tool/server/runtime identity
+
+Tool identity includes connector version + server/runtime identity + capability + tool/schema revision.
+
+Bare tool names and endpoint display names never authorize execution.
+
+# OF. Nested-call least authority
+
+Nested connector/MCP calls receive no ambient authority.
+Each host-visible call stays within granted project/data/effect scope or is separately authorized.
+
+# OG. Result/stream boundedness
+
+Connector output is bounded, streamed/backpressured or spilled to staging.
+Core/UI never assumes provider/MCP metadata is small.
+
+# OH. CLI process-tree containment
+
+CLI success is based on typed result/artifact validation plus process-tree state, not stdout phrase matching.
+
+Runner pins executable identity, sanitized environment/locale/HOME/CWD and descendant-process containment.
+
+# OI. Local-service execution epoch
+
+Local-service process restart/plugin-manifest change creates a new execution epoch and invalidates stale job/tool assumptions.
+
+# OJ. API semantic completeness
+
+HTTP success, batch success and list completeness are independent facts.
+
+Creation receipt and idempotency/effect evidence outrank temporary listing absence.
+
+# OK. Browser semantic action safety
+
+For critical actions, selector matching is only navigation evidence.
+Account/workspace/page/action/target semantic fingerprints are verified before irreversible/paid mutation.
+
+# OL. Uncertain action reconciliation
+
+Timeout after non-idempotent external action enters UNCERTAIN and reconciliation.
+No blind automatic duplicate submit.
+
+# OM. Effective external-processing chain
+
+Connector brand is not the complete egress identity.
+When available, record actual account/workspace/region/subprocessor path and apply privacy/rights policy to it.
+
+# ON. Host-controlled effect receipt
+
+Critical external acceptance/cost/effect evidence is persisted by host-controlled Core/outbox/inbox boundary so a crashing connector cannot erase the fact that an external action may have happened.
