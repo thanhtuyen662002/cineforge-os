@@ -104,7 +104,7 @@ Failure:
 “PR was reviewed green, then author pushed and Integrator merged stale approval.”
 
 Control:
-review records exact head; material head change invalidates review according to risk policy.
+review records the required HEAD + BASE/merge verification context; material context change invalidates review according to risk policy.
 
 # Role 14 — Security
 
@@ -394,7 +394,7 @@ Failure:
 “Old green run on previous commit is shown next to current head.”
 
 Control:
-exact-head SHA is part of every merge/review record; no approximate check matching.
+verification tuple is part of every merge/review record; no approximate check matching.
 
 # Role 43 — Scheduled clock/timezone drift
 
@@ -438,7 +438,7 @@ Control:
 New cases still reduce to:
 - GitHub-derived task/lease truth;
 - capability-based control roles;
-- exact-head evidence;
+- current verification-context evidence;
 - bounded queue;
 - deterministic claim;
 - hotspot ownership;
