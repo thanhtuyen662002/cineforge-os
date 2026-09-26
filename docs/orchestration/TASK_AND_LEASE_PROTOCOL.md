@@ -62,21 +62,21 @@ Soft dependencies do not block scheduling.
 
 This branch creation is the claim race lock.
 
-# 4. Claim PR lease block
+# 4. Claim PR record
 
-Draft PR body must include:
+Draft PR body contains the immutable `agent_claim_v1` block from the PR template:
+- issue
+- attempt
+- agent_instance_id
+- run_id_at_claim
+- slot_id
+- role_profile
+- claim_base_sha
+- architecture_refs
+- risk_profile
 
-```text
-CLAIMS: #<issue>
-AGENT_INSTANCE_ID:
-SLOT_ID:
-ROLE_PROFILE:
-ATTEMPT:
-BASE_SHA_AT_CLAIM:
-LEASE_STATE: ACTIVE
-ARCHITECTURE_REFS:
-RISK_PROFILE:
-```
+The initial claim block is historical identity, not live lease state.
+Current owner/state is derived from the latest valid structured state/takeover events.
 
 Do not depend on GitHub username to distinguish logical agents; many slots may use the same connected account.
 
@@ -106,7 +106,7 @@ Parking preserves ownership but releases slot capacity.
 
 Before parking:
 - push all safe work;
-- record exact head SHA;
+- record observed HEAD_SHA + BASE_SHA;
 - record blocker;
 - record next action;
 - ensure another worker can resume from GitHub alone.
