@@ -228,3 +228,56 @@ Actions:
 - create/review dependency-governance task;
 - seek safer existing capability/implementation if appropriate;
 - do not bypass the gate merely to keep a builder busy.
+
+
+
+# 7. DEPENDENCY_CYCLE
+
+Signal:
+hard-dependency graph contains a cycle.
+
+Actions:
+- stop scheduling affected nodes;
+- find smallest edge(s) that are not truly hard;
+- extract contract/interface task if possible;
+- split serial task;
+- remove erroneous dependency;
+- update task contract hashes.
+
+Do not “solve” by manually picking one cycle member as READY without changing the graph.
+
+# 8. CRASH_RESTART_STORM
+
+Signal:
+worker/runtime repeatedly restarts within budget window.
+
+Actions:
+- trip circuit breaker;
+- quarantine worker/runtime;
+- stop assigning new work to it;
+- preserve crash evidence/redacted diagnostics;
+- route compatible work elsewhere;
+- create root-cause unblock task.
+
+# 9. EXTERNAL_REALITY_UNKNOWN
+
+Signal:
+restore/disaster recovery cannot prove current state of provider-side actions.
+
+Actions:
+- freeze risky redispatch;
+- reconcile installation side-effect ledger/provider state;
+- classify possible duplicate charge/upload/publication;
+- request human decision only for unresolved external truth;
+- do not optimize for throughput until side-effect safety is known.
+
+# 10. INVARIANT_GUARD_WEAKENING
+
+Signal:
+PR removes/disables/weakens a critical invariant test or verification gate.
+
+Actions:
+- classify HIGH-risk governance change;
+- require explicit architecture/risk rationale;
+- use trusted base/external verifier;
+- do not let the modified guard be the sole evidence approving itself.
