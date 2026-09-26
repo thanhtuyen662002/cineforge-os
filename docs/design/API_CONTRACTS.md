@@ -1117,3 +1117,196 @@ Before browser automation:
 4. downgrade to assisted/manual only when policy permits and user intent remains satisfied.
 
 A connector health result of READY does not imply automation permission.
+
+
+# 49. Recovery epoch API
+
+Queries:
+- `query.recovery.status`
+- `query.recovery.external_reconciliations`
+- `query.recovery.quarantined_events`
+
+Commands:
+- BeginRestore
+- BeginRecoveryEpoch
+- ResolveExternalReconciliation
+- ActivateRecoveredEpoch
+- AbortRecovery
+
+Restore flow:
+1. restore canonical checkpoint;
+2. Core creates/increments recovery epoch;
+3. external dispatch is frozen;
+4. restored outbox/inbox/provider/browser/publication state is reconciled;
+5. unresolved future/unknown events stay quarantined;
+6. connections/credentials are revalidated;
+7. only `ActivateRecoveredEpoch` resumes normal external dispatch.
+
+A restored outbox is never blindly re-sent.
+
+# 50. Database/storage pressure API
+
+Queries:
+- `query.system.database_health`
+- `query.system.storage_pressure`
+
+Internal controls:
+- request WAL checkpoint;
+- cancel/expire pathological read snapshot where policy permits;
+- pause large imports/generation/model downloads;
+- enter read-only safe mode.
+
+UI receives human state such as:
+- “Dung lượng hệ thống đang ở mức nguy hiểm; CineForge đã tạm dừng tác vụ tạo file lớn.”
+not raw SQLite jargon by default.
+
+# 51. Import/parser safety contract
+
+Import preview returns safety/resource classification:
+- archive expansion estimate;
+- recursive depth;
+- decoded pixel/sample/frame estimate when available;
+- parser sandbox status;
+- unsupported external-reference/network protocol detection;
+- reason for quarantine/rejection.
+
+Import commands accept only policy-bounded parsing.
+There is no “trust this file and run arbitrary parser behavior” shortcut.
+
+# 52. Context Compiler trust-segment contract
+
+Internal compiled context is a sequence of typed segments:
+
+```text
+ContextSegment {
+  provenance
+  trust_class
+  semantic_role
+  authority_level
+  source_revision
+  content
+}
+```
+
+Trust classes include:
+- SYSTEM_POLICY
+- AUTHORIZED_TASK
+- CANONICAL_PROJECT
+- USER_CONTENT
+- EXTERNAL_CONTENT
+- MODEL_OUTPUT
+- METADATA
+
+Only system/policy/authorized-control classes may supply tool/workflow instructions.
+Other classes remain data even if content contains imperative phrases.
+
+# 53. Durable provider artifact API
+
+Connector result normalization may return a remote receipt, but not a READY asset.
+
+Methods/internal operations:
+- `artifacts.materialize_external_receipt`
+- `artifacts.verify_materialized`
+- `artifacts.get_receipt_state`
+
+Durable asset registration requires local/managed materialization and hash/decode verification unless the asset type is explicitly an external-reference-only artifact.
+
+# 54. Resource reservation API
+
+Internal scheduler:
+- `resources.reserve`
+- `resources.renew`
+- `resources.release`
+- `resources.revoke`
+
+Reservation uses fencing token.
+Dispatch requiring constrained GPU/VRAM/browser-profile/disk capacity validates the current reservation before start.
+
+Resource sample alone never authorizes overcommit.
+
+# 55. Cost exposure API
+
+Before external dispatch:
+- `cost.plan_exposure(command/job)`
+- `cost.reserve`
+
+When provider acceptance/billing is uncertain:
+- reservation enters UNKNOWN/unreconciled exposure;
+- retry is blocked when it could exceed configured exposure;
+- reconciliation updates actual usage.
+
+Queries expose:
+- reserved;
+- actual;
+- unknown/unreconciled;
+- remaining hard limit.
+
+# 56. Manual creative ownership API
+
+Queries:
+- `query.manual_locks(scope)`
+
+Commands:
+- AcquireManualControlLock
+- ReleaseManualControlLock
+- PromoteLateAICandidateOverManualState
+
+AI/background command canonicalization checks manual lock/current revision.
+A late result may stay as candidate but cannot silently overwrite the locked/newer state.
+
+# 57. Fanout batch API
+
+Commands:
+- PlanDispatchBatch
+- StartDispatchBatch
+- ContinueDispatchBatch
+- PauseDispatchBatch
+- CancelDispatchBatch
+
+Plan returns:
+- item count;
+- sample-first/staged/full strategy;
+- estimated cost/storage/resource exposure;
+- upstream revision dependency;
+- maximum batch exposure.
+
+Upstream canon/reference correction can cancel undispatched items and mark already-dispatched attempts stale.
+
+# 58. Update/schema compatibility API
+
+Update plan returns:
+- current app/schema;
+- target app schema min/max compatibility;
+- migration reversibility;
+- rollback binary compatibility;
+- DB/object checkpoint requirement;
+- active external jobs that must drain/reconcile.
+
+A failed update cannot report “rollback available” when the previous binary cannot read the migrated schema.
+
+# 59. Credential portability / reauth API
+
+Connection query distinguishes:
+- AUTHENTICATED
+- REAUTH_REQUIRED
+- EXPIRED
+- REVOKED
+- MISSING_SECURE_MATERIAL
+
+After restore/machine move, missing secure material yields REAUTH_REQUIRED.
+
+Fallback to another provider is a separate routing decision and must obey user/project policy.
+
+# 60. Signing trust API
+
+Advanced/system queries:
+- `query.signing.trust_roots`
+- `query.signing.revocations`
+
+Update/package verification binds:
+- key_id;
+- trust-policy revision;
+- signature result;
+- revocation/validity state.
+
+A cryptographically valid signature from a revoked/untrusted key does not pass.
