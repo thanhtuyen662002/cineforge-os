@@ -2182,3 +2182,22 @@ Merge semantics are domain-specific:
 - semantic conflicts become first-class conflict objects.
 
 Privacy purge/tombstone and current authorization dominate stale offline edits.
+
+
+
+# 68. Scheduler stability and failure-domain architecture
+
+Scheduler is hierarchical and failure-domain aware.
+
+It coordinates:
+- per-project fair share;
+- global/resource-specific admission;
+- provider account/workspace rate/quota domains;
+- durable retry budgets;
+- circuit breakers and fallback hysteresis;
+- mandatory maintenance deadlines;
+- batch/cancellation backpressure.
+
+Workers never independently unleash retries after an outage.
+
+Recovery/fallback optimizes controlled throughput, not instantaneous queue draining.
