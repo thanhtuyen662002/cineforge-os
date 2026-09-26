@@ -2883,3 +2883,76 @@ PK(certification_record_id, environment_fingerprint_id)
 - state: MASTER_WRITING | MASTER_VERIFIED | MASTER_DURABLE | RELEASE_ACTIVATED | RECONCILIATION_REQUIRED
 - created_at_utc_us
 - activated_at_utc_us nullable
+
+
+
+# 68. Library lineage and deployment identity
+
+## library_lineages
+- id PK
+- created_at_utc_us
+- origin_type: NEW | RESTORED | IMPORTED | FORKED
+- parent_lineage_id nullable
+- state: ACTIVE | ARCHIVED | COMPROMISED
+- row_version
+
+## deployment_instances
+- id PK
+- library_lineage_id FK
+- generation_no
+- installation_identity
+- host_identity_hash nullable
+- activation_state: UNBOUND | VERIFYING | ACTIVE | READ_ONLY_RECONCILIATION | RETIRED | FORKED | COMPROMISED
+- activation_secret_ref nullable
+- recovery_epoch_id nullable
+- environment_fingerprint_id nullable
+- created_at_utc_us
+- activated_at_utc_us nullable
+- retired_at_utc_us nullable
+UNIQUE(library_lineage_id, generation_no)
+
+## deployment_transitions
+- id PK
+- library_lineage_id FK
+- from_deployment_instance_id nullable
+- to_deployment_instance_id FK
+- transition_type: MOVE | RESTORE | FORK | RECOVER_ACTIVATION
+- command_id FK
+- evidence_json
+- created_at_utc_us
+
+External-dispatch tables bind deployment_instance_id/deployment_generation as applicable.
+
+## deployment_activation_tokens
+- id PK
+- deployment_instance_id FK
+- token_version
+- secure_secret_ref
+- state: ACTIVE | ROTATING | REVOKED
+- issued_at_utc_us
+- revoked_at_utc_us nullable
+
+# 69. Backup generation namespace
+
+Extend `backups`:
+- library_lineage_id FK
+- deployment_instance_id nullable FK
+- backup_generation_id
+- recovery_epoch_id nullable
+- predecessor_backup_id nullable
+UNIQUE(library_lineage_id, backup_generation_id)
+
+# 70. Fork reconciliation records
+
+## fork_reconciliations
+- id PK
+- source_library_lineage_id
+- source_deployment_instance_id nullable
+- destination_library_lineage_id
+- reconciliation_type: PROJECT_IMPORT | ASSET_IMPORT | CANON_COMPARE | TIMELINE_COMPARE
+- state
+- conflict_manifest_hash nullable
+- created_at_utc_us
+- completed_at_utc_us nullable
+
+No direct database-merge record exists because direct DB merge is unsupported.
