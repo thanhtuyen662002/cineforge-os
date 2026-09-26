@@ -2811,3 +2811,75 @@ If rebalance is needed:
 - preserve entity IDs/revisions;
 - update optimistic versions;
 - reject stale concurrent reorder operations.
+
+
+
+# 67. Storage scrub and durability state
+
+## storage_scrub_policies
+- id PK
+- storage_class
+- interval_ms nullable
+- required_redundancy_count
+- readback_verify BOOL
+- enabled
+
+## storage_scrub_runs
+- id PK
+- policy_id FK
+- started_at_utc_us
+- finished_at_utc_us nullable
+- checked_count
+- corrupt_count
+- repaired_count
+- unresolved_count
+- state
+
+## storage_scrub_findings
+- id PK
+- scrub_run_id FK
+- storage_object_id FK
+- observed_hash_algorithm
+- observed_hash
+- result: VERIFIED | CORRUPT | REPAIRED | UNRECOVERABLE
+- repair_source_storage_object_id nullable
+- evidence_json
+
+## gc_object_operations
+- id PK
+- gc_run_id FK
+- storage_object_id FK
+- safety_generation
+- state: DELETE_INTENT | BYTES_DELETING | BYTES_ABSENT | PURGE_COMMITTED | RECONCILIATION_REQUIRED
+- intent_at_utc_us
+- bytes_deleted_at_utc_us nullable
+- purge_committed_at_utc_us nullable
+
+## environment_fingerprints
+- id PK
+- host_id
+- os_build
+- gpu_profile_json nullable
+- driver_profile_json nullable
+- runtime_profile_json
+- codec_profile_json nullable
+- fingerprint_hash
+- observed_at_utc_us
+
+## certification_environment_bindings
+- certification_record_id FK
+- environment_fingerprint_id FK
+- state: CURRENT | RECHECK_REQUIRED | INVALIDATED
+- last_checked_at_utc_us
+PK(certification_record_id, environment_fingerprint_id)
+
+## release_master_activations
+- id PK
+- release_manifest_id FK
+- master_asset_revision_id FK
+- final_storage_object_id FK
+- expected_digest
+- durability_class
+- state: MASTER_WRITING | MASTER_VERIFIED | MASTER_DURABLE | RELEASE_ACTIVATED | RECONCILIATION_REQUIRED
+- created_at_utc_us
+- activated_at_utc_us nullable
