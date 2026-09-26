@@ -4133,3 +4133,216 @@ Authoritative legal/business decisions do not rely solely on mutable/deletable a
 - provenance_snapshot_hash
 - approved_by_actor_id nullable
 - created_at_utc_us
+
+
+
+# 105. Writer pressure / projection scalability
+
+## writer_queue_samples
+- id PK
+- sampled_at_utc_us
+- interactive_depth
+- control_depth
+- background_depth
+- maintenance_depth
+- oldest_interactive_wait_ms nullable
+- oldest_background_wait_ms nullable
+- commit_latency_p50_ms nullable
+- commit_latency_p95_ms nullable
+
+## projection_generations
+- id PK
+- projection_name
+- generation_no
+- source_event_seq_from
+- source_event_seq_to
+- state: BUILDING | VERIFIED | ACTIVE | RETIRED | FAILED
+- checkpoint_manifest_hash
+- created_at_utc_us
+- activated_at_utc_us nullable
+
+## projection_rebuild_cursors
+- projection_name
+- generation_id FK
+- last_event_seq
+- last_entity_cursor nullable
+- updated_at_utc_us
+PRIMARY KEY(projection_name, generation_id)
+
+# 106. Object-store / GC scaling
+
+## object_store_layout_profiles
+- id PK
+- profile_version
+- object_shard_depth
+- shard_encoding
+- small_object_pack_policy_json nullable
+- max_entries_per_pack nullable
+
+## gc_cursors
+- id PK
+- gc_run_id FK
+- candidate_source
+- last_object_key nullable
+- last_entity_cursor nullable
+- processed_count
+- reclaimed_bytes
+- updated_at_utc_us
+
+## storage_scrub_runs
+- id PK
+- root_id FK storage_roots
+- scan_mode: INCREMENTAL | FULL_REPAIR
+- cursor_json
+- io_budget_json
+- state
+- checked_objects
+- corrupted_objects
+- started_at_utc_us
+- finished_at_utc_us nullable
+
+# 107. Backup service-level objectives
+
+## backup_policies
+- id PK
+- scope_type
+- scope_id nullable
+- target_root_id nullable FK storage_roots
+- rpo_seconds nullable
+- rto_seconds nullable
+- backup_mode: FULL | INCREMENTAL | CONTENT_ADDRESSED
+- max_concurrent_backups
+- verification_policy_json
+- retention_policy_json
+
+## backup_restore_measurements
+- id PK
+- backup_id FK
+- restore_scope
+- measured_restore_seconds
+- bytes_restored
+- objects_restored
+- test_environment_profile_hash
+- result
+- measured_at_utc_us
+
+# 108. Derived-work demand scheduling
+
+## derived_work_requests
+- id PK
+- project_id FK
+- source_asset_revision_id FK
+- derived_type: THUMBNAIL | WAVEFORM | PROXY | EMBEDDING | PREVIEW | OTHER
+- demand_class: VISIBLE_INTERACTIVE | ACTIVE_WORKSPACE | NEAR_FUTURE | BACKGROUND_PRECOMPUTE
+- priority
+- estimated_cost_json nullable
+- state: PENDING | ACTIVE | READY | SKIPPED | CANCELLED | FAILED
+- requested_at_utc_us
+- last_demanded_at_utc_us nullable
+
+# 109. Scheduler fairness
+
+## scheduler_fairness_profiles
+- id PK
+- profile_version
+- project_weight_default
+- priority_aging_policy_json
+- interactive_reserve_json
+- max_queue_per_project nullable
+- max_active_per_project nullable
+- preemption_policy_json
+
+## scheduler_project_state
+- project_id PK
+- queued_count
+- active_count
+- weighted_debt
+- last_scheduled_at_utc_us nullable
+- starvation_age_ms nullable
+
+# 110. Maintenance admission / storage topology
+
+## maintenance_requests
+- id PK
+- maintenance_type: VACUUM | ANALYZE | PROJECTION_REBUILD | VECTOR_REBUILD | BACKUP | HASH_SCRUB | INTEGRITY_AUDIT | GC | OTHER
+- scope_type
+- scope_id nullable
+- resource_bundle_json
+- temporary_bytes_estimate nullable
+- lock_class
+- io_intensity
+- state: PLANNED | ADMITTED | RUNNING | PAUSED | COMPLETE | FAILED | CANCELLED
+- created_at_utc_us
+
+## physical_resource_groups
+- id PK
+- group_type: PHYSICAL_DISK | NETWORK_UPLINK | GPU | CPU_NUMA | OTHER
+- member_resources_json
+- capacity_profile_json
+- health_state
+
+Logical roots/resources can map to the same physical_resource_group for contention-aware scheduling.
+
+# 111. Hot/cold history segments
+
+## history_archive_segments
+- id PK
+- segment_type: TELEMETRY | AUDIT_PAYLOAD | JOB_DETAIL | OLD_PROJECTION | OTHER
+- event_seq_from nullable
+- event_seq_to nullable
+- object_manifest_hash
+- storage_object_id FK
+- index_manifest_hash nullable
+- retention_class
+- state: WRITING | VERIFIED | ACTIVE | RETIRED
+- created_at_utc_us
+
+Hot indexes may retain compact headers/references while cold payload moves to verified immutable segment.
+
+# 112. Dependency invalidation generations
+
+## invalidation_generations
+- id PK
+- project_id FK
+- generation_no
+- root_entity_id FK entity_registry
+- root_revision_id nullable FK revision_registry
+- cause_event_seq
+- propagation_state: ROOT_FENCED | PROPAGATING | COMPLETE | FAILED
+- created_at_utc_us
+
+## invalidation_queue
+- generation_id FK
+- entity_id FK entity_registry
+- dependency_cursor nullable
+- state: PENDING | PROCESSING | COMPLETE | FAILED
+- attempts
+PRIMARY KEY(generation_id, entity_id)
+
+Projection considers an entity conservatively stale when its dependency path crosses an active newer invalidation generation even before materialized stale rows finish propagating.
+
+# 113. Release-readiness projection
+
+## release_readiness_projection
+- project_id PK
+- current_release_candidate_id nullable
+- gate_manifest_hash
+- blocking_count
+- unknown_count
+- last_event_seq
+- projection_generation_id
+- updated_at_utc_us
+
+# 114. Working-copy delta persistence
+
+## working_copy_checkpoints
+- id PK
+- working_copy_id FK
+- base_checkpoint_id nullable
+- operation_seq_from
+- operation_seq_to
+- content_manifest_hash
+- byte_size
+- created_at_utc_us
+
+Large editable documents/timelines may persist operation/delta checkpoints instead of rewriting one giant JSON payload.
