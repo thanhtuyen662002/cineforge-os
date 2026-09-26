@@ -2769,3 +2769,175 @@ Extend `bulk_action_snapshots`:
 - inline_manifest_json nullable
 
 Large scopes must use `bulk_scope_manifest_id` rather than oversized inline JSON.
+
+
+
+# 51. Network fetch security records
+
+## network_fetch_policies
+- id PK
+- policy_type: IMPORT_URL | BROWSER | CONNECTOR_CALLBACK | OTHER
+- allowed_schemes_json
+- private_address_policy
+- redirect_limit
+- max_bytes nullable
+- timeout_ms
+- credential_forwarding_policy
+- policy_revision
+
+## network_fetch_attempts
+- id PK
+- policy_id FK
+- source_url_hash
+- resolved_address_class
+- redirect_chain_hash nullable
+- final_origin_hash nullable
+- state
+- bytes_received nullable
+- blocked_reason nullable
+- created_at_utc_us
+
+Raw sensitive URLs need not be stored when a hash/structured redacted representation is sufficient.
+
+# 52. Callback authenticity
+
+Extend `external_inbox_events`:
+- authenticity_state: VERIFIED | UNVERIFIED | FAILED | NOT_SUPPORTED
+- authenticity_method nullable
+- source_identity nullable
+- signature_key_id nullable
+- received_timestamp_claim_utc_us nullable
+- replay_window_state nullable
+- recovery_epoch_id nullable
+
+Canonical processing requires authenticity compatible with connector policy.
+
+# 53. External source identities
+
+Extend `asset_locations` for EXTERNAL_PATH:
+- volume_identity nullable
+- file_identity nullable
+- size_at_verification nullable
+- mtime_at_verification nullable
+- cryptographic_fingerprint nullable
+- fingerprint_algorithm nullable
+- verification_strength: METADATA | FILE_ID | CRYPTOGRAPHIC
+- changed_since_verification BOOL
+
+# 54. Dependency/SBOM records
+
+## source_dependencies
+- id PK
+- ecosystem
+- package_name
+- package_version
+- source_uri nullable
+- integrity_digest nullable
+- publisher_identity nullable
+- direct BOOL
+- license_expression nullable
+- vulnerability_state
+- script_risk_state
+- native_code BOOL
+- approved_policy_revision nullable
+
+## build_sboms
+- id PK
+- build_or_release_ref
+- format
+- storage_object_id FK
+- content_hash
+- created_at_utc_us
+
+## dependency_policy_reviews
+- id PK
+- dependency_id FK
+- review_type: LICENSE | SECURITY | PROVENANCE | SCRIPT
+- result
+- evidence_json
+- reviewed_at_utc_us
+
+# 55. Integrity audit
+
+## integrity_audit_runs
+- id PK
+- scope_type
+- scope_id nullable
+- state
+- started_at_utc_us
+- finished_at_utc_us nullable
+- event_seq_checkpoint nullable
+- result_summary_json
+
+## integrity_findings
+- id PK
+- audit_run_id FK
+- invariant_code
+- severity
+- entity_type nullable
+- entity_id nullable
+- evidence_json
+- state: OPEN | ACKNOWLEDGED | REPAIRED | WAIVED
+- repair_command_id nullable
+
+# 56. Worker restart control
+
+Extend `workers`:
+- crash_count_window
+- last_crash_at_utc_us nullable
+- backoff_until_utc_us nullable
+- quarantine_reason nullable
+- restart_policy_revision nullable
+
+# 57. Remote account identity
+
+## connection_remote_identities
+- id PK
+- connection_id FK
+- identity_type: ACCOUNT | ORGANIZATION | WORKSPACE | PROJECT | REGION | ENVIRONMENT
+- expected_identity_hash
+- observed_identity_hash nullable
+- verification_state: UNKNOWN | VERIFIED | MISMATCH | UNAVAILABLE
+- last_verified_at_utc_us nullable
+
+# 58. Bulk query snapshots
+
+## query_snapshots
+- id PK
+- project_id nullable
+- query_type
+- normalized_query_hash
+- result_manifest_hash
+- result_count
+- storage_object_id nullable
+- created_by_actor_id
+- created_at_utc_us
+
+## command_scope_items
+- command_id FK
+- entity_id FK entity_registry
+- revision_id nullable FK revision_registry
+- inclusion_reason
+PK(command_id, entity_id, revision_id)
+
+A bulk command references the materialized snapshot and/or explicit command_scope_items.
+
+# 59. Storage scrub
+
+## storage_scrub_runs
+- id PK
+- scope_root_id nullable
+- state
+- started_at_utc_us
+- finished_at_utc_us nullable
+- objects_checked
+- corrupt_objects
+- repaired_from_mirror
+
+## storage_scrub_findings
+- scrub_run_id FK
+- storage_object_id FK
+- expected_hash
+- observed_hash nullable
+- state: HEALTHY | CORRUPT | MISSING | REPAIRED | UNRECOVERABLE
+PRIMARY KEY(scrub_run_id, storage_object_id)
