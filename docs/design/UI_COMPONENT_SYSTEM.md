@@ -1355,3 +1355,103 @@ Examples:
 - “Cần xem lại điều khoản”
 
 Do not show a green “Ready” card that implies browser automation is permitted when policy state is UNKNOWN/BLOCKED.
+
+
+# 53. Recovery / restore UX
+
+After backup restore, do not immediately show the project as fully normal.
+
+Banner:
+`CineForge đang đối chiếu trạng thái với các dịch vụ bên ngoài trước khi tiếp tục.`
+
+Recovery Center shows:
+- local restore complete/not complete;
+- external jobs needing reconciliation;
+- callbacks quarantined;
+- connections requiring sign-in again;
+- publications/charges that cannot be rolled back;
+- whether new cloud/browser dispatch is paused.
+
+User actions appear only for decisions that cannot be resolved automatically.
+
+# 54. Storage pressure UX
+
+Human states:
+- “Dung lượng sắp đầy — CineForge đang giảm tác vụ tạo file tạm.”
+- “Dung lượng ở mức nguy hiểm — tác vụ tạo file lớn đã tạm dừng.”
+- “CineForge đang ở chế độ chỉ đọc để bảo vệ dữ liệu.”
+
+Primary actions:
+- Dọn an toàn
+- Đổi ổ lưu media/cache
+- Xem tác vụ đang chiếm dung lượng
+
+Do not surface “WAL checkpoint starvation” to ordinary users; Advanced diagnostics may.
+
+# 55. Reauthentication after restore/machine move
+
+Connection card state:
+`Cần đăng nhập lại`
+
+Explain:
+- project/media are intact;
+- secure login token is machine/user scoped and was not restored;
+- CineForge will not silently switch to another provider unless current policy allows it.
+
+# 56. Manual creative ownership indicator
+
+When user manually changes a field/track/timing that automation can also edit:
+- show subtle `Đang giữ thủ công` state;
+- late AI results appear under `Có bản AI mới để so sánh`, not as silent replacement;
+- user can release the lock or explicitly promote AI candidate.
+
+Avoid modal prompts on every small edit; ownership can be automatic by workspace policy.
+
+# 57. Bulk generation/fanout preview
+
+Before a large dispatch:
+`Sắp tạo 184 shot · ước tính … · tối đa …`
+
+Options:
+- Tạo thử 3 shot trước
+- Chạy theo đợt
+- Chạy toàn bộ
+
+If upstream canon/reference changes:
+- show remaining jobs cancelled/paused;
+- separate jobs already accepted externally from undispatched work;
+- expose maximum remaining cost exposure.
+
+# 58. Provider output materialization UX
+
+Do not show a remote provider “success” as a durable local asset immediately.
+
+Milestones:
+- Dịch vụ đã tạo xong
+- Đang tải kết quả về CineForge
+- Đang kiểm tra file
+- Sẵn sàng
+
+If provider URL expires before materialization:
+`Dịch vụ đã tạo kết quả nhưng CineForge chưa kịp lưu bản cục bộ. Đang thử khôi phục từ dịch vụ.`
+
+# 59. Update rollback UX
+
+Never use one generic `Rollback` label.
+
+Show:
+- Quay lại ứng dụng trước — dữ liệu tương thích
+- Khôi phục ứng dụng + dữ liệu từ checkpoint
+- Không thể quay lại tự động — cần Recovery
+
+The UI derives this from app/schema compatibility state.
+
+# 60. Untrusted rich-content rendering
+
+Script, notes, imported Markdown/HTML, model output and web content are rendered as content, not privileged UI.
+
+Rules:
+- no active scripts;
+- remote embedded resources blocked or explicitly mediated by privacy policy;
+- external links visibly leave CineForge;
+- HTML/Markdown sanitization must not expose native bridge capabilities.
