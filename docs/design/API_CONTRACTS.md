@@ -1820,3 +1820,129 @@ Dispatcher rejects an attempt whose deployment binding is no longer ACTIVE/curre
 - `forks.resolve_conflicts`
 
 No API exists to merge raw CineForge databases from independently mutated forks.
+
+
+
+# 100. Local endpoint attestation API
+
+Internal/platform:
+- `ipc.describe_endpoint`
+- `ipc.verify_server_identity`
+- `ipc.rotate_endpoint`
+
+Endpoint descriptor includes:
+- installation/library identity;
+- Core ownership epoch;
+- endpoint/session nonce;
+- transport kind;
+- expected user/security profile;
+- protocol version.
+
+A client does not trust a process merely because it responds on the expected port/pipe name.
+
+# 101. Network route / proxy API
+
+Queries:
+- `query.connection.network_route`
+- `query.connection.route_freshness`
+
+Internal:
+- `network.resolve_effective_route(connection_id)`
+- `network.verify_route(connection_id)`
+
+Route changes can invalidate connection certification/identity.
+
+# 102. Capture-session API
+
+Commands:
+- StartCaptureSession
+- StopCaptureSession
+- CancelCaptureSession
+
+Queries:
+- `query.capture.active_sessions`
+- `query.capture.device_state`
+
+Start binds exact device/source identity and OS permission.
+Stop returns:
+- STOP_REQUESTED;
+- STOP_CONFIRMED;
+- DEVICE_ERROR;
+- LOST_DEVICE.
+
+# 103. Compute-isolation API
+
+Scheduler/worker plan exposes:
+- isolation_class;
+- process reuse allowed/not allowed;
+- plugin trust class;
+- cleanup strategy.
+
+A SENSITIVE_PROCESS_ISOLATED job cannot be co-scheduled into an incompatible long-lived plugin process.
+
+# 104. Deletion guarantee API
+
+Delete/purge result exposes:
+- logical state;
+- storage locations affected;
+- erasure guarantee class;
+- residual copies/failure domains known;
+- provider/external retention unknowns.
+
+No generic `secure_delete=true` boolean.
+
+# 105. Final-handle authorization API
+
+Internal storage operations:
+- `storage.open_authorized_handle`
+- `storage.verify_final_identity`
+
+Authorization returns opaque handle token bound to:
+- volume/file identity;
+- allowed root;
+- operation;
+- expiry/session.
+
+Privileged operation uses that handle token rather than reopening an untrusted path string.
+
+# 106. Maintenance admission API
+
+Queries:
+- `query.maintenance.admission`
+- `query.maintenance.resource_pressure`
+
+Internal:
+- `maintenance.reserve_resources`
+- `maintenance.start`
+- `maintenance.pause_resume`
+
+Plan includes temporary bytes, lock/IO class and emergency reserve impact.
+
+# 107. Notification action freshness API
+
+Native notification action routes through:
+- `notifications.resolve_action(action_token)`
+
+Token binds:
+- decision/entity;
+- expected version/snapshot;
+- action;
+- expiry.
+
+Resolution may return:
+- CURRENT;
+- STALE_REPLAN;
+- OBSOLETE;
+- UNAUTHORIZED.
+
+# 108. Suspend/resume reconciliation API
+
+Internal/platform:
+- `system.on_suspend`
+- `system.on_resume`
+- `system.resume_reconcile`
+
+During resume reconciliation:
+- timeout-driven retries paused;
+- lease expiry is not immediately acted upon;
+- provider/browser/resource states refresh before scheduler resumes.
