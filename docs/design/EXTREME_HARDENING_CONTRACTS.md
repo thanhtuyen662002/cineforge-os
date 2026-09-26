@@ -7175,3 +7175,127 @@ Signing/promotion accepts an immutable artifact tuple:
 Filename/display name is never sufficient identity.
 
 Signer verifies the exact attested digest before signing and returns signature evidence bound to that digest.
+
+
+# MG. Feedback provenance and correlated-evidence contract
+
+Learning evidence records who/what produced the label and what it had already seen.
+
+Correlation dimensions include:
+- same human/reviewer;
+- same AI evaluator/model family;
+- same provider/source chain;
+- same underlying asset/performance lineage;
+- copied/imported feedback event;
+- reviewer exposure to recommendations/other labels.
+
+Aggregation uses effective independent evidence, not raw label count.
+
+# MH. Evaluation-grade presentation contract
+
+Promotion-quality human comparison uses a dedicated evaluation mode where appropriate:
+- provider/model identity hidden;
+- recommendation badge hidden;
+- candidate position/order randomized or balanced;
+- review position/session order recorded;
+- UI/review-policy revision pinned.
+
+Normal production review may remain convenient; its labels carry that context and are not treated as blinded evidence.
+
+# MI. Holdout secrecy boundary
+
+Sealed holdout membership/content is a privileged evaluation asset.
+
+It is not available to:
+- prompt writers/optimizers;
+- training/tuning loops;
+- production routing;
+- repair generation;
+- candidate-selection context.
+
+Holdout access is audited and minimized.
+Repeated exposure degrades validity even without an obvious content leak.
+
+# MJ. Router objective safety envelope
+
+Router learning is multi-objective with hard floors/constraints.
+
+It cannot optimize away:
+- minimum quality;
+- privacy/rights;
+- creative diversity;
+- provider concentration limits;
+- reliability requirements
+
+merely to improve cost/latency or because those signals are denser.
+
+# MK. Exploration and provider-concentration correction
+
+Controlled shadow/limited exploration provides enough evidence for new candidates and prevents data-rich incumbents from becoming permanently self-reinforcing.
+
+Exploration:
+- respects policy/budget;
+- is domain-stratified;
+- does not expose hero/release-critical work by default;
+- records why traffic was assigned.
+
+# ML. Benchmark comparability contract
+
+Performance comparisons pin:
+- dataset;
+- domain/task-difficulty mix;
+- evaluator/threshold version;
+- feature/calibration version;
+- UI/presentation policy;
+- environment where material.
+
+If these differ materially, metrics are not directly compared as if one continuous series.
+
+# MM. Promotion-evidence taint graph
+
+Rights/privacy revocation, benchmark leakage, invalid labels, evaluator defect or data corruption propagate through:
+Dataset → Benchmark/ShadowRun → PromotionEvidence → PromotedComponent.
+
+Historical fact remains, but current authority can become STALE/TAINTED/REVOKED.
+
+# MN. Failure/survivorship sampling contract
+
+Learning retention includes governed samples of:
+- successful outputs;
+- rejected outputs;
+- provider failures;
+- cancelled/abandoned attempts;
+- policy blocks;
+- repair failures.
+
+Telemetry completeness is itself measured so routing does not learn only from surviving successes.
+
+# MO. Tenant/project learning-scope contract
+
+Feedback and learning assets declare scope explicitly:
+- PROJECT_LOCAL
+- STUDIO_LOCAL
+- TENANT_LOCAL
+- GLOBAL_ELIGIBLE
+
+No cross-tenant aggregation by default.
+Cross-scope reuse requires explicit training/privacy/rights eligibility.
+
+# MP. Promotion bundle closure
+
+A promoted router/evaluator/model is an immutable compatible bundle including:
+- binary/model;
+- feature schema;
+- normalization/calibration;
+- thresholds/policy;
+- dependent indexes/embeddings where material.
+
+Rollback selects a compatible bundle rather than mixing old model with new feature/calibration state.
+
+# MQ. Outcome taxonomy and override handling
+
+User override/emergency bypass/abandonment is not positive quality evidence by default.
+
+“No further review” and “job ended” are not synonyms for success.
+
+Every learning-eligible outcome carries explicit terminal reason and curation status.
