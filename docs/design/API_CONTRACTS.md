@@ -1446,3 +1446,144 @@ Result includes:
 - optional quarantined raw reference under stricter local policy.
 
 Raw provider response is never implicitly copied into normal logs/support bundles.
+
+
+
+
+# 87. Production hierarchy API
+
+Queries:
+- `query.production_nodes.tree(project_id)`
+- `query.production_node.detail(id)`
+- `query.production_node.canon_baseline(id)`
+
+Commands:
+- CreateProductionNode
+- MoveProductionNode
+- SetProductionCanonBaseline
+- SupersedeCanonBaseline
+- ArchiveProductionNode
+
+Changing a shared canon baseline returns impact by production node and does not rewrite released manifests.
+
+# 88. Narrative context / worldline API
+
+Queries:
+- `query.narrative_contexts`
+- `query.narrative_context.state_at(context_id, chronology_key)`
+- `query.narrative_context.ancestry(context_id)`
+
+Commands:
+- CreateNarrativeContext
+- ForkNarrativeContext
+- BindSceneOccurrence
+- MoveSceneOccurrenceChronology
+- ResolveContextMergeReference
+
+Continuity resolution always specifies narrative_context_id + chronology_key.
+
+# 89. Casting / performer API
+
+Queries:
+- `query.performers`
+- `query.character.casting(character_id, scope)`
+- `query.performer.rights_impact(person_id)`
+
+Commands:
+- CreatePerson
+- CreatePerformerProfile
+- ProposeCastingBinding
+- ApproveCastingBinding
+- RevokeCastingBinding
+- ReplaceCastingBinding
+
+Casting changes return affected representations/assets/shots and rights implications.
+
+# 90. Production representation API
+
+Queries:
+- `query.representations.for_entity(entity_id, scope)`
+- `query.representation.usage(id)`
+
+Commands:
+- CreateProductionRepresentation
+- CreateRepresentationRevision
+- BindRepresentationToScope
+- ReplaceRepresentationBinding
+- ApproveRepresentationRevision
+
+A narrative Character/Prop/Environment remains distinct from any one realization.
+
+# 91. Live-action capture API
+
+Queries:
+- `query.shoot_day`
+- `query.slates`
+- `query.takes`
+- `query.capture_rolls`
+- `query.take.capture_clips`
+- `query.sync_group`
+
+Commands:
+- CreateProductionUnit
+- CreateShootDay
+- CreateSlate
+- CreateProductionTake
+- ImportCaptureRoll
+- BindCaptureClipToTake
+- MarkDirectorTakePreference
+- CreateSyncGroup
+- UpdateSyncOffset
+- VerifySyncGroup
+- ResolveSlateMetadataConflict
+
+A Take is recorded evidence and is never mutated into an AI generation candidate.
+
+# 92. Camera-card / verified-ingest API
+
+`capture.plan_card_ingest` returns:
+- source volume identity;
+- file list/count;
+- total bytes;
+- duplicate candidates;
+- destination roots;
+- checksum policy;
+- required verified copy count.
+
+`capture.commit_card_ingest`:
+- copies/stages immutable originals;
+- hashes source/destination;
+- produces card manifest;
+- never deletes source card automatically.
+
+# 93. Documentary source/fact API
+
+Queries:
+- `query.documentary.sources`
+- `query.documentary.fact_claims`
+- `query.documentary.claim_evidence(claim_id)`
+- `query.documentary.quote_context(usage_id)`
+
+Commands:
+- CreateSourceRecord
+- CaptureSourceSnapshot
+- RegisterParticipant
+- CreateFactClaim
+- AddFactClaimEvidence
+- ResolveFactConflict
+- ApproveFactClaimForUse
+- CreateQuoteUsage
+- SubmitMeaningReview
+
+Factual approval is independent from creative approval.
+
+# 94. Documentary/release factual gate
+
+`release.readiness` may include factual gates:
+- unverified material claims;
+- conflicting evidence;
+- participant/release rights;
+- misleading quote review;
+- missing source snapshot/provenance.
+
+Policy decides which block publication for documentary/factual productions.
