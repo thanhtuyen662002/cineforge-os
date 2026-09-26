@@ -4,25 +4,22 @@
 
 CineForge OS là local-first Film Production OS, không phải một app AI video đơn lẻ.
 
-Mọi implementation phải đọc:
-1. docs/FOUNDATIONAL_RISK_REGISTER.md
-2. docs/architecture/FINAL_ARCHITECTURE.md
-3. docs/design/FINAL_DETAILED_DESIGN.md
-4. docs/orchestration/FINAL_GITHUB_AGENT_OPERATING_MODEL.md
-5. docs/orchestration/TASK_AND_LEASE_PROTOCOL.md
-6. docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md
-7. docs/orchestration/BOTTLENECK_PLAYBOOK.md
-8. docs/orchestration/CAPACITY_CONTROL.md
-9. docs/design/SCHEMA.md
-10. docs/design/STATE_MACHINES.md
-11. docs/design/API_CONTRACTS.md
-12. docs/design/UI_COMPONENT_SYSTEM.md
-13. docs/design/DETAILED_DESIGN_RED_TEAM.md
-14. docs/orchestration/MULTI_AGENT_RED_TEAM.md
-15. docs/architecture/RISK_COVERAGE_MATRIX.md
-16. docs/architecture/CHARACTER_IDENTITY_SYSTEM.md
-17. docs/architecture/USER_ACTION_AND_COVERAGE_GAP_ANALYSIS.md
-18. docs/architecture/FOUNDATION.md
+Mỗi START/RESUME phải nạp context theo `docs/orchestration/CONTEXT_LOADING_PROTOCOL.md`.
+
+Always-read tối thiểu:
+1. `AGENTS.md`
+2. Task Issue hiện tại; nếu resume thì Claim PR + latest structured state/review events
+3. Capacity Plan nếu chạy scheduled mode và plan tồn tại
+4. `docs/orchestration/FINAL_GITHUB_AGENT_OPERATING_MODEL.md` khi worker chưa có revision hiện tại trong run context
+
+Sau khi chọn task, chỉ đọc authoritative architecture/design/risk docs được Issue yêu cầu hoặc Context Loading Protocol ánh xạ. Không được mặc định đọc toàn bộ repository mỗi run.
+
+Control-plane roles phải đọc thêm khi thực hiện control work:
+- `docs/orchestration/CAPACITY_CONTROL.md`
+- `docs/orchestration/BOTTLENECK_PLAYBOOK.md`
+- `docs/orchestration/FLOW_METRICS_AND_RECONCILIATION.md`
+- CI/merge work: `docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md`
+
 
 `docs/architecture/FINAL_ARCHITECTURE.md` là kiến trúc authoritative cho boundaries/invariants. `docs/design/FINAL_DETAILED_DESIGN.md` cùng SCHEMA/STATE_MACHINES/API_CONTRACTS/UI_COMPONENT_SYSTEM là authoritative cho implementation contracts. Risk/red-team docs vẫn là yêu cầu đối kháng bắt buộc. Khi có xung đột, không được tự chọn: phải cập nhật architecture + detailed design + risk/test liên quan trước khi code.
 
@@ -136,6 +133,11 @@ Mỗi action làm thay đổi state phải xác định:
 Các thao tác chưa có contract rõ ràng không được implement ad-hoc trong UI.
 
 ## GitHub orchestration non-negotiables
+
+- Context loading phải theo tier; không reload toàn bộ risk/design corpus nếu task không cần.
+- PR body giữ immutable initial claim metadata; live lease state/owner lấy từ latest valid structured PR state/takeover event.
+- Review/CI evidence phải bind đủ verification context, không chỉ một head SHA khi base/main đã đổi.
+- Planner/Flow/Integrator chạy reconciliation trước khi tạo duplicate/reassign/merge.
 
 - GitHub Issues + Draft/Open PRs + exact-head CI là live development source of truth.
 - Role != slot; một slot có thể mang nhiều role và role có thể do nhiều slot phục vụ.
