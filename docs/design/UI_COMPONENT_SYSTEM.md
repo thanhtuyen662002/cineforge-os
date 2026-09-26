@@ -2186,3 +2186,68 @@ If collaboration transport is cloud-based:
 - shared/local mode clearly distinguished.
 
 Normal editing UI should not imply “offline/local” when background collaboration is transmitting data.
+
+
+
+# 78. Browser connection security UX
+
+Connection detail separates:
+- Browser/runtime health
+- Account/workspace identity
+- Login state
+- Automation permission
+- Semantic site compatibility
+
+Examples:
+- `Sẵn sàng · đúng workspace`
+- `Cần đăng nhập lại`
+- `Đang dùng nhầm workspace`
+- `Website đã thay đổi · cần kiểm tra connector`
+- `Profile bị cách ly`
+
+Do not collapse these into one green/red dot.
+
+# 79. Browser auth challenge UX
+
+When login/MFA/CAPTCHA appears during a job:
+`CineForge cần bạn xác nhận tài khoản. Tác vụ tạo nội dung chưa được tự động chạy lại.`
+
+The UI distinguishes:
+- generation still running;
+- generation state unknown;
+- generation definitely failed.
+
+Replacement generation is not the default response to an auth challenge.
+
+# 80. Human takeover resume UX
+
+After user hands control back:
+`Đang kiểm tra lại trang, tài khoản và tác vụ trước khi tiếp tục…`
+
+If mismatch:
+`CineForge không thể tiếp tục tự động từ trạng thái hiện tại.`
+
+Show:
+- expected provider/account/workspace;
+- observed mismatch;
+- safe actions: return to expected page, reconcile, cancel.
+
+# 81. Browser download safety UX
+
+Downloaded provider result first appears as:
+- Đang tải
+- Đang xác minh
+- Sẵn sàng
+
+Executable/script/unsupported downloads never receive “Mở/Chạy tự động”.
+Unexpected content type is quarantined with human-readable reason.
+
+# 82. Browser diagnostics privacy
+
+Advanced diagnostic capture explains:
+- screenshot/DOM/network metadata may contain account/project data;
+- default capture is minimal/redacted;
+- full diagnostic capture is explicit and time-limited.
+
+Profile recreation:
+`CineForge sẽ tạo profile sạch. Bạn có thể cần đăng nhập lại; project/media không bị xóa.`
