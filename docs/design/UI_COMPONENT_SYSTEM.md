@@ -1474,7 +1474,7 @@ Connection diagnostic:
 The affected job remains unresolved/quarantined until reconciled.
 
 
-# 69. Core ownership conflict UX
+# UI-CORE-OWNERSHIP-01. Core ownership conflict UX
 
 If another CineForge Core already owns the same database/library:
 `Dự án đang được một phiên CineForge khác sử dụng.`
@@ -1487,7 +1487,7 @@ Actions depend on evidence:
 
 Never offer an unconditional “Force unlock”.
 
-# 70. Anti-rollback/update trust UX
+# UI-UPDATE-TRUST-01. Anti-rollback/update trust UX
 
 If user selects an older signed package/version that policy blocks:
 `Phiên bản này đã bị chặn vì lý do bảo mật hoặc không còn tương thích.`
@@ -1712,7 +1712,7 @@ No “update all history” default.
 
 
 
-# 72. Numeric/domain validation UX
+# UI-NUMERIC-01. Numeric/domain validation UX
 
 Normal users see domain language:
 - “Tốc độ khung hình của file này không hợp lệ.”
@@ -1724,7 +1724,7 @@ Advanced details may expose raw timebase/value/overflow evidence.
 
 Never silently clamp malformed canonical media values without recording the normalization decision.
 
-# 73. Timecode/locale entry UX
+# UI-TIMECODE-01. Timecode/locale entry UX
 
 Localized numeric entry may accept familiar locale input, but confirmation displays the normalized canonical interpretation for high-impact settings.
 
@@ -1735,7 +1735,7 @@ Timecode controls explicitly distinguish:
 
 Rights/date controls show timezone/boundary meaning when it can affect release eligibility.
 
-# 74. Spreadsheet export safety UX
+# UI-SPREADSHEET-01. Spreadsheet export safety UX
 
 Normally invisible.
 
@@ -1747,7 +1747,7 @@ Imported/untrusted project text defaults to literal cells.
 
 
 
-# 75. Storage integrity UX
+# UI-STORAGE-INTEGRITY-01. Storage integrity UX
 
 Normal users:
 - “CineForge đang kiểm tra độ toàn vẹn của dữ liệu.”
@@ -1758,14 +1758,14 @@ Advanced view may show hashes/storage objects/scrub evidence.
 
 Do not call a redundant copy “backup an toàn” until it has been independently verified.
 
-# 76. Environment drift UX
+# UI-ENV-DRIFT-01. Environment drift UX
 
 If a driver/OS/runtime update affects a certified capability:
 `Môi trường máy đã thay đổi. CineForge đang kiểm tra lại khả năng tạo video local trước khi dùng cho shot quan trọng.`
 
 Other unaffected work continues.
 
-# 77. Release durability UX
+# UI-RELEASE-DURABILITY-01. Release durability UX
 
 Release screen distinguishes:
 - Đã render
@@ -1777,7 +1777,7 @@ A path existing on disk is never presented as “release ready” by itself.
 
 
 
-# 78. Library opened on another machine UX
+# UI-DEPLOYMENT-01. Library opened on another machine UX
 
 When CineForge detects that a library is not bound to the current deployment:
 
@@ -1793,7 +1793,7 @@ Explain different consequences, especially external accounts/jobs.
 
 Do not offer “Continue anyway” writable mode.
 
-# 79. Fork UX
+# UI-FORK-01. Fork UX
 
 Independent fork summary:
 - creative/media history copied;
@@ -1802,7 +1802,7 @@ Independent fork summary:
 - browser sessions not trusted;
 - new backup/execution namespace.
 
-# 80. Deployment incident UX
+# UI-DEPLOYMENT-INCIDENT-01. Deployment incident UX
 
 If possible duplicate deployment activity is detected:
 `Có dấu hiệu cùng một thư viện đang hoạt động ở nhiều phiên triển khai.`
