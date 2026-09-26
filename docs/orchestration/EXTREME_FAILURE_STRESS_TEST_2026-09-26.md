@@ -3767,3 +3767,164 @@ If a mandatory contract cannot fit/read completely:
 - or block the task.
 
 Never summarize away a mandatory security/data invariant merely to fit context.
+
+
+# 21. Fifth-wave entry-point / authority-confusion attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 291 | Browser opens `cineforge://import?path=C:\Secrets` from a malicious page | **GAP/P0/P1** | deep-link/custom URI must not directly become privileged file/action command |
+| 292 | User double-clicks a hostile project/archive file and app auto-imports/activates embedded actions | **GAP/P0/P1** | file association is an untrusted ingress, not trusted local intent |
+| 293 | Deep-link contains percent/double-encoded traversal that passes one parser and changes after decoding | **GAP/P1** | canonical decode exactly once + typed parameter validation needed |
+| 294 | Deep-link/OS activation arrives while app locked to a different sensitive project | **GAP/P1 privacy** | external activation must enter inbox/confirmation context, not current-project ambient authority |
+| 295 | Connector registers capability code colliding with Core capability name | **GAP/P0/P1 confused deputy** | capability namespace/schema owner must be immutable/versioned |
+| 296 | Connector declares harmless PREVIEW capability but host interprets extension field as PUBLISH | **GAP/P0** | typed closed capability contract and least-authority dispatch required |
+| 297 | Old connector sends v1 payload whose field meaning changed in v2 | **GAP/P1** | schema/version mismatch must fail closed, not structural duck typing |
+| 298 | JSON request uses duplicate keys and different parsers choose different value | **GAP/P1** | canonical API parser must reject duplicate keys |
+| 299 | Unknown enum value is silently coerced to default ALLOWED/AUTO | **GAP/P0/P1** | security/policy enums need fail-closed UNKNOWN handling |
+| 300 | Unknown JSON fields are preserved and later interpreted by newer component with privilege meaning | **GAP/P1** | extension namespace/versioning must prevent privilege smuggling |
+| 301 | Local config file is edited while app runs; only some processes reload it | **GAP/P1 split-brain** | configuration revision/snapshot must be atomic across Core/workers |
+| 302 | Feature flag enables UI action but Core gate remains disabled, or inverse | **GAP/P1** | flags are versioned capability policy, not scattered booleans |
+| 303 | Rollout flag changes mid-command, changing semantics between plan and execution | **GAP/P1** | command binds configuration/feature-policy snapshot |
+| 304 | Environment variable overrides secure config unexpectedly on one worker only | PARTIAL | env hardening exists; configuration precedence must be explicit and attestable |
+| 305 | Two app processes both attempt schema migration after stale owner detection | **GAP/P0/P1** | migration requires exclusive migration authority epoch independent of ordinary startup |
+| 306 | Updater starts migration while old Core still has writer transaction | **GAP/P0** | drain + exclusive DB/migration lease must precede schema change |
+| 307 | Migration 12 succeeds, migration 13 fails, app assumes all-or-nothing | **GAP/P1** | each migration needs journal/idempotent resume/compatibility state |
+| 308 | Migration script is edited after package signature/approval but before execution | **GAP/P0 supply-chain** | execute migration by signed package digest, not mutable path |
+| 309 | Audit/event rows are maliciously rewritten in SQLite by a compromised local process | **GAP/P1 evidence** | event/audit trail needs tamper-evidence/checkpoint, while acknowledging same-user compromise limit |
+| 310 | Attacker deletes middle audit events and renumbers nothing; ordinary queries still work | **GAP/P1** | sequence continuity + hash/checkpoint integrity audit needed |
+| 311 | Backup contains a valid old audit chain; restore makes newer incidents disappear | PARTIAL | recovery epoch exists; forward security journal should preserve post-backup revocations/incidents where policy requires |
+| 312 | API credential is rotated but queued jobs still hold old secret reference/token | **GAP/P1** | credential generation epoch and dispatch-time re-resolution required |
+| 313 | Credential is revoked but browser/API worker cached bearer token in memory | **GAP/P1** | revocation must invalidate worker credential lease/session, not only store record |
+| 314 | Secret value accidentally enters crash dump before redaction path | RESIDUAL/P1 | memory minimization/process isolation, no absolute guarantee; dump policy must avoid sensitive processes by default |
+| 315 | API returns error object containing secret-bearing provider response, UI logs it verbatim | **GAP/P1** | connector normalization/redaction must happen before generic logging |
+| 316 | Capability mapping from provider is cached after provider account loses permission | **GAP/P1** | dispatch-time authorization/capability revalidation for sensitive actions |
+| 317 | Human removes publish permission but queued publication already has prepared request | **GAP/P0/P1** | irreversible phase revalidates authority immediately before external mutation |
+| 318 | Project A task references opaque asset handle from Project B and Core trusts handle type only | **GAP/P0/P1 cross-project** | every opaque handle binds project/studio/actor scope and purpose |
+| 319 | Browser worker receives a staged file path and infers neighboring files by directory listing | **GAP/P1 privacy** | one-job staging roots + no parent traversal/listing authority |
+| 320 | Connector capability request contains entity IDs from mixed projects | **GAP/P1** | request authorization must validate scope closure, not each ID in isolation only |
+| 321 | Provider account is shared across projects; one project's quota/cost event is attributed to another | PARTIAL | account/workspace identity exists; billing/job correlation must be mandatory |
+| 322 | Feature flag disables security scanner after task was planned but before file canonicalization | **GAP/P0/P1** | required safety gates cannot be disabled by ordinary feature flags mid-command |
+| 323 | A plugin defines an extension namespace identical to another plugin | **GAP/P1** | extension namespace owner + package identity collision rejection |
+| 324 | Plugin sends nested extension object that Core passes to another plugin unintentionally | **GAP/P1** | extension data is private to declared owner unless explicit typed bridge exists |
+| 325 | Old UI talks to newer Core and assumes missing field means false/safe | **GAP/P1** | API compatibility matrix + required-field semantics/fail closed |
+| 326 | New UI sends command old Core ignores partially but returns success | **GAP/P0/P1** | version negotiation and unsupported-command rejection required |
+| 327 | Local RPC retries a non-idempotent command after connection reset because response was lost | PARTIAL | command idempotency exists; client transport retry policy must be tied to idempotency class |
+| 328 | Task/command idempotency key is reused across project clone/import namespace | **GAP/P1** | idempotency scope includes deployment/recovery/project/command semantics |
+| 329 | One project archive imports entity IDs colliding with existing project IDs | PARTIAL | portable namespace exists; import remapping must be explicit/atomic |
+| 330 | Configuration backup restores old trust/proxy/provider settings that conflict with current security policy | **GAP/P1** | restore applies forward policy/security journal and requires config reconciliation |
+
+# 22. Findings from fifth-wave authority confusion
+
+## X61 — External activation/deep-link inbox (P0/P1)
+OS deep links, file associations and custom URI activation are untrusted external requests.
+
+They:
+- parse with one canonical decoder;
+- use strict typed allowlisted action schema;
+- never directly execute destructive/privileged action;
+- never inherit ambient current-project authority;
+- enter a pending activation/import inbox and require normal command/policy validation;
+- reject file/network/device path access not separately authorized.
+
+## X62 — Capability namespace and confused-deputy defense (P0/P1)
+Every capability has:
+- globally stable Core-owned capability ID/version;
+- package/provider implementation binding;
+- closed typed input/output contract;
+- required authority/effect class.
+
+Connector-defined extension namespaces are bound to package identity.
+Unknown/colliding namespace is rejected.
+Extension data from connector A is not forwarded/interpreted by connector B without explicit typed bridge.
+
+## X63 — Strict API decoding / privilege-smuggling defense (P0/P1)
+At trusted API/control boundaries:
+- reject duplicate JSON/map keys;
+- reject unsupported required enum values;
+- security/policy UNKNOWN never coerces to ALLOWED;
+- required fields are versioned;
+- unknown extension fields live only in declared extension namespace;
+- canonical parser limits depth/size/numeric domain.
+
+## X64 — Atomic configuration and feature-policy revision (P1)
+Effective configuration is a versioned immutable snapshot distributed by Core.
+Commands/jobs bind relevant config/feature-policy revision.
+Workers do not independently reread arbitrary config/env files during one operation.
+
+Feature flags cannot disable non-optional security/rights/data-integrity gates.
+
+## X65 — Exclusive migration authority and signed migration identity (P0/P1)
+Schema migration requires:
+- single Core drained;
+- exclusive migration authority/DB lock;
+- signed package/migration digest;
+- journaled per-step state;
+- idempotent resume/recovery;
+- app/schema compatibility check.
+
+Migration executes immutable package bytes, not mutable loose script path.
+
+## X66 — Tamper-evident audit checkpoints (P1)
+Same-user/admin compromise cannot be fully defeated, but evidence can be made tamper-evident.
+
+Use:
+- monotonic DB event sequence;
+- periodic hash/Merkle-like checkpoint over event ranges/manifests;
+- optionally external/signed checkpoint for high-assurance deployments;
+- integrity audit detects deletion/rewrite/gap.
+
+Do not market local hash chaining as protection against an attacker who can rewrite every local trust anchor.
+
+## X67 — Credential generation epochs and dispatch-time secret resolution (P1)
+Queued job stores credential reference + expected generation, not raw long-lived secret.
+Immediately before external authentication:
+- resolve current secure secret;
+- verify generation/status/account scope;
+- fail REAUTH/REVOKED rather than using stale cached token.
+
+Rotation/revocation invalidates worker credential leases/sessions according to connector capability.
+
+## X68 — Cross-project opaque-handle scope (P0/P1)
+Opaque asset/media/IPC handles bind:
+- studio/project;
+- actor/session;
+- purpose/capability;
+- exact revision;
+- expiry.
+
+Core validates request-wide scope closure.
+Possessing an ID/handle from Project B is not authority for Project A operation.
+
+## X69 — Irreversible phase reauthorization (P0/P1)
+Immediately before publish/delete/external mutation/paid dispatch:
+- revalidate actor/agent authority;
+- connection capability permission;
+- rights/privacy;
+- credential/account identity;
+- config/security-gate revision.
+
+A prepared/queued request is not irrevocable authority.
+
+## X70 — API compatibility negotiation (P0/P1)
+Desktop/worker/connector/Core establish:
+- protocol version;
+- minimum/maximum compatible version;
+- required capability/field set.
+
+Unsupported command/required field fails explicitly.
+Missing data never defaults to a more permissive security state.
+
+## X71 — Scoped idempotency namespace (P1)
+Idempotency identity includes:
+- deployment/library identity;
+- recovery epoch where semantically required;
+- command type;
+- actor/project scope;
+- explicit key.
+
+Project clone/import cannot accidentally collide with an old operation merely because a textual key matches.
+
+## X72 — Restore configuration reconciliation (P1)
+Disaster restore may recover old convenience configuration, but current forward security/trust/revocation policy wins.
+Proxy/trust/credential/provider configuration is reconciled before external dispatch resumes.
