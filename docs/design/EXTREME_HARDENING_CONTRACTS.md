@@ -4206,3 +4206,174 @@ After restore:
 155. old UI/new Core and new UI/old Core negotiation;
 156. idempotency-key reuse after project clone;
 157. restore old config after newer trust revocation.
+
+# GX. Encryption key hierarchy and recovery
+
+Encrypted profiles separate cryptographic roles instead of one universal key:
+- ROOT/RECOVERY WRAPPING KEY;
+- WORKSPACE/PROJECT DATA-ENCRYPTION KEY;
+- BACKUP WRAPPING KEY;
+- SECRET-STORE KEY where applicable.
+
+Each encrypted object/manifest binds:
+- key_id;
+- key_generation;
+- algorithm/profile version;
+- wrapping relationship;
+- rotation state.
+
+Rotation is resumable:
+`ACTIVE_OLD → REWRAP/REENCRYPT_IN_PROGRESS → VERIFIED_NEW → RETIRE_OLD`.
+
+A crash may leave mixed generations, but every object remains attributable/decryptable or explicitly UNRECOVERABLE.
+
+Password-derived keys use a versioned approved KDF profile with recorded parameters. Backup health distinguishes 'bytes copied' from 'recovery material proven available'.
+
+# GY. Package dependency solver and runtime isolation
+
+Provisioner computes a dependency graph over package/runtime/model/tool requirements.
+
+Rules:
+- reject unsupported dependency cycles;
+- detect incompatible version constraints before activation;
+- resolve package source/registry identity, not package name alone;
+- optional dependencies are exercised by capability health/certification before claiming capability readiness;
+- isolated runtime environments are used where one connector's dependency upgrade could alter another connector.
+
+Semantic compatibility/certification overrides semver labels.
+
+# GZ. Canonical locale-independent representation
+
+Canonical machine data is independent from UI locale.
+
+Numbers:
+- canonical decimal syntax uses '.' or typed numeric encoding;
+- currency/unit semantics are explicit;
+- localized comma/period grouping is presentation/import-adapter behavior only.
+
+Dates/times:
+- RFC3339/UTC or schema-declared legal timezone/calendar semantics;
+- ambiguous human formats require explicit locale/schema.
+
+Identifiers:
+- locale-independent comparison;
+- IDs never rely on display-name case folding;
+- Unicode normalization is defined per field where equality requires it, otherwise original text is preserved.
+
+# HA. Provider/model semantic fingerprint and reproducibility class
+
+Capability certification stores an observed semantic fingerprint:
+- provider/model/service identity;
+- local package/model digest when available;
+- request mapping and context/reference limits;
+- parameter handling;
+- observed rewrite/truncation/safety behavior where measurable;
+- representative benchmark/evidence set;
+- captured time and environment.
+
+Material semantic drift marks certification `STALE/REVERIFY_REQUIRED` even if provider model name/version string did not change.
+
+Generation provenance declares one reproducibility class:
+- EXACT_LOCAL;
+- VERSION_PINNED_BEST_EFFORT;
+- CLOUD_BEST_EFFORT;
+- NON_REPRODUCIBLE.
+
+Seed/config values are evidence only and never overstate reproducibility.
+
+# HB. Watermark, tracking metadata and content-provenance policy
+
+Media inspection/release policy classifies where detectable:
+- visible watermark;
+- invisible watermark/fingerprint;
+- private/tracking metadata;
+- required provider attribution/provenance marker;
+- signed content-credential/provenance records.
+
+Deliverable policy chooses:
+- PRESERVE;
+- STRIP;
+- REWRITE;
+- BLOCK;
+subject to provider terms, rights, privacy and intended destination.
+
+Re-encoding/signing records provenance against the final deliverable bytes; source metadata alone is not sufficient.
+
+# HC. Derived index generation isolation
+
+Search/vector/embedding index generation identity includes:
+- index schema/version;
+- embedding/model identity + digest/version;
+- tokenizer/preprocessing revision;
+- authorization/privacy policy revision;
+- source revision generation;
+- environment/toolchain where material.
+
+Incompatible vector spaces are not mixed in one ranking operation without a validated bridge/migration.
+
+Index upgrades use shadow/rebuild/promotion semantics. Old generation remains queryable only under its compatible reader until retired.
+
+# HD. Long-term event/archive decoder contract
+
+Historical canonical formats are long-lived contracts.
+
+For event/archive versions required for durable understanding, CineForge must either:
+- retain a compatible decoder/migration chain; or
+- normalize during archival to a durable self-describing archival representation with preserved semantics/evidence.
+
+Compaction/storage-tiering may change representation but cannot silently discard semantically required fields.
+
+Archive field criticality classes:
+- OPTIONAL_ADVISORY;
+- OPTIONAL_INERT;
+- MANDATORY_SEMANTIC;
+- MANDATORY_RIGHTS_PRIVACY.
+
+A reader that cannot understand a mandatory field cannot mutate/release the project; safe read-only inspection may still be allowed.
+
+# HE. Environment-bound benchmark/router evidence
+
+Benchmark, quality and capacity evidence binds an environment fingerprint:
+- hardware/GPU;
+- driver/backend;
+- OS/runtime;
+- package/model digests;
+- relevant connector/tool revision.
+
+Material environment change marks dependent benchmark/router evidence `STALE` until revalidated.
+
+Router may use stale evidence only for non-authoritative hints when policy explicitly permits it; it cannot present stale performance/quality numbers as current truth.
+
+# HF. Reproducibility artifact retention
+
+For selected approved/release/archive scopes, retention policy may preserve:
+- exact local model/package artifact;
+- runtime/connector package;
+- lockfile/dependency manifest;
+- workflow/graph definition;
+- critical font/LUT/ICC/profile dependencies;
+- build/toolchain identity;
+- license/rights evidence permitting retention.
+
+A package/model version string without retrievable immutable bytes is not considered reproducible.
+
+Retention is constrained by license/storage/security policy; when exact retention is forbidden, archive records the resulting reproducibility limitation.
+
+# HG. Required seventh-wave longevity tests
+
+158. crash during encryption key rotation with mixed object generations;
+159. encrypted backup restore with missing recovery wrapping material;
+160. package dependency cycle/incompatible runtime constraints;
+161. semver-compatible but semantically incompatible connector update;
+162. localized decimal/date import ambiguity;
+163. case/collation/Unicode normalization cross-platform equality;
+164. provider semantic drift without model-name change;
+165. identical seed produces different cloud output after provider change;
+166. local package same version/different digest;
+167. invisible watermark/tracking metadata release inspection;
+168. content-provenance preservation through re-encode;
+169. mixed embedding-model generations in one search index;
+170. hardware change invalidates benchmark/router evidence;
+171. future archive mandatory semantic field opened by older reader;
+172. archive event version whose original decoder would otherwise be removed;
+173. critical package registry disappearance after archive.
