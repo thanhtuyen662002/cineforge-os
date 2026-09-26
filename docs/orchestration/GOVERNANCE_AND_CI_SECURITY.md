@@ -476,3 +476,60 @@ When the repository first adds real GitHub Actions:
 - bootstrap verifier ceremony applies to workflow permission policy, artifact provenance and trusted check producer;
 - the first release workflow is not trusted merely because it lives on `main`;
 - controlled positive and negative release-chain tests are required before autonomous publication.
+
+
+
+# 27. GitHub Actions/release supply-chain gates
+
+Production/release workflows additionally require:
+- third-party Actions pinned by immutable commit SHA;
+- explicit per-workflow/job token permissions;
+- OIDC `id-token: write` limited to jobs that need it;
+- trusted artifact provenance by run/commit/App/runner/digest, never display name;
+- no privileged `workflow_run` promotion of untrusted PR artifacts without explicit validation;
+- release build tied to immutable release commit/manifest;
+- release/signing environments checked for expected protection identity.
+
+# 28. Release artifact/signing separation
+
+Build/test job cannot directly request arbitrary signing.
+
+Signing authorization consumes:
+- immutable approved release manifest;
+- attested artifact digest/provenance;
+- required exact-head/base security evidence;
+- authorized trigger/release identity.
+
+A release workflow change that weakens this separation is HIGH-risk governance.
+
+# 29. Installer/update governance
+
+Changes to:
+- installer/bootstrapper;
+- updater manifest logic;
+- anti-rollback;
+- signing/trust keys;
+- elevation/helpers;
+- uninstall/repair ownership;
+- release artifact selection
+
+are HIGH-risk security/release changes.
+
+They require negative tests for:
+- downgrade;
+- stale manifest;
+- package mix-and-match;
+- wrong-base patch;
+- unsigned/mutated helper;
+- power-loss/partial install;
+- user-data preservation.
+
+# 30. Release input hermeticity
+
+Release jobs fail when they rely on:
+- unpinned `latest` executable/toolchain download;
+- undeclared global dependency;
+- mutable package/action source without approved integrity;
+- untrusted cache as sole source for security-critical binary.
+
+Actual packaged contents drive SBOM/license/privacy checks.
