@@ -3315,3 +3315,151 @@ A PASS on proxy does not satisfy master gate unless equivalence policy explicitl
 96. dataset export privacy leakage;
 97. proxy evaluation incorrectly satisfying master benchmark;
 98. backup restore attempts to resurrect deleted sensitive derived data.
+
+
+# FC. Library lineage and deployment identity
+
+CineForge separates durable library history from physical deployment identity.
+
+## FC1. Library lineage
+`library_lineage_id` identifies the durable family/history of one CineForge library.
+
+It survives:
+- supported machine move;
+- verified restore;
+- backup restore;
+- storage-root relocation.
+
+It does not prove which physical machine is currently authorized to create external side effects.
+
+## FC2. Deployment instance
+`deployment_instance_id` identifies one active physical installation/deployment.
+
+`deployment_generation` advances on:
+- MOVE/REPLACE;
+- disaster restore;
+- explicit fork;
+- deployment identity recovery.
+
+Core/session/external dispatch evidence binds both lineage and deployment generation.
+
+# FD. Deployment activation and fork detection
+
+Writable activation validates:
+- library lineage;
+- expected deployment binding;
+- installation secret/secure-store evidence;
+- Core ownership;
+- recovery epoch;
+- environment fingerprint.
+
+If deployment evidence is missing/mismatched:
+- do not silently assume this is the original machine;
+- open READ_ONLY / DEPLOYMENT_RECONCILIATION;
+- require MOVE / RESTORE / FORK choice or policy resolution;
+- rotate local IPC/session capability secrets.
+
+An installation secret should be stored/cross-checked outside the portable project/library data, using OS secure storage where practical.
+
+A full VM/disk clone may copy the secure state too; this remains a documented residual without remote coordination.
+
+# FE. Move, restore and fork semantics
+
+## MOVE / REPLACE
+Intent: continue one deployment on a new machine.
+- preserve library lineage;
+- create new deployment generation/instance;
+- retire old deployment when evidence/remote coordination exists;
+- revalidate credentials/environment;
+- preserve external side-effect history.
+
+## RESTORE
+Intent: recover lost/corrupt deployment.
+- preserve library lineage;
+- create new deployment generation;
+- create new recovery epoch;
+- reconcile external reality before dispatch.
+
+## FORK
+Intent: independent creative copy.
+- preserve provenance link to source lineage if desired;
+- create new deployment identity/execution namespace;
+- external connections/schedules/publication actions default DISABLED/UNVERIFIED;
+- credentials/browser sessions are not active merely because bytes were copied.
+
+# FF. External side-effect identity namespace
+
+External dispatch/correlation/idempotency record includes:
+- library_lineage_id;
+- deployment_instance_id or deployment_generation;
+- recovery_epoch;
+- command/job/attempt identity;
+- provider/account/workspace identity.
+
+A fork must not accidentally reuse the same logical “publication attempt” namespace.
+
+Provider-native idempotency keys are derived according to operation semantics:
+- restore/reconciliation may intentionally preserve a prior external operation identity;
+- independent fork uses a distinct side-effect namespace.
+
+# FG. Deployment-fork invalidation
+
+New deployment/fork/move invalidates or revalidates ephemeral state:
+- Core ownership/session;
+- IPC/media/capability tokens;
+- leases;
+- browser process/profile session state;
+- queued schedules;
+- temp/staging state;
+- environment certifications;
+- personal credential bindings;
+- notification delivery handles.
+
+Historical project/release/provenance records remain immutable.
+
+# FH. Backup namespace
+
+Backup identity includes:
+- library lineage;
+- deployment generation/instance at capture;
+- immutable backup generation ID;
+- recovery epoch;
+- object/DB checkpoint.
+
+Backups are append/versioned artifacts, not a mutable single “latest.zip” overwritten by multiple deployments.
+
+# FI. Independent-fork merge boundary
+
+V1 does not merge two independently mutated SQLite/library states directly.
+
+Supported reconciliation uses explicit:
+- portable project import;
+- asset/revision import;
+- script/canon/timeline comparison;
+- conflict resolution;
+- rights/provenance validation.
+
+“Copy database back over the old one” is not a merge operation.
+
+# FJ. Optional remote deployment registry
+
+High-assurance/team/enterprise deployments may use an optional remote registry to:
+- register active deployment generation;
+- retire prior installations;
+- detect simultaneous clone activity;
+- issue deployment fencing leases.
+
+CineForge local-first operation must remain functional without it, but documentation must state that absolute cross-machine singleton enforcement is impossible against a fully cloned machine with copied secure state.
+
+# FK. Required clone/split-brain tests
+
+99. copy library to second PC with missing installation secret;
+100. restore full backup and create new deployment/recovery epoch;
+101. independent fork disables publication/schedules/connections;
+102. original PC returns after MOVE/REPLACE;
+103. VM/disk clone copies secure store and both attempt provider dispatch;
+104. two deployments target same backup destination;
+105. duplicate provider idempotency key across fork vs restore;
+106. copied browser profile/session on new deployment;
+107. copied scheduled jobs after fork;
+108. explicit project reconciliation from independently modified fork.
