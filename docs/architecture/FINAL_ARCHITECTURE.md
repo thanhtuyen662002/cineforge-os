@@ -2493,3 +2493,125 @@ Policy controls:
 - diagnostic capture.
 
 A child process must not quietly create an unmanaged long-term prompt/media history outside the declared sandbox.
+
+
+
+# 81. Logical content identity vs encrypted physical storage
+
+CineForge separates:
+- logical plaintext content identity;
+- physical stored-object/ciphertext identity;
+- encryption/wrapping scope.
+
+Cross-project dedup is a policy choice, not a universal invariant.
+
+Rules:
+- do not require convergent/deterministic encryption to preserve dedup;
+- crypto-erasure of one privacy scope must not destroy another scope that legitimately references equivalent content;
+- global plaintext hashes are not exposed as untrusted user/API lookup oracles;
+- physical storage may contain multiple encrypted representations of the same logical plaintext when privacy/key scopes differ.
+
+# 82. Envelope encryption
+
+For CineForge-managed media encryption:
+- each large object may use a random data-encryption key;
+- policy/root keys wrap the data key;
+- key rotation should prefer rewrapping data keys over rewriting terabytes when policy/algorithm permits;
+- store ciphertext digest/integrity separately from plaintext logical digest;
+- plaintext digest verification occurs only after successful decrypt/read.
+
+No key identity or wrapped-key metadata is accepted without authority/key-version binding.
+
+# 83. Multi-resource reservation deadlock prevention
+
+Resource admission across GPU/VRAM/CPU/RAM/DISK/BROWSER_PROFILE uses:
+- deterministic global resource acquisition order; or
+- atomic admission plan before any partial reservation becomes ACTIVE.
+
+A job must not hold resource A indefinitely while waiting for B if another job holds B while waiting for A.
+
+Reservations support:
+- priority/admission class;
+- interactive reserve;
+- aging/fairness;
+- bounded future horizon.
+
+HUMAN_WAIT releases resources that are not physically necessary to preserve the waiting session.
+
+# 84. Context criticality and non-droppable classes
+
+Context Compiler assigns each segment a criticality class:
+- MANDATORY_POLICY
+- MANDATORY_RIGHTS_PRIVACY
+- MANDATORY_CANON
+- TASK_CRITICAL
+- OPTIONAL_ENRICHMENT
+
+Compilation fails or requests a different strategy/model when mandatory content cannot fit.
+It never silently drops mandatory policy/rights/privacy/canon constraints to satisfy provider context size.
+
+# 85. Context dependency fence
+
+Compiled context stores a dependency manifest/hash covering:
+- canonical revisions;
+- policy/privacy/rights revisions;
+- task contract;
+- provider/adapter semantic profile;
+- translation/derived prompt representation.
+
+Immediately before dispatch and before policy-sensitive retry:
+- revalidate dependency manifest;
+- recompile if stale;
+- bind exact compiled payload hash to the job attempt.
+
+A stale compiled prompt is evidence, not reusable authority.
+
+# 86. Provider semantic-limit certification
+
+Capability certification covers practical semantics, not only request schema:
+- observed context/request limits;
+- reference count/size behavior;
+- first/last-frame semantics;
+- unsupported/ignored parameters;
+- server-side truncation/rewrite behavior where detectable;
+- output association/materialization behavior.
+
+Detected semantic drift can mark connector capability DEGRADED/REQUIRES_RECERTIFICATION.
+
+# 87. Adapter semantic conformance
+
+Each adapter feature mapping declares:
+- NATIVE
+- APPROXIMATED
+- UNSUPPORTED
+- UNKNOWN
+
+Critical constraint mapping that is UNSUPPORTED/UNKNOWN cannot be silently compiled into a best-effort provider call.
+
+Approximation is allowed only where policy permits and user/strategy quality constraints accept it.
+
+# 88. Package/model byte ceiling and digest identity
+
+Package/model acquisition requires:
+- maximum expected/download bytes;
+- disk reservation;
+- exact digest pin;
+- publisher/signature/trust policy;
+- decompression/install expansion budget.
+
+Version/name alone never identifies executable model/runtime bytes.
+
+Resident workers revalidate package identity/revocation before accepting new jobs.
+
+# 89. Browser observation privacy
+
+Screenshots, DOM captures, accessibility trees and recordings are separate sensitive inputs.
+
+Before sending browser observations to AI/evaluator:
+- apply privacy/redaction policy;
+- avoid credential/MFA/password fields;
+- scope capture to minimum required region/content;
+- do not persist raw observations beyond retention policy;
+- record whether observation left the local machine.
+
+Login/MFA/account-management pages default to stricter capture policy.
