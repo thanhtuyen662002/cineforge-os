@@ -9,7 +9,7 @@ agent_claim_v1:
   role_profile: ""
   claim_base_sha: ""
   task_contract_version: 1
-  task_contract_hash: ""
+  task_contract_hash: "sha256:"
   context_base_sha: ""
   architecture_refs: []
   risk_profile: "MEDIUM"
