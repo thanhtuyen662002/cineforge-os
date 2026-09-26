@@ -1578,3 +1578,110 @@ If deployment binding changes before dispatch:
 - replan/rebind required.
 
 Already accepted external jobs enter normal recovery/external reconciliation rather than being pretended cancelled.
+
+
+
+# 87. Endpoint trust lifecycle
+
+- DISCOVERED
+- VERIFYING_SERVER
+- VERIFIED
+- STALE_EPOCH
+- IDENTITY_MISMATCH
+- REJECTED
+
+Only VERIFIED endpoint can carry privileged IPC.
+
+# 88. Network route state
+
+- UNKNOWN
+- DIRECT_VERIFIED
+- SYSTEM_PROXY_VERIFIED
+- EXPLICIT_PROXY_VERIFIED
+- ENTERPRISE_MANAGED_VERIFIED
+- CHANGED_REVERIFY_REQUIRED
+- BLOCKED
+
+# 89. Capture session lifecycle
+
+```text
+REQUESTED
+→ PERMISSION_CHECK
+→ DEVICE_BOUND
+→ ACTIVE
+→ STOP_REQUESTED
+→ STOP_CONFIRMED
+```
+
+Abnormal:
+- PERMISSION_DENIED
+- DEVICE_CHANGED
+- DEVICE_LOST
+- STOP_FAILED
+- QUARANTINED_OUTPUT
+
+# 90. Compute isolation state
+
+- STANDARD_READY
+- ISOLATED_STARTING
+- ISOLATED_READY
+- ACTIVE
+- DRAINING
+- CLEANUP
+- CLEAN
+- QUARANTINED
+
+A new sensitive job does not enter ACTIVE until prior isolated context cleanup policy is satisfied.
+
+# 91. Deletion assurance state
+
+- LOGICALLY_REMOVED
+- CRYPTO_ERASURE_CONFIRMED
+- BEST_EFFORT_OVERWRITE
+- PHYSICAL_ERASURE_UNVERIFIED
+- EXTERNAL_RETENTION_UNKNOWN
+
+These are evidence states, not marketing labels.
+
+# 92. Maintenance admission lifecycle
+
+```text
+PLANNED
+→ RESOURCE_ESTIMATED
+→ ADMISSION_CHECK
+→ RESERVED
+→ RUNNING
+→ VERIFYING
+→ COMPLETE
+```
+
+Alternate:
+- BLOCKED_STORAGE_PRESSURE
+- BLOCKED_INCOMPATIBLE_MAINTENANCE
+- PAUSED
+- RECOVERY_REQUIRED
+- FAILED
+
+# 93. Notification action lifecycle
+
+- ISSUED
+- DELIVERED
+- CLICKED
+- REVALIDATING
+- EXECUTED
+- STALE
+- OBSOLETE
+- EXPIRED
+- UNAUTHORIZED
+
+# 94. Suspend/resume lifecycle
+
+System:
+- RUNNING
+- SUSPENDING
+- SUSPENDED
+- RESUMING
+- RECONCILING
+- RUNNING
+
+Scheduler external retry/timeout actions are blocked during RECONCILING.
