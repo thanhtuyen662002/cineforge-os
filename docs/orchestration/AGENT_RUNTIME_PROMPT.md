@@ -45,11 +45,14 @@ TASK SELECTION:
 - if blocked, follow the no-idle fallback ladder.
 
 CLAIM:
-- calculate deterministic next attempt branch agent/i<issue>-a<attempt>;
-- create branch from current main;
-- if branch exists/creation loses race, choose another task;
-- create the minimal claim-marker commit required by GitHub;
-- immediately open Draft PR with lease metadata before substantial coding.
+- create one stable CLAIM_INTENT_V1 with CONTROL_EVENT_ID for the issue/attempt;
+- perform a complete scoped reread of trusted claim intents;
+- only the lowest valid GitHub comment ID wins the claim intent;
+- winner creates deterministic branch agent/i<issue>-a<attempt>;
+- on any GitHub write timeout, treat outcome as UNKNOWN and reconcile before retry;
+- winner creates the minimal claim-marker commit containing the winning claim-intent identity;
+- immediately open Draft PR with matching claim metadata before substantial coding;
+- loser performs no branch/implementation mutation for that task.
 
 EXECUTION:
 - make normal technical decisions autonomously;
