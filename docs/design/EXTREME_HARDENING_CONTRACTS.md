@@ -3946,3 +3946,263 @@ Used by clone/template/archive/export:
 - cross-project reference findings
 - rights/privacy decision snapshot
 - manifest_hash
+
+
+# GK. External activation and deep-link inbox
+
+OS activation sources are untrusted:
+- custom URI/deep link;
+- file association;
+- shell/open-with;
+- notification action;
+- browser-origin activation.
+
+They never directly invoke privileged domain commands.
+
+Activation envelope stores:
+- source kind;
+- raw original payload;
+- canonical decoded typed fields;
+- requested action;
+- candidate file/URL handles;
+- arrival time;
+- trust/origin metadata.
+
+Rules:
+- decode once using a canonical parser;
+- reject ambiguous/double-encoded traversal;
+- allowlist action names and parameter schemas;
+- no ambient current-project authority;
+- file/path/URL parameters pass normal intake/path/network authorization;
+- destructive/paid/publish actions cannot be completed by deep link alone.
+
+State:
+`RECEIVED → PARSED → POLICY_CHECK → PENDING_USER_OR_COMMAND → CONSUMED`
+or `REJECTED/EXPIRED`.
+
+# GL. Capability namespace and effect-class ownership
+
+Core owns globally stable semantic capability IDs.
+
+Each capability version declares:
+- capability_id;
+- schema_version;
+- input/output schema;
+- effect class: READ_ONLY | LOCAL_MUTATION | EXTERNAL_MUTATION | PAID_EXTERNAL | PUBLICATION | DESTRUCTIVE;
+- required permissions/policy gates;
+- cancellation/idempotency class.
+
+Connector/provider bindings implement a Core capability; they do not redefine its meaning.
+
+Extension namespaces are:
+- package-identity scoped;
+- collision checked;
+- never interpreted outside the declaring owner unless an explicit typed bridge exists.
+
+Unknown/colliding namespaces fail closed.
+
+# GM. Strict structured decoding
+
+At Core/connector/control boundaries:
+- duplicate JSON/map keys are rejected;
+- unsupported required enum values are rejected;
+- UNKNOWN security/policy state never coerces to ALLOWED;
+- integer/float/rational limits are validated before allocation/arithmetic;
+- object depth/field count/payload size are bounded;
+- unknown fields are ignored only when the schema explicitly allows forward-compatible inert fields;
+- privilege-bearing future fields must live in declared versioned extension namespaces.
+
+Canonical decoders never rely on parser-specific “last duplicate key wins” behavior.
+
+# GN. Configuration and feature-policy snapshots
+
+Effective runtime configuration is immutable/versioned for an operation.
+
+Snapshot includes:
+- product config revision;
+- security/privacy policy revision;
+- feature/capability flags;
+- connector/runtime policy;
+- network route policy;
+- storage policy.
+
+Core distributes the effective snapshot to workers.
+Workers do not independently reread mutable config/environment mid-command.
+
+Flags classify:
+- UX/EXPERIMENTAL;
+- OPTIONAL_FEATURE;
+- SAFETY_CRITICAL_GATE.
+
+A normal feature flag may not disable a SAFETY_CRITICAL_GATE.
+
+Commands/jobs record the relevant config snapshot hash.
+Material change requires replan/revalidation.
+
+# GO. Exclusive schema-migration authority
+
+Schema migration has its own authority epoch.
+
+Preconditions:
+1. all normal Core writers drained/stopped;
+2. exclusive DB migration primitive acquired;
+3. source DB/schema version verified;
+4. target package/migration digest verified against trusted signed package;
+5. required backup/checkpoint verified;
+6. no other migration epoch active.
+
+Each migration step records:
+- migration ID/version;
+- input schema;
+- package/migration digest;
+- started/completed state;
+- transactionality;
+- resume/repair rule;
+- resulting schema fingerprint.
+
+Loose mutable migration scripts are not executed as authority.
+
+# GP. Tamper-evident audit checkpoints
+
+Local audit/event history is not assumed untamperable merely because it is append-only by application policy.
+
+Integrity layer may store periodic checkpoints:
+- event seq range;
+- previous checkpoint digest;
+- current range digest/Merkle root;
+- schema/version;
+- creation actor/process;
+- optional external/signature evidence for higher assurance.
+
+Integrity auditor detects:
+- gaps;
+- rewrite;
+- duplicate aggregate versions;
+- checkpoint-chain break;
+- event/range mismatch.
+
+A fully compromised same-user/admin attacker that can rewrite all local trust anchors remains outside the guaranteed boundary unless external signed checkpoints exist.
+
+# GQ. Credential generation and worker secret leases
+
+Secure credential entry has:
+- credential_ref;
+- generation;
+- status: ACTIVE | ROTATING | REVOKED | EXPIRED | REAUTH_REQUIRED;
+- account/workspace scope.
+
+Queued jobs store reference + expected generation, never the raw secret.
+
+Immediately before authenticated dispatch:
+- resolve current credential;
+- verify generation/status/scope;
+- mint/use a short worker secret lease where supported.
+
+Rotation/revocation:
+- invalidates old worker secret leases;
+- requests connector/browser session reauth/reconciliation;
+- does not silently fall back to another credential/provider.
+
+# GR. Cross-project opaque handle scopes
+
+Opaque handles/capability tokens bind:
+- installation/deployment;
+- recovery epoch/session;
+- actor;
+- studio/project;
+- purpose/capability;
+- exact entity/revision/object;
+- expiry;
+- nonce.
+
+Request authorization validates the entire set of referenced handles belongs to an allowed scope closure.
+
+A valid handle for Project B is not authority inside a Project A command.
+
+Staged worker directories expose only explicit job inputs, not parent/sibling project directories.
+
+# GS. Irreversible-phase reauthorization
+
+Before the final irreversible/high-impact step of:
+- publish;
+- external delete/takedown;
+- paid dispatch above policy threshold;
+- signing/release;
+- destructive purge;
+- account/workspace mutation
+
+revalidate:
+- command/decision still current;
+- actor/agent authority;
+- credential generation;
+- provider account/workspace;
+- rights/privacy/retention;
+- safety-critical config policy;
+- cost exposure;
+- recovery epoch;
+- manual/revision fences.
+
+Prepared bytes/request objects are not perpetual authority.
+
+# GT. API compatibility negotiation
+
+Desktop/Core/worker/connector handshake exchanges:
+- protocol family;
+- exact version;
+- min/max compatible versions;
+- required capabilities/fields;
+- optional extension namespaces.
+
+Rules:
+- unsupported command fails explicitly;
+- missing required field never defaults to a permissive security state;
+- old component cannot partially execute a newer command;
+- compatibility mode may be read-only where mutation semantics are uncertain.
+
+# GU. Scoped idempotency identity
+
+Idempotency scope is not a naked user string.
+
+Canonical identity includes:
+- installation/deployment identity;
+- command type;
+- project/scope;
+- actor/automation authority when relevant;
+- recovery epoch where external side effects require it;
+- explicit caller idempotency key.
+
+Portable clone/import remaps namespace so an old key cannot collide with an unrelated operation in a new project/deployment.
+
+# GV. Restore configuration reconciliation
+
+Restore separates:
+- project/domain state;
+- convenience/runtime configuration;
+- current forward security/trust/revocation policy.
+
+After restore:
+- newer trust-root revocations/security policy win;
+- old proxy/provider/credential settings are revalidated;
+- old feature flags cannot re-enable a now-blocked safety gate;
+- external dispatch remains frozen until configuration reconciliation is complete.
+
+# GW. Required sixth-wave authority tests
+
+140. malicious deep-link path/URL/publish request;
+141. double-encoded deep-link traversal;
+142. hostile file association project/archive open;
+143. capability namespace collision;
+144. read-only capability attempting external mutation;
+145. v1/v2 connector semantic mismatch;
+146. duplicate JSON keys with conflicting security value;
+147. unknown enum coercion attempt;
+148. mid-command config/feature-flag change;
+149. two concurrent migration processes;
+150. mutable migration script swap after verification;
+151. audit middle-event deletion/rewrite;
+152. credential rotation while jobs queued/running;
+153. cross-project opaque handle injection;
+154. permission removal immediately before publication;
+155. old UI/new Core and new UI/old Core negotiation;
+156. idempotency-key reuse after project clone;
+157. restore old config after newer trust revocation.
