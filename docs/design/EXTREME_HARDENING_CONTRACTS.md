@@ -5988,3 +5988,171 @@ Model/runtime package cache is separate from project-content cache.
 193. crash leaves Project A temp frames then Project B starts;
 194. lock-screen notification for confidential project;
 195. external provider exposure remains after local purge.
+
+
+
+# IW. Offline collaboration branch
+
+Offline edits are not delayed canonical writes.
+
+An offline working branch records:
+- project ID;
+- base canonical revision/version;
+- actor ID;
+- device/install ID;
+- app session ID;
+- operation-schema version;
+- local operation sequence;
+- scope;
+- created/last-sync time.
+
+Reconnect performs a rebase/merge plan through normal command authorization.
+
+# IX. Domain merge classes
+
+Every collaborative domain declares merge class:
+
+- MERGEABLE_TEXT — comments/some plain text where CRDT/merge semantics are acceptable;
+- OPERATION_REBASE — ordered edit operations that may merge when dependency/region scopes are disjoint;
+- COMPARE_AND_SET — canonical promotion/approval/current-slot replacement;
+- EXCLUSIVE — rights/security/manual lock/other single-owner mutation;
+- MANUAL_SEMANTIC — overlapping canon/timeline/destructive conflicts requiring explicit resolution.
+
+No generic LWW policy is allowed for privilege-bearing or canon-bearing state.
+
+# IY. Collaboration conflict entity
+
+Conflict captures:
+- base revision/version;
+- local branch/ops;
+- current canonical revision;
+- conflicting entities/fields/story/time ranges;
+- invariant violations;
+- deletion/tombstone interactions;
+- possible resolutions.
+
+Resolution produces a new explicit command/revision.
+Conflict history is not erased.
+
+# IZ. Sync authority revalidation
+
+On reconnect/submit, revalidate:
+- actor/account enabled;
+- role/permission generation;
+- project membership;
+- current privacy/rights policy;
+- current archive/trash/purge state;
+- current manual/canonical locks.
+
+Old offline authorization never grants present authority.
+
+# JA. Tombstone/terminal-state dominance
+
+Stale/offline edits cannot resurrect:
+- privacy-purged entities;
+- non-resurrectable rights-revoked state;
+- purged project/object;
+- sealed archive bytes;
+- disabled actor authority.
+
+Explicit restore/recreate command under current policy is required.
+
+# JB. Authoritative exclusive locks
+
+Only authoritative Core can grant a new exclusive/manual/canonical lock.
+
+Offline continuation of an existing lease is bounded by:
+- lease ID/epoch;
+- offline-valid-until;
+- scope;
+- current commit-time revalidation.
+
+Loss of authoritative lock means offline work returns as candidate/conflict, not canonical write.
+
+# JC. Actor/device/session identity
+
+Collaboration provenance records:
+- actor;
+- device/install identity;
+- app session;
+- edit/command session;
+- Core/library epoch.
+
+Same actor on multiple devices is not treated as one conflict-free stream.
+
+# JD. Offline queue compaction and expiry
+
+Offline branch has:
+- max operation count/bytes/age;
+- checkpoints;
+- operation-schema migration;
+- compaction;
+- threshold requiring full rebase/import-as-branch instead of blind replay.
+
+Unknown old operation semantics fail closed.
+
+# JE. Offline irreversible-action rule
+
+Offline mode may prepare:
+- drafts;
+- plans;
+- edits;
+- review notes.
+
+It cannot execute final external/irreversible phases such as:
+- publish;
+- external delete;
+- high-cost dispatch;
+- credential/rights/security mutation;
+- signing/release.
+
+These require fresh online/current authority and external-state checks.
+
+# JF. Collaboration transport as capability
+
+Network collaboration/sync is a capability provider with:
+- egress/privacy class;
+- encryption;
+- account/tenant identity;
+- retention;
+- rights policy;
+- availability/capacity.
+
+LOCAL_ONLY input closure blocks cloud collaboration for that content unless separately authorized/declassified.
+
+# JG. Notification recipient authorization
+
+Collaboration notification/mention delivery revalidates:
+- recipient membership/access;
+- privacy classification;
+- current project visibility.
+
+Stale queued notifications are redacted/dropped when access was removed.
+
+# JH. Canonical promotion CAS
+
+Canonical promotion/approval binds:
+- canonical slot/entity;
+- expected current revision/version;
+- candidate revision;
+- actor/authority.
+
+Mutation succeeds only if expected current value still matches.
+Concurrent loser receives conflict and remains candidate/noncanonical.
+
+# JI. Required collaboration tests
+
+196. offline edit against changed canon;
+197. offline edit after privacy purge;
+198. permission revoked while offline queue exists;
+199. two concurrent same-clip timeline edits;
+200. edit-vs-delete conflict;
+201. two simultaneous canonical approvals;
+202. offline client after schema operation format upgrade;
+203. same actor from two devices;
+204. manual lock partition/conflict;
+205. LOCAL_ONLY project through cloud collaboration;
+206. stale mention after access removal;
+207. offline publish attempt;
+208. rights edit while offline;
+209. archive edited from stale offline branch.
