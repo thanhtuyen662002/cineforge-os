@@ -1946,3 +1946,127 @@ During resume reconciliation:
 - timeout-driven retries paused;
 - lease expiry is not immediately acted upon;
 - provider/browser/resource states refresh before scheduler resumes.
+
+
+
+# 109. Pricing and billing reconciliation API
+
+Queries:
+- `query.pricing.current(connection_id, service)`
+- `query.billing.ledger(project/account)`
+- `query.billing.unreconciled`
+
+Internal/commands:
+- CapturePricingSnapshot
+- ReconcileBillingEvent
+- ApplyBillingCorrection
+- MarkRefundSettled
+
+Dispatch revalidates the pricing snapshot/ceiling when policy requires.
+Billing reconciliation binds provider-native billing identity and actual model/service/account.
+
+# 110. Rights-at-time evaluation API
+
+- `rights.evaluate(scope, purpose, destination, processing_context, at_instant)`
+- `rights.explain_effective_interval(record_id)`
+
+Evaluation includes:
+- timezone/calendar boundary semantics;
+- territory/jurisdiction;
+- revocation effect scope;
+- current destination/processing region where relevant.
+
+Publish always evaluates at the execution instant, not only at release-candidate creation.
+
+# 111. Retention hold API
+
+Queries:
+- `query.retention_holds(scope)`
+
+Commands:
+- CreateRetentionHold
+- ReleaseRetentionHold
+- RevokeRetentionHold
+
+GC/purge asks `retention.can_purge(scope)`.
+An expired/released hold does not itself purge anything.
+
+# 112. Portable archive API
+
+Commands:
+- PlanPortableArchive
+- BuildPortableArchive
+- VerifyPortableArchive
+- ImportPortableArchive
+- MigratePortableArchive
+
+Queries:
+- `query.archive.compatibility`
+- `query.archive.external_dependencies`
+- `query.archive.secret_exclusion`
+
+Portable archive build validates:
+- required durable media/evidence present;
+- external refs materialized or explicitly declared;
+- no active credentials/browser sessions/publication schedules;
+- schema/format compatibility metadata.
+
+# 113. Historical signature API
+
+- `signatures.verify_historical(subject_id, verification_policy_revision)`
+
+Returns:
+- current cryptographic validity;
+- signer/key identity;
+- signing-time/timestamp evidence;
+- key status then/currently;
+- revocation chronology if known;
+- policy verdict.
+
+Current key revocation and historical signature validity are separate facts.
+
+# 114. Project transfer/clone/template API
+
+Planning:
+- `projects.plan_transfer(source_project, mode)`
+
+Modes:
+- CLONE
+- TEMPLATE
+- PORTABLE_ARCHIVE
+- FORK
+
+Plan materializes exact closure and lists:
+- included entities/assets;
+- excluded secrets/sessions/publication bindings;
+- cross-project refs;
+- rights/privacy blockers;
+- learned-memory references.
+
+Execution uses the snapshot; no hidden live dependency expansion.
+
+# 115. Cross-project learning-memory API
+
+Queries:
+- `query.learning_memory.scope`
+- `query.learning_memory.lineage`
+
+Commands:
+- OptInProjectExamplesToSharedCraftMemory
+- RevokeProjectExamplesFromSharedCraftMemory
+
+Shared craft memory requires governed dataset lineage/use-purpose, not implicit global ingestion.
+
+# 116. Compensation readiness API
+
+- `query.publication.compensation_readiness(publication_id)`
+- `publication.refresh_compensation_readiness`
+
+Returns independently:
+- takedown support;
+- replace support;
+- current credential readiness;
+- platform verification support;
+- last checked time.
+
+A publication can be DELIVERED while compensation readiness is DEGRADED.
