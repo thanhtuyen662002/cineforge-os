@@ -1472,3 +1472,52 @@ Connection diagnostic:
 `Dịch vụ đã gửi phản hồi hợp lệ nhưng phản hồi thuộc tài khoản/workspace khác với kết nối hiện tại.`
 
 The affected job remains unresolved/quarantined until reconciled.
+
+
+# 69. Core ownership conflict UX
+
+If another CineForge Core already owns the same database/library:
+`Dự án đang được một phiên CineForge khác sử dụng.`
+
+Actions depend on evidence:
+- Mở chỉ đọc
+- Chuyển tới phiên đang hoạt động
+- Kiểm tra phiên cũ đã dừng
+- Khôi phục quyền sở hữu (only after safe stale-owner verification)
+
+Never offer an unconditional “Force unlock”.
+
+# 70. Anti-rollback/update trust UX
+
+If user selects an older signed package/version that policy blocks:
+`Phiên bản này đã bị chặn vì lý do bảo mật hoặc không còn tương thích.`
+
+Advanced detail shows:
+- version;
+- key/signature status;
+- revocation/trust-floor reason.
+
+Do not equate “signature valid” with “safe to install”.
+
+# 71. Stale decision UX
+
+If an approval/delete/publish plan changed after confirmation:
+`Nội dung đã thay đổi kể từ lúc bạn xác nhận.`
+
+Show:
+- what changed;
+- old vs new affected count/scope;
+- whether cost/rights/public visibility changed.
+
+Primary action:
+`Xem lại và xác nhận mới`
+
+Never silently extend the prior approval to new items.
+
+# 72. Security/AV interference UX
+
+When write/package failure evidence points to Windows security tooling:
+- explain that CineForge did not detect data corruption automatically;
+- show affected path/component without exposing secrets;
+- offer retry after user/security policy resolution;
+- avoid destructive “repair storage” as the default action.
