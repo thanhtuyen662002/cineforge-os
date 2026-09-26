@@ -2102,3 +2102,39 @@ These parent graphs require DAG validation:
 Narrative time loops use explicit non-parent loop/causal edges.
 
 A continuity snapshot pins exact scene occurrence + narrative context revision + ancestry hash.
+
+
+
+# 65. Release and installation supply-chain architecture
+
+Release is a privileged pipeline separate from ordinary PR validation.
+
+```text
+Merged immutable release commit
+→ hermetic build
+→ artifact attestation/digest
+→ package-content SBOM/compliance scan
+→ release-manifest freeze
+→ signing authorization
+→ final-byte signatures
+→ installer/update manifest
+→ publish
+```
+
+No stage identifies input merely by filename/tag/branch label.
+
+## Installer boundary
+The installer/updater/bootstrapper is a privileged Windows subsystem:
+- elevation happens only after verified trusted staging;
+- binary/user-data roots remain separate;
+- every system mutation is journaled/compensatable where possible;
+- helper/service/protocol registration is ownership-tracked;
+- recovery bootstrapper survives failed app activation.
+
+## Anti-rollback
+A cryptographically valid old version may still be forbidden.
+Release/update policy has a monotonic revocation/minimum-version floor.
+
+## Release trigger
+Only an immutable authorized release source can enter privileged signing/publish.
+GitHub/environment configuration is verified state, not assumed.
