@@ -1388,6 +1388,7 @@ PK(gc_run_id, storage_object_id)
 
 ## promotion_records
 - id PK
+- state: CANDIDATE | OFFLINE_BENCHMARK | GOLDEN_VALIDATION | CROSS_DOMAIN_VALIDATION | SHADOW | HUMAN_REVIEW | PROMOTED | REJECTED | OUT_OF_DOMAIN | ROLLED_BACK | DEPRECATED
 - component_type
 - from_version
 - to_version
@@ -1595,7 +1596,7 @@ First-class intentional deviation, not merely a generic warning dismissal.
 - valid_to_story_key nullable
 - expires_at_utc_us nullable
 - related_evidence_id nullable
-- state: ACTIVE | EXPIRED | REVOKED
+- state: PROPOSED | ACTIVE | EXPIRED | REVOKED | REJECTED
 
 Examples:
 - intentional continuity break;
@@ -1956,6 +1957,7 @@ A GC candidate marked rebuildable must have a valid recipe or policy-approved re
 - id PK
 - connection_id FK
 - connector_version_id nullable
+- review_state: CURRENT | SUPERSEDED | UNKNOWN | REQUIRES_REVIEW
 - captured_at_utc_us
 - terms_hash
 - storage_object_id nullable
