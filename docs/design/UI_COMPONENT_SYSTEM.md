@@ -2600,3 +2600,54 @@ Large canon change responds immediately with:
 “Đã khóa các kết quả phụ thuộc cũ. CineForge đang cập nhật 12.438 mục liên quan.”
 
 Until propagation finishes, affected descendants are conservatively shown stale/needs review rather than temporarily current.
+
+
+
+# 81. Capability-level connection detail
+
+Connection detail can expand by capability:
+
+Example:
+- Tạo video — Sẵn sàng
+- Publish — Cần kiểm tra lại
+- Download output — Sẵn sàng
+- Model X — Hết quota
+
+Do not compress all of these into one green/red connection dot.
+
+# 82. Connector semantic-risk display
+
+Advanced connection detail shows:
+- Read/Create/Mutate/Delete/Publish/Paid effect class
+- Can retry safely?
+- Can cancel?
+- Partial outputs usable?
+- Current certified tool/runtime identity
+- Account/workspace/region
+- Result-size/timeout limits
+
+Normal users see plain-language consequences rather than protocol jargon.
+
+# 83. Browser semantic drift warning
+
+If selector still exists but contextual semantics changed:
+“CineForge nhận thấy giao diện của dịch vụ đã thay đổi. Tác vụ này đã dừng trước bước có thể tạo/xóa/phát hành dữ liệu.”
+
+Actions:
+- Kiểm tra lại kết nối
+- Chuyển sang hỗ trợ thủ công
+- Xem chi tiết
+
+Never silently click through a high-effect UI drift.
+
+# 84. Uncertain external action UX
+
+For a timed-out non-idempotent browser/API action:
+“Chưa xác định dịch vụ đã nhận thao tác hay chưa. CineForge đang đối chiếu trước khi thử lại.”
+
+User can see:
+- potential cost/effect;
+- reconciliation status;
+- safe choices.
+
+Do not show a generic Retry button until the effect state allows it.
