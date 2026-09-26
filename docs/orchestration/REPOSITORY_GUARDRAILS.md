@@ -14,7 +14,7 @@ The autonomous operating model therefore MUST NOT assume GitHub itself enforces 
 Until repository-native protection is configured:
 - implementation agents do not push feature code directly to main;
 - every schedulable coding task uses Issue → Claim branch → Draft/Open PR;
-- Integrator checks exact-head CI/review before merge;
+- Integrator checks CI/review for the current HEAD + BASE/merge verification context before merge;
 - no force-push that destroys useful shared evidence;
 - no secrets in repo;
 - main remains the authoritative base.
