@@ -1667,7 +1667,7 @@ Corroboration summary reports number of independent source groups, not merely ra
 
 
 
-# 81. Numeric/domain validation contract
+# API-NUMERIC-01. Numeric/domain validation contract
 
 All command/import/media APIs may return structured domain errors:
 - INVALID_RATIONAL
@@ -1682,7 +1682,7 @@ All command/import/media APIs may return structured domain errors:
 
 Validation happens in Core even if UI already validated.
 
-# 82. Money/FX API
+# API-MONEY-01. Money/FX API
 
 Queries:
 - `query.cost.exposure`
@@ -1697,7 +1697,7 @@ Cost planning pins:
 
 Actual billing never overwrites estimate.
 
-# 83. Media timing validation API
+# API-MEDIA-TIME-01. Media timing validation API
 
 `media.validate_timing_profile` checks:
 - frame rate/timebase rational validity;
@@ -1708,7 +1708,7 @@ Actual billing never overwrites estimate.
 
 Timeline operations reject invalid/overflowing timing before creating canonical edit ops.
 
-# 84. Safe spreadsheet export
+# API-SPREADSHEET-01. Safe spreadsheet export
 
 Structured tabular export API accepts typed cells.
 
@@ -1719,7 +1719,7 @@ A raw string beginning with formula syntax is never silently upgraded into an ex
 
 
 
-# 85. Storage integrity and durability API
+# API-STORAGE-INTEGRITY-01. Storage integrity and durability API
 
 Queries:
 - `query.storage.scrub_health`
@@ -1737,7 +1737,7 @@ Commands:
 Repair requires a verified alternate source.
 No “repair from whatever copy exists” shortcut.
 
-# 86. Database corruption API
+# API-DB-RECOVERY-01. Database corruption API
 
 Advanced/system:
 - `database.quick_check`
@@ -1748,7 +1748,7 @@ Advanced/system:
 
 A corruption finding never triggers destructive row deletion automatically.
 
-# 87. Environment drift API
+# API-ENV-DRIFT-01. Environment drift API
 
 `environment.compare_to_certification` returns:
 - changed OS/driver/runtime/codec components;
@@ -1757,7 +1757,7 @@ A corruption finding never triggers destructive row deletion automatically.
 
 The scheduler may pause only affected capability classes rather than all CineForge work.
 
-# 88. Release durable activation API
+# API-RELEASE-ACTIVATION-01. Release durable activation API
 
 `release.activate_master` requires:
 - exact release manifest;
@@ -1770,7 +1770,7 @@ On restart, `release.reconcile_master_activation` verifies bytes before publicat
 
 
 
-# 89. Deployment identity API
+# API-DEPLOYMENT-01. Deployment identity API
 
 Queries:
 - `query.deployment.current`
@@ -1788,7 +1788,7 @@ Commands:
 Writable activation requires current deployment binding.
 A missing/mismatched installation secret returns `DEPLOYMENT_RECONCILIATION_REQUIRED`, not silent activation.
 
-# 90. Fork/move/restore plan
+# API-MOVE-RESTORE-01. Fork/move/restore plan
 
 `command.plan` for MOVE/RESTORE/FORK returns distinct consequences:
 - lineage behavior;
@@ -1802,7 +1802,7 @@ A missing/mismatched installation secret returns `DEPLOYMENT_RECONCILIATION_REQU
 
 The user does not receive one ambiguous “Use this library here?” action.
 
-# 91. Side-effect deployment binding
+# API-SIDE-EFFECT-BINDING-01. Side-effect deployment binding
 
 External-dispatch request envelope includes:
 - library_lineage_id;
@@ -1812,7 +1812,7 @@ External-dispatch request envelope includes:
 
 Dispatcher rejects an attempt whose deployment binding is no longer ACTIVE/current.
 
-# 92. Fork reconciliation API
+# API-FORK-RECONCILE-01. Fork reconciliation API
 
 - `forks.plan_import`
 - `forks.compare_project`
