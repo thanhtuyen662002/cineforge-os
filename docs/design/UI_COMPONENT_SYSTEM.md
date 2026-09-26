@@ -2301,3 +2301,56 @@ Advanced Learning screen surfaces:
 - benchmark set revision changes.
 
 Promotion button remains unavailable while required benchmark integrity is not satisfied.
+
+
+
+# 88. Provenance/authenticity UX
+
+Avoid one global badge “Verified”.
+
+Show dimensions:
+- Byte/file matched
+- Internal lineage
+- External signature
+- Signer trust
+- Rights/use permission
+- Public-platform verification
+
+Possible labels:
+- Đã xác minh nguồn nội bộ
+- Có chữ ký nhưng signer chưa được tin cậy
+- Thiếu bằng chứng nguồn
+- Bằng chứng nguồn đang xung đột
+- Quyền sử dụng hợp lệ / chưa đủ thông tin
+
+# 89. Publication provenance UX
+
+Release detail separates:
+- Master đã duyệt
+- File thực tế đã upload
+- Bản công khai sau xử lý của nền tảng
+
+If platform derivative cannot be fetched:
+`File upload đã được xác minh; CineForge chưa thể xác minh byte cuối cùng mà nền tảng phát cho người xem.`
+
+# 90. Provenance privacy export
+
+Before exporting/sharing provenance:
+show whether package includes:
+- creator identity;
+- device;
+- location;
+- timestamps;
+- internal project IDs.
+
+Provide privacy-minimized export where policy permits.
+
+# 91. Provenance conflict UX
+
+When external signed metadata conflicts with internal lineage:
+- show both evidence sources;
+- explain exactly what conflicts;
+- avoid auto-picking newest;
+- offer review/reconciliation.
+
+Media remains usable as candidate unless another policy blocks it.
