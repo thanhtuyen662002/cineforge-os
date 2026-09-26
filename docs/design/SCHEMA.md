@@ -4485,3 +4485,49 @@ External queue/job IDs are scoped to local_service_epoch_id.
 - semantic_certification_state
 - sampled_at_utc_us
 - details_json
+
+
+
+# 122. Event stream/deployment cursor identity
+
+## event_stream_generations
+- id PK
+- installation_id
+- library_lineage_id
+- deployment_generation
+- recovery_epoch_id
+- stream_generation_no
+- first_event_seq
+- last_event_seq nullable
+- state: ACTIVE | SUPERSEDED | ARCHIVED
+- created_at_utc_us
+UNIQUE(installation_id, deployment_generation, recovery_epoch_id, stream_generation_no)
+
+## client_sync_sessions
+- id PK
+- actor_session_id nullable
+- client_instance_id
+- installation_id
+- library_lineage_id
+- observed_deployment_generation
+- observed_recovery_epoch_id
+- observed_stream_generation_id
+- last_event_seq nullable
+- last_projection_generation_manifest_hash nullable
+- state: CURRENT | RESET_REQUIRED | RECOVERY_DIVERGENT | EXPIRED
+- last_handshake_at_utc_us
+
+## offline_pending_commands
+- id PK
+- client_sync_session_id FK
+- local_command_id
+- command_type
+- payload_hash
+- effect_class
+- idempotency_class
+- originating_deployment_generation
+- originating_recovery_epoch_id
+- state: PENDING | SAFE_TO_REISSUE | NEEDS_RECONCILIATION | PRESERVE_AS_DRAFT | DISCARDED | EXECUTED
+- created_at_utc_us
+
+Tokens/capabilities with stale-use risk include deployment_generation + recovery_epoch identity.
