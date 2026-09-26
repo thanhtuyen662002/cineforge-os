@@ -1780,3 +1780,103 @@ Independent axes:
 - REPLACE_READY | REPLACE_UNAVAILABLE | REPLACE_UNKNOWN
 - CREDENTIAL_READY | CREDENTIAL_REAUTH_REQUIRED
 - VERIFY_SUPPORTED | VERIFY_UNSUPPORTED | VERIFY_UNKNOWN
+
+
+
+# 61. Release build and signing lifecycle
+
+Release build:
+```text
+PLANNED
+→ SOURCE_FROZEN
+→ BUILDING
+→ ARTIFACT_ATTESTED
+→ COMPLIANCE_VERIFIED
+→ MANIFEST_FROZEN
+→ SIGNING_AUTHORIZED
+→ SIGNED
+→ PUBLISH_READY
+```
+
+Failures:
+- SOURCE_DRIFT
+- ATTESTATION_FAILED
+- SBOM_MISMATCH
+- LICENSE_BLOCKED
+- PRIVACY_SCAN_FAILED
+- SIGNING_BLOCKED
+- REVOKED
+
+Artifact identity is immutable after ARTIFACT_ATTESTED.
+
+# 62. Installer transaction lifecycle
+
+```text
+PLANNED
+→ PREFLIGHT
+→ STAGED
+→ VERIFIED
+→ ELEVATION_AUTHORIZED
+→ INSTALLING
+→ SYSTEM_CHANGES_APPLIED
+→ ACTIVATING
+→ HEALTH_CHECK
+→ ACTIVE
+```
+
+Failure branches:
+- FAILED_PREFLIGHT
+- FAILED_SIGNATURE
+- FAILED_INSTALL
+- PARTIAL_SYSTEM_CHANGES
+- COMPENSATING
+- COMPENSATED
+- RECOVERY_REQUIRED
+
+Uninstall:
+`PREFLIGHT → OWNERSHIP_CHECK → REMOVING_OWNED → VERIFY_USER_DATA → COMPLETE`
+
+User/project/media data is never classified as installer-owned merely because of path proximity.
+
+# 63. Update anti-rollback state
+
+Update candidate:
+- ALLOWED
+- BELOW_MINIMUM_VERSION
+- REVOKED
+- STALE_MANIFEST
+- WRONG_BASE
+- INCOMPATIBLE_SCHEMA
+- UNKNOWN_REVOCATION_FRESHNESS
+
+UNKNOWN_REVOCATION_FRESHNESS never silently becomes ALLOWED under strict profile.
+
+# 64. Signing key/service authorization state
+
+Signing request:
+- REQUESTED
+- MANIFEST_VERIFIED
+- PROVENANCE_VERIFIED
+- POLICY_AUTHORIZED
+- SIGNED
+- REJECTED
+
+Reject if:
+- digest differs;
+- key purpose mismatch;
+- release source unauthorized;
+- gate evidence stale;
+- key revoked/expired.
+
+# 65. Updater/bootstrapper state
+
+- HEALTHY
+- UPDATE_AVAILABLE
+- STAGING_SELF_UPDATE
+- SWITCH_PENDING
+- ACTIVE_NEW
+- ROLLBACK_READY
+- DEGRADED
+- RECOVERY_MODE
+
+Main app failure cannot automatically mark updater HEALTHY if updater verification itself failed.
