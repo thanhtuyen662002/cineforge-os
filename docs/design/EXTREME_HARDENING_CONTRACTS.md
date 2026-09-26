@@ -996,3 +996,134 @@ Global learning/routing policies include:
 - minimum exploration floor where policy permits;
 - rare-domain preservation;
 - no direct optimization from raw engagement/cost alone.
+
+
+
+# Y. Semantic risk, trusted build and aggregate action contracts
+
+## Y1. Effective risk classification
+Effective risk is:
+`max(declared_risk, detected_risk, policy_required_risk)`.
+
+Detected risk signals include:
+- protected path classes;
+- auth/privacy/rights/storage/update/release semantics;
+- critical invariant test changes;
+- executable/native/postinstall dependency changes;
+- signing/trust policy changes;
+- bulk destructive/external actions.
+
+A task cannot lower its own gate by declaring LOW.
+
+## Y2. Governance drift baseline
+Periodic/governance CI compares current baseline with prior approved state:
+- required invariant tests;
+- workflow permissions;
+- runner trust;
+- signing/update policy;
+- dependency trust surface;
+- protected write scopes.
+
+Cumulative weakening triggers a governance finding even if no single PR crossed the threshold.
+
+## Y3. Build attestation
+
+### build_attestations
+- source_commit/tree
+- builder_identity / trust class
+- build recipe/version
+- toolchain digests
+- dependency/SBOM snapshot
+- environment profile
+- output artifact digests
+- created_at
+- signature/attestation identity
+
+Release artifacts must match an authorized attestation.
+
+## Y4. Signing request
+Signing API accepts:
+- release_manifest_id;
+- expected artifact digest;
+- signing purpose/key policy.
+
+It does not accept an arbitrary untrusted filesystem path as authority.
+Signer verifies digest is authorized by immutable manifest/attestation.
+
+# Z. External semantic correlation and outbound attestation
+
+## Z1. Provider correlation key
+External response identity includes:
+- provider/connector generation;
+- account/tenant;
+- request/job nonce;
+- external job ID;
+- expected artifact role/session;
+- recovery epoch.
+
+Authenticated but semantically mismatched responses are quarantined.
+
+## Z2. Outbound transport attestation
+Connector host records:
+- authorized egress manifest;
+- final serialized payload/body-part metadata hash where feasible;
+- destination endpoint/account identity;
+- transport result.
+
+Connector self-report alone is not proof that undeclared data was not sent.
+Capabilities unable to provide strong transport attestation are classified accordingly.
+
+# AA. Aggregate action policy
+
+Maintain rolling aggregate counters/policies for:
+- destructive entity count;
+- external spend/exposure;
+- external egress bytes/sensitive classes;
+- publish/delete/takedown count;
+- bulk generation/fanout.
+
+Repeated individually valid actions crossing a threshold are reclassified as bulk/high-risk and require the corresponding gate/DecisionRequest.
+
+# AB. Repository/CI artifact hygiene
+
+CI/repository policy blocks:
+- unexpected large binary/media files;
+- vendor/node_modules/build output unless explicitly governed;
+- generated file modification without source-of-truth change where policy forbids it;
+- secret/private-key/token patterns.
+
+Secret incident:
+- revoke/rotate immediately;
+- identify Git history/PR/CI artifacts/caches containing it;
+- remediate history/artifact retention as feasible;
+- never treat “deleted from current branch” as sufficient.
+
+CI artifacts/logs have sensitivity class, access and retention policy.
+
+# AC. Reproducible release environment
+
+Where reproducibility is claimed, attested environment includes:
+- locale/timezone;
+- source-date/deterministic timestamps where supported;
+- path/debug-prefix mapping;
+- toolchain/package digests;
+- build flags;
+- clean workspace identity.
+
+A reproducibility claim is verified by comparison, not prose.
+
+# AD. Publication multi-step state
+
+Publication tracks separately:
+- media upload;
+- metadata/title/description;
+- thumbnail;
+- subtitles/captions;
+- visibility/privacy;
+- scheduling;
+- platform processing;
+- actual-state verification.
+
+Target schedule stores explicit UTC instant + target/display timezone.
+
+Partial success is PARTIAL_EXTERNAL_STATE, not a single successful boolean.
