@@ -3146,3 +3146,172 @@ Deletion is represented by:
 82. malicious admin attempts to offboard all other owners;
 83. ownership transfer with non-transferable credentials/rights;
 84. actor ID tombstone/non-reuse audit.
+
+
+# ER. Immutable rights evidence binding
+
+Rights-sensitive decisions bind immutable evidence:
+- rights record revision;
+- consent revision;
+- license snapshot;
+- provider terms snapshot;
+- evidence asset/storage digest;
+- decision/review actor and time.
+
+Mutable external URLs are supplementary references only.
+
+# ES. Attribution obligation graph
+
+Rights records may emit deliverable obligations:
+- attribution text/template;
+- required placement/channel;
+- language/territory;
+- applicable asset/release scope.
+
+Release readiness resolves obligations against the exact ReleaseManifest/deliverable metadata.
+Missing required attribution is a blocking rights finding when policy says mandatory.
+
+# ET. Sensitive derived-data inheritance
+
+Derived biometric/identity-like artifacts inherit source sensitivity:
+- face embeddings;
+- voice embeddings;
+- identity fingerprints;
+- biometric features;
+- speaker/face indexes;
+- learned adaptation artifacts under CineForge control.
+
+Deletion/rights revocation propagates to these derived artifacts according to policy.
+Raw-source deletion alone is not sufficient if sensitive derivatives remain accessible.
+
+# EU. Dataset eligibility contract
+
+A training/evaluation dataset item is eligible only when all required dimensions are explicitly ALLOWED:
+- asset/license rights;
+- consent;
+- provider/output terms;
+- project privacy/data-use policy;
+- training/use-purpose policy.
+
+UNKNOWN is not ALLOWED.
+
+Dataset snapshot pins:
+- exact asset revision/content digest;
+- legal/rights identity;
+- eligibility evidence;
+- representation type;
+- provenance.
+
+# EV. Lineage-aware split and leakage prevention
+
+Protected train/eval split groups may include:
+- exact content hashes;
+- asset lineage/derivatives;
+- frames/clips from same source;
+- near-duplicate similarity cluster;
+- same performance/recording session where configured.
+
+A protected group cannot straddle training and sealed evaluation holdout.
+
+Similarity/dedup is evidence, not legal identity.
+
+# EW. Golden and benchmark governance
+
+Golden examples require:
+- exact representation identity;
+- provenance;
+- rights eligibility;
+- reviewer authority;
+- review confidence/optional second review;
+- expected outcome;
+- exposure/tuning history.
+
+Benchmark suites track:
+- version;
+- membership snapshot;
+- sealed/open status;
+- number of tuning/promotion exposures;
+- validity/taint state.
+
+Repeated optimization against one benchmark triggers overfit risk and may require a fresh sealed holdout.
+
+# EX. Feedback poisoning boundary
+
+Production feedback/user labels begin as:
+- UNTRUSTED_FEEDBACK
+- CURATION_REQUIRED
+
+They do not directly become training truth.
+
+Curation may use:
+- multi-source agreement;
+- reviewer authority;
+- anomaly/poison checks;
+- contribution caps;
+- project/domain stratification.
+
+A single project/user cannot silently dominate global model/router behavior.
+
+# EY. Learning lineage and revocation
+
+Maintain graph:
+```text
+SourceAsset/Revision
+→ DatasetSnapshot
+→ Training/EvaluationRun
+→ CandidateComponentVersion
+→ PromotionRecord
+→ ProductionUse
+```
+
+On rights/privacy revocation:
+1. block future dataset membership;
+2. stop/revalidate active training;
+3. taint affected dataset/run/component nodes;
+4. policy decides DEPRECATE / DEPROMOTE / RETRAIN / CONTINUE_WITH_LEGAL_APPROVAL;
+5. preserve evidence.
+
+Do not promise selective machine unlearning when underlying model cannot support it.
+
+# EZ. Dataset/export privacy
+
+Training/evaluation exports use explicit allowlist.
+By default remove unnecessary:
+- filenames/usernames;
+- absolute paths;
+- private project IDs;
+- debug prompts;
+- raw hidden context;
+- provider endpoints/tokens;
+- diagnostic traces.
+
+Dataset egress records exact included fields/assets and purpose.
+
+Sensitive evaluation evidence has retention/TTL policy.
+
+# FA. Representation-aware evaluation
+
+Evaluation subject pins:
+- exact asset revision;
+- representation role (MASTER/PROXY/PREVIEW/etc.);
+- transform chain;
+- resolution/audio/color profile.
+
+A PASS on proxy does not satisfy master gate unless equivalence policy explicitly permits it.
+
+# FB. Required rights/learning tests
+
+85. tamper/delete rights evidence after approval;
+86. required attribution omitted from release;
+87. consent revoked after voice/face embedding creation;
+88. delete source while derived sensitive embeddings remain;
+89. UNKNOWN training permission dataset admission;
+90. same lineage/near-duplicate in train and sealed evaluation;
+91. poisoned user feedback attempts golden promotion;
+92. one project dominates learning contribution;
+93. provider terms forbid training after asset creation;
+94. rights revocation during active training;
+95. rights revocation after component promotion;
+96. dataset export privacy leakage;
+97. proxy evaluation incorrectly satisfying master benchmark;
+98. backup restore attempts to resurrect deleted sensitive derived data.
