@@ -857,3 +857,142 @@ CI documentation lint verifies:
 - extreme hardening belongs in this document rather than copied into all baseline detailed docs.
 
 A failed documentation contract lint blocks merge because agent implementation depends on these documents as executable context.
+
+
+
+# S. Recovery/deletion/learning interaction contracts
+
+## S1. Recovery-epoch fencing of ephemeral state
+Objects that are not valid across restore epochs include by default:
+- slot/control/resource/protection leases;
+- browser/session leases;
+- local media/RPC capability tokens;
+- transient reservations;
+- epoch-scoped idempotency entries.
+
+After restore they are expired/reconciled, never blindly trusted.
+
+## S2. Forward revocation/deletion journal
+
+### forward_policy_events
+Durable events that must survive restore of older project state:
+- privacy deletion/tombstone;
+- rights revocation;
+- consent withdrawal;
+- credential/key revocation;
+- emergency trust revocation.
+
+Recovery applies all forward events newer than the backup checkpoint before project/search/release becomes authoritative.
+
+## S3. Key lifecycle journal
+Key rotation records per object/key-wrap progress and is resumable.
+Deletion/crypto-erasure policy knows which backups/archives retain wrapped keys.
+Archive policy includes periodic decryptability checks and recovery material status.
+
+## S4. Project clone isolation
+Clone may intentionally reference/copy creative assets and selected policies.
+Clone never copies:
+- command/outbox/inbox/idempotency history;
+- active jobs/leases/reservations;
+- usage ledger transactions;
+- credential bindings/browser sessions;
+- authorization-scoped derived caches/index generations.
+
+## S5. Learning/evaluation lineage
+Failure examples, golden examples, benchmark datasets and training inputs bind:
+- source revision;
+- project/privacy scope;
+- consent/rights/training permission;
+- immutable dataset snapshot revision.
+
+Withdrawal/revocation blocks future eligible use and creates lineage impact for promoted heuristics/models.
+Data classes that cannot tolerate non-guaranteed unlearning are prohibited from TRAINING use up front.
+
+## S6. Immutable dataset snapshots
+Promotion records pin exact:
+- dataset snapshot ID/hash;
+- label revision;
+- benchmark version;
+- evaluator/router candidate version.
+
+Label changes create a new immutable dataset revision.
+
+# T. Generation/protection/publication concurrency
+
+## T1. Projection/index generation activation
+Rebuild creates immutable generation G+1.
+After verify:
+- atomically switch active generation pointer;
+- retain G for rollback/ongoing readers;
+- retire G later.
+
+Security-sensitive deletion/revocation may fence G immediately before rebuild completion.
+
+## T2. Dependency protection leases
+Protection lease can cover a resource set:
+- output object;
+- source objects;
+- package/model/runtime;
+- rights/license snapshot;
+- key material reference;
+- backup manifest.
+
+GC/uninstall/removal cannot invalidate a proof while lease is active.
+
+## T3. Publication action serialization
+For one external publication identity:
+- publish;
+- replace;
+- takedown;
+- republish
+use an aggregate fencing token/serialized external-action queue.
+
+Revalidate rights/privacy/destination before each irreversible phase.
+
+# U. Maintenance and observability admission control
+
+Maintenance workloads are scheduled resources.
+
+Policies:
+- log rate/dedup/sampling + disk quota;
+- metrics label-cardinality budget;
+- integrity audit incremental ranges;
+- hash scrub I/O budget;
+- backup upload bandwidth priority;
+- production playback/render has higher interactive priority when configured.
+
+Background safety work may be mandatory but must be paced rather than starving foreground production.
+
+# V. Backup durability and storage migration
+
+## V1. No silent durability downgrade
+Configured target class is a contract:
+LOCAL_WRITABLE | SEPARATE_VOLUME | OFFLINE | IMMUTABLE_REMOTE.
+
+If target class cannot be achieved:
+- state = DEGRADED/BLOCKED;
+- report reason;
+- require policy-authorized fallback.
+
+## V2. Filesystem compatibility preflight
+Move/restore checks:
+- case/Unicode collision;
+- max path/file size;
+- free space;
+- atomic rename/locking needs;
+- volume identity;
+- existing corpus compatibility.
+
+# W. Historical identity and audit durability
+
+Human/agent actors are never physically erased from historical approval provenance.
+Actor state may become DISABLED/TOMBSTONED while immutable historical identity remains.
+
+# X. Learning diversity controls
+
+Global learning/routing policies include:
+- per-project/domain sample caps or weights;
+- provider/model concentration monitoring;
+- minimum exploration floor where policy permits;
+- rare-domain preservation;
+- no direct optimization from raw engagement/cost alone.
