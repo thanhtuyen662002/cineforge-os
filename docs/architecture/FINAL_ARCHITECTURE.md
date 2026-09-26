@@ -1803,3 +1803,84 @@ The canonical hardening set also includes these controls salvaged from earlier a
 - Historical migration compatibility is tested with retained old-format fixtures/tooling metadata.
 - Ownership transfer and actor offboarding are first-class workflows distinct from cloning/deletion.
 - Release archives preserve final bytes, manifests/attestations and open/documented interchange while representing reproducibility honestly.
+
+
+
+# 65. External side-effect ledger survives project rollback
+
+A recovery epoch stored only inside the restored project/Core database is insufficient: restoring an old snapshot can make CineForge forget external effects that happened after the snapshot.
+
+CineForge therefore maintains an **Installation External Side-Effect Ledger** outside project rollback scope.
+
+It records before/at dispatch:
+- installation_id;
+- dispatch_fence_id (random globally unique identifier);
+- command/job/attempt identity;
+- provider/connection/account/workspace identity;
+- idempotency key;
+- intent digest;
+- dispatch state;
+- provider receipt/external job ID when known;
+- money/credit exposure;
+- publication/delete/upload side-effect class.
+
+Rules:
+- project restore never rewinds this ledger;
+- restore reconciliation compares restored project state against this ledger;
+- unknown “future” external effects are surfaced/quarantined;
+- restored outbox cannot redispatch an intent whose fence/idempotency evidence is already present unless reconciliation explicitly authorizes it.
+
+For full-machine disaster where the installation ledger is also lost, CineForge enters **EXTERNAL_REALITY_UNKNOWN** and requires provider-side reconciliation/manual decisions before risky redispatch. It must not pretend exact rollback is possible.
+
+# 66. Backup authenticity, confidentiality and failure-domain policy
+
+Backup verification includes more than file hashes stored beside the files.
+
+Backup profiles may require:
+- signed/MACed manifest authenticity;
+- encryption at rest or verified encrypted volume;
+- separate failure domain;
+- immutable/offline retention class;
+- restore drill evidence.
+
+A manifest/hash that an attacker can modify together with the backup is not strong authenticity evidence.
+
+Sensitive temporary/staging/diagnostic data follows retention and encryption policy; “delete” is not represented as guaranteed physical secure erase on SSDs.
+
+# 67. Cache legality/policy identity
+
+A technically identical cached artifact may become unusable after rights/privacy/provider-policy changes.
+
+Any cache capable of reintroducing production content includes all semantics that affect validity, such as:
+- exact source revision hashes;
+- model/connector/workflow revision;
+- media profile;
+- relevant rights/license/policy snapshot or validity epoch;
+- privacy/egress policy where it changes execution/output legality.
+
+A rights revocation or policy change can invalidate cache eligibility without deleting historical bytes.
+
+# 68. Authenticated callback scope binding
+
+A valid callback signature is not sufficient if it belongs to the wrong account/tenant/job.
+
+Callback verification binds:
+- provider;
+- endpoint/channel;
+- expected account/tenant/workspace when available;
+- external job/attempt correlation;
+- current recovery/installation fence where provider metadata supports it.
+
+A validly signed but mismatched-tenant callback is rejected/quarantined.
+
+# 69. Staging/CAS file identity race defense
+
+Registration of parser/connector outputs uses stable file handles/identities where supported.
+
+Between verification and registration CineForge must defend against:
+- symlink/junction replacement;
+- hardlink aliasing;
+- file swap/rename by another process;
+- writable alias to canonical CAS object.
+
+Finalization verifies the same file identity/content that was hashed before atomically entering managed storage.
