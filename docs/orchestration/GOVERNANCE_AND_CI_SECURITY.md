@@ -336,3 +336,53 @@ Changes to `TRUSTED_CONTROL_POLICY.md` use the stricter of:
 - proposed new policy.
 
 A PR cannot add its own reviewer/trusted actor and then use that newly added authority to approve itself.
+
+
+
+# 22. Bootstrap verifier ceremony
+
+The first trusted CI/check/parser cannot prove itself recursively.
+
+During BOOTSTRAP_ENABLEMENT:
+1. repository owner/external trusted reviewer inspects the exact workflow/parser source;
+2. record its commit/tree digest;
+3. verify requested GitHub permissions are minimal;
+4. verify it does not execute untrusted fork code with privileged secrets;
+5. run a controlled positive test and a controlled failure test;
+6. record the check producer/App identity and workflow path;
+7. only then promote it to a trusted required verifier.
+
+Subsequent verifier changes use normal HIGH-risk governance flow.
+
+# 23. Repository protection rollout
+
+Rulesets/branch protection are deployed in phases:
+1. readiness/observe-only assessment;
+2. verify current GitHub App/agent/admin access;
+3. test a disposable PR against intended checks;
+4. enable required checks/protection;
+5. verify legitimate Integrator path still works;
+6. verify emergency administrator recovery path exists outside autonomous agent credentials;
+7. record resulting ruleset/check identities.
+
+Protection availability failure is an incident; agents must not weaken rules blindly to restore throughput.
+
+# 24. Required-check migration
+
+Required-check/workflow identity changes use two-phase migration:
+- introduce and prove new check alongside old;
+- update repository rule to accept/require the new identity;
+- confirm merge path works;
+- retire the old check afterward.
+
+Never remove/rename the sole required check before repository rules migrate.
+
+# 25. Assurance unavailable state
+
+If required review assurance exceeds currently available trusted runtime/credential capacity:
+- state is `ASSURANCE_UNAVAILABLE`;
+- do not silently downgrade;
+- do not self-mint another identity;
+- use explicit owner/external reviewer or valid bootstrap/disaster mechanism.
+
+Throughput pressure is not evidence that a lower assurance level is safe.
