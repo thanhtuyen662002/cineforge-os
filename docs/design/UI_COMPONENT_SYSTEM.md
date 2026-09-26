@@ -1812,3 +1812,82 @@ Show:
 - current local deployment identity;
 - recovery/retirement options;
 - avoid claiming CineForge can automatically stop an offline/fully cloned machine without remote authority.
+
+
+
+# 86. Endpoint / Core identity incident UX
+
+Normal users should not see pipe/port terminology.
+
+If Desktop reaches an unexpected local Core:
+`CineForge không thể xác nhận phiên xử lý cục bộ hiện tại và đã chặn thao tác ghi để bảo vệ dữ liệu.`
+
+Actions:
+- Thử kết nối lại
+- Mở chỉ đọc
+- Xem chẩn đoán
+
+Never offer “connect anyway” for privileged mutation.
+
+# 87. Proxy/network-route UX
+
+Advanced Connection detail shows:
+- effective route: Direct / System proxy / Explicit proxy / Enterprise managed;
+- last verified;
+- provider/account/region identity.
+
+If route changes materially:
+`Đường kết nối mạng của công cụ này đã thay đổi. CineForge cần kiểm tra lại trước khi tiếp tục gửi dữ liệu.`
+
+# 88. Capture privacy UX
+
+Capture controls always show:
+- active source/device;
+- recording indicator;
+- elapsed time;
+- project/purpose where useful.
+
+On Stop:
+- indicator changes to `Đang dừng…` until OS/device confirms closure;
+- only then show `Đã dừng`.
+
+If default device changes:
+- do not silently switch for sensitive capture.
+
+# 89. Deletion guarantee UX
+
+Use precise language:
+- Đã xóa khỏi CineForge
+- Đã crypto-erase
+- Đã cố gắng ghi đè
+- Không thể xác nhận xóa vật lý
+- Có thể còn bản sao ở dịch vụ/backup bên ngoài
+
+Do not use one universal “Đã xóa an toàn”.
+
+# 90. Maintenance / low-disk UX
+
+Before a large maintenance operation:
+`Tác vụ này cần thêm khoảng … dung lượng tạm thời và có thể làm chậm sản xuất.`
+
+If reserve insufficient:
+- Dọn an toàn
+- Chọn lúc khác
+- Đổi vị trí cache/temp where supported
+
+Do not start VACUUM/rebuild and fail halfway merely because current free space is above zero.
+
+# 91. Stale notification action UX
+
+When user clicks an old native notification:
+`Tình trạng đã thay đổi kể từ khi thông báo được gửi.`
+
+Open the current Decision/Activity state instead of executing the historical action.
+
+# 92. Resume reconciliation UX
+
+After wake/hibernate:
+`CineForge đang đối chiếu lại các tác vụ chạy trong lúc máy tạm nghỉ.`
+
+User may continue local browsing where safe.
+Cloud/browser retry buttons remain temporarily disabled until reconciliation completes.
