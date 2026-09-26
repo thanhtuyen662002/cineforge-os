@@ -7753,3 +7753,197 @@ Nonurgent indexing/proxy/hash/backup workloads respond to:
 - explicit user policy.
 
 Correctness work remains distinct from optional precompute.
+
+
+# 37. Capability Fabric / connector transport adversarial wave
+
+This wave uses `CAP-xx`.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| CAP-01 | MCP server reconnects at same URL/name but is a different server identity | **GAP/P0/P1** | endpoint string is not server identity |
+| CAP-02 | MCP tool schema fingerprint is unchanged but server behavior changes from read to write | **GAP/P0** | schema alone cannot certify side-effect semantics |
+| CAP-03 | MCP tool claims read-only annotation but actually deletes/mutates | **GAP/P0** | server annotations are untrusted claims |
+| CAP-04 | MCP server adds a new dangerous tool after initial authorization | PARTIAL | schema-change re-verification exists; tool-level default deny should be explicit |
+| CAP-05 | MCP tool name collides across two servers and router calls wrong one | **GAP/P1** | tool identity must include server/connector identity |
+| CAP-06 | MCP resource URI points to local/network path outside authorized scope | **GAP/P0/P1** | resource URI is untrusted external reference |
+| CAP-07 | MCP prompt/resource content contains instructions that override CineForge policy | PARTIAL | trust-channel separation exists; MCP resources must be EXTERNAL_CONTENT by default |
+| CAP-08 | MCP result is 500MB JSON and exhausts Core/UI memory | **GAP/P1** | per-tool result/stream size budget |
+| CAP-09 | MCP stream emits infinite progress/log events without completion | **GAP/P1** | stream rate/size/deadline/backpressure required |
+| CAP-10 | MCP cancellation returns success but external side effect still happens | PARTIAL | CANCEL_UNKNOWN exists; connector must reconcile effect |
+| CAP-11 | MCP server changes tool list mid-job | **GAP/P1** | job pins connector/tool schema/semantic certification revision |
+| CAP-12 | MCP reconnect resumes session with different auth account/workspace | PARTIAL | account identity exists; pin/reverify per dispatch |
+| CAP-13 | MCP tool returns a filesystem path outside staging | PARTIAL | path sandbox known; output normalization must reject |
+| CAP-14 | MCP server asks for higher privilege indirectly through nested resource/tool callback | **GAP/P0** | delegated/nested calls require independent authorization, no privilege inheritance |
+| CAP-15 | MCP tool has non-idempotent side effect but adapter marks retryable | **GAP/P0/P1** | effect/idempotency class is certified host policy |
+| CAP-16 | CLI exits 0 but expected output file is missing/truncated | PARTIAL | output validation exists |
+| CAP-17 | CLI exits nonzero after producing a valid partial artifact | **GAP/P1** | partial-output policy separate from exit code |
+| CAP-18 | CLI writes success message to localized stdout that parser misreads | **GAP/P1** | machine protocol/exit/artifact evidence should not scrape human text |
+| CAP-19 | CLI output decimal/date formatting changes with locale | **GAP/P1** | trusted workers set explicit locale/parse machine format |
+| CAP-20 | CLI unexpectedly prompts for confirmation and blocks forever | **GAP/P1** | noninteractive mode + stdin policy + timeout |
+| CAP-21 | CLI spawns child process that survives parent cancellation | **GAP/P1** | process-tree/job-object containment required |
+| CAP-22 | CLI child inherits secret-bearing handles/environment unnecessarily | **GAP/P0/P1** | handle/env inheritance allowlist |
+| CAP-23 | CLI writes outside staging through config/home defaults | **GAP/P1** | sandboxed HOME/CWD/output policy |
+| CAP-24 | CLI executable auto-updates itself between certification and run | **GAP/P1** | executable/package digest revalidated at dispatch |
+| CAP-25 | Local service restarts and reuses queue/job IDs from prior process | **GAP/P1** | process epoch + external job identity tuple |
+| CAP-26 | Local service custom node/plugin changes after health certification | **GAP/P1** | runtime/plugin manifest hash pins execution environment |
+| CAP-27 | Local service says job complete before all output files are flushed | **GAP/P1** | output materialization/stability check |
+| CAP-28 | Local service queue is shared with unrelated external user/process | **GAP/P1 privacy** | queue ownership/session/project correlation required |
+| CAP-29 | API returns HTTP 200 with provider-level error payload | **GAP/P1** | transport success != semantic success |
+| CAP-30 | API returns partial success for batch; adapter treats whole batch success | **GAP/P1** | per-item outcome required |
+| CAP-31 | API pagination omits next page and CineForge assumes complete listing | **GAP/P1** | completeness proof/cursor state needed |
+| CAP-32 | API list endpoint is eventually consistent; just-created artifact not visible yet | **GAP/P1** | creation receipt beats listing absence |
+| CAP-33 | API webhook arrives before GET/list endpoint shows state | PARTIAL | event receipt/evidence exists; reconcile consistency window |
+| CAP-34 | API returns Retry-After but generic retry ignores it and hammers provider | **GAP/P1** | provider backoff contract |
+| CAP-35 | API rate-limit is account-wide but scheduler models per-project | **GAP/P1** | quota/resource scope must match provider account/workspace |
+| CAP-36 | OAuth token refresh obtains narrower/different scopes without obvious failure | **GAP/P1** | scope set revalidated, not only token valid |
+| CAP-37 | OAuth refresh changes account/tenant due provider login flow | PARTIAL | identity scope verification exists |
+| CAP-38 | API version is sunset/deprecated; provider keeps 200 but changes default behavior | **GAP/P1** | version/capability semantic certification expiry |
+| CAP-39 | Signed API request fails due clock skew and router marks provider unhealthy | PARTIAL | time-health classification exists |
+| CAP-40 | Browser A/B test moves destructive button into old selector position | PARTIAL/GAP | DOM drift known; semantic action guard needed |
+| CAP-41 | Browser selector still matches but label/action semantics changed | **GAP/P0/P1** | selector success is not action certification |
+| CAP-42 | Browser retry after timeout double-clicks Generate/Publish | **GAP/P0/P1** | browser action idempotency/effect reconciliation |
+| CAP-43 | Browser lazy-load means first matching downloaded asset belongs to prior job | PARTIAL | trace/hash association exists |
+| CAP-44 | Browser service-worker/cache serves stale account/page after re-login | **GAP/P1** | account/workspace identity check at critical step |
+| CAP-45 | Browser human takeover changes page state then automation resumes from stale assumptions | PARTIAL | verified checkpoint exists; must invalidate all downstream assumptions |
+| CAP-46 | Browser tab is navigated manually to another project/account while worker waits | **GAP/P1** | tab/session context fingerprint before each privileged action |
+| CAP-47 | Web download completes with HTML login page named like media | PARTIAL | decode verification catches; connector should classify auth/session regression |
+| CAP-48 | Browser upload silently compresses/reencodes reference file | **GAP/P1** | provider-upload artifact fingerprint/preview evidence needed where important |
+| CAP-49 | Browser provider changes generated output after page refresh/version update | **GAP/P1** | local materialized artifact is truth; remote mutable presentation is evidence only |
+| CAP-50 | Connector health check performs paid generation and burns quota repeatedly | PARTIAL | health effect/cost known; certification should declare probe class |
+| CAP-51 | Health check has side effect creating/deleting remote data | **GAP/P1** | health probe effect class and cleanup/compensation contract |
+| CAP-52 | Connection reports AVAILABLE but required model/capability is temporarily disabled | **GAP/P1** | capability-specific health, not one connection boolean |
+| CAP-53 | Capability extension JSON contains unknown field interpreted differently by connector version | PARTIAL | versioned extension namespace exists; strict schema required |
+| CAP-54 | Connector returns output with wrong project/job handle but valid asset bytes | **GAP/P1** | normalized result must bind exact attempt/context |
+| CAP-55 | One connector internally delegates to another provider without telling CineForge | **GAP/P1 privacy/rights** | subprocessor/provider disclosure/effective egress identity needed |
+| CAP-56 | Provider routes request to different region/subprocessor after update | PARTIAL | region metadata exists; execution receipt should snapshot effective provider path when knowable |
+| CAP-57 | Browser/API manually configured endpoint points to transparent proxy caching prompts/media | PARTIAL | route identity exists; privacy policy can block unknown route |
+| CAP-58 | Local service accepts arbitrary path in workflow JSON despite adapter staging | **GAP/P0/P1** | connector validates/re-writes nested path fields to scoped handles/staging |
+| CAP-59 | Connector logs raw provider request containing secret/reference media URL | **GAP/P1** | pre-log structured redaction at connector boundary |
+| CAP-60 | Connector plugin crashes after external charge but before usage record | PARTIAL | reconciliation exists; cost receipt/effect evidence must survive plugin crash |
+
+# 38. Capability Fabric findings
+
+## X167 — Connector semantic certification (P0/P1)
+Certification is more than schema/health.
+
+For each capability/action, record:
+- effect class: READ | CREATE | MUTATE | DELETE | PUBLISH | PAID | OTHER;
+- idempotency class;
+- cancellation semantics;
+- partial-output semantics;
+- external side effects;
+- required permissions/account scope;
+- output/materialization contract;
+- maximum/expected result size/stream behavior;
+- certification version/expiry.
+
+Provider/server self-description is evidence, not sole authority.
+
+## X168 — Tool identity closure (P1)
+Tool identity is:
+ConnectorVersion + Server/Runtime Identity + Capability ID + Tool ID/Schema Revision.
+
+Bare tool name is never globally unique.
+
+Jobs pin this tuple.
+Dynamic tool/schema changes create a new certification context.
+
+## X169 — Nested/delegated call authorization (P0)
+A connector/MCP tool cannot inherit arbitrary CineForge authority to make nested calls.
+
+Every nested external/tool/resource request:
+- remains inside originally granted effect/scope; or
+- requires a new explicit authorized host operation.
+
+No privilege escalation through tool callbacks/resources.
+
+## X170 — Connector result/stream resource budgets (P1)
+Each capability defines:
+- max metadata/result bytes;
+- max stream rate/event count;
+- deadline/idle timeout;
+- chunking/backpressure;
+- spill-to-staging behavior.
+
+Large provider/MCP output does not accumulate unbounded in Core/UI memory.
+
+## X171 — CLI process-tree sandbox contract (P0/P1)
+CLI execution controls:
+- absolute certified executable;
+- sanitized locale/env/HOME/CWD;
+- stdin closed/noninteractive unless explicitly allowed;
+- OS job/process-tree containment;
+- handle inheritance allowlist;
+- network/filesystem scopes;
+- timeout/cancellation killing descendants.
+
+Exit code is one evidence source, not full success proof.
+
+## X172 — Local-service execution epoch (P1)
+Local service identity includes process/server epoch + runtime/plugin manifest hash.
+Queue/job IDs are interpreted only within that epoch/context.
+
+Restart/plugin change invalidates old certification/job-association assumptions.
+
+## X173 — API semantic success/completeness contract (P1)
+Adapter distinguishes:
+- transport success;
+- provider semantic success;
+- per-item batch outcome;
+- listing completeness;
+- eventual-consistency state;
+- authoritative creation receipt.
+
+HTTP 2xx alone never means the requested domain effect succeeded.
+
+## X174 — Provider rate/quota/backoff scope (P1)
+Rate/quota resource identity follows actual provider scope:
+- account;
+- workspace;
+- API key;
+- model;
+- region
+
+as applicable.
+
+Retry honors provider backoff hints within CineForge policy and uses jitter/reconciliation.
+
+## X175 — OAuth/account-scope freshness (P1)
+Credential validity includes effective scopes/account/workspace/tenant.
+Refresh that changes scope/identity invalidates capability readiness until revalidated.
+
+## X176 — Browser semantic action guard (P0/P1)
+Critical browser action does not trust selector match alone.
+
+Before CREATE/DELETE/PUBLISH/PAID action, verify contextual cues such as:
+- expected page/account/workspace;
+- action label/semantic fingerprint;
+- target object;
+- confirmation state.
+
+UI drift/A-B change moves connector to DEGRADED/NEEDS_REVIEW rather than blindly clicking.
+
+## X177 — Browser action reconciliation/idempotency (P0/P1)
+After timeout/uncertain click:
+- inspect page/provider state;
+- correlate trace/external receipt;
+- do not repeat non-idempotent action until effect is known.
+
+Browser automation receives the same uncertain-side-effect semantics as APIs.
+
+## X178 — Capability-specific health (P1)
+Connection-wide READY is only summary.
+Health/readiness is per capability/model/action where needed.
+
+One disabled video model does not imply voice API failure; one healthy login does not prove Publish is available.
+
+## X179 — Subprocessor/effective-provider disclosure (P1)
+A connector that delegates work to another provider/region/subprocessor records the effective external-processing identity when knowable.
+
+Privacy/rights routing evaluates actual declared egress chain, not only connector brand.
+
+## X180 — Connector-boundary redaction and receipt durability (P1)
+Sensitive request/response fields are redacted before generic logs/traces.
+
+External effect/cost receipt needed for recovery is written through host-controlled durable evidence, so connector crash cannot erase knowledge that a charge/action may have occurred.
