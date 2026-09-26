@@ -1241,3 +1241,66 @@ Execution:
 
 The snapshot freezes exact entity/revision membership.
 Live filters are never re-evaluated at execution time for an already-confirmed destructive/approval command.
+
+
+
+# 72. Installation side-effect ledger API
+
+Internal methods:
+- `side_effects.prepare_dispatch`
+- `side_effects.record_acceptance`
+- `side_effects.record_unknown`
+- `side_effects.reconcile`
+- `side_effects.query_unreconciled`
+
+Dispatch ordering:
+1. persist/fence intent in installation ledger;
+2. perform external call;
+3. persist provider receipt/unknown state;
+4. update project-domain attempt through normal command/event flow.
+
+Project restore does not delete ledger history.
+
+If the installation ledger is unavailable after full disaster restore, Core exposes `EXTERNAL_REALITY_UNKNOWN` and blocks policy-defined risky redispatches.
+
+# 73. Backup authenticity/confidentiality API
+
+`backup.plan` returns:
+- target failure domain;
+- encryption state;
+- manifest authentication method;
+- credential portability;
+- immutability/offline class.
+
+`backup.verify` validates both content integrity and manifest authenticity according to policy.
+
+# 74. Cache validity API
+
+Before a cache hit:
+- `cache.evaluate_validity(cache_entry_id, current_context)`
+
+Rights/privacy/policy changes may make an entry ineligible without deleting historical bytes.
+
+Cache key/validity manifest must distinguish:
+- technical reproducibility;
+- legal/policy eligibility.
+
+# 75. Callback scope API
+
+`callbacks.verify_and_register` additionally checks:
+- expected connection;
+- account/tenant/workspace;
+- external job correlation;
+- recovery/installation fence where available.
+
+Valid signature + wrong scope => quarantine, not acceptance.
+
+# 76. CAS finalize API
+
+`storage.finalize_staging_object` verifies:
+- current file identity equals verified staging identity;
+- no forbidden reparse/symlink escape;
+- content digest still matches;
+- destination CAS path is not exposed through a writable alias.
+
+On mismatch, quarantine and do not register READY bytes.
