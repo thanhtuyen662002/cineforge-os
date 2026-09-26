@@ -1522,3 +1522,54 @@ When user chooses a shared filesystem root:
 - explain whether other OS users may access project/media;
 - offer safe user-private default;
 - do not silently relax ACLs.
+
+
+# 68. Duplicate Core / instance UX
+
+If user launches CineForge twice against the same local database:
+- second instance should focus/hand off to existing instance where possible;
+- otherwise show `CineForge đang chạy trong một phiên khác`;
+- never start a second hidden scheduler.
+
+If prior Core appears stale:
+- show recovery/restart state rather than asking user to delete lock files manually.
+
+# 69. Time uncertainty UX
+
+If system clock is materially inconsistent:
+`Thời gian hệ thống có vẻ không chính xác. CineForge đang tạm giữ các thao tác phụ thuộc vào ngày hết hạn/lịch phát hành.`
+
+Normal editing can continue where safe.
+
+# 70. Private derived-data UX
+
+When user removes/revokes confidential content:
+- UI reports whether previews/search/learning derivatives are also being removed;
+- “Đã xóa” must not mean only the original media disappeared while semantic index remains queryable.
+
+# 71. Local-service exposure UX
+
+Unexpected exposure is a security problem:
+`Một dịch vụ nội bộ đang mở ra ngoài phạm vi an toàn. CineForge đã tạm dừng dịch vụ này.`
+
+Advanced detail may show port/bind/ACL.
+
+# 72. Timeline history scale UX
+
+Large projects should not become visibly slower because millions of edit ops replay.
+
+History UI can show checkpoints/older archived history without loading all operations at once.
+
+Undo horizon/archived history should be described honestly if some ephemeral undo data is released by policy.
+
+# 73. Release final verification UX
+
+Immediately before final release/publish show a short final gate:
+- Media
+- Rights
+- Integrity
+- Signing
+- Storage availability
+
+If anything changed since earlier approval:
+`Một điều kiện đã thay đổi kể từ lần duyệt trước. Cần kiểm tra lại trước khi phát hành.`
