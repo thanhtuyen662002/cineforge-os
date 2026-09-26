@@ -3127,3 +3127,74 @@ Execution receipt includes declared/observed effective provider/account/region/s
 Privacy/rights policy checks that chain before or immediately around dispatch according to connector capabilities.
 
 Unknown effective processing path can block sensitive jobs.
+
+
+
+# 103. Epoch-qualified event cursor API
+
+Replace the conceptual bare after_seq cursor with:
+
+EventCursor {
+  installation_id,
+  library_lineage_id,
+  deployment_generation,
+  recovery_epoch_id,
+  stream_generation_id,
+  event_seq
+}
+
+events.subscribe(cursor, scopes, classes)
+
+Responses include:
+- EVENT_BATCH
+- CURSOR_TOO_OLD
+- EPOCH_MISMATCH
+- RESET_REQUIRED
+- RECOVERY_DIVERGENCE
+
+The server never returns an empty successful stream solely because the client's numeric seq is greater than the restored stream.
+
+# 104. Client/Core recovery handshake
+
+On connect/reconnect:
+- client.handshake(local_sync_context)
+
+Core returns:
+- installation/library lineage;
+- deployment generation;
+- recovery epoch;
+- active stream generation;
+- active projection generations;
+- API compatibility;
+- token/session reset instructions.
+
+If mismatch:
+- cached query projections invalidated;
+- old scoped capability tokens invalidated;
+- pending side-effectful commands moved to reconciliation;
+- unsynced drafts preserved as divergent working copies where possible.
+
+# 105. Offline pending-command reconciliation API
+
+Commands:
+- ClassifyOfflinePendingCommands
+- PreservePendingEditAsDraft
+- ReissueSafePendingCommand
+- ResolvePendingSideEffectCommand
+- DiscardPendingCommand
+
+Policy:
+- side-effectful/paid/publish/delete commands from superseded recovery epoch never auto-replay;
+- local draft edits may be preserved/branched;
+- reads can normally be discarded/reissued.
+
+# 106. Recovery-specific conflict errors
+
+Stable errors include:
+- RECOVERY_EPOCH_MISMATCH
+- DEPLOYMENT_GENERATION_MISMATCH
+- DIVERGENT_OFFLINE_HISTORY
+- SUPERSEDED_CAPABILITY_TOKEN
+- CLIENT_RESET_REQUIRED
+
+UI/support can distinguish disaster-recovery divergence from an ordinary stale edit.
