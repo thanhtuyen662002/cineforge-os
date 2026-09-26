@@ -2252,3 +2252,57 @@ Only VALID entry can satisfy a requested claim/profile.
 - REVERIFIED
 
 Release gate accepts only evidence current for the exact release artifact revision/digest.
+
+
+
+# 92. Provenance evidence lifecycle
+
+Claim:
+- ACTIVE
+- INVALID
+- SUPERSEDED
+- CONFLICT
+
+Package verification:
+- UNVERIFIED
+- SUBJECT_MATCHED
+- SIGNATURE_VALID
+- TRUST_VERIFIED
+- PARTIAL
+- CONFLICT
+- INVALID
+
+No single “VERIFIED” state collapses subject/signature/trust/rights dimensions.
+
+# 93. Embedded provenance preservation
+
+- PRESENT
+- PRESERVED
+- STRIPPED
+- REATTACH_REQUIRED
+- REATTACHED
+- UNKNOWN
+
+A transform may legitimately move PRESERVED → STRIPPED while internal lineage remains intact.
+
+# 94. Publication artifact verification
+
+For each role:
+- UNOBSERVED
+- MATERIALIZED
+- HASH_VERIFIED
+- PLATFORM_CONFIRMED
+- CHANGED_BY_PLATFORM
+- UNKNOWN
+
+Uploaded bytes and public derivative are independent.
+
+# 95. Provenance conflict lifecycle
+
+- OPEN
+- UNDER_REVIEW
+- RESOLVED
+- WAIVED
+- OBSOLETE
+
+Waiver records scope; it does not delete conflicting evidence.
