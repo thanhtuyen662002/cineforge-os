@@ -3182,3 +3182,114 @@ Extend `diagnostic_bundles`:
 - target_redacted
 - decision: ALLOWED | BLOCKED | QUARANTINED
 - observed_at_utc_us
+
+
+
+# 75. Encrypted physical objects and wrapped data keys
+
+## physical_storage_objects
+- id PK
+- logical_storage_object_id FK storage_objects
+- ciphertext_hash_algorithm
+- ciphertext_hash
+- byte_size
+- encryption_mode
+- key_scope_id nullable
+- state
+- created_at_utc_us
+UNIQUE(ciphertext_hash_algorithm, ciphertext_hash)
+
+## object_data_keys
+- id PK
+- physical_storage_object_id FK
+- data_key_id
+- encryption_algorithm
+- wrapped_by_key_record_id FK encryption_keys
+- wrapped_key_blob_ref
+- state: ACTIVE | REWRAPPED | REVOKED | LOST
+- created_at_utc_us
+
+# 76. Resource admission plans
+
+## resource_admission_plans
+- id PK
+- job_attempt_id FK
+- priority_class: INTERACTIVE | CRITICAL_PATH | NORMAL | BACKGROUND | MAINTENANCE
+- acquisition_order_version
+- state: PLANNED | RESERVING | ACTIVE | WAITING | REJECTED | RELEASED
+- created_at_utc_us
+- expires_at_utc_us
+
+## resource_admission_items
+- admission_plan_id FK
+- resource_type
+- resource_id
+- amount_json
+- acquisition_order
+- required BOOL
+PRIMARY KEY(admission_plan_id, resource_type, resource_id)
+
+# 77. Context criticality and manifests
+
+Extend context segment representation with:
+- criticality_class: MANDATORY_POLICY | MANDATORY_RIGHTS_PRIVACY | MANDATORY_CANON | TASK_CRITICAL | OPTIONAL_ENRICHMENT
+- trust_class
+- source_revision_id nullable
+- semantic_role
+
+## compiled_context_manifests
+- id PK
+- target_task_ref
+- provider_or_strategy_ref
+- dependency_manifest_hash
+- compiled_payload_hash
+- compiler_version
+- adapter_semantic_profile_version
+- total_tokens_or_units nullable
+- mandatory_content_complete BOOL
+- created_at_utc_us
+
+## compiled_context_dependencies
+- context_manifest_id FK
+- dependency_type
+- dependency_id
+- dependency_revision_or_hash
+PRIMARY KEY(context_manifest_id, dependency_type, dependency_id)
+
+# 78. Adapter semantic profiles
+
+## adapter_semantic_profiles
+- id PK
+- connector_version_id FK
+- capability_id FK
+- profile_version
+- observed_request_limits_json
+- semantic_mappings_json
+- unsupported_features_json
+- truncation_behavior_json nullable
+- certification_state: CERTIFIED | DEGRADED | REQUIRES_RECERTIFICATION | UNKNOWN
+- certified_at_utc_us nullable
+
+# 79. Package acquisition limits
+
+Extend package manifests/installations:
+- expected_download_bytes nullable
+- max_download_bytes nullable
+- max_install_expansion_bytes nullable
+- pinned_digest_algorithm
+- pinned_digest
+- resident_revalidation_required BOOL
+
+# 80. Browser observation records
+
+## browser_observations
+- id PK
+- browser_interaction_session_id FK
+- observation_type: SCREENSHOT | DOM | ACCESSIBILITY_TREE | VIDEO | OTHER
+- privacy_class
+- redaction_profile
+- storage_object_id nullable
+- externally_processed BOOL
+- external_processor_connection_id nullable
+- retention_until_utc_us nullable
+- created_at_utc_us
