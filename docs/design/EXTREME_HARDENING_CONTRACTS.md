@@ -1465,3 +1465,197 @@ Job/import/browser/media temporary roots:
 - never become support/export payload by directory recursion.
 
 Temp cleanup failure is visible storage/privacy debt rather than silently ignored.
+
+
+# AV. Learning dataset integrity and promotion freshness
+
+Dataset/golden/benchmark snapshots include:
+- immutable snapshot ID/hash;
+- source project/privacy scopes;
+- sample lineage;
+- generated/synthetic/human-labeled proportions;
+- duplicate/near-duplicate cluster statistics;
+- package/model/evaluator dependencies.
+
+Before promotion:
+- check leakage between train/failure/golden/benchmark/shadow sets;
+- flag suspicious near-duplicate overlap;
+- enforce project/privacy scope;
+- report source-composition imbalance;
+- require review of anomalous/outlier clusters.
+
+Promotion state becomes STALE when a required package/model/evaluator trust state is revoked or materially superseded.
+
+# AW. Retrieval/index authorization isolation
+
+Every derived search/vector/embedding index entry carries:
+- source entity/revision;
+- studio/project scope;
+- purpose/use policy;
+- rights/privacy state;
+- index generation/version.
+
+Query authorization applies before and after similarity ranking.
+A high similarity score never broadens scope.
+
+Revocation/deletion/tombstone:
+- hides entry immediately from authorized query projection;
+- schedules physical purge/rebuild;
+- records verification evidence that no active index generation still exposes it.
+
+Cross-project/global craft memory is a separately governed dataset, not an implicit union of project indexes.
+
+# AX. Offline/multi-session collaboration conflict
+
+Working ops include:
+- session/client ID;
+- base immutable checkpoint;
+- operation sequence;
+- server acknowledgement sequence.
+
+On reconnect:
+- operations proven commutative/non-overlapping may replay;
+- conflicting operations create CONFLICT/BRANCH_REQUIRED;
+- no stale autosave replaces newer server state;
+- approval/release can bind only server-synchronized immutable revision, never unacknowledged local draft.
+
+UI visibly warns when local edits are unsynchronized and therefore not part of an approval target.
+
+# AY. Trusted time health
+
+Core exposes time-health:
+- TRUSTED
+- DEGRADED
+- UNTRUSTED
+- RECOVERING
+
+Use:
+- monotonic time for local durations/timeouts/lease elapsed time where possible;
+- GitHub/provider/server timestamps for external event ordering;
+- local wall clock only with uncertainty awareness.
+
+When time is UNTRUSTED:
+- signing/certificate-sensitive release actions fail safe;
+- scheduled publication requires external read-back/confirmation;
+- lease/ticket expiry requiring wall-time interpretation is reconciled before destructive takeover;
+- logs retain both local observed time and authoritative sequence/server time where available.
+
+Event/canonical ordering never relies on UUIDv7/wall-clock alone.
+
+# AZ. Scheduled occurrence identity
+
+Every recurring/scheduled external action has a stable occurrence identity:
+- schedule_id
+- occurrence_sequence or canonical scheduled instant
+- idempotency_key
+
+Restart/clock jump/retry cannot execute the same occurrence twice without explicit reconciliation.
+
+Provider-reported effective scheduled time/timezone is read back and stored separately from requested schedule.
+
+# BA. Backup decryptability and forward trust journals
+
+Backup verification includes:
+- object/hash integrity;
+- DB consistency;
+- key/wrapped-key availability for protected data;
+- representative decrypt/read test;
+- recovery-policy/trust journal checkpoint.
+
+Restore applies forward non-rollbackable policy journals before becoming ACTIVE:
+- signing/trust key revocations;
+- consent/right revocations where policy requires;
+- crypto-erasure/key lifecycle events;
+- external publication/takedown identity needed for reconciliation.
+
+An old backup cannot resurrect a key or trust state that was revoked after the backup.
+
+# BB. Multi-destination publication state
+
+A release publication fanout creates one child publication per exact destination identity.
+
+Each child tracks:
+- destination/account/workspace fingerprint;
+- requested visibility/audience;
+- requested schedule/timezone;
+- destination-scoped idempotency key;
+- upload;
+- platform processing;
+- effective visibility/audience;
+- effective schedule;
+- verification;
+- takedown/compensation;
+- external content ID/URL sensitivity class.
+
+Aggregate release publication state summarizes child states:
+- ALL_VERIFIED
+- PARTIAL
+- BLOCKED
+- UNKNOWN
+- TAKEDOWN_PARTIAL
+without erasing per-destination truth.
+
+# BC. Publication postcondition verification
+
+After publish/schedule, read back when supported:
+- account/workspace;
+- channel/destination;
+- visibility/audience;
+- scheduled/effective time;
+- content identity;
+- stream/caption/attachment presence.
+
+Mismatch means NOT_VERIFIED and may trigger DecisionRequest/compensation/takedown.
+
+Provider default settings never silently override requested PUBLIC/PRIVATE/UNLISTED intent.
+
+# BD. External publication audit retention
+
+Local project trash/purge cannot erase the minimum evidence needed to:
+- identify external publication;
+- verify destination/account;
+- request takedown/compensation;
+- account for irreversible external side effects.
+
+Retention is policy-scoped and may minimize sensitive content while preserving external identity/audit.
+
+# BE. Semantic contract hotspots
+
+Planner/Integrator hotspot keys can be path-independent:
+- DOMAIN:<aggregate>
+- SCHEMA:<contract>
+- API:<contract>
+- EVENT:<contract>
+- AUTH:<boundary>
+- MEDIA:<timing/color/audio contract>
+- RELEASE:<signing/publication contract>
+- GOVERNANCE:<policy>
+
+Task contracts declare semantic_hotspots where applicable.
+
+Concurrent active PRs on the same exclusive semantic hotspot require:
+- explicit contract-first split; or
+- hotspot lease/merge sequencing;
+even if changed files do not overlap.
+
+# BF. Architecture/risk waiver authority
+
+Risk/architecture decisions are first-class decision records.
+
+Implementer/author cannot self-grant a waiver that:
+- changes approved product/architecture intent;
+- accepts P0/P1 residual risk;
+- weakens security/rights/release governance;
+- removes a protected invariant;
+- reduces its own required review/CI gate.
+
+Decision records include:
+- issue/risk/invariant;
+- exact scope;
+- rationale;
+- authority actor/role;
+- expiration/review date where applicable;
+- compensating controls;
+- evidence.
+
+A waiver never erases the original finding/audit history.
