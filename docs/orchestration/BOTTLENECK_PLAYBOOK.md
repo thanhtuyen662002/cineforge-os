@@ -129,7 +129,7 @@ Flow Governor inspects:
 - blocked_tasks / open_tasks;
 - oldest green-unreviewed PR;
 - oldest failed-unattended PR;
-- exact-head CI age vs normal baseline;
+- current verification-context CI age vs normal baseline;
 - number of PRs touching same hotspot;
 - dependency fan-out;
 - stale claim PRs;
