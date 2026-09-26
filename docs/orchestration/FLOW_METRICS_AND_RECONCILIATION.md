@@ -243,3 +243,37 @@ Track where available:
 
 Repeated high context-load share is a decomposition/documentation bottleneck.
 Flow Governor may create a docs-contract split/index task rather than letting every worker repeatedly load oversized owner files.
+
+
+
+# 15. Anti-gaming / flow-quality signals
+
+Track operational signals for diagnosis:
+- CLAIM_ABANDON_RATE_BY_AGENT
+- CLAIM_WITHOUT_VALID_PARK_EVIDENCE
+- CONTRACT_HASH_MISMATCHES
+- REPEATED_PRIORITY_METADATA_EDITS
+- LOW_VALUE_TASK_INFLATION
+- UNRESOLVED_REVIEW_FINDINGS_ON_ADOPTED_COMMITS
+- FORCE_PUSH_REWRITE_COUNT
+- REVIEW_RUBBER_STAMP_SAMPLE_FAILURES
+
+These metrics do not create an automatic punitive “agent reputation score”.
+They trigger Flow/QA investigation and capacity/role adjustment.
+
+# 16. Critical-path derivation
+
+Downstream-unblock value is computed from the actual current hard/soft dependency graph and milestone path.
+Self-declared prose such as “unblocks 50 tasks” is advisory only.
+
+# 17. Random audit sampling
+
+Flow/QA may select a sample of:
+- low/medium-risk approved PRs;
+- repeated reviewer pairs;
+- high-throughput agents;
+- test/fixture-changing PRs
+
+for fresh independent re-review.
+
+Purpose: detect correlated blind spots/rubber-stamping without making every PR expensive.
