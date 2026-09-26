@@ -4499,3 +4499,22 @@ High-security profiles may add:
 - model/training-source trust classification.
 
 No policy claims complete detection of memorized/private/steganographic content from arbitrary AI models.
+
+
+# 27. Empirical GitHub claim primitive test
+
+Probe branch:
+`probe/atomic-claim-create-branch-semantics`
+
+Observed:
+1. first `create_branch` from main succeeded;
+2. second `create_branch` using the **same branch name** and a different SHA failed with GitHub HTTP 422:
+   `Reference already exists`.
+
+Conclusion:
+- branch creation is suitable as the atomic claim race primitive under the current GitHub API behavior;
+- workers must treat 422/reference-exists as “lost claim race”, not an infrastructure failure;
+- atomicity still depends on using the **exact same deterministic branch name** `agent/i<issue>-a<attempt>`.
+
+Residual:
+- the temporary probe branch remains because the currently exposed GitHub connector lacks branch-delete capability; it is not a task claim and must never be scheduled.
