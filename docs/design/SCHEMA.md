@@ -2159,3 +2159,217 @@ Implementation rule:
 - foundational naming/identity/revision conventions must remain compatible with later additions.
 
 This avoids big-bang schema work becoming the first delivery bottleneck.
+
+
+# 40. Recovery epochs and external-world reconciliation
+
+## recovery_epochs
+- id PK
+- epoch_no UNIQUE
+- reason: INITIAL | RESTORE | DISASTER_RECOVERY | MANUAL_RECONCILIATION
+- source_backup_id nullable FK backups
+- state: ACTIVE | RECONCILING | BLOCKED | SUPERSEDED
+- started_at_utc_us
+- activated_at_utc_us nullable
+- reconciliation_manifest_hash nullable
+
+All externally visible attempts/sessions carry `recovery_epoch_id`:
+- job_attempts
+- browser_interaction_sessions
+- external_inbox_events
+- outbox_messages where external dispatch is possible
+- publication attempts
+
+After restore, the new epoch enters RECONCILING before new external dispatch.
+
+External events whose correlation belongs to an unknown/newer pre-restore reality are quarantined rather than applied.
+
+## recovery_external_reconciliations
+- id PK
+- recovery_epoch_id FK
+- external_kind
+- external_identity
+- restored_local_state
+- observed_external_state
+- decision: ADOPT | IGNORE | COMPENSATE | NEEDS_HUMAN | UNKNOWN
+- evidence_json
+- resolved_at_utc_us nullable
+
+# 41. WAL/storage pressure observations
+
+## database_health_samples
+- id PK
+- sampled_at_utc_us
+- wal_bytes
+- oldest_read_tx_age_ms nullable
+- last_checkpoint_at_utc_us nullable
+- checkpoint_state
+- writer_queue_depth
+- write_latency_ms nullable
+- free_bytes_on_db_volume
+- pressure_state: NORMAL | WARNING | CRITICAL | READ_ONLY_SAFE
+
+## read_transaction_observations
+Optional diagnostics for abnormally long reads.
+- id PK
+- actor/session_ref
+- started_at_utc_us
+- observed_age_ms
+- query_class
+- cancelled_at_utc_us nullable
+
+# 42. Algorithm-qualified storage identity
+
+Replace the logical assumption “sha256 is the identity” with:
+- hash_algorithm
+- content_hash
+
+Constraint:
+UNIQUE(hash_algorithm, content_hash)
+
+For V1:
+- hash_algorithm = `sha256`
+
+Legacy `sha256` columns may be implementation aliases during migration, but new APIs/manifests use algorithm-qualified identity.
+
+## storage_hash_migrations
+- storage_object_id FK
+- from_algorithm
+- from_hash
+- to_algorithm
+- to_hash
+- verified_at_utc_us
+PK(storage_object_id, to_algorithm)
+
+# 43. Cost exposure enforcement
+
+Extend `budgets`:
+- max_unreconciled_money_minor_units nullable
+- max_unreconciled_credits nullable
+- unknown_cost_policy: BLOCK | ALLOW_WITH_CEILING | ALLOW
+- batch_exposure_limit_minor_units nullable
+
+Extend `cost_reservations`:
+- maximum_exposure_minor_units nullable
+- acceptance_state: NOT_DISPATCHED | ACCEPTED | UNKNOWN | RECONCILED
+- unreconciled_exposure_minor_units nullable
+
+Usage with delayed/unknown provider billing remains visible as unreconciled exposure until actual usage is known.
+
+# 44. Resource reservations
+
+Telemetry is not reservation.
+
+## resource_reservations
+- id PK
+- job_attempt_id nullable FK
+- worker_id nullable FK
+- resource_type: GPU | VRAM | CPU | RAM | DISK_IO | DISK_SPACE | NETWORK | BROWSER_PROFILE
+- resource_id
+- amount_json
+- safety_headroom_json nullable
+- fencing_token
+- state: RESERVED | ACTIVE | RELEASED | EXPIRED | REVOKED
+- acquired_at_utc_us
+- expires_at_utc_us
+
+Scheduler must reserve constrained resources before dispatch where the resource type supports reservation.
+
+# 45. Manual/human ownership locks
+
+## manual_control_locks
+- id PK
+- project_id FK
+- scope_type
+- scope_id
+- field_or_domain
+- owner_actor_id FK
+- base_revision_id nullable FK revision_registry
+- reason nullable
+- state: ACTIVE | RELEASED | SUPERSEDED
+- created_at_utc_us
+- released_at_utc_us nullable
+
+A late AI result created against an older revision cannot auto-canonicalize over an ACTIVE manual lock.
+
+# 46. Secure-credential portability state
+
+Connection auth state must support:
+- REAUTH_REQUIRED
+
+Use when:
+- backup restored on another machine/user;
+- secure credential reference no longer resolves;
+- credential store was intentionally cleared;
+- provider invalidated tokens.
+
+REAUTH_REQUIRED is not equivalent to provider failure and does not by itself authorize silent fallback.
+
+# 47. Signing trust records
+
+## signing_trust_keys
+- id PK
+- key_id UNIQUE
+- purpose: UPDATE_ROOT | UPDATE_ONLINE | RELEASE_SIGNING | CONNECTOR_PUBLISHER
+- public_key_fingerprint
+- parent_key_id nullable
+- state: ACTIVE | ROTATING | REVOKED | EXPIRED
+- valid_from_utc_us
+- valid_to_utc_us nullable
+- revoked_at_utc_us nullable
+- revocation_reason nullable
+
+## signature_verifications
+- id PK
+- subject_type
+- subject_id
+- key_id FK
+- signature_hash
+- verified_at_utc_us
+- result
+- trust_policy_revision
+
+# 48. Backup resilience metadata
+
+Extend `backups`:
+- durability_class: LOCAL_WRITABLE | SEPARATE_VOLUME | OFFLINE | IMMUTABLE_REMOTE
+- recovery_epoch_at_capture
+- restore_drill_at_utc_us nullable
+- restore_drill_result nullable
+- credential_portability_state: NOT_INCLUDED | SAME_MACHINE_ONLY | EXTERNAL_REAUTH_REQUIRED
+
+# 49. Provider-result materialization
+
+External provider output references are not `storage_objects`.
+
+## external_artifact_receipts
+- id PK
+- job_attempt_id FK
+- provider_artifact_id nullable
+- remote_uri nullable
+- remote_expires_at_utc_us nullable
+- association_confidence
+- materialization_state: REMOTE_AVAILABLE | DOWNLOADING | MATERIALIZED | VERIFIED | FAILED | EXPIRED
+- local_storage_object_id nullable FK storage_objects
+- raw_receipt_hash
+- created_at_utc_us
+
+An asset revision requiring durable media cannot become AVAILABLE/READY from REMOTE_AVAILABLE alone.
+
+# 50. Slice-driven fanout batches
+
+## dispatch_batches
+- id PK
+- command_id FK
+- project_id FK
+- upstream_revision_id nullable FK revision_registry
+- planned_item_count
+- dispatched_item_count
+- completed_item_count
+- cancelled_item_count
+- exposure_budget_id nullable
+- dispatch_mode: SAMPLE_FIRST | STAGED | FULL
+- state: PLANNED | SAMPLING | DISPATCHING | PAUSED | CANCELLING | COMPLETE | CANCELLED
+- row_version
+
+Upstream invalidation/correction can pause/cancel the remaining undispatched portion quickly.
