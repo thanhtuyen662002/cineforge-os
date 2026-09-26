@@ -3660,3 +3660,199 @@ High-security profiles may reduce exposure but cannot promise secrecy against a 
 120. concurrent backup + scrub + projection rebuild IO admission;
 121. stale native notification action after DecisionRequest change;
 122. sleep/hibernate during accepted external generation then resume/retry.
+
+
+# FY. Currency and billing-unit semantics
+
+Financial records distinguish:
+- ISO/provider currency code;
+- currency exponent/scale source/version;
+- provider-native line amount;
+- normalized internal amount;
+- rounding mode;
+- effective billing account/workspace.
+
+Do not assume every currency has 2 decimal minor units.
+
+Provider-native invoice/line evidence remains authoritative for reconciliation; internal normalization is derived.
+
+# FZ. Price, credit and tax exposure snapshot
+
+Before external paid dispatch, plan records where available:
+- provider/model/service identity;
+- pricing revision/quote ID;
+- quoted unit price;
+- quote expiry/freshness;
+- tax/fee assumptions;
+- promotional/free credit balance and whether provider may fall back to cash billing;
+- maximum approved money/credit exposure.
+
+At dispatch:
+- revalidate current price/credit state;
+- block/replan when material change exceeds approved ceiling;
+- record actual service/model identity used.
+
+# GA. Financial event reconciliation
+
+Provider usage ledger supports out-of-order:
+- CHARGE
+- CORRECTION
+- REFUND
+- CREDIT
+- TAX/FEE
+- FX_ADJUSTMENT
+
+Identity prefers provider invoice/billing-line identity over transport webhook ID.
+
+Maintain distinct projections:
+- POSTED_ACTUAL
+- PENDING_ADJUSTMENT
+- PENDING_REFUND
+- UNRECONCILED
+- AVAILABLE_BUDGET
+
+Pending refund does not immediately increase hard spending authority unless policy explicitly permits it.
+
+# GB. Rights effective-time and revocation scope
+
+Rights/consent interval includes:
+- effective_from instant;
+- effective_until instant or legal calendar boundary;
+- legal timezone/calendar semantics when “end of day” style wording applies;
+- territory/jurisdiction;
+- use-purpose scope;
+- revocation effect scope.
+
+Revocation effects may include:
+- FUTURE_GENERATION_BLOCKED
+- FUTURE_PROCESSING_BLOCKED
+- FUTURE_PUBLICATION_BLOCKED
+- TAKEDOWN_REQUIRED
+- EXISTING_INTERNAL_USE_ALLOWED
+- NEEDS_LEGAL_DECISION
+
+Release/publish revalidates rights at execution time and against actual destination/processing region where policy requires it.
+
+# GC. Retention/preservation holds
+
+Deletion/GC eligibility has an independent hold axis.
+
+Hold types:
+- USER_PRESERVATION
+- CONTRACTUAL_RETENTION
+- AUDIT_PRESERVATION
+- LEGAL_COMPLIANCE
+- INCIDENT_FORENSICS
+- SYSTEM_RECOVERY
+
+A hold:
+- blocks destructive purge according to policy;
+- records authority/reason/effective interval;
+- does not imply the asset may be newly used/generated/published.
+
+Hold expiry only removes the hold; GC must perform a fresh dependency/rights/backup check before purge.
+
+# GD. Portable archive vs disaster backup
+
+## Disaster backup
+Purpose:
+- restore CineForge deployment/database/object state.
+
+May include:
+- DB snapshot;
+- object manifest;
+- deployment/recovery metadata.
+
+It is not a portable project interchange format.
+
+## Portable project archive
+Purpose:
+- transfer/preserve project content across installations/versions.
+
+Requires:
+- versioned self-describing manifest;
+- project/entity/revision graph;
+- required durable media/evidence;
+- rights/provenance snapshots;
+- semantic schema/profile versions;
+- no active credentials, browser sessions, device secrets or live publication scheduling;
+- explicit migration/import semantics.
+
+UI/docs never call one format the other.
+
+# GE. Long-term archive seal
+
+Archive policy may require:
+- materialize critical external/cloud references;
+- durable reference render/mezzanine for proprietary/fragile codecs;
+- store codec/font/color/profile descriptors;
+- preserve human-readable script/canon/release manifests;
+- rights/license evidence snapshots;
+- periodic hash scrub;
+- restore/import drill;
+- archive format/schema version.
+
+Archive can remain readable even when original AI/runtime/provider is unavailable.
+
+# GF. Historical signature and timestamp evidence
+
+Release/archive signature evidence stores:
+- artifact digest;
+- signer/key ID;
+- signature;
+- signing policy revision;
+- signing time evidence;
+- timestamp authority/token/chain where required;
+- certificate/key validity/revocation evidence captured at signing/verification.
+
+Later key revocation does not automatically mutate the historical record.
+Verification policy decides whether a signature made before compromise/revocation remains acceptable.
+
+# GG. Cross-project/template/learning isolation
+
+Project clone/template/export performs dependency closure.
+
+Default excluded/non-transferable unless explicitly authorized:
+- credentials/secrets;
+- browser profiles/sessions;
+- publication destinations/schedules;
+- private source-project links outside closure;
+- project-scoped learned examples/memory;
+- external account/workspace bindings.
+
+Cross-project craft/learning memory is a separately governed dataset with:
+- explicit source scope;
+- consent/use purpose;
+- privacy/rights eligibility;
+- lineage.
+
+# GH. Compensation readiness
+
+External publication record tracks separately:
+- publish capability/current credential state;
+- replace capability;
+- takedown capability;
+- verification support;
+- last compensation-readiness check.
+
+Loss of takedown capability does not rewrite publication history, but may raise a release/operations warning for sensitive destinations.
+
+# GI. Required fifth-wave tests
+
+123. JPY/KWD/non-2-decimal provider billing lines;
+124. per-request rounding vs aggregate reconciliation;
+125. delayed tax/fee after estimate;
+126. price/credit change between plan and dispatch;
+127. refund/correction before original charge;
+128. duplicate financial line under a new webhook event ID;
+129. stale FX rate at hard-budget decision;
+130. rights expiry with explicit legal timezone;
+131. consent revocation scope variants;
+132. retention hold blocking purge then expiring;
+133. portable archive contains no credentials/browser session;
+134. archive import on newer schema with declared semantic migration;
+135. proprietary-codec archive with durable mezzanine fallback;
+136. historical signed archive after signer-key revocation;
+137. project template dependency closure excludes private source asset;
+138. cross-project learning memory opt-in enforcement;
+139. takedown capability lost after publication.
