@@ -2159,3 +2159,100 @@ Before a privileged release command:
 - validate release policy revision.
 
 Missing expected protection returns ASSURANCE_UNAVAILABLE/POLICY_BLOCKED, not success.
+
+
+
+# 66. Privacy purge API
+
+Queries:
+- `query.purge.status`
+- `query.purge.retained_copies`
+- `query.privacy.external_exposures`
+
+Commands:
+- PlanPrivacyPurge
+- ExecutePrivacyPurge
+- ResolveRetentionHold
+- ReconcileExternalExposure
+
+Purge plan returns exact target classes and expected retained copies.
+Command does not report strongest completion wording until required targets reach the configured barrier.
+
+# 67. Forward revocation recovery API
+
+Internal recovery:
+- `recovery.load_forward_journal`
+- `recovery.apply_forward_journal`
+- `recovery.verify_forward_floor`
+
+Recovered backups cannot activate until later purge/revocation/security-floor entries are applied.
+
+# 68. Semantic search scope API
+
+Search request requires:
+- authorized studio/project/shared scope;
+- privacy/rights context;
+- index generation.
+
+Backend retrieval itself enforces scope.
+UI-side post-filtering is not the primary security boundary.
+
+# 69. Inference session isolation API
+
+Internal:
+- `inference.acquire_session(scope)`
+- `inference.reset_session`
+- `inference.close_session`
+
+Cross-project/private scope transition requires reset or new isolated process according to runtime isolation class.
+
+# 70. Learning derivative API
+
+Queries:
+- `query.learning.derivative_lineage`
+- `query.learning.revocation_impact`
+
+Commands:
+- QuarantineLearningDerivative
+- RequestDerivativeRetraining
+- RetireLearningDerivative
+
+Revoking a source can invalidate downstream datasets/adapters/checkpoints according to rights policy.
+
+# 71. Consent/telemetry dispatch API
+
+Before telemetry/cloud outbound emission:
+- resolve current privacy_generation;
+- compare queued expected generation;
+- recompute destination/data-class permission;
+- cancel/block if tightened policy no longer allows transmission.
+
+# 72. Core ownership API
+
+Startup/internal:
+- `core.acquire_library_writer`
+- `core.heartbeat_library_writer`
+- `core.begin_drain`
+- `core.release_library_writer`
+- `core.recover_stale_writer`
+
+A UI process cannot directly claim writer ownership.
+
+# 73. Archive read-only API
+
+- `archive.verify_seal`
+- `archive.open_readonly`
+- `archive.import_to_working_project`
+
+No mutation/migration command targets sealed archive bytes.
+
+# 74. External exposure API
+
+Exposure query is durable even after local purge, subject to audit/privacy retention.
+
+UI can answer:
+- what was sent;
+- where;
+- when;
+- under which policy/terms;
+- what deletion/takedown state is known.
