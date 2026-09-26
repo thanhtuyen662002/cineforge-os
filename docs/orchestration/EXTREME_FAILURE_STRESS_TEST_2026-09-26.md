@@ -2146,3 +2146,99 @@ Security policy must explicitly state at-rest guarantees and support an encrypte
 
 ## X48 — AV/EDR interference diagnosis (P2)
 Differentiate access-denied/quarantine/Controlled-Folder-Access signals from corruption/disk-full where possible; do not trigger destructive recovery based on ambiguous write failure.
+
+
+# 19. Fourth-wave longevity/operational attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 241 | Debug logging explodes during retry storm and fills system disk | **GAP/P1** | storage pressure exists, but log budgets/rotation are not explicit |
+| 242 | Append-only audit/events grow for years until DB/query/startup becomes unusable | **GAP/P1 lifecycle** | immutable history needs cold archival/checkpoint strategy |
+| 243 | Projection rebuild replays millions of events and blocks startup for hours | **GAP/P1** | rebuild needs checkpoint/snapshot/incremental budget |
+| 244 | Integrity audit scans whole library while production/render saturates disk | PARTIAL | maintenance matrix exists; IO/resource budgeting should be explicit |
+| 245 | VACUUM/index rebuild needs 2× DB free space but disk only has 1.1× | **GAP/P1** | maintenance must reserve temporary amplification before start |
+| 246 | Updater downloads/unpacks side-by-side copy while model cache/import fills disk | PARTIAL | storage governor exists; all maintenance staging must reserve jointly |
+| 247 | Metrics labels include project/shot/job IDs and create cardinality explosion | **GAP/P2→P1 at scale** | observability needs bounded-cardinality policy |
+| 248 | Notification failure cascade emits 10k toasts/native pushes | **GAP/P1 UX** | event volume must be coalesced/rate-limited by semantic incident |
+| 249 | One broken provider login causes every queued job to retry auth and locks account | **GAP/P1** | account-scoped auth circuit breaker needed |
+| 250 | Website CAPTCHA/MFA repeats across concurrent sessions and locks provider account | **GAP/P1** | browser account/profile concurrency and prompt dedupe needed |
+| 251 | Provider returns 200GB output into a job reserved for 5GB | **GAP/P1** | staging must enforce hard byte/quota ceiling and abort/quarantine safely |
+| 252 | Hung worker still sends heartbeat but makes zero progress forever | **GAP/P1** | liveness heartbeat is insufficient; progress/stall watchdog needed |
+| 253 | Worker memory grows slowly for days without crashing | **GAP/P2** | recycle/high-watermark policy needed for long-running workers |
+| 254 | Privacy policy changes to LOCAL_ONLY while cloud job is already accepted | **GAP/P1 semantics** | cannot unsend; incoming result/future processing policy must be explicit |
+| 255 | Provider terms are revoked/changed while a long job is running | PARTIAL | execution snapshot exists; completion/release eligibility needs postflight policy |
+| 256 | Connection account is suspended; 500 queued tasks repeatedly hit it | **GAP/P1** | queue must drain/block on account-scoped health incident |
+| 257 | Projection cache says connection healthy for minutes after auth revoked | PARTIAL | freshness exists; dispatch should revalidate high-impact connection state |
+| 258 | Browser HUMAN_TAKEOVER finishes on unexpected page/workspace | PARTIAL | checkpoint exists; identity/page semantic revalidation required before resume |
+| 259 | Cold audit archive is lost but hot DB still runs | **GAP/P1 compliance/recovery** | archive integrity/backup must be part of recoverability |
+| 260 | Archived audit chunk is tampered with offline | **GAP/P1** | archive manifest/hash-chain/authenticity needed |
+| 261 | Search/vector index rebuild exposes partial generation to queries | **GAP/P1** | generation-switch must be atomic; partial index is noncanonical |
+| 262 | Rights deletion tombstone arrives while old vector-index generation is building | PARTIAL | authorization/tombstone exists; rebuild must carry deletion watermark |
+| 263 | Long schema migration appears frozen and user force-kills app | **GAP/P1 UX/recovery** | resumable migration/progress/checkpoint semantics needed |
+| 264 | User launches app repeatedly during migration, creating ownership contention | CONTAINED after Core ownership if migration owner holds epoch |
+| 265 | Network is down for days; outbox grows without bound | **GAP/P1** | external pending queue retention/exposure/WIP limits needed |
+| 266 | Cloud returns all queued callbacks at once after reconnection | **GAP/P1 thundering herd** | inbox processing needs bounded concurrency/backpressure |
+| 267 | Error record stores full provider response containing secret/token | **GAP/P1** | structured error evidence needs redaction/classification before persistence |
+| 268 | A support bundle includes thousands of stale logs and becomes multi-GB | **GAP/P2** | diagnostic bundle quota/sample policy needed |
+| 269 | Snapshot/compaction deletes history still required by legal/audit policy | **GAP/P1** | archival retention must be policy-aware, not performance-only |
+| 270 | App upgrade changes event decoder; old cold archive can no longer be interpreted | **GAP/P1 lifecycle** | event/archive schema decoder compatibility must be retained/tested |
+
+# 20. Fourth-wave findings
+
+## X49 — Operational log/diagnostic budgets (P1)
+Logs, crash artifacts and diagnostics require:
+- per-class retention;
+- rotation/quota;
+- redaction before durable persistence;
+- failure-storm coalescing;
+- emergency reserve protection.
+
+Observability must not become the cause of disk failure.
+
+## X50 — Event/audit archival and projection rebuild strategy (P1)
+Append-only audit is logically durable but hot storage cannot grow without bound.
+Use:
+- immutable archive segments;
+- authenticated segment manifests/hash chain;
+- projection/aggregate checkpoints;
+- retained schema decoders;
+- policy-aware retention;
+- restore/audit verification.
+
+Do not delete legal/rights/recovery evidence just to make DB faster.
+
+## X51 — Maintenance temporary-space/resource amplification (P1)
+VACUUM, migration, update unpack, index rebuild, model install and library move reserve worst-case temporary disk/IO before start and participate in Maintenance Coordinator/resource budgeting.
+
+## X52 — Account-scoped provider/browser circuit breaker (P1)
+Repeated auth/CAPTCHA/MFA/account-suspension failures trip a connection/account circuit breaker.
+Queued jobs block/drain instead of hammering account and multiplying prompts.
+
+## X53 — Stall watchdog separate from heartbeat (P1)
+Workers report semantic progress checkpoints.
+Heartbeat-alive + no progress beyond task-specific threshold enters STALLED investigation/cancel/restart policy.
+
+## X54 — In-flight policy change semantics (P1)
+After an external job was accepted, later privacy/terms policy cannot erase the side effect.
+On result:
+- preserve execution-time policy evidence;
+- revalidate current policy;
+- quarantine/block further cloud processing/canonicalization/release when current policy disallows it;
+- expose unavoidable prior egress honestly.
+
+## X55 — Inbox/outbox storm backpressure (P1)
+Offline accumulation and reconnection bursts use bounded queues/concurrency, per-connection budgets and fair scheduling.
+Recovery does not process 100k callbacks in one unbounded transaction.
+
+## X56 — Atomic derived-index generation (P1)
+Search/vector indexes build as new generation and switch atomically after verification.
+Queries never mix partial generation.
+Deletion/revocation watermark must be honored before activation.
+
+## X57 — Resumable/observable long maintenance (P1)
+Long migrations/rebuilds have durable phase/checkpoint/progress evidence and crash-resume/rollback semantics.
+UI never invites unsafe force-kill because progress is invisible.
+
+## X58 — Structured error/redaction pipeline (P1)
+Raw provider/tool responses do not automatically enter DB/log/support artifacts.
+Classify + redact secrets/content-sensitive fields before durable error evidence.
