@@ -335,3 +335,86 @@ When multiple trusted stale controllers repeatedly create sibling plan/lease eve
 - repeated conflict increments a control-plane health metric and may force a temporary single-controller degraded mode.
 
 Do not “fight” by continually appending newer sibling events.
+
+
+# 23. Control event integrity chain
+
+Structured control streams use hash chaining within an epoch where practical.
+
+Each machine event includes:
+- EVENT_SCHEMA
+- EVENT_ID / GitHub comment identity
+- CONTROL_EPOCH
+- PREV_EVENT_COMMENT_ID
+- PREV_EVENT_HASH
+- EVENT_HASH_ALGORITHM
+- EVENT_HASH
+
+Canonical event hashing uses the same strict canonical JSON principles as task contracts.
+
+If:
+- predecessor comment is missing/deleted;
+- content no longer matches stored hash;
+- chain forks without a defined conflict rule;
+- event belongs to stale epoch
+
+then control state becomes GOVERNANCE_ANOMALY/UNKNOWN until reconciled.
+
+This does not make GitHub comments immutable; it makes unauthorized/accidental mutation detectable.
+
+# 24. ASCII-strict machine grammar
+
+Machine event/contract keys and version tokens:
+- ASCII only;
+- no zero-width/control characters;
+- no Unicode homoglyph normalization;
+- exact case/schema rules;
+- strict duplicate-key rejection;
+- bounded field/comment sizes.
+
+Human narrative text remains Unicode/Vietnamese-capable.
+
+# 25. Control epoch pointer and rollover fencing
+
+Current control epoch is selected by a valid `CONTROL_EPOCH_V1` chain rooted in trusted governance, not simply by “lowest-numbered open Issue”.
+
+Rollover:
+1. current control holder enters EPOCH_DRAINING;
+2. no new leases are issued in old epoch;
+3. create next canonical Capacity Plan Issue;
+4. append/link checkpoint and new epoch event;
+5. activate new epoch;
+6. old-epoch slot/control/merge events are rejected after activation.
+
+A stale old Flow/Planner cannot mutate the new epoch merely because its old Issue remains open.
+
+# 26. Monotonic task-attempt identity
+
+Attempt number is derived from trusted historical claim records/PRs for the Issue, including closed/merged attempts.
+
+Branch deletion does not erase attempt history.
+
+If history completeness cannot be proven, do not allocate/reuse an attempt number; state is UNKNOWN until reconciled.
+
+# 27. Task write-scope enforcement
+
+Task contract distinguishes:
+- `likely_touched_paths`: planning hint;
+- `allowed_write_paths`: enforceable intended write scope;
+- `forbidden_write_classes`: protected categories requiring a contract/governance revision.
+
+Examples of protected classes:
+- GOVERNANCE
+- CI_SECURITY
+- TRUST_POLICY
+- SIGNING_RELEASE
+- CREDENTIALS
+- PROD_DATA_MIGRATION
+
+Before review/merge, diff is checked against allowed scope.
+
+Out-of-scope change requires:
+- trusted task contract revision;
+- appropriate risk/review escalation.
+
+An agent must not silently expand scope because “the code needed it”.
