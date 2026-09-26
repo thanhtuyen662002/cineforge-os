@@ -2378,3 +2378,175 @@ Untrusted/task code does not ambiently receive:
 Credentials are scoped and injected only into explicitly trusted steps.
 
 Source code prose cannot change sandbox policy.
+
+
+# CX. Structured document and parser hardening
+
+All structured-document/media-adjacent parsers inherit hostile-input semantics.
+
+## CX1. XML-family parsing
+For XML/XMP/EDL/interchange/project formats:
+- external entities disabled by default;
+- DTD disabled unless an explicitly trusted profile requires it;
+- no implicit network/file resolution;
+- maximum nesting depth, attributes, text bytes and entity count;
+- parser executes in bounded worker/sandbox for complex/untrusted formats.
+
+## CX2. SVG/vector preview
+SVG is not treated as a passive bitmap.
+- scripts/event handlers removed or disabled;
+- external references blocked unless explicitly mediated;
+- privileged UI may rasterize/sanitize before preview;
+- remote URLs/fonts are not fetched implicitly.
+
+## CX3. Fonts/subtitles/metadata
+Fonts, subtitle attachments and metadata are parser attack surfaces.
+Apply:
+- size/count/depth budgets;
+- sandboxed parsing/rendering where feasible;
+- no arbitrary external URI loading;
+- attachment extraction only to private staging;
+- codec/font/renderer failures quarantine the artifact, not crash Core.
+
+# CY. Windows namespace and credential-leak boundary
+
+Windows paths are normalized/canonicalized before authorization.
+
+Reject or explicitly classify:
+- UNC/network shares;
+- extended device paths;
+- NT device namespaces;
+- alternate data streams;
+- reserved device names;
+- trailing dot/space ambiguities;
+- reparse/junction escapes.
+
+Opening a UNC/network path is an egress/network operation and requires policy.
+Imported metadata/playlists/documents may not trigger implicit SMB/NTLM authentication.
+
+# CZ. Unicode, display and log safety
+
+Identity never derives from display string.
+
+For security-sensitive UI/logs:
+- preserve original bytes/text where needed for creative fidelity;
+- maintain a normalized comparison/display representation;
+- escape bidi/control characters in logs/status/notifications;
+- make suspicious extension/name spoofing visible;
+- avoid deriving path/type/authority from rendered filename.
+
+Confusable-name warnings are advisory; canonical IDs remain truth.
+
+# DA. Query and expression budgets
+
+Untrusted search/filter/expression inputs use bounded semantics:
+- input length;
+- AST/token count;
+- nesting depth;
+- wildcard/operator count;
+- execution time;
+- result count;
+- cancellability.
+
+Regular expressions use a non-catastrophic engine/restricted dialect or explicit timeout.
+FTS/SQL queries are parameterized; user expressions never become raw SQL.
+
+# DB. Suspend/resume and trusted time
+
+Local duration/lease timers use monotonic elapsed time where applicable.
+
+On OS sleep/hibernate/resume:
+1. detect resume discontinuity;
+2. do not immediately classify all expired heartbeats as dead;
+3. re-read Core ownership, slot/control leases and external job state;
+4. reconcile browser/network/provider sessions;
+5. only then resume mutation/scheduling.
+
+Wall-clock timestamps are audit/display evidence, not canonical event order.
+DB/event sequence controls causality ordering.
+
+# DC. Security token and identifier generation
+
+Security-sensitive:
+- capability tokens;
+- IPC session secrets;
+- CSRF/nonces;
+- one-time resume tokens;
+- webhook challenge secrets
+
+use OS cryptographic RNG, sufficient entropy and collision rejection.
+
+UUIDv7/business IDs are identifiers only.
+Clock regressions must not determine event order or authority.
+If UUID generator detects timestamp regression/collision risk, it uses a monotonic-safe implementation strategy rather than trusting wall clock blindly.
+
+# DD. Local service bind/origin contract
+
+Local privileged service endpoints default to:
+- named pipe / loopback-only binding;
+- user-scoped ACL where transport supports it;
+- authenticated session/capability token;
+- strict expected Host/Origin validation for HTTP/WebSocket-like transport;
+- no wildcard `0.0.0.0`/LAN exposure without explicit deployment mode.
+
+Browser pages from arbitrary origins cannot invoke privileged Core APIs merely because they run on the same machine.
+
+CORS is not the sole security boundary.
+
+# DE. Structured logs and notifications
+
+Logs/events/notifications have trusted structural fields:
+- severity;
+- event code;
+- action code;
+- entity IDs;
+- message key.
+
+Untrusted text is stored/rendered only as argument/data.
+
+Before terminal/UI output:
+- escape control characters;
+- prevent ANSI/control injection;
+- cap field length;
+- redact secrets/sensitive classes.
+
+An imported filename/model string cannot create a fake privileged action button/severity by embedding markup/control syntax.
+
+# DF. Entity/depth resource bombs
+
+Ingest budgets cover more than bytes:
+- file/entity count;
+- relationship edge count;
+- JSON/YAML/XML nesting;
+- parser token count;
+- table row/column count;
+- sheet count;
+- subtitle cue count;
+- archive member count;
+- embedded attachment count.
+
+Budget exhaustion yields bounded partial/quarantine state, not unbounded allocation.
+
+# DG. Spreadsheet formula injection
+
+When exporting untrusted text to CSV/XLSX-like formats:
+- values that target applications interpret as formulas are escaped/encoded as literal text by default;
+- formulas are emitted only from explicitly trusted typed-formula fields;
+- exported manifest records the sanitization policy.
+
+This is distinct from SQL injection and must be tested with leading `=`, `+`, `-`, `@`, tabs/control prefixes and locale-specific spreadsheet behavior.
+
+# DH. Required additional tests
+
+21. XML XXE/local-file/network entity attempt;
+22. malicious SVG script/external reference;
+23. malformed font/subtitle attachment parser crash;
+24. UNC/SMB credential-leak path;
+25. bidi/extension spoof display;
+26. catastrophic regex/FTS query;
+27. sleep/hibernate during active lease/Core ownership;
+28. security-token collision/entropy failure simulation;
+29. local service wildcard bind/origin attack;
+30. log/notification control-character injection;
+31. million-entity/deep-JSON input bomb;
+32. CSV/XLSX formula injection corpus.
