@@ -21,9 +21,9 @@ agent_task_v1:
   likely_touched_paths: []
   allowed_write_paths: []
   forbidden_write_classes: ["CREDENTIALS", "PRODUCTION_DATA"]
-  arch_context_required: []
-  design_context_required: []
-  risk_context_required: []
+  arch_context_required: [] # Prefer path#stable-section-id
+  design_context_required: [] # Prefer path#stable-section-id
+  risk_context_required: [] # Prefer path#stable-section-id
   review_profiles: ["domain"]
   review_assurance: "LOGICAL_INDEPENDENT"
   ci_tiers: ["A"]
@@ -65,3 +65,14 @@ Claim/lease state lives in the Claim PR structured event stream.
 
 A Task is not READY merely because this Issue is open.
 Readiness is derived by trust, Task/Lease, WIP and Reconciliation protocols.
+
+
+## Context Manifest
+
+Before substantive mutation, the claim materializes the Context Manifest from:
+`docs/orchestration/CONTEXT_MANIFEST_AND_DOC_LINT.md`
+
+- Context manifest hash:
+- Mandatory items loaded:
+- Advisory expansion:
+- BLOCKED_CONTEXT: no
