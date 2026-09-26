@@ -1473,3 +1473,63 @@ Evidence/source withdrawal or correction can move approved claim to STALE/CONFLI
 - APPROVED_EXCEPTION
 
 Transcript correctness alone does not imply CONSISTENT meaning.
+
+
+
+# 61. Storage scrub state
+
+Scrub run:
+- PLANNED
+- SCANNING
+- FINDINGS_READY
+- REPAIRING
+- VERIFIED
+- DEGRADED
+- FAILED
+
+Per protected object:
+- VERIFIED
+- CORRUPT_REPAIRABLE
+- CORRUPT_UNRECOVERABLE
+- REPAIRING
+- REPAIRED
+- QUARANTINED
+
+# 62. GC object crash-recovery state
+
+```text
+LIVE
+→ DELETE_INTENT
+→ BYTES_DELETING
+→ BYTES_ABSENT
+→ PURGE_COMMITTED
+```
+
+Any interrupted nonterminal state may enter `RECONCILIATION_REQUIRED`.
+
+# 63. Environment certification freshness
+
+- CURRENT
+- DRIFT_DETECTED
+- RECHECK_REQUIRED
+- QUALIFYING
+- CURRENT
+- INVALIDATED
+
+Material GPU/driver/runtime drift does not silently retain “certified” state.
+
+# 64. Release master durability
+
+- MASTER_WRITING
+- MASTER_VERIFIED
+- MASTER_DURABILITY_CHECK
+- MASTER_DURABLE
+- RELEASE_ACTIVATED
+
+Failures:
+- MASTER_MISSING
+- MASTER_CORRUPT
+- DURABILITY_UNVERIFIED
+- RECONCILIATION_REQUIRED
+
+Publication requires RELEASE_ACTIVATED.
