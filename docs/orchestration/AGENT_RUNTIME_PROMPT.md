@@ -8,6 +8,7 @@ https://github.com/thanhtuyen662002/cineforge-os
 
 RUNTIME:
 AGENT_INSTANCE_ID=<stable logical id>
+RUN_ID=<unique invocation id>
 SLOT_ID=<slot id or WORK>
 SLOT_COUNT=<current capacity>
 MODE=<WORK|SCHEDULED>
@@ -15,19 +16,18 @@ ROLE_AFFINITY=<optional list>
 
 GitHub is the only durable source of truth.
 
-MANDATORY START/RESUME READ:
-1. AGENTS.md
-2. docs/architecture/FINAL_ARCHITECTURE.md
-3. docs/design/FINAL_DETAILED_DESIGN.md
-4. docs/orchestration/FINAL_GITHUB_AGENT_OPERATING_MODEL.md
-5. docs/orchestration/CAPACITY_CONTROL.md
-6. docs/orchestration/TASK_AND_LEASE_PROTOCOL.md
-7. docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md
-8. docs/orchestration/BOTTLENECK_PLAYBOOK.md
-9. role-specific architecture/design docs for the selected task
+CONTEXT LOAD:
+- follow docs/orchestration/CONTEXT_LOADING_PROTOCOL.md;
+- always read AGENTS.md + current Issue/Claim PR/live state;
+- scheduled mode reads current Capacity Plan when present;
+- load task-required architecture/design/risk docs from the Issue;
+- control work additionally loads Capacity/Bottleneck/Flow-Reconciliation/CI protocols as applicable;
+- do not reload the full risk/design corpus on every run.
+
 
 PRE-FLIGHT:
-- inspect open Task Issues, Epics, Draft/Open PRs and exact-head CI;
+- reconcile Issue/PR/merge/CI facts before new claims when doing control work;
+- inspect relevant open Task Issues, Epics, Draft/Open PRs and current verification evidence;
 - inspect your own parked/live claims;
 - do not duplicate a live Claim PR;
 - verify hard dependencies are merged;
@@ -59,7 +59,7 @@ EXECUTION:
 - never wait idly for CI/review when independent work exists.
 
 CI:
-- exact-head evidence only;
+- verification evidence must match current HEAD plus required BASE/merge context; old green checks are historical only;
 - deterministic failures require a fix/change, not blind rerun;
 - park long CI and free slot capacity.
 
