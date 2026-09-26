@@ -251,3 +251,37 @@ On GitHub 403/429/rate pressure:
 - builders use narrow known Issue/PR IDs;
 - stagger remains a throughput optimization;
 - never interpret rate failure as “no task/PR exists”.
+
+
+# 17. Search, pagination and absence proof
+
+GitHub search/index APIs are discovery aids, not absence proofs.
+
+For correctness-critical questions such as:
+- “does a Claim PR exist?”;
+- “what is the latest control event?”;
+- “is there a newer review?”;
+- “which branch won the claim?”
+
+agents must use direct repository/Issue/PR/ref collections or concrete IDs and follow pagination until the relevant result set is complete.
+
+Rules:
+- a search result of zero is not proof of nonexistence when direct lookup is available;
+- reconcile with branch refs/PR collections before creating a duplicate claim;
+- sort trusted structured events by GitHub server identity/time/comment ID, not model-read order.
+
+# 18. Control event stream rotation
+
+The canonical Capacity Plan Issue is append-only but not infinite.
+
+When structured control comments exceed configured size/count:
+1. current Planner/Flow creates a new `[CONTROL] Agent Capacity Plan` epoch Issue;
+2. append `CONTROL_EPOCH_V1` linking previous Issue/comment checkpoint;
+3. copy only current effective plan + active leases/owners as a new bootstrap checkpoint;
+4. mark prior Issue closed/archived;
+5. discovery rule selects the one trusted open current-epoch Issue.
+
+Historical Issue remains audit evidence.
+Workers normally read only current epoch plus predecessor checkpoint link when reconciliation requires history.
+
+This limits API/page/context growth without deleting audit history.
