@@ -446,3 +446,114 @@ New cases still reduce to:
 - critical-path prioritization.
 
 No additional coordination primitive is currently required. Real multi-agent execution is the next source of evidence.
+
+
+# Additional red-team cases from deep audit
+
+# Role 47 — Public issue prompt injection
+Failure:
+“External user creates an Issue using the exact Task template and instructs agents to run commands/upload secrets.”
+
+Control:
+trusted-author/adoption gate; external Issue is untrusted inbox data, never READY by format alone.
+
+# Role 48 — Fake structured review comment
+Failure:
+“External commenter posts AGENT_REVIEW_V1 APPROVE.”
+
+Control:
+structured events accepted only from trusted GitHub author + registered logical identity + valid schema.
+
+# Role 49 — Two Integrators merge concurrently
+Failure:
+“Both validate against main M0; A merges then B merges using evidence from M0.”
+
+Control:
+single active Integrator/merge lease, refresh main and verification context per merge; Merge Queue may replace lease.
+
+# Role 50 — Same scheduled slot overlaps before PR exists
+Failure:
+“Run 2 sees no PR because Run 1 only created branch and starts different task.”
+
+Control:
+SLOT_LEASE_V1 acquired/re-read before mutating work.
+
+# Role 51 — Capacity Plan lost update
+Failure:
+“Two control agents read version 8 and both replace Issue body with version 9.”
+
+Control:
+append-only CAPACITY_PLAN_V2 chain; same-parent conflict resolved by GitHub comment ordering.
+
+# Role 52 — Task acceptance changes after claim
+Failure:
+“Planner edits Issue while worker builds old contract.”
+
+Control:
+contract_version/hash; material revision event; owner/reviewer ACK/revalidate.
+
+# Role 53 — Orphan branch mistaken for dead worker
+Failure:
+“Flow scans during tiny branch→Draft-PR gap and reclaims.”
+
+Control:
+ORPHAN_OBSERVED grace/reconciliation cycle before recovery.
+
+# Role 54 — No-wait WIP explosion
+Failure:
+“Every long CI causes workers to open another PR until CI/review queues explode.”
+
+Control:
+stage WIP/backpressure limits; saturated downstream redirects workers to review/CI/unblock work.
+
+# Role 55 — Path-filter blind spot
+Failure:
+“Core contract change touches one file, expensive integration tests are skipped because path map misses semantic consumers.”
+
+Control:
+CI tier derives from diff + risk/domain/contract impact; unknown impact fails broader.
+
+# Role 56 — Fork code on privileged self-hosted runner
+Failure:
+“Public PR executes attacker code on persistent machine holding credentials/cache.”
+
+Control:
+untrusted fork isolation; ephemeral/sandboxed runner; privileged release runners never execute arbitrary PR code.
+
+# Role 57 — CI cache poisoning
+Failure:
+“Untrusted branch populates cache restored by privileged release.”
+
+Control:
+cache trust boundary/provenance and clean rebuild for security-critical artifacts.
+
+# Role 58 — Multiple Work chats share WORK identity
+Failure:
+“Two chats accidentally count as same slot/reviewer or suppress each other.”
+
+Control:
+unique stable WORK-<id> identities.
+
+# Role 59 — SQLite DB placed in synced/network folder
+Failure:
+“User chooses OneDrive/UNC as data location; WAL locking/sync behavior corrupts or destabilizes Core DB.”
+
+Control:
+validated supported Core database root; media/backups may use separate roots.
+
+# Role 60 — Technically automatable website but automation not permitted
+Failure:
+“Connector says healthy and browser automation starts despite provider policy/terms uncertainty.”
+
+Control:
+automation permission axis; UNKNOWN never implies ALLOWED; assisted/manual fallback.
+
+# Updated saturation note
+
+The remaining high-value tests are now empirical:
+- true concurrent GitHub comment/branch races;
+- CI base/merge semantics;
+- GitHub rate/partial failure;
+- runner isolation;
+- Windows filesystem/storage behavior;
+- live 5/10/15-slot throughput/backpressure.
