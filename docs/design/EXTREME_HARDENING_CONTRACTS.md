@@ -599,3 +599,147 @@ At minimum:
 18. dependency typosquat/license/postinstall gate;
 19. migration crash/resume + binary rollback compatibility;
 20. release hidden-stream and destination mismatch.
+
+
+
+# N. Additional recovered implementation contracts
+
+## N1. Execution-time revalidation
+Before each high-impact/irreversible item/phase, revalidate:
+- rights/consent;
+- current actor/agent authority;
+- recovery epoch;
+- manual/revision fence;
+- runtime/package identity;
+- resource reservation;
+- budget/unreconciled exposure;
+- connection account/workspace identity.
+
+Failure pauses before the unsafe phase and preserves already completed evidence.
+
+## N2. Protection leases
+Protection lease key:
+- protected_type
+- immutable protected_id
+- owner operation
+- fencing token
+- expiry
+
+GC/package uninstall/removal cannot finalize while a valid protection lease exists.
+
+## N3. Projection/event scale
+Projection checkpoints record:
+- projection version;
+- event range/checkpoint;
+- snapshot format version;
+- integrity link to archived event range.
+
+Rebuild begins from nearest compatible verified checkpoint.
+
+## N4. Hermetic CI/release
+Security-critical jobs use:
+- clean checkout/worktree/container/VM;
+- no inherited untracked files;
+- pinned dependency/toolchain hashes;
+- trusted cache provenance or clean rebuild;
+- artifact attestation.
+
+## N5. Encryption and key lifecycle
+At-rest protection states:
+- OS_VOLUME_PROTECTED
+- CINEFORGE_MANAGED_ENCRYPTION
+- EXTERNAL_ENCRYPTED_TARGET
+- UNENCRYPTED_ALLOWED_BY_POLICY
+
+Managed encrypted object metadata separates:
+- plaintext logical digest;
+- ciphertext digest;
+- algorithm/version;
+- wrapped data-key reference;
+- key-scope identity.
+
+Key lifecycle:
+ACTIVE | ROTATING | REVOKED | EXPIRED | RECOVERY_REQUIRED.
+
+## N6. Purpose-specific use policy
+Permission is keyed by:
+- subject/data scope;
+- purpose;
+- project/studio scope;
+- policy revision.
+
+Purposes include PRODUCTION, QC, SEARCH, CROSS_PROJECT_RETRIEVAL, FAILURE_ANALYSIS, LEARNING, TRAINING, EXTERNAL_PROCESSING, EXPORT_SHARE, PUBLIC_RELEASE.
+
+## N7. Honest deletion / derived-data purge
+Deletion workflow tracks:
+- tombstone;
+- derived-data invalidation;
+- searchable-index fencing;
+- policy purge;
+- provider deletion request status;
+- crypto-erasure status where applicable;
+- physical erase guarantee: VERIFIED | NOT_PROVABLE | NOT_APPLICABLE.
+
+Derived copies inherit deletion/privacy taint.
+
+## N8. Diagnostic artifact policy
+Diagnostic bundle metadata includes:
+- sensitivity;
+- redaction policy;
+- allowed recipient/use;
+- encryption/ACL;
+- expiry;
+- raw-media flag.
+
+Redaction covers secrets, usernames, absolute paths, private URLs/query strings and browser credential/form data.
+
+## N9. Resource admission deadlock prevention
+Multi-resource admission is either:
+- atomic across all required resources; or
+- deterministic globally ordered acquisition.
+
+Partial reservation has bounded wait and release-on-failure.
+HUMAN_WAIT releases resources not physically needed.
+
+## N10. Context dependency fence
+Compile session stores a dependency manifest over:
+- canonical revisions;
+- policy/privacy/rights revisions;
+- task contract;
+- provider/adapter semantic profile;
+- translated/derived prompt representation.
+
+Before dispatch/retry, dependency manifest and payload hash are revalidated.
+
+## N11. Provider/adapter semantic certification
+Capability profile stores:
+- observed request/context limits;
+- reference limits;
+- parameter handling;
+- server rewrite/truncation observations;
+- output association/materialization behavior;
+- mapping state: NATIVE | APPROXIMATED | UNSUPPORTED | UNKNOWN.
+
+Critical constraint + UNSUPPORTED/UNKNOWN blocks routing unless explicit policy allows approximation.
+
+## N12. Browser observation privacy
+Observation record captures:
+- source page/profile/project;
+- observation type;
+- crop/scope;
+- redaction state;
+- whether bytes left local machine;
+- retention expiry.
+
+Login/MFA/password pages use stricter defaults.
+
+## N13. Package/model acquisition
+Installation plan includes:
+- exact digest;
+- publisher/signature/trust;
+- expected download bytes;
+- maximum install/decompression bytes;
+- disk reservation;
+- target root.
+
+Version/name without digest never identifies executable bytes.
