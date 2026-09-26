@@ -41,7 +41,8 @@ Represents a product/system outcome spanning several tasks.
 Smallest schedulable unit of engineering work.
 
 A Task Issue is eligible to run only when:
-- all hard dependencies are merged/closed successfully;
+- it is trusted/Planner-authorized schedulable work;
+- all hard dependencies are currently satisfied;
 - no active Claim PR already owns it;
 - no external/manual blocker exists;
 - architecture/risk preconditions are satisfied.
@@ -291,7 +292,7 @@ After checkpointing the blocked PR:
 1. record exact blocker;
 2. park the PR;
 3. release active execution capacity;
-4. claim another independent ready task if safe.
+4. claim another independent READY task only if stage/global WIP budgets permit; otherwise switch to review/CI/unblock work.
 
 Exceptions:
 - waiting a few moments for a fast local command already running in the same active step;
@@ -412,7 +413,9 @@ Planner/Flow Governor should maintain:
 - bounded serial dependency chains;
 - no single integration-hotspot file being changed by many PRs concurrently.
 
-A practical target is roughly 1.5–2 ready tasks per active builder slot, adjusted by task size and dependency volatility.
+A practical target is roughly 1.5–2 READY tasks per active builder slot, adjusted by task size and dependency volatility.
+
+READY depth is a supply target, not permission to exceed downstream WIP limits. When CI/review is saturated, reduce new claims.
 
 # 18. Integration hotspots
 
@@ -466,7 +469,7 @@ Planner must:
 
 1. Merged main branch.
 2. Authoritative architecture/design docs on main.
-3. GitHub Issues/Epics.
+3. Trusted/adopted GitHub Issues/Epics.
 4. Open/Draft PRs + current verification-context CI/review.
 5. Review/merge records.
 6. Chat/scheduled task context.
