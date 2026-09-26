@@ -2099,3 +2099,49 @@ Rules:
 - only one candidate may be PROMOTED per resolved group;
 - promotion is an explicit command and may create downstream staleness/impact;
 - losing candidates remain inspectable unless retention policy explicitly archives/purges their rebuildable artifacts.
+
+
+# 37. Storage root capability constraints
+
+Extend `storage_roots` with capability metadata:
+- path_kind: LOCAL_FIXED | LOCAL_REMOVABLE | NETWORK_UNC | SYNCED_FOLDER | OTHER
+- db_supported BOOL
+- atomic_rename_supported nullable
+- locking_profile
+- case_sensitivity_profile
+- long_path_supported nullable
+- availability_state
+
+The active SQLite Core DB root is not a generic `storage_roots` choice.
+It has a separately validated `core_database_location` record/config with:
+- normalized_path
+- volume_id
+- filesystem_type
+- supported_profile_version
+- validation_state
+- last_validated_at_utc_us
+
+Policy:
+- production SQLite WAL requires a profile explicitly marked db_supported;
+- V1 defaults to supported local fixed storage;
+- network/sync/removable paths are rejected or require a future explicit tested profile.
+
+## Export path mappings
+
+For handoff/export, record:
+- logical_name
+- emitted_relative_path
+- sanitization_reason nullable
+- collision_suffix nullable
+
+This keeps human-readable naming reversible/auditable across Windows path restrictions.
+
+# 38. Web automation permission
+
+Extend connection/provider policy with:
+- automation_permission: ALLOWED | ASSISTED_ONLY | MANUAL_ONLY | UNKNOWN | BLOCKED
+- automation_permission_source
+- provider_terms_snapshot_id nullable
+- reviewed_at_utc_us nullable
+
+An UNKNOWN permission cannot be interpreted as ALLOWED.
