@@ -1739,3 +1739,88 @@ When assisted browser automation needs model vision on sensitive pages:
 - provide human-only fallback where possible.
 
 Normal generation pages need not show intrusive privacy modals repeatedly if policy is already configured.
+
+
+
+# 61. Secure URL import UX
+
+When user pastes a URL, show intent and result in ordinary language:
+- Đang kiểm tra liên kết
+- Liên kết này trỏ tới mạng nội bộ nên CineForge đã chặn
+- Liên kết chuyển hướng tới một địa chỉ không an toàn
+- File quá lớn so với giới hạn import
+
+Do not expose raw SSRF/security jargon by default.
+
+# 62. Dependency change UX (Advanced developer/system)
+
+Dependency-change review shows:
+- package/source registry;
+- new vs existing;
+- license;
+- scripts/native binary;
+- security/vulnerability status;
+- why the agent wants it;
+- alternative without new dependency when available.
+
+A coding agent adding a dependency should create visible review evidence rather than hiding the change inside a large feature PR.
+
+# 63. External linked-file change UX
+
+If a linked source changes:
+`File nguồn đã thay đổi kể từ lần CineForge duyệt gần nhất.`
+
+Actions:
+- Dùng phiên bản mới
+- Giữ phiên bản đã nhập/quản lý trước đó
+- So sánh
+- Relink
+
+Do not silently reinterpret the same path as the approved bytes.
+
+# 64. Backup resilience UX
+
+Backup cards distinguish:
+- Có bản sao
+- Khác ổ/khác failure domain
+- Offline/immutable
+- Đã thử khôi phục
+
+Example:
+`Backup hiện nằm cùng ổ vật lý với thư viện. Nó không bảo vệ khỏi hỏng ổ đĩa.`
+
+# 65. Connection identity mismatch UX
+
+If login succeeds but tenant/workspace differs:
+`Đăng nhập thành công, nhưng tài khoản/workspace không đúng với kết nối đã cấu hình.`
+
+Show expected vs detected identity and block production action until resolved.
+
+# 66. Bulk action frozen scope
+
+Bulk dialogs state exact count at confirmation:
+`Duyệt 128 shot đã chọn`
+
+If list/filter changes later, newly appearing items are not included.
+
+If scope became stale:
+`3 mục đã thay đổi kể từ lúc bạn xác nhận. CineForge cần tính lại phạm vi trước khi tiếp tục.`
+
+# 67. Worker crash-loop UX
+
+Normal users should not see repeated restart spam.
+
+After restart budget exceeded:
+`Một thành phần đang gặp lỗi lặp lại. CineForge đã tạm dừng thành phần đó để bảo vệ hệ thống.`
+
+Actions:
+- Thử sửa tự động
+- Xem ảnh hưởng
+- Chẩn đoán nâng cao
+
+# 68. Local access/privacy UX
+
+Advanced storage/security settings can show:
+`Dữ liệu CineForge hiện chỉ cho tài khoản Windows này truy cập.`
+
+If user intentionally selects a shared root, explain that shared filesystem permissions may expose project files to other OS users and require explicit confirmation.
