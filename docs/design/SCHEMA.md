@@ -2164,3 +2164,89 @@ This avoids big-bang schema work becoming the first delivery bottleneck.
 # Extreme hardening extension
 
 For adversarially discovered schema additions (recovery epochs, Core fencing, egress manifests, resource reservations, callback authenticity, SBOM, integrity auditing, bulk snapshots, signing/package retention and release stream manifests), use `docs/design/EXTREME_HARDENING_CONTRACTS.md` as the single detailed implementation owner.
+
+
+
+# 64. Installation external side-effect ledger
+
+This ledger is outside project rollback scope.
+
+## installation_side_effect_ledger
+- id PK
+- installation_id
+- dispatch_fence_id UNIQUE
+- recovery_epoch_id nullable
+- command_id nullable
+- job_attempt_id nullable
+- connection_id nullable
+- provider_account_id nullable
+- provider_tenant_id nullable
+- provider_workspace_id nullable
+- idempotency_key nullable
+- intent_digest
+- side_effect_class: GENERATION | UPLOAD | DELETE | PUBLICATION | PURCHASE | OTHER
+- dispatch_state: PLANNED | DISPATCHING | ACCEPTED | UNKNOWN | RECONCILED | COMPENSATED | FAILED
+- provider_external_id nullable
+- estimated_exposure_minor_units nullable
+- actual_exposure_minor_units nullable
+- created_at_utc_us
+- updated_at_utc_us
+
+This store is not replaced by restoring a project backup.
+
+## installation_identity
+- installation_id PK
+- created_at_utc_us
+- trust_profile_version
+- local_security_profile_id nullable
+- side_effect_ledger_generation
+
+# 65. Backup authenticity/security metadata
+
+Extend `backups`:
+- manifest_auth_method: NONE | HMAC | SIGNATURE
+- manifest_signing_key_id nullable
+- encryption_state: UNKNOWN | UNENCRYPTED | ENCRYPTED_VOLUME | ENCRYPTED_ARCHIVE
+- security_profile_snapshot_json
+- failure_domain_verified BOOL nullable
+
+# 66. Cache validity dependencies
+
+## cache_entries
+- id PK
+- cache_namespace
+- semantic_key_hash
+- artifact_revision_id nullable
+- storage_object_id nullable
+- created_at_utc_us
+- validity_state: VALID | STALE | RIGHTS_BLOCKED | POLICY_BLOCKED | MISSING_DEPENDENCY
+- validity_manifest_hash
+
+## cache_validity_dependencies
+- cache_entry_id FK
+- dependency_type: ASSET_REVISION | RIGHTS_RECORD | LICENSE_SNAPSHOT | POLICY_REVISION | PRIVACY_POLICY | MODEL | CONNECTOR | WORKFLOW | MEDIA_PROFILE
+- dependency_id
+- dependency_revision_or_hash nullable
+PK(cache_entry_id, dependency_type, dependency_id)
+
+# 67. Callback scope binding
+
+Extend `external_inbox_events`:
+- expected_connection_id nullable
+- expected_account_id nullable
+- expected_tenant_id nullable
+- expected_workspace_id nullable
+- correlation_state: MATCHED | UNKNOWN | MISMATCH
+- recovery_fence_state nullable
+
+Only authenticated and scope-matched callbacks may become canonical state transitions.
+
+# 68. Staging file identity
+
+Extend `staging_objects`:
+- os_file_identity_json nullable
+- reparse_state
+- link_count_at_verify nullable
+- finalization_identity_json nullable
+
+Registration verifies identity/content again immediately before CAS finalization.
