@@ -1716,3 +1716,54 @@ Untrusted text cells are emitted as literal text according to target spreadsheet
 Formula cells require explicit trusted formula type/capability.
 
 A raw string beginning with formula syntax is never silently upgraded into an executable formula.
+
+
+
+# 85. Storage integrity and durability API
+
+Queries:
+- `query.storage.scrub_health`
+- `query.storage.corrupt_objects`
+- `query.environment.fingerprint`
+
+Commands:
+- RunStorageScrub
+- RepairCorruptObject
+- QuarantineCorruptObject
+- ReconcileGcOperation
+- RequalifyEnvironment
+- ReconcileReleaseMaster
+
+Repair requires a verified alternate source.
+No “repair from whatever copy exists” shortcut.
+
+# 86. Database corruption API
+
+Advanced/system:
+- `database.quick_check`
+- `database.integrity_check`
+- `database.enter_safe_mode`
+- `database.plan_restore`
+- `database.export_salvage`
+
+A corruption finding never triggers destructive row deletion automatically.
+
+# 87. Environment drift API
+
+`environment.compare_to_certification` returns:
+- changed OS/driver/runtime/codec components;
+- affected certifications;
+- whether critical work must requalify.
+
+The scheduler may pause only affected capability classes rather than all CineForge work.
+
+# 88. Release durable activation API
+
+`release.activate_master` requires:
+- exact release manifest;
+- final storage-object identity;
+- final signed/content digest;
+- durability evidence;
+- current rights/QC gates.
+
+On restart, `release.reconcile_master_activation` verifies bytes before publication can continue.
