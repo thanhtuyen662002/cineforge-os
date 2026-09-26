@@ -1778,3 +1778,160 @@ CineForge supports policy distinction:
 - restore-verified backup.
 
 Backup health reports recoverability evidence, not only “last copy succeeded”.
+
+
+# 51. URL intake, browser navigation and SSRF boundary
+
+Universal URL intake and browser automation are network clients and therefore security boundaries.
+
+Rules:
+- explicit scheme allowlist;
+- deny localhost, loopback, link-local, RFC1918/private and platform metadata destinations by default unless a trusted capability explicitly needs them;
+- resolve and validate destination at connection time, not only at form-validation time;
+- revalidate every redirect;
+- defend against DNS rebinding;
+- no automatic forwarding of credentials/cookies across origin changes;
+- `file:`, device, custom and shell-like protocols are denied unless a separately trusted feature explicitly handles them;
+- enforce download byte/time limits.
+
+Browser navigation policy and URL-import policy are separate from generic “internet allowed”.
+
+# 52. Callback/webhook authenticity
+
+External inbox idempotency is not authentication.
+
+Before an external callback enters trusted inbox processing:
+- verify provider-specific signature/token/channel identity;
+- validate timestamp/replay window where the provider supports it;
+- bind callback to expected connection/provider account and external job identity;
+- reject or quarantine unverifiable callbacks.
+
+A forged callback cannot become authoritative merely because its `provider_event_id` is unique.
+
+# 53. Immutable object-store alias safety
+
+Canonical content-addressed objects are immutable bytes.
+
+Never expose canonical object bytes through a writable hardlink or other writable alias to:
+- an NLE;
+- user workspace;
+- external tool;
+- export staging;
+- connector.
+
+Editable paths use:
+- copy;
+- verified copy-on-write/reflink semantics where supported;
+- separate staging objects.
+
+Canonical object hash is periodically verifiable and may be repaired from a trusted mirror according to policy.
+
+# 54. Autonomous dependency and executable supply-chain governance
+
+An agent may not treat “add package/library” as an ordinary invisible code edit.
+
+Executable dependency additions/upgrades must consider:
+- registry/package identity;
+- lockfile/provenance;
+- publisher/source reputation where available;
+- license/commercial compatibility;
+- vulnerability/security policy;
+- install/build/postinstall scripts;
+- transitive executable payload;
+- SBOM/release provenance.
+
+Typosquatting or license conflict is a build-governance defect, not merely a coding failure.
+
+# 55. Protected invariant tests
+
+Tests that enforce security/architecture/data invariants are governance assets.
+
+A feature PR may update them only with explicit rationale and review appropriate to the protected invariant.
+
+CI/governance should detect:
+- deletion;
+- weakening;
+- unexplained coverage disappearance;
+- changed expected-failure semantics
+
+for protected invariant suites.
+
+A PR cannot make itself “green” by silently deleting the rule that would fail it.
+
+# 56. Local OS-user isolation
+
+Default local roots, IPC endpoints and secure metadata are scoped to the current OS user.
+
+Rules:
+- user-specific ACLs on Core DB, credentials, browser profiles, diagnostics and unreleased media by default;
+- shared/multi-user roots require explicit configuration;
+- local authenticated RPC is additionally protected by OS endpoint ACL/session binding;
+- local-user separation is not replaced by “localhost only”.
+
+# 57. External linked-source TOCTOU protection
+
+For critical ingest/relink:
+- resolve selected source;
+- open/copy it into private staging or hold a stable OS handle where practical;
+- hash the bytes actually parsed/imported;
+- compare expected identity before canonicalization.
+
+Path, file size and mtime are hints, not authoritative identity.
+
+# 58. Rebuildability includes legal and executable dependencies
+
+A derived artifact is safely rebuildable only if:
+- recipe inputs remain available;
+- required package/runtime/model/provider capability remains usable;
+- required rights/license remain permitted;
+- the recipe is still compatible with current policy.
+
+GC/package removal/license revocation can therefore invalidate “rebuildable” status.
+
+# 59. Canonical/event integrity audit
+
+Because V1 is relational-canonical with event/audit backing, add an integrity auditor for:
+- aggregate version monotonicity;
+- revision registry consistency;
+- command→event/outbox expectations;
+- orphan/missing audit links;
+- impossible state combinations;
+- duplicate or skipped aggregate versions.
+
+The auditor reports/repairs through explicit recovery commands; it never silently rewrites history.
+
+# 60. Worker crash circuit breaker
+
+Automatic restart is bounded.
+
+Repeated crash/restart:
+- exponential backoff;
+- restart budget;
+- transition worker/package/runtime to UNHEALTHY/QUARANTINED;
+- stop dispatching dependent work;
+- surface diagnostic evidence.
+
+“Restart forever” is not self-healing.
+
+# 61. Web account/workspace identity
+
+Authentication success does not prove the correct provider account/tenant/workspace is active.
+
+Where provider semantics permit, a connection pins/verifies:
+- account identity;
+- tenant/workspace/project identity;
+- region/data-residency-relevant identity.
+
+If identity changes unexpectedly:
+- mark connection NEEDS_REVIEW/REAUTH;
+- do not continue automation into the new workspace silently.
+
+# 62. Bulk action snapshot scope
+
+Bulk approve/delete/generate/review commands bind an immutable scope:
+- exact entity/revision IDs; or
+- a materialized query snapshot with hash/version.
+
+Items that appear after user/agent confirmation do not silently join the operation.
+
+UI selection/focus changes cannot mutate the command scope after confirmation.
