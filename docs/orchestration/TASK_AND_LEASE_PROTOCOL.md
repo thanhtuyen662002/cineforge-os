@@ -255,3 +255,25 @@ Sources include closed/merged PR history and trusted claim events, not merely cu
 
 A deleted branch never makes an old attempt number reusable.
 
+
+
+# 16. Claim intent and ambiguous branch creation
+
+Before branch creation, a claimant participates in `CLAIM_INTENT_V1` election defined by CONTROL_PLANE_TRUST_AND_CONCURRENCY.md.
+
+The exact deterministic branch is created only by the winning intent.
+
+Claim marker includes:
+- CLAIM_INTENT_ID
+- CLAIM_INTENT_COMMENT_ID
+- CONTROL_EVENT_ID
+- task contract hash
+- context/base SHA
+- agent/slot/run identity
+
+GitHub write timeout is UNKNOWN_OUTCOME, not failure.
+
+If branch exists but its association to the winning claim intent cannot be proven:
+- do not write substantive commits;
+- classify CLAIM_ASSOCIATION_UNKNOWN;
+- Flow Governor reconciles.
