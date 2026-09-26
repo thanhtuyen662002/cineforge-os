@@ -1918,3 +1918,146 @@ Health combines:
 - freshness against required RPO.
 
 An old immutable backup may be trustworthy but still unhealthy for the current RPO.
+
+
+# BU. Anti-rollback package activation
+
+Every security-sensitive package family maintains:
+- package family identity;
+- semantic/security version;
+- signed manifest digest;
+- content digests;
+- signing key ID;
+- minimum allowed version/trust epoch where policy requires monotonicity.
+
+A valid historical signature does not by itself authorize downgrade.
+
+Downgrade:
+- is blocked below the trust/version floor unless explicit recovery policy authorizes it;
+- records rationale and risk;
+- never re-enables a version/key already revoked by forward trust journals.
+
+Update/connector/runtime/model package activation rechecks signature + manifest + content hashes at activation boundary.
+
+# BV. Trusted executable and DLL loading
+
+Managed executables:
+- launch from absolute managed path;
+- do not resolve through ambient PATH;
+- verify expected file identity/hash/signature immediately before security-sensitive launch where practical;
+- sanitize inherited environment variables;
+- use hardened platform loader/search behavior so current working directory/untrusted adjacent paths do not supply DLLs/plugins;
+- declare intentionally loadable plugin directories explicitly.
+
+Unexpected executable/library identity => block/quarantine.
+
+# BW. Single-Core database ownership epoch
+
+One mutable Core owner exists per installation/database.
+
+Ownership record contains:
+- installation/library identity;
+- ownership_epoch;
+- process identity;
+- random session nonce;
+- acquired server/monotonic timestamps where available;
+- heartbeat/liveness evidence.
+
+Startup:
+1. acquire exclusive owner primitive;
+2. verify DB/library identity;
+3. establish Core session epoch;
+4. only then enable writes.
+
+Second instance:
+- attaches read-only when supported; or
+- exits with clear ownership state.
+
+Stale-lock takeover requires evidence the old owner cannot still mutate.
+SQLite file locking remains defense-in-depth, not the product-level ownership election.
+
+# BX. IPC endpoint and Core-session authentication
+
+Desktop↔Core channel binds:
+- OS-user ACL;
+- installation identity;
+- Core ownership epoch;
+- session nonce/token;
+- protocol version;
+- client session identity.
+
+Desktop never trusts “whatever answers on localhost port N”.
+
+After Core restart/ownership change:
+- old IPC tokens/queued mutating commands are invalid;
+- safely idempotent read/replay operations may rebind explicitly;
+- high-impact commands require fresh plan/current expected versions.
+
+# BY. Decision snapshot fencing
+
+High-impact command execution binds:
+- decision_request/plan ID;
+- impact_snapshot_hash;
+- exact entity/revision membership;
+- policy/rights snapshot;
+- expected versions;
+- expiry/staleness rule.
+
+Execution recomputes critical guards.
+Material mismatch => STALE_DECISION/REPLAN_REQUIRED, never silent scope expansion.
+
+# BZ. Windows canonical path policy
+
+At file trust boundaries:
+- normalize using OS-aware canonical APIs;
+- reject reserved device names and NT device/global-root escape forms;
+- reject unintended alternate data streams;
+- inspect reparse points/junctions/symlinks according to boundary policy;
+- bind volume/file identity where continuity matters;
+- never use user display path as security identity.
+
+# CA. Portable project/archive package trust
+
+Project/template/handoff package import:
+- is processed in sandbox like hostile archive input;
+- has versioned manifest;
+- hashes each declared payload;
+- rejects undeclared/escaping entries;
+- rejects absolute extraction paths;
+- does not activate embedded executable/plugin/script merely because package contains it;
+- maps external references explicitly rather than trusting source-machine paths.
+
+# CB. At-rest security profiles
+
+Deployment/project policy declares actual at-rest guarantees.
+
+Profiles may include:
+- STANDARD_OS_USER — relies on OS account/disk security;
+- ENCRYPTED_WORKSPACE — DB/media/object encryption or encrypted backing volume according to implementation;
+- EXTERNAL_MANAGED — enterprise storage controls.
+
+UI/docs must not imply “secrets encrypted” means “all project media encrypted”.
+
+Encrypted profile defines:
+- key ownership;
+- backup wrapping/recovery;
+- machine migration;
+- rotation;
+- crypto-erasure;
+- lost-key failure behavior.
+
+# CC. Security-tool interference classification
+
+Filesystem/package errors classify evidence such as:
+- ACCESS_DENIED;
+- FILE_QUARANTINED/MISSING_AFTER_WRITE;
+- CONTROLLED_FOLDER_BLOCK;
+- DISK_FULL;
+- FILESYSTEM_CORRUPTION;
+- UNKNOWN_IO.
+
+When cause is ambiguous:
+- do not auto-delete/reinitialize storage;
+- preserve evidence;
+- enter degraded/recovery state;
+- show security-tool troubleshooting only when evidence supports it.
