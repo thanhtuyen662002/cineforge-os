@@ -4772,3 +4772,171 @@ Retention outlives ordinary ephemeral PR artifacts sufficiently for incident res
 173. renewed signing key dual-trust transition;
 174. release built from contaminated persistent runner;
 175. release artifact evidence after ordinary CI artifact expiry.
+
+
+# IE. AI model artifact trust classes
+
+Every model artifact declares one trust/execution class:
+- PASSIVE_WEIGHTS
+- SERIALIZED_CODE_CAPABLE
+- NATIVE_OPS
+- REMOTE_CODE_REQUIRED
+- COMPILED_ENGINE
+
+Examples:
+- safetensors-like passive tensors may qualify as PASSIVE_WEIGHTS after parser validation;
+- pickle/TorchScript/custom Python loader is executable-capable;
+- custom CUDA/ONNX/TensorRT op is NATIVE_OPS/COMPILED_ENGINE;
+- `trust_remote_code`-style behavior is REMOTE_CODE_REQUIRED.
+
+Rules:
+- executable classes are governed as code/packages, not harmless media;
+- loader selection is based on certified artifact class, not filename extension alone;
+- executable model artifacts run in isolated managed runtime with package provenance/signature/license policy;
+- untrusted project-local model code never inherits production credentials/filesystem/network by default.
+
+# IF. Model semantic execution fingerprint
+
+A model execution fingerprint contains:
+- weight/content digest;
+- base model identity/revision;
+- tokenizer digest/version;
+- chat/prompt template revision;
+- ordered adapter/LoRA identities;
+- quantization profile;
+- preprocessing profile;
+- inference backend/provider;
+- runtime/toolchain version;
+- GPU/driver compatibility class where relevant.
+
+Routing, benchmark, QC and reproducibility evidence record this fingerprint.
+A display label such as “Wan 2.x” or “Qwen” is never sufficient identity.
+
+# IG. Adapter/base-model compatibility
+
+Adapter package declares:
+- compatible base model fingerprint/family;
+- required tensor/key schema;
+- tokenizer/template compatibility where relevant;
+- ordered application/merge requirements;
+- precision/quantization constraints;
+- license/rights restrictions.
+
+Activation fails closed on incompatible base/ordering/shape.
+Two adapters with same human name remain distinct by package/content identity.
+
+# IH. Compiled inference engine certification
+
+Compiled engines bind:
+- source model fingerprint;
+- GPU architecture/device capability;
+- driver/runtime;
+- compiler/builder;
+- precision/calibration;
+- backend/plugin/custom-op identities.
+
+Environment mismatch transitions the engine to REVALIDATION_REQUIRED or REBUILD_REQUIRED.
+It does not remain READY solely because bytes load.
+
+# II. Model legal eligibility
+
+Model/package state uses independent axes:
+- technical installation/health;
+- trust/executable class;
+- license/rights eligibility;
+- privacy/egress eligibility;
+- benchmark/certification state.
+
+A technically healthy cached model may be legally BLOCKED.
+License/model-card/terms snapshots are versioned and can invalidate future routing/release eligibility without deleting historical evidence.
+
+# IJ. Strict model-generated action boundary
+
+Model-generated tool/action proposals are untrusted outputs.
+
+Before any action:
+1. strict schema decode;
+2. duplicate-key/unknown-enum/size/depth checks;
+3. capability/effect-class validation;
+4. project/actor/task handle-scope validation;
+5. normal typed Command planning;
+6. policy/rights/privacy/cost/resource/authority gates.
+
+No model/provider output directly invokes shell, CLI, MCP, browser, API, publication or destructive action merely because it resembles a tool call.
+
+# IK. Embedding/vector index generation identity
+
+Derived semantic-search/vector index records:
+- source project/privacy scope;
+- source entity/revision manifest;
+- embedding model semantic fingerprint;
+- preprocessing/chunking revision;
+- index library/schema/backend version;
+- creation policy/recovery epoch.
+
+A changed model/preprocessor invalidates affected index generation.
+Old index may remain historical but cannot silently serve as current retrieval truth.
+
+# IL. Hermetic model worker and activation state
+
+Model worker launch follows privileged-worker environment rules plus:
+- user site-packages disabled unless managed;
+- project CWD not on module/plugin/library search path;
+- verified native library paths;
+- controlled model cache roots;
+- explicit network policy;
+- no remote-code loading outside certified package policy.
+
+Model activation:
+`DISCOVERED → DOWNLOADED → DIGEST_VERIFIED → MANIFEST_VALIDATED → RUNTIME_COMPATIBLE → HEALTH_TESTED → CERTIFIED_READY`.
+
+Failure/OOM/crash leaves a non-ready state.
+
+# IM. Model residency/resource scheduler
+
+Model residency consumes schedulable resources:
+- VRAM;
+- RAM;
+- worker/process slot;
+- warm-cache budget;
+- load/unload bandwidth/time.
+
+Residency states:
+- NOT_LOADED
+- LOAD_RESERVED
+- LOADING
+- RESIDENT
+- EVICTING
+- UNLOAD_VERIFY
+- NOT_RESIDENT
+- DEGRADED
+- QUARANTINED
+
+Scheduler:
+- reserves residency resources with headroom;
+- prevents uncontrolled multi-model thrash;
+- distinguishes installed vs resident vs usable;
+- revalidates physical VRAM release after crash/unload where possible;
+- may pin high-value model only within configured resource budget.
+
+# IN. AI model/runtime required tests
+
+176. pickle/code-capable checkpoint cannot load through passive-weight path;
+177. remote-code model requires executable-package approval;
+178. custom native op identity mismatch;
+179. compiled engine moved to incompatible GPU/driver;
+180. tokenizer/template revision change invalidates execution fingerprint;
+181. wrong LoRA/base-model pairing;
+182. quantized vs unquantized benchmark identities remain distinct;
+183. model cache filename swap with wrong digest;
+184. interrupted/corrupt model download;
+185. license eligibility changes while cached model remains installed;
+186. model-generated oversized/malformed tool call;
+187. model-generated tool call requesting higher effect class than task permits;
+188. embedding model switch invalidates old vector index;
+189. project-local Python module cannot shadow managed runtime dependency;
+190. user-site/native DLL search hijack blocked;
+191. model OOM during activation cannot advertise READY;
+192. concurrent model residency requests cannot overcommit VRAM;
+193. unload/crash reservation reconciliation;
+194. privacy-sensitive job uses isolated untrusted-plugin process.
