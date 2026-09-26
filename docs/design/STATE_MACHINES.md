@@ -1788,3 +1788,124 @@ Resilience:
 - UNKNOWN
 
 A successful copy may still project SAME_FAILURE_DOMAIN.
+
+
+
+# 73. Core instance ownership
+
+- STARTING
+- ACTIVE_OWNER
+- DRAINING
+- STALE_FENCED
+- STOPPED
+
+If another Core obtains a newer persistent epoch/fencing token, the old instance becomes STALE_FENCED and cannot perform canonical writes/outbox dispatch.
+
+# 74. Resume reconciliation
+
+After sleep/hibernate:
+- RESUME_DETECTED
+- REVALIDATING
+- READY
+or:
+- DEGRADED
+- RECOVERY_REQUIRED
+
+No burst execution of expired timers before REVALIDATING completes.
+
+# 75. Database integrity state
+
+- UNKNOWN
+- CHECKING
+- CLEAN
+- DEGRADED
+- CORRUPT
+- RECOVERY_REQUIRED
+
+CORRUPT blocks normal mutation.
+
+# 76. Egress manifest state
+
+- PLANNED
+- AUTHORIZING
+- ALLOWED
+- BLOCKED
+- NEEDS_DECISION
+- SUPERSEDED
+
+Connector dispatch requires current ALLOWED state bound to the exact payload/context revision.
+
+# 77. Context required-constraint state
+
+Per constraint:
+- PRESENT
+- REPRESENTED_STRUCTURED
+- MISSING
+- CONFLICT
+
+Compile session:
+- COMPLETE
+- BLOCKED_MISSING_REQUIRED
+- BLOCKED_CONFLICT
+- STALE
+
+# 78. Credential binding state
+
+- ACTIVE
+- ROTATING
+- RETIRED
+- REVOKED
+- EXPIRED
+- MISSING
+
+Existing attempt may reconcile under its pinned historical binding identity but cannot silently swap to another binding.
+
+# 79. Migration run state
+
+```text
+PLANNED
+→ SCHEMA
+→ BACKFILL
+→ PROJECTIONS
+→ INTEGRITY_CHECK
+→ HEALTH_CHECK
+→ COMPLETE
+```
+
+Failure:
+- FAILED_RETRYABLE
+- RECOVERY_REQUIRED
+- ABORTED
+
+Resume begins from last idempotently completed step.
+
+# 80. Package retention state
+
+- IN_USE_EXECUTABLE_REQUIRED
+- PROVENANCE_ONLY_REQUIRED
+- REMOVAL_ELIGIBLE
+- BLOCKED_BY_ACTIVE_WORK
+- BLOCKED_BY_RECOVERY
+- REMOVED_EXECUTABLE_ARCHIVED_DESCRIPTOR
+
+# 81. Publication destination state
+
+- UNVERIFIED
+- VERIFIED
+- CHANGED
+- MISMATCH
+- REAUTH_REQUIRED
+- BLOCKED
+
+Publish requires VERIFIED destination snapshot.
+
+# 82. Release stream inspection
+
+- UNINSPECTED
+- INSPECTING
+- CLEAN_EXPECTED
+- UNEXPECTED_STREAMS
+- BLOCKED
+- WAIVED
+
+Unexpected streams are not silently discarded from evidence.
