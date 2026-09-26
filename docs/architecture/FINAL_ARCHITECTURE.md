@@ -1884,3 +1884,136 @@ Between verification and registration CineForge must defend against:
 - writable alias to canonical CAS object.
 
 Finalization verifies the same file identity/content that was hashed before atomically entering managed storage.
+
+
+# 65. Narrative context and nonlinear continuity
+
+CineForge separates:
+- screen/edit order;
+- diegetic chronology;
+- continuity context/worldline.
+
+A `NarrativeContext` may represent:
+- MAINLINE
+- FLASHBACK
+- FLASHFORWARD
+- DREAM
+- HYPOTHETICAL
+- ALTERNATE
+- LOOP_ITERATION
+- RETELLING
+- CUSTOM
+
+Contexts may fork/derive from another context with explicit ancestry.
+
+State resolution uses:
+`(narrative_context_id, chronology_key, entity)`
+
+not one global story key.
+
+A ShotContinuitySnapshot pins:
+- narrative context;
+- chronology position;
+- ancestry/baseline hash;
+- relevant entity-state revisions.
+
+# 66. Production hierarchy
+
+Project is the technical/workspace boundary, not necessarily one finished film.
+
+A project may contain hierarchical `ProductionNode`:
+- SERIES / SEASON / EPISODE
+- FEATURE
+- SHORT
+- AD
+- MUSIC_VIDEO
+- DOCUMENTARY
+- TRAILER
+- TEST/EXPERIMENT
+
+Sequences/scenes/shots belong to an applicable production node.
+
+Production nodes pin:
+- canon baseline;
+- media profile;
+- release policy;
+- default style/policy inheritance.
+
+Shared series/franchise canon can evolve without retroactively mutating released production truth.
+
+# 67. Character vs performer vs representation
+
+CineForge distinguishes:
+
+## Narrative Character
+Who exists in the story.
+
+## Person / Performer
+A real human whose face, voice, performance, mocap, stunt/body work or other identity may be used.
+
+## Production Representation
+How a narrative entity is realized in a particular production/scene/shot:
+- live performer;
+- voice performer;
+- stunt/body double;
+- mocap performer;
+- digital double;
+- AI identity package;
+- physical/CG prop;
+- real/set/virtual environment.
+
+Casting/representation bindings are scoped and versioned.
+
+Real-person consent/rights attach to Person/Performer and derived representations.
+Revoking performer rights does not delete the fictional Character; it taints dependent representations/assets.
+
+# 68. Live-action capture domain
+
+Live-action/hybrid production adds:
+- ProductionUnit / ShootDay
+- Slate
+- ProductionTake
+- CameraRoll / AudioRoll
+- CaptureClip
+- SyncGroup
+- Ingest/CardManifest
+- Continuity/TakeNote
+
+Planned Shot and recorded Take are different identities.
+
+One Take may contain many camera/audio clips.
+One Shot may use material from many Takes.
+
+Capture original is immutable.
+Editorial selection/preference is metadata/revision, not destructive replacement.
+
+# 69. Documentary factual-evidence domain
+
+Documentary/factual projects add:
+- SourceRecord
+- Interview/Participant relation
+- FactClaim
+- ClaimEvidence
+- QuoteRange
+- Verification/Conflict state
+- Release/Consent/Rights binding
+- Archived source snapshot where permitted
+
+A FilmBible/story statement is not automatically a verified factual claim.
+
+Factual review can distinguish:
+- exact transcription;
+- source context;
+- corroboration/conflict;
+- editorial meaning;
+- rights/release eligibility.
+
+# 70. Retcon and released-history policy
+
+Canon revisions have effective scope.
+
+Released production manifests pin their historical canon baseline.
+Later retcon:
+- may invalidate current/future production work according to policy;
+- does not rewrite the historical meaning/evidence of already released production;
+- can create explicit supersession/continuity notes across seasons/episodes.
