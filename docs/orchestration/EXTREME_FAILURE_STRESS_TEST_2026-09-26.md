@@ -6710,3 +6710,176 @@ Packaging cannot pull “latest successful” output by name.
 ## X85 — Release tag/reference immutability (P0/P1)
 Release authority resolves immutable commit/object identity and verifies configured tag/signature policy.
 A mutable/moved tag cannot silently redirect a previously approved release.
+
+
+# 25. Learning / evaluation / routing adversarial wave
+
+This wave uses `LRN-xx` identifiers.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| LRN-01 | One user/project generates thousands of labels and dominates router learning | PARTIAL | contribution caps exist, but source identity/weighting should be explicit |
+| LRN-02 | Same human appears through several accounts/agents and looks like independent agreement | **GAP/P1** | Sybil/correlated-feedback identity needs detection/weight cap |
+| LRN-03 | Ten labels derived from the same provider/evaluator are counted as ten independent sources | **GAP/P1** | source correlation/provenance must affect confidence |
+| LRN-04 | Reviewer sees “recommended candidate” badge before judging and approval rate rises | **GAP/P1 quality** | presentation/anchoring bias contaminates preference data |
+| LRN-05 | Candidate A is always shown left/first and wins due position bias | **GAP/P1** | randomized/blind presentation needed for evaluation-grade preference data |
+| LRN-06 | Reviewer knows provider/model name and favors premium brand | **GAP/P1** | blind comparison mode needed when collecting model-quality evidence |
+| LRN-07 | Benchmark examples leak into prompt templates used by candidate system | **GAP/P0/P1 evaluation integrity** | sealed holdout must be inaccessible to production/prompt optimization path |
+| LRN-08 | Evaluator explanation text leaks expected answer/defect into repair generator | **GAP/P1** | repair may consume evidence but benchmark/evaluator privileged internals need channel separation |
+| LRN-09 | Training set contains crop/frame derivative of holdout video but hash differs | PARTIAL | lineage/near-duplicate grouping exists; must be mandatory for sealed holdout |
+| LRN-10 | Same dialogue/performance appears in both train and evaluation via different codec/tempo | PARTIAL | protected grouping concept exists; audio/performance similarity grouping should be required where relevant |
+| LRN-11 | Duplicate rejection label is imported multiple times and overweights a failure mode | **GAP/P1** | feedback dedupe + lineage/source event identity needed |
+| LRN-12 | Reviewer changes label after discussion with another reviewer; immutable snapshot hides dependence | **GAP/P2** | provenance should record review sequence/exposure, not pretend labels independent |
+| LRN-13 | AI reviewer outputs many confident labels and swamps sparse human labels | **GAP/P1** | evaluator class/authority weighting must separate machine vs human evidence |
+| LRN-14 | Router optimizes approval rate by choosing bland low-risk outputs and creative diversity collapses | PARTIAL | systemic convergence monitor exists; router objective needs explicit diversity/novelty guard |
+| LRN-15 | Router optimizes cost/latency because those metrics are dense while quality is delayed | **GAP/P1** | multi-objective constraints must prevent proxy metric takeover |
+| LRN-16 | Cheap provider gets more traffic, therefore more data, therefore better estimated confidence, reinforcing dominance | **GAP/P1 feedback loop** | exploration/minimum coverage/concentration correction needed |
+| LRN-17 | New provider/model never receives enough traffic to demonstrate quality | **GAP/P2** | shadow/exploration budget needed |
+| LRN-18 | A bad provider happens to see only easy shots and appears superior | **GAP/P1** | evaluation must stratify/adjust by task difficulty/domain mix |
+| LRN-19 | Quality metric improves because task mix shifted to simpler scenes | PARTIAL | mix-shift monitor exists; promotion comparison should use matched/stratified cohorts |
+| LRN-20 | Human approval declines after UI/review policy change, router falsely blames model | **GAP/P1** | label/evaluation context must include UI/review-policy revision |
+| LRN-21 | Evaluator threshold changes and historical PASS labels are compared directly to new PASS labels | PARTIAL | evaluator version exists; aggregate metrics must not mix incompatible policy versions silently |
+| LRN-22 | Golden set reviewer made a systematic mistake, benchmark becomes canonical wrong truth | PARTIAL | second review/confidence exists; contested/appeal state useful |
+| LRN-23 | Golden example rights are later revoked but cached benchmark result still authorizes promotion | **GAP/P1** | tainted benchmark result must invalidate dependent promotion evidence |
+| LRN-24 | Model candidate is tuned repeatedly against same sealed holdout until effectively overfit | PARTIAL | exposure count exists; enforce max exposure and rotate holdout |
+| LRN-25 | Benchmark membership leaks via timing/error/score API | **GAP/P2** | sealed suite access/output needs side-channel-aware minimization |
+| LRN-26 | Prompt optimizer uses final human acceptance of released films as direct prompt reward, encoding marketing/selection bias | **GAP/P1** | outcome provenance and causal uncertainty must prevent naive reward use |
+| LRN-27 | Rejected outputs are deleted early, so failure dataset only preserves recoverable/easy negatives | **GAP/P1 selection bias** | failure retention sampling policy needed |
+| LRN-28 | Only successful provider calls have complete latency/cost telemetry; failures disappear from performance model | **GAP/P1 survivorship bias** | aborted/failed attempts remain part of benchmark/routing data |
+| LRN-29 | Privacy-sensitive project feedback is aggregated globally despite project-local policy | PARTIAL | project/privacy scope exists; router aggregate pipeline must enforce scope |
+| LRN-30 | Two tenants' preference data influences each other in future multi-user deployment | **GAP/P0/P1 multi-tenant** | learning scope/tenant boundary must be explicit |
+| LRN-31 | Model promotion looks good offline but harms a small domain not represented in golden set | PARTIAL | cross-domain validation exists; minimum-domain coverage/blocking UNKNOWN needed |
+| LRN-32 | Rollback restores old router model but not its feature schema/calibration tables | **GAP/P1** | promoted component version must bind feature/schema/calibration bundle |
+| LRN-33 | Shadow evaluator sees production decision and learns leakage from chosen output | **GAP/P1** | shadow evaluation must run blind before outcome exposure |
+| LRN-34 | Repair success metric counts “no further review” as success when user simply abandoned task | **GAP/P1** | terminal reason must distinguish success, abandonment, timeout and user override |
+| LRN-35 | Provider intentionally games known QC metric while perceptual quality worsens | PARTIAL | multi-sensor/human checks exist; metric exposure and rotating adversarial evaluation useful |
+| LRN-36 | Benchmark includes watermarked/generated artifacts that reveal source/provider label | **GAP/P2** | blind benchmark preprocessing should remove irrelevant identity cues where possible |
+| LRN-37 | Review order causes fatigue: later candidates receive more rejects | **GAP/P2** | evaluation-grade sessions should randomize/order-balance and record position |
+| LRN-38 | Human reviewer becomes calibrated to one style and penalizes diverse style by habit | PARTIAL | diversity monitors exist; reviewer calibration/rotation evidence needed |
+| LRN-39 | System learns from emergency/manual override that bypassed normal quality policy | **GAP/P1** | override/emergency outcomes should not automatically become positive training labels |
+| LRN-40 | Historical labels are re-used after canonical story/rights/context changed materially | **GAP/P1** | learning example eligibility must bind context/revision applicability |
+
+# 26. Learning/evaluation findings
+
+## X86 — Feedback provenance and independence model (P1)
+Every learning/evaluation label records:
+- source actor/evaluator identity class;
+- project/tenant/privacy scope;
+- originating review/session/event;
+- UI/review-policy revision;
+- model/evaluator/provider lineage;
+- confidence/authority;
+- exposure to other labels/recommendations where known.
+
+Aggregation does not treat correlated sources as independent votes.
+
+## X87 — Evaluation-grade blind/randomized presentation (P1)
+When collecting evidence for model/router promotion:
+- hide provider/model branding where feasible;
+- randomize/balance candidate position/order;
+- suppress recommendation badges;
+- record presentation position/order;
+- separate normal production UX from evaluation-grade mode.
+
+## X88 — Sealed holdout isolation (P0/P1)
+Sealed benchmark membership/content is unavailable to:
+- prompt optimizer;
+- production routing;
+- candidate training/tuning;
+- repair generator;
+- model/provider selection logic.
+
+Access is minimal and audit-scoped.
+Candidate receives score/evidence only at the level needed by promotion governance, not raw holdout answers.
+
+## X89 — Feedback dedup/correlation graph (P1)
+Dataset curation detects:
+- duplicate label events;
+- same underlying asset/performance derivatives;
+- same evaluator/model/provider source chain;
+- re-encoded/near-duplicate examples.
+
+Weights/confidence account for correlation rather than count alone.
+
+## X90 — Router multi-objective safety envelope (P1)
+Router optimization has hard/soft constraints for:
+- quality;
+- privacy/rights;
+- creative diversity;
+- provider concentration;
+- cost;
+- latency;
+- reliability.
+
+Dense cost/latency metrics cannot dominate sparse/delayed quality merely because they are easier to optimize.
+
+## X91 — Exploration and coverage budget (P1/P2)
+Router/benchmark governance reserves controlled exploration/shadow coverage so:
+- new providers/models can be evaluated;
+- one provider's data advantage does not self-reinforce forever;
+- exploration never bypasses privacy/rights/budget constraints.
+
+## X92 — Difficulty/domain-stratified evaluation (P1)
+Provider/model comparisons record task domain/difficulty/context and use matched/stratified cohorts where possible.
+Global pass rate alone cannot promote a component when workload mix changed materially.
+
+## X93 — Evaluation-context versioning (P1)
+Metrics bind:
+- evaluator version/threshold policy;
+- review UI/presentation policy;
+- benchmark dataset version;
+- task/domain mix snapshot;
+- feature extraction version.
+
+Incompatible contexts are not silently aggregated.
+
+## X94 — Taint propagation into promotion evidence (P1)
+Rights/privacy revocation, benchmark contamination or invalid labels taint:
+DatasetSnapshot → BenchmarkRun → ShadowRun → PromotionRecord.
+
+A previously green promotion cannot keep relying on evidence that is now invalid without explicit policy/legal review.
+
+## X95 — Failure/survivorship retention policy (P1)
+Learning data includes failed/aborted/rejected attempts according to governed sampling/retention.
+Do not learn only from outputs that survived long enough to be reviewed.
+
+## X96 — Tenant/project learning boundary (P0/P1 future multi-tenant)
+Every feedback/dataset/router feature declares scope:
+- PROJECT_LOCAL
+- STUDIO_LOCAL
+- TENANT_LOCAL
+- GLOBAL_ELIGIBLE
+
+Cross-scope aggregation requires explicit privacy/rights/training permission.
+Future multi-tenant deployment defaults to no cross-tenant learning.
+
+## X97 — Promoted component bundle closure (P1)
+Promotion/rollback identity binds not only model/router binary but:
+- feature schema;
+- normalization/calibration;
+- thresholds;
+- policy/config;
+- dependent embeddings/index version where material.
+
+Rollback restores a compatible bundle, not only one executable/model file.
+
+## X98 — Blind shadow timing (P1)
+Shadow evaluation is captured before production decision/outcome is revealed where leakage would bias the measurement.
+Later outcome may be joined as a separate label.
+
+## X99 — Outcome taxonomy prevents false success labels (P1)
+Terminal outcomes distinguish:
+- APPROVED_SUCCESS;
+- REJECTED;
+- USER_OVERRIDE;
+- ABANDONED;
+- TIMEOUT;
+- CANCELLED;
+- POLICY_BLOCKED;
+- EXTERNAL_FAILURE.
+
+“No more complaints” is not automatically success.
+
+## X100 — Emergency/override feedback exclusion (P1)
+Emergency bypass/manual override does not become positive training truth by default.
+It carries policy exception provenance and requires curation before learning eligibility.
