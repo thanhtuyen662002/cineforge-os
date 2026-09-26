@@ -151,3 +151,33 @@ Avoid verbose status reporting that itself consumes the control slot.
 # 10. Success criterion
 
 The flow system is healthy when most waiting time is intentional work-in-progress or unavoidable external latency—not confusion about ownership, stale evidence, queue starvation, CI architecture or review capacity.
+
+
+# 11. Stage WIP/backpressure metrics
+
+Add:
+- ACTIVE_IMPLEMENTATION
+- CI_IN_FLIGHT
+- WAITING_REVIEW
+- MERGE_READY_COUNT
+- PARKED_TOTAL
+- WIP_BY_SLOT
+- WIP_BY_HOTSPOT
+- REVIEW_CAPACITY_UTILIZATION
+- CI_CAPACITY_UTILIZATION
+
+Flow rule:
+- when downstream stage occupancy exceeds configured budget for multiple control cycles, reduce new implementation claims;
+- redirect compatible workers to the dominant constrained stage;
+- “worker idle” is not a defect if creating more WIP would worsen cycle time.
+
+# 12. Control/merge lease health
+
+Track:
+- SLOT_LEASE_CONFLICTS
+- CONTROL_ROLE_FAILOVERS
+- MERGE_LEASE_WAIT
+- ORPHAN_CLAIM_OBSERVATIONS
+- TASK_CONTRACT_REVISION_COUNT
+
+Repeated conflicts indicate scheduler/control design problems rather than normal productive work.
