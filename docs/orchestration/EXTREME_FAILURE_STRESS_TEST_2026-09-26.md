@@ -4664,3 +4664,193 @@ CineForge must not market ordinary same-user process isolation as a perfect secu
 210. output ACL sabotage;
 211. child survives app shutdown/session restart;
 212. untrusted worker direct Core RPC probe.
+
+
+# 31. Ninth-wave cinematic identity / within-shot continuity attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 441 | Identical twins are separate characters with nearly identical face embeddings | **GAP/P1 correctness** | identity cannot collapse to visual similarity |
+| 442 | One actor/performer portrays two different characters in same project | **GAP/P1** | performer/source identity and depicted character identity must be separate |
+| 443 | Stunt/body double performs the character while face replacement occurs later | PARTIAL/GAP | need depicted-character vs performer/source binding per shot segment |
+| 444 | Character wears disguise/mask then removes it within one shot | **GAP/P1** | one shot-level identity snapshot is insufficient |
+| 445 | Character appears only in mirror/reflection while body is off-camera | **GAP/P1** | reflected depiction is still character presence with transformed geometry |
+| 446 | Same character appears both directly and in mirror; QC counts two “people” | **GAP/P1** | occurrence instances must distinguish depiction instance from logical character |
+| 447 | Background extra accidentally resembles locked hero face | **GAP/P1** | hero identity exclusivity/collision QC needed |
+| 448 | Younger flashback version of character has approved age-state variant | PARTIAL | state intervals exist, but relation to immutable underlying identity needs explicit variant semantics |
+| 449 | Character ages progressively over montage; face changes are intentional but bounded | **GAP/P1** | identity invariant vs allowed age-state drift must be parameterized over story time |
+| 450 | Prosthetic/makeup injury changes face after story event | PARTIAL | character state exists; visual identity override layering needs explicit precedence |
+| 451 | Two characters talk over each other | **GAP/P1 audio** | one dialogue line/take timeline alone does not model overlapping performance as first-class conversation event |
+| 452 | Three characters laugh/gasp while one speaks | **GAP/P1** | nonverbal vocal events need independent speaker/timing tracks |
+| 453 | Speaker is off-screen; lip-sync QC incorrectly expects visible mouth | **GAP/P1** | dialogue occurrence needs visibility/lip-sync applicability |
+| 454 | Same voice comes through phone/radio/intercom | PARTIAL | acoustic profile exists; source-voice identity vs rendered acoustic treatment must be explicit |
+| 455 | Character switches Vietnamese↔English mid-line | **GAP/P1** | language can vary within utterance while preserving one performance/voice identity |
+| 456 | Dub line is longer than original and overlaps next character | **GAP/P1** | localization timing needs collision/retime strategy, not line-by-line isolated approval |
+| 457 | Character sings; singing voice model differs from speaking model | **GAP/P1** | voice identity package needs performance mode binding, not single provider voice assumption |
+| 458 | Whisper/shout/cry pushes voice beyond normal embedding range | PARTIAL | emotional map exists; QC tolerance must be performance-mode aware |
+| 459 | ADR replaces only one word in a sentence | **GAP/P2/P1** | take replacement may be sub-line span rather than whole-line |
+| 460 | Crowd chant belongs to a group, not one character | **GAP/P1** | group/ensemble performance identity needed |
+| 461 | Prop moves from A’s hand to B’s hand halfway through shot | **GAP/P1** | shot continuity snapshot lacks sub-shot transition timeline |
+| 462 | Glass is half-full at start and empty by end of shot | **GAP/P1** | quantity/state can evolve continuously within shot |
+| 463 | Costume becomes wet/torn during shot | **GAP/P1** | state transition occurs inside shot, not between shots |
+| 464 | Door/window/light turns on/off during shot | **GAP/P1 environment** | environment state requires temporal changes within shot |
+| 465 | Character takes object with left hand then transfers to right hand | **GAP/P2/P1** | hand/attachment state is temporal and side-specific |
+| 466 | Blood/dirt accumulates during fight shot | **GAP/P1** | appearance modifier has intra-shot evolution |
+| 467 | Camera crosses 180° line intentionally | PARTIAL | CreativeException exists; film-grammar QC must bind scoped temporal exception |
+| 468 | Match-on-action requires end pose of shot A equal start pose of shot B | **GAP/P1** | cross-shot boundary state needs explicit end/start pose evidence |
+| 469 | Character exits frame left and must enter next shot right | **GAP/P1** | screen-direction continuity needs boundary state |
+| 470 | Eyeline target is off-screen and changes during shot | **GAP/P1** | gaze/target continuity is temporal relation, not only character state blob |
+| 471 | Shot contains screen-within-screen/video playback of earlier character footage | **GAP/P1** | nested media depiction should not be treated as live character occurrence |
+| 472 | Poster/photo of hero appears in background | **GAP/P1** | depicted image vs physically present character must be distinguished |
+| 473 | VFX clone intentionally shows two copies of same character simultaneously | **GAP/P1** | multiple depiction instances of one logical character must be allowed intentionally |
+| 474 | Time-loop story has same character from two story-times in one scene | **GAP/P1 narrative** | one character can have multiple concurrent state branches/instances |
+| 475 | Dream sequence deliberately mixes impossible costume/prop states | CONTAINED/PARTIAL | CreativeException exists; branch/alternate continuity domain should make this intentional rather than many waivers |
+| 476 | Unreliable-narrator version conflicts with objective canon | **GAP/P1** | narrative truth layer/viewpoint needs distinguish “depicted” from canonical truth |
+| 477 | Object continuity differs across alternate endings/branches | PARTIAL | variants exist; continuity state should be branch-scoped |
+| 478 | One scene intercuts two timelines with different states | **GAP/P1** | scene-level single story interval can be insufficient |
+| 479 | Editor reorders shots after generation, making story-state chronology invalid | **GAP/P1** | edit order and story-time order must remain distinct and validated |
+| 480 | Slow-motion/retime changes apparent duration but not story event duration | PARTIAL | rational timing exists; continuity time vs presentation time needs explicit separation |
+
+# 32. Ninth-wave cinematic findings
+
+## X102 — Depiction instance vs logical character identity (P1)
+CineForge needs a first-class **DepictionInstance**.
+
+One logical Character may have multiple simultaneous depictions:
+- direct body;
+- reflection/mirror;
+- photo/poster;
+- screen-within-screen;
+- clone/time-loop duplicate;
+- stunt/body double with character replacement.
+
+Depiction instance records:
+- logical character;
+- source performer/body-double identity when relevant;
+- occurrence type;
+- transform/reflection/nested-media role;
+- visibility interval;
+- identity/reference variant;
+- whether lip-sync/body/performance QC applies.
+
+Visual similarity never merges logical character identity automatically.
+
+## X103 — Performer/source identity separate from depicted character (P1)
+Represent:
+- depicted character;
+- human/AI performer/source;
+- body double/stunt/face source/voice performer;
+- transformation pipeline.
+
+Rights/provenance attach to performer/source as appropriate, while continuity attaches to depicted character.
+
+## X104 — Intra-shot continuity timeline (P1)
+Replace “one snapshot proves whole shot” assumption with:
+- shot start boundary snapshot;
+- zero or more temporal continuity events/key states;
+- shot end boundary snapshot.
+
+State can change within shot for:
+- prop possession/quantity;
+- costume wetness/damage;
+- injuries/dirt;
+- environment lights/doors/weather interaction;
+- hand/object attachment;
+- gaze/position;
+- mask/disguise/appearance variant.
+
+Generation/QC receives the required temporal state sequence, not one static blob.
+
+## X105 — Cross-shot boundary continuity (P1)
+For neighboring cuts, record/review boundary evidence:
+- end pose/action;
+- screen direction;
+- gaze/eyeline;
+- prop hand/attachment;
+- costume/injury/environment state;
+- motion/action phase.
+
+Match-on-action and screen direction are boundary relations, not ordinary shot metadata.
+
+## X106 — Story time vs presentation time (P1)
+Keep separate:
+- story/causal time;
+- shot internal event time;
+- timeline/edit presentation time;
+- source/media time.
+
+Reorder/retime may change presentation without rewriting canonical story chronology.
+Continuity uses story/internal event mapping, while lip-sync/music/edit use presentation mapping.
+
+## X107 — Narrative truth/viewpoint branch (P1)
+Facts may belong to:
+- OBJECTIVE_CANON;
+- CHARACTER_BELIEF;
+- DREAM/HALLUCINATION;
+- UNRELIABLE_NARRATION;
+- ALTERNATE_BRANCH;
+- FLASHBACK/FLASHFORWARD depiction.
+
+A contradictory depicted state is not automatically a canon conflict when scoped to a non-objective narrative layer.
+
+## X108 — Voice performance occurrence and mode (P1)
+Voice identity is stable, but each vocal occurrence records:
+- speaker/logical character or ensemble;
+- language segments;
+- performance mode: SPEECH | WHISPER | SHOUT | CRY | SING | NONVERBAL | CHANT;
+- visibility/lip-sync applicability;
+- acoustic rendering;
+- timing interval;
+- voice provider/model binding used.
+
+QC tolerance/profile is mode-aware.
+
+## X109 — Overlapping/ensemble dialogue timeline (P1)
+Conversation is a temporal set of vocal events, not a serial list of lines.
+
+Support:
+- overlapping speakers;
+- offscreen speech;
+- nonverbal events;
+- group/ensemble events;
+- sub-line ADR spans;
+- localized timing collision detection.
+
+## X110 — Identity exclusivity/collision QC (P1)
+Locked hero visual identity may define policies such as:
+- exclusive hero face in frame except approved clone/reflection/photo occurrences;
+- background extra similarity threshold;
+- twin/look-alike relation that intentionally permits high similarity.
+
+QC must distinguish:
+“wrong duplicate of hero”
+from
+“approved second depiction/twin/reflection”.
+
+# 33. Required cinematic identity/continuity tests
+
+231. identical twins remain separate logical characters;
+232. one performer portraying two characters;
+233. body double + face replacement lineage;
+234. mask on/off inside one shot;
+235. direct + mirror depiction of same character;
+236. poster/photo/screen depiction not counted as live presence;
+237. intentional clone/timeline duplicate of same character;
+238. hero-like background extra collision;
+239. progressive aging approved variant;
+240. intra-shot prop handoff;
+241. intra-shot costume wet/damage transition;
+242. intra-shot light/door environment transition;
+243. hand-transfer left→right;
+244. shot-end match-on-action to next shot start;
+245. exit-left/enter-right screen direction;
+246. offscreen speech skips lip-sync requirement;
+247. overlapping dialogue + nonverbal event;
+248. code-switching within utterance;
+249. singing vs speaking voice binding;
+250. sub-line ADR replacement;
+251. dub timing collision with next speaker;
+252. dream/unreliable-narrator state does not corrupt objective canon;
+253. alternate-ending branch continuity isolation;
+254. edit reorder preserves story-time semantics;
+255. slow-motion presentation-time vs story-event-time mapping.
