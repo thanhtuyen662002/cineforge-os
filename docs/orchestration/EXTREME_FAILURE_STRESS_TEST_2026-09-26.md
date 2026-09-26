@@ -6426,3 +6426,131 @@ Never silently prefer the newest metadata.
 ## X180 — Provenance metadata is untrusted content (P0/P1)
 Manifest fields, external URLs, annotations and claims are parsed as bounded typed data.
 They cannot execute tools, fetch arbitrary URLs, alter policy or prompt-inject agents/evaluators.
+
+
+# 39. Fourteenth-wave editorial time/container edge attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 671 | Nested sequence A contains B while B contains A | **GAP/P1** | recursive timeline evaluation/export can loop forever |
+| 672 | Deep nesting of 500 sequences causes stack/CPU blowup | **GAP/P1** | depth/complexity bounds needed |
+| 673 | Timecode display wraps at 24h while canonical timeline exceeds 24h | **GAP/P1** | display/timecode convention must not truncate canonical time |
+| 674 | Source has timecode discontinuity/restart mid-recording | **GAP/P1** | one file may contain multiple timecode segments; source frame identity cannot assume one linear wall-clock map |
+| 675 | 29.97 drop-frame invalid frame labels are accepted at minute boundary | **GAP/P1** | parser must validate legal SMPTE labels |
+| 676 | 59.94 drop-frame mapping is treated like 29.97 rules | **GAP/P1** | rate-specific timecode rules needed |
+| 677 | Negative preroll/source timecode is rejected although valid workflow requires it | **GAP/P2** | canonical media time may support signed positions while public output range remains bounded |
+| 678 | Reverse retime produces decreasing source mapping and breaks monotonic assumptions | **GAP/P1** | retime mapping must explicitly support/forbid reverse by feature capability |
+| 679 | Zero-speed freeze frame represented as divide-by-zero speed rational | **GAP/P1** | freeze is explicit segment type, not illegal rational |
+| 680 | Variable speed curve crosses zero/reverses unexpectedly | **GAP/P1** | retime curve invariant/segmentation needed |
+| 681 | Transition duration exceeds available source handles | **GAP/P1** | timeline validator must detect insufficient handles before conform/export |
+| 682 | Transition between retimed clips maps beyond source frame range | **GAP/P1** | handle validation must happen in source-time mapping |
+| 683 | Nested sequence retime causes repeated rational rescale drift | PARTIAL | rational mapping exists; composition of maps needs canonical rules/tests |
+| 684 | Audio encoder delay/priming is ignored and every joined clip shifts slightly | PARTIAL | delay tracked; conform/mux must consume it consistently |
+| 685 | Gapless AAC/Opus metadata is stripped on transcode, introducing cumulative gaps | **GAP/P1** | encoder delay/padding lineage and final verification |
+| 686 | 5.1 channel count matches but channel order is wrong | **GAP/P1** | layout identity/order must be semantic, not count only |
+| 687 | Ambisonic/spatial audio is flattened as ordinary multichannel | **GAP/P2** | channel/layout profile and destination compatibility needed |
+| 688 | WAV exceeds classic RIFF 4GB limit | **GAP/P1** | exporter capability chooses RF64/Wave64/other supported profile or blocks |
+| 689 | FAT32 destination max file size is smaller than predicted master | PARTIAL | filesystem preflight exists; export profile must include predicted final size |
+| 690 | MP4/container timestamp/index limits are exceeded by very long timeline | **GAP/P1** | container capability profile must declare duration/offset/size constraints |
+| 691 | Subtitle timestamp format cannot represent project duration precisely | **GAP/P1** | export adapter validates target subtitle format range/precision |
+| 692 | SRT milliseconds round differently from canonical rational, creating overlaps | **GAP/P1** | deterministic rounding + overlap repair/report |
+| 693 | Subtitle cue starts negative due preroll | **GAP/P2** | target export policy clips/shifts/rejects explicitly |
+| 694 | Source rotation metadata is ignored, QC sees rotated image vs export | **GAP/P1** | orientation is part of representation transform/provenance |
+| 695 | Anamorphic pixel aspect is flattened incorrectly in proxy then user approves framing | **GAP/P1** | review representation must preserve/display intended geometry |
+| 696 | Multiple audio tracks have different start offsets and one is normalized to zero incorrectly | **GAP/P1** | per-stream origin/timebase retained |
+| 697 | Multicam sync uses waveform match but two identical repeated cues pick wrong occurrence | **GAP/P2** | sync evidence/confidence + alternate candidates/human verification |
+| 698 | Timeline edit list contains gap/empty edit interpreted differently by target NLE | **GAP/P2 interoperability** | handoff target capability/profile must define edit-list semantics |
+| 699 | One clip has corrupt duration metadata but decodable packets continue longer | **GAP/P1** | authoritative duration may require packet/frame probing, not header only |
+| 700 | Final mux rewrites timestamps to avoid negatives and shifts subtitle/audio relative to picture | **GAP/P1** | mux timestamp transform becomes explicit final-stage mapping verified cross-modally |
+
+# 40. Editorial-time/container findings
+
+## X181 — Timeline nesting DAG and complexity bound (P1)
+Nested sequence/composition references must be acyclic.
+Validation rejects cycles and enforces configurable maximum nesting/expanded-operation complexity.
+
+## X182 — Canonical timeline time vs display timecode (P1)
+Canonical timeline uses wide rational/integer time independent of display wrapping.
+SMPTE display/parser profile defines:
+- frame rate;
+- nominal timecode rate;
+- drop-frame rules;
+- wrap policy;
+- signed/preroll support.
+
+Timecode formatting never truncates canonical duration silently.
+
+## X183 — Retime segment semantics (P1)
+Retime is piecewise mapping with explicit segment type:
+- FORWARD
+- REVERSE
+- FREEZE
+- VARIABLE
+
+Freeze is not speed=0 division.
+Reverse/zero crossing is explicit and validated.
+Composition of nested mappings uses checked rational math.
+
+## X184 — Source-handle validation (P1)
+Transitions/retimes require source-time handle proof:
+- mapped source in/out;
+- required pre/post handles;
+- source bounds;
+- decoder availability.
+
+Insufficient handle is a timeline validation issue before export.
+
+## X185 — Audio layout/order and delay semantics (P1)
+Audio identity includes:
+- semantic channel layout/order;
+- sample rate;
+- start offset;
+- encoder delay/priming/padding;
+- spatial/ambisonic profile where supported.
+
+Channel count alone is insufficient.
+
+## X186 — Container/export capability profile (P1)
+Each output adapter/profile declares:
+- max file/duration/index/time range;
+- large-file variant support;
+- timestamp precision/range;
+- negative timestamp support;
+- channel/layout support;
+- metadata/orientation behavior.
+
+Preflight selects a compatible container/profile or blocks with an actionable reason.
+
+## X187 — Subtitle target-range/rounding contract (P1)
+Subtitle export defines:
+- canonical rational → target timestamp rounding;
+- minimum/maximum timestamp;
+- negative cue policy;
+- overlap/order repair policy;
+- target format precision.
+
+Round-trip loss is reported when material.
+
+## X188 — Stream origin/orientation geometry (P1)
+Per-stream/source representation preserves:
+- start origin/timebase;
+- rotation/orientation transform;
+- pixel aspect/display aspect;
+- crop/aperture where relevant.
+
+Proxy/review/export must agree on intended display geometry.
+
+## X189 — Duration trust hierarchy (P1)
+Container/header duration is evidence, not absolute truth when inconsistent.
+Probe can derive:
+- declared duration;
+- packet/frame observed duration;
+- confidence/conflict.
+
+Conflicting duration blocks operations requiring exact end unless resolved.
+
+## X190 — Final mux timestamp mapping evidence (P1)
+If muxer shifts/rebases timestamps:
+- record exact transform;
+- verify A/V/subtitle alignment after mux;
+- bind final-master QC to post-transform bytes/timestamps.
