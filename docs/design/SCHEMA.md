@@ -3430,3 +3430,73 @@ LOCAL_ONLY scope cannot use a cloud collaboration_channel unless policy explicit
 - created_at_utc_us
 - invalidated_at_utc_us nullable
 - invalidation_reason nullable
+
+
+
+# 84. Provenance/authenticity evidence
+
+## provenance_claims
+- id PK
+- subject_asset_revision_id FK
+- claim_type
+- claim_value_json
+- trust_class
+- source_kind
+- source_ref nullable
+- claim_schema_version
+- state: ACTIVE | INVALID | CONFLICT | SUPERSEDED
+- created_at_utc_us
+
+## provenance_signatures
+- id PK
+- provenance_claim_id FK
+- key_id nullable
+- signer_identity
+- signature_type
+- signature_hash
+- subject_digest
+- timestamp_evidence_json nullable
+- signature_validity
+- trust_at_evidence_time
+- current_trust_state
+- verified_at_utc_us
+
+## provenance_packages
+- id PK
+- subject_asset_revision_id FK
+- subject_digest
+- package_format
+- package_schema_version
+- storage_object_id FK
+- privacy_profile_id nullable
+- verification_state
+- created_at_utc_us
+
+## provenance_transform_edges
+- id PK
+- from_asset_revision_id FK
+- to_asset_revision_id FK
+- transform_type
+- transform_profile_hash nullable
+- essence_relation: IDENTICAL_BYTES | LOSSLESS_REWRAP | LOSSY_DERIVATIVE | FLATTENED | UNKNOWN
+- evidence_json
+
+## publication_artifacts
+- id PK
+- publication_id FK
+- artifact_role: RELEASE_MASTER | UPLOADED_BYTES | PLATFORM_DERIVATIVE
+- asset_revision_id nullable
+- content_digest nullable
+- external_identity nullable
+- verification_state
+- verified_at_utc_us nullable
+
+## provenance_conflicts
+- id PK
+- subject_asset_revision_id FK
+- evidence_set_a_json
+- evidence_set_b_json
+- conflict_type
+- state: OPEN | RESOLVED | WAIVED
+- resolved_by_actor_id nullable
+- resolution_json nullable
