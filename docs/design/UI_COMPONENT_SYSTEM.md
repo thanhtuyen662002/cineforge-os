@@ -1322,3 +1322,36 @@ Common entry points:
 - Style/Audio: Tạo phương án
 
 The UI must always show which revision is the base and which candidate, so experimentation cannot silently replace Canon.
+
+
+# 51. First-run storage location clarification
+
+Do not present one ambiguous “Nơi lưu dữ liệu” picker that silently places every storage class together.
+
+Default simple UX may still look like one setup step, but CineForge internally chooses safe roots:
+- Core database: supported local fixed storage;
+- media library: local default, user may relocate;
+- models/cache: local high-capacity root;
+- backup/export: user-configurable.
+
+If user selects a network/synced/removable location for general media:
+- do not silently move live SQLite WAL there;
+- explain that project media can use that location while CineForge's active database stays in a safe local location.
+
+Advanced storage settings expose roots separately.
+
+# 52. Connection automation permission UI
+
+Connection status separates:
+- technical health;
+- authentication;
+- quota/capacity;
+- automation permission.
+
+Examples:
+- “Sẵn sàng · Tự động được phép”
+- “Sẵn sàng · Chỉ dùng có hỗ trợ”
+- “Sẵn sàng · Thao tác thủ công”
+- “Cần xem lại điều khoản”
+
+Do not show a green “Ready” card that implies browser automation is permitted when policy state is UNKNOWN/BLOCKED.
