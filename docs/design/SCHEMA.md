@@ -2746,3 +2746,68 @@ Extend `fact_claim_evidence`:
 - created_at_utc_us
 
 Purge/archival cannot remove the last recoverable revision while a required dependency ref exists.
+
+
+
+# 64. Canonical numeric domain constraints
+
+Schema/migration layer must enforce basic impossible-state constraints where SQLite can express them, with deeper validation in Core.
+
+Examples:
+- rational denominators > 0;
+- dimensions/sample/frame/channel counts nonnegative and policy-bounded in Core;
+- interval end >= start where same-unit columns permit CHECK;
+- money currency not null when amount is present;
+- canonical money values are integer minor units/fixed scale, not REAL;
+- canonical JSON cannot contain NaN/Infinity.
+
+## currency_amounts
+Reusable conceptual value object:
+- amount_minor_units INTEGER with checked Core arithmetic
+- currency_code TEXT (ISO 4217 or explicit provider-unit namespace)
+
+## fx_rate_snapshots
+- id PK
+- source_currency
+- target_currency
+- rate_decimal_text
+- rate_scale
+- source
+- captured_at_utc_us
+- effective_at_utc_us nullable
+- rounding_policy
+
+## provider_credit_units
+- id PK
+- connection_id FK
+- unit_code
+- unit_schema_version
+- description
+- active_from_utc_us
+- active_to_utc_us nullable
+
+Usage records referencing credits also pin provider_credit_unit_id when unit semantics are versioned.
+
+# 65. Timecode/calendar semantics
+
+Project/media timing stores separate fields for:
+- frame_rate rational;
+- media time_base rational;
+- SMPTE timecode rate/drop-frame;
+- source start frame/timecode.
+
+Legal/calendar records requiring date-only semantics store:
+- temporal_kind: INSTANT | DATE_ONLY
+- source_timezone_id nullable
+- boundary_policy
+- resolved UTC instant(s) when enforcement is evaluated.
+
+# 66. Order key maintenance
+
+Editable ordered entities may use a stable order-key scheme whose representation is explicitly non-semantic.
+
+If rebalance is needed:
+- record maintenance event;
+- preserve entity IDs/revisions;
+- update optimistic versions;
+- reject stale concurrent reorder operations.
