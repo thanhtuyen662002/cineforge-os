@@ -1827,3 +1827,97 @@ Checks policy-selected metadata/leakage classes and returns:
 - NOT_APPLICABLE
 
 UNKNOWN may block release according to policy.
+
+
+
+# 86. Encrypted object API
+
+Internal storage layer distinguishes:
+- logical plaintext identity;
+- physical ciphertext identity;
+- wrapped data key.
+
+Operations:
+- `storage.encrypt_object`
+- `storage.rewrap_object_key`
+- `storage.verify_ciphertext`
+- `storage.verify_plaintext_after_decrypt`
+
+Cross-scope dedup is resolved by policy; API never exposes a global plaintext-hash existence oracle to untrusted callers.
+
+# 87. Resource admission API
+
+`resources.plan_admission(job_attempt)`
+returns one atomic/deterministically ordered resource plan.
+
+Operations:
+- `resources.activate_admission`
+- `resources.release_optional_for_human_wait`
+- `resources.revalidate_admission`
+
+If the full required set cannot be reserved safely, the job waits/replans instead of holding a deadlock-producing partial set.
+
+# 88. Context compilation API
+
+`context.compile` returns:
+- mandatory-content-complete;
+- omitted optional segments with reason;
+- dependency manifest/hash;
+- compiled payload hash;
+- adapter semantic profile/version;
+- observed/request limit assumptions.
+
+If mandatory content does not fit:
+- fail with `CONTEXT_MANDATORY_CONTENT_OVERFLOW`; or
+- request a different strategy/provider/context reduction plan that preserves mandatory semantics.
+
+# 89. Context dispatch fence
+
+Before external/local model dispatch:
+`context.revalidate_manifest(context_manifest_id)`
+
+Returns:
+- VALID
+- STALE_RECOMPILE
+- POLICY_CHANGED
+- RIGHTS_CHANGED
+- CANON_CHANGED
+- ADAPTER_PROFILE_CHANGED
+
+Retry reuses the old manifest only when VALID.
+
+# 90. Adapter semantic certification API
+
+Queries:
+- `query.connector.semantic_profile`
+- `query.connector.observed_limits`
+
+Internal/QA:
+- run semantic conformance probe;
+- mark capability DEGRADED/REQUIRES_RECERTIFICATION.
+
+Critical unsupported feature blocks routing.
+
+# 91. Package acquisition safety API
+
+`packages.plan_install` includes:
+- expected/max download bytes;
+- max expanded bytes;
+- required disk reservation;
+- pinned digest;
+- signature/publisher state.
+
+Download/install aborts on byte ceiling or digest mismatch.
+
+# 92. Browser observation redaction API
+
+Before AI processing:
+`browser.prepare_observation(session, purpose)`
+
+Returns a redacted/scoped observation and evidence:
+- redaction profile;
+- sensitive-region exclusions;
+- external processing permission;
+- retention.
+
+Raw login/password/MFA observation is not automatically sent to model services.
