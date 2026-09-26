@@ -1775,3 +1775,17 @@ The canonical hardening set also includes these controls salvaged from earlier a
 - Backup durability class cannot silently downgrade.
 - Storage move/restore validates filesystem semantics against the existing corpus.
 - Historical actor provenance survives actor disable/tombstone.
+
+
+
+## 39.13 Byzantine/insider and release supply-chain controls
+
+- Task risk classification is independently detected from semantics/protected surfaces; declared LOW cannot weaken required gates.
+- Governance drift is monitored cumulatively so many small PRs cannot silently erode invariant tests, CI permissions or trust surfaces.
+- Release artifacts require trusted-builder provenance/attestation tied to source/toolchain/dependencies/output digest.
+- Signing authorizes an immutable release digest/manifest, not an arbitrary runner path.
+- Authenticated provider responses also require semantic correlation to account/tenant/request/session/artifact role.
+- Connector egress is attested against the actual serialized outbound payload where feasible; connector self-report is not sufficient evidence.
+- Authorization has aggregate/bulk thresholds, preventing many individually allowed destructive/spending/egress calls from bypassing bulk gates.
+- Repository and CI artifact hygiene blocks accidental binaries/vendor trees/secrets and applies sensitivity/retention policy to CI artifacts.
+- Publication is a multi-step external state with explicit destination/timezone and post-platform verification; partial success remains visible.
