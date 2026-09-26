@@ -1127,3 +1127,127 @@ Publication tracks separately:
 Target schedule stores explicit UTC instant + target/display timezone.
 
 Partial success is PARTIAL_EXTERNAL_STATE, not a single successful boolean.
+
+
+
+# AE. Control-plane disaster recovery and immutable identity
+
+## AE1. Canonical repository identity
+Control policy pins:
+- immutable GitHub repository ID;
+- expected owner/name;
+- default branch;
+- expected visibility/security posture.
+
+Rename/transfer/visibility/default-branch/ruleset changes create a governance incident requiring reconciliation.
+
+Trusted GitHub actors pin stable account/user ID plus display login.
+
+## AE2. Durable merge/release audit archive
+At successful merge, archive a compact immutable verification record:
+- Task Issue + contract version/hash;
+- claim attempt;
+- final head/base/merge SHA;
+- review profiles/assurance/results;
+- CI verification tuple/attestations;
+- governance exceptions if any.
+
+At release, bind relevant merge/build/signing evidence to ReleaseManifest.
+
+This is audit/recovery evidence only; live scheduling still uses GitHub.
+
+## AE3. Root-compromise boundary
+Threat model explicitly states:
+- OS administrator/root compromise defeats local confidentiality assumptions;
+- compromised Studio Owner/trusted GitHub root identity can defeat logical workflow policy absent external protection;
+- agent logical identities are not security principals stronger than their underlying credentials.
+
+# AF. Backup/key common-mode recovery
+
+Restore verification includes:
+- backup object integrity;
+- backup chain dependency integrity;
+- key-wrap/recovery metadata;
+- ability to decrypt representative protected content;
+- forward revocation/deletion journal availability.
+
+A restore lacking required key metadata or forward policy journal remains QUARANTINED/RECOVERY_REQUIRED.
+
+# AG. Local scale boundary and migration path
+
+Operational telemetry tracks scale indicators:
+- Core DB bytes;
+- event/projection rows;
+- writer queue/latency;
+- checkpoint/backup/restore duration;
+- asset/timeline/member counts;
+- concurrent job rates.
+
+Policy defines warning/unsupported thresholds.
+
+Crossing sustained thresholds triggers:
+- scale advisory;
+- workload reduction where needed;
+- supported migration plan to future server/multi-machine backend.
+
+CineForge does not silently treat SQLite/single-host mode as infinitely scalable.
+
+## AG1. Large-domain access
+Large collections use:
+- cursor paging;
+- virtualized UI;
+- partitioned/sharded projections where appropriate;
+- bounded history loading;
+- streamed manifests.
+
+# AH. Long-term compatibility
+
+Maintain old-format fixtures for:
+- DB schemas;
+- project manifests;
+- timelines;
+- release/archive manifests;
+- representative encrypted/archive states.
+
+Migration test corpus proves supported historical upgrade paths.
+Required migration tooling/metadata is retained sufficiently to avoid depending on one extinct app binary.
+
+# AI. Ownership transfer and actor offboarding
+
+## AI1. Project/studio ownership transfer
+Transfer workflow re-evaluates:
+- new owner/studio authority;
+- rights/consent;
+- privacy/egress;
+- budgets;
+- external connections/accounts;
+- actor roles;
+- open tasks/locks/decisions;
+- learning/data-use scope.
+
+Credentials/browser sessions do not transfer implicitly.
+
+## AI2. Actor offboarding
+Historical approvals remain immutable.
+Live:
+- sessions/credentials revoked;
+- tasks/locks/leases reassigned/released;
+- pending decisions rerouted to valid authority;
+- actor state becomes DISABLED/TOMBSTONED.
+
+# AJ. Release/archive completeness
+
+Archive package can include:
+- immutable final master;
+- stems/subtitles/deliverables;
+- ReleaseManifest;
+- source/build/signing attestation;
+- actual published/transcoded output when retrievable/required;
+- open/documented interchange artifacts;
+- codec/tool descriptors necessary for future interpretation.
+
+Archive UI distinguishes:
+- exact bytes preserved;
+- reproducible locally;
+- best-effort reproducible;
+- cloud generation not reproducible.
