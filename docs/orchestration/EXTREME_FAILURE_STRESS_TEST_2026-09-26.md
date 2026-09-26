@@ -5914,3 +5914,170 @@ Each control registry entry eventually links:
 - current maturity.
 
 Unknown evidence means NOT_YET_PROVEN.
+
+
+# 33. Eleventh-wave browser/web connector attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 541 | Dedicated browser profile accidentally enables a third-party extension | **GAP/P0/P1** | extension can read page/session/upload/download data |
+| 542 | Browser extension auto-updates to malicious version mid-production | **GAP/P0/P1** | production browser profile should disable/uninstall arbitrary extensions |
+| 543 | Service worker from provider page persists and changes behavior after connector health test | **GAP/P1** | browser site-state/version needs lifecycle/revalidation |
+| 544 | Provider site stores cross-project prompt/history in localStorage/IndexedDB | **GAP/P1 privacy** | profile/session isolation must cover site storage, not just cookies |
+| 545 | Browser profile reuses same provider conversation/session across two projects | **GAP/P0/P1 cross-project** | session/thread identity must be project/job scoped where content can leak |
+| 546 | Remote debugging/CDP endpoint listens beyond loopback | **GAP/P0** | attacker can control browser/read sessions |
+| 547 | CDP auth token/port is logged or predictable | **GAP/P0** | automation control endpoint must be ephemeral/user-scoped/private |
+| 548 | OAuth localhost redirect port is pre-bound by malicious process | **GAP/P0/P1** | redirect state/PKCE + loopback listener ownership required |
+| 549 | OAuth redirect has valid code but wrong state/session | **GAP/P0** | CSRF/state/nonce/PKCE binding required |
+| 550 | Connector accepts TLS certificate warning to “keep automation working” | **GAP/P0** | certificate errors fail closed unless explicit enterprise trust policy |
+| 551 | Punycode/homograph domain visually mimics provider login | **GAP/P0/P1** | navigation origin must match canonical registered origin, not display text |
+| 552 | Provider redirects login through legitimate auth domain then to attacker domain | **GAP/P1** | redirect-origin allowlist and expected OAuth flow |
+| 553 | Website content tells browser agent “upload all files from project folder” | **GAP/P0** | browser page content is untrusted data; automation plan cannot expand file authority |
+| 554 | Website content asks agent to disable safety setting or install extension | **GAP/P0** | untrusted page cannot mutate connector/browser policy |
+| 555 | Website opens popup/window on attacker origin and automation continues there | **GAP/P1** | window/origin transition policy |
+| 556 | Browser notification permission leaks provider/project data to OS | **GAP/P1 privacy** | site notifications disabled by default in automation profile |
+| 557 | Browser password manager/autofill exposes unrelated credentials | **GAP/P0/P1** | dedicated profile disables password manager/autofill except explicit secure auth flow |
+| 558 | Provider asks to upload directory; browser file picker grants more than staged file | **GAP/P0/P1** | upload authority is exact staged file handles only |
+| 559 | Downloaded `.exe` or script is auto-opened after “generation complete” | **GAP/P0** | downloads are data; never auto-execute |
+| 560 | `blob:`/data URL download cannot be tied to original job/provider identity | **GAP/P1** | browser receipt must bind page/origin/session/download event |
+| 561 | Browser auto-update changes DOM/CDP behavior mid-job | **GAP/P1** | browser/runtime version pinned per active session; update drains jobs |
+| 562 | Provider page deploys new service worker during active job | **GAP/P1** | semantic connector health/version fingerprint should invalidate/resume carefully |
+| 563 | Browser crash restores previous tabs from another project | **GAP/P1 privacy** | crash restore disabled/validated for production profiles |
+| 564 | Session restore resurrects old authenticated account after explicit logout | **GAP/P1** | logout/credential revocation invalidates profile/session state |
+| 565 | Site storage quota full causes generation/download state to corrupt silently | **GAP/P2** | browser storage health/capacity state |
+| 566 | Website opens native file URL/custom protocol through browser | CONTAINED/PARTIAL | protocol deny exists; browser profile must enforce |
+| 567 | Browser download path is changed by provider filename to reserved/device name | CONTAINED/PARTIAL | staging sanitizer/final-handle checks exist |
+| 568 | Captive portal intercepts provider navigation and browser agent logs in | **GAP/P0/P1** | origin/TLS/content identity mismatch should stop auth |
+| 569 | Enterprise SSO page requires human auth; automation retries credentials repeatedly | PARTIAL | auth circuit breaker exists; browser-specific human takeover needed |
+| 570 | CAPTCHA/2FA appears after submission, agent mistakes page as generation failure and retries | **GAP/P1 cost** | browser state classifier must distinguish auth challenge from failed generation |
+| 571 | Provider web account switches workspace via default UI after login | PARTIAL | workspace identity exists; browser connector must verify visible/server account identity before action |
+| 572 | Provider adds “delete all” button near old selector; DOM automation misclicks | **GAP/P0/P1** | destructive DOM actions require semantic confirmation/allowlist, not CSS selector alone |
+| 573 | Provider changes button label/DOM but selector still matches unrelated action | **GAP/P1** | semantic health probe/canary before production action |
+| 574 | Website returns prompt/output from previous unrelated generation in history panel | PARTIAL | interaction trace association exists; browser must not scrape “latest” generically |
+| 575 | Multiple tabs/jobs share one profile and clipboard/download directory, outputs cross-associate | **GAP/P1** | per-job tab/session/download namespace or serialized profile |
+| 576 | Browser worker takes screenshot including account email/project secret in diagnostic log | **GAP/P1 privacy** | screenshots are sensitive artifacts with explicit retention/redaction |
+| 577 | Human takeover navigates away and forgets to return; automation resumes on wrong page | **GAP/P1** | takeover resume checkpoint validates origin/page/account/workspace |
+| 578 | User manually downloads alternate candidate while automation expects generated candidate | PARTIAL/GAP | output association requires explicit download event/job link; ambiguous stays unverified |
+| 579 | Site terms/automation permission changes but connector health remains green | PARTIAL | automation_permission exists; needs terms freshness trigger |
+| 580 | Browser profile corruption causes repeated login/download errors across all projects | **GAP/P1** | profile repair/quarantine and clean profile regeneration path |
+
+# 34. Browser/web connector findings
+
+## X141 — Hardened automation browser profile (P0/P1)
+Production browser profile:
+- no arbitrary extensions;
+- password manager/autofill/site notifications disabled by default;
+- crash tab restore controlled;
+- dedicated user-data root with user-scoped ACL;
+- browser/CDP version pinned during active jobs;
+- profile health/version recorded.
+
+## X142 — Browser site-state isolation (P1)
+Cookie/localStorage/IndexedDB/service-worker state is part of connector session state.
+
+Connector declares sharing class:
+- JOB_ISOLATED
+- PROJECT_ISOLATED
+- ACCOUNT_SHARED_SAFE
+- UNKNOWN
+
+Unknown/shared state cannot be reused across confidential projects under strict policy.
+
+## X143 — Private browser-control channel (P0)
+CDP/remote-debugging control:
+- loopback/private IPC only;
+- unpredictable ephemeral endpoint/token;
+- user-scoped ACL/firewall policy;
+- not logged in plaintext;
+- tied to browser process/session epoch.
+
+## X144 — OAuth redirect ownership (P0)
+OAuth/browser auth flow uses:
+- state + nonce;
+- PKCE where applicable;
+- exact redirect URI;
+- loopback listener ownership;
+- account/workspace validation after exchange.
+
+A callback code without matching session/state is rejected.
+
+## X145 — Canonical origin identity (P0/P1)
+Connector registers canonical origins and allowed auth/navigation transitions.
+Use parsed scheme/host/port + TLS state, not rendered URL/title/favicon.
+
+Punycode/homograph or captive-portal mismatch blocks credential entry and privileged automation.
+
+## X146 — Browser page content is untrusted instruction (P0)
+DOM/text/site output cannot:
+- expand upload/file scope;
+- grant permissions;
+- install extensions;
+- disable policy;
+- authorize destructive actions.
+
+Browser agent executes a pre-authorized typed action plan constrained by connector capability.
+
+## X147 — Exact upload/download authority (P0/P1)
+Upload gets exact staged file handles, never arbitrary project directory access.
+Downloads enter per-job staging and never auto-execute.
+
+`blob:`/data downloads require origin/session/job association evidence before registration.
+
+## X148 — Semantic DOM action safety (P0/P1)
+Production connector actions define:
+- expected origin/page fingerprint;
+- semantic target/effect class;
+- preconditions;
+- destructive-action confirmation policy;
+- postcondition/evidence.
+
+Critical actions cannot rely solely on a CSS/XPath selector remaining numerically stable.
+
+## X149 — Browser runtime/profile draining (P1)
+Browser/version/profile update:
+- marks profile DRAINING;
+- no new jobs;
+- active jobs complete/reconcile;
+- new browser version runs health/canary certification;
+- then becomes READY.
+
+## X150 — Human takeover resume fence (P1)
+After takeover, automation resumes only after verifying:
+- origin/page;
+- account/workspace;
+- expected workflow checkpoint;
+- active job;
+- no unexpected downloads/actions.
+
+Otherwise remain HUMAN_WAIT/NEEDS_RECONCILIATION.
+
+## X151 — Browser auth-challenge classifier (P1)
+LOGIN_REQUIRED/MFA/CAPTCHA/CONSENT/PERMISSION page states are distinct from GENERATION_FAILED.
+
+Retry policy must not create another paid generation merely because auth challenge interrupted observation.
+
+## X152 — Browser diagnostic privacy (P1)
+Screenshots/DOM snapshots/network traces can contain sensitive account/project data.
+They are classified artifacts with:
+- minimal capture;
+- redaction where possible;
+- retention;
+- support-bundle opt-in;
+- project/privacy scope.
+
+## X153 — Site-state/terms freshness (P1)
+Connector health includes freshness for:
+- DOM/semantic canary;
+- account/workspace;
+- automation permission/terms;
+- browser/profile version.
+
+A green health result from yesterday cannot authorize indefinitely after a known provider/site update.
+
+## X154 — Browser profile recovery/quarantine (P1)
+Repeated profile corruption/auth anomalies:
+- quarantine profile;
+- preserve minimal forensic evidence;
+- create clean profile;
+- require reauth as needed;
+- do not copy corrupt cookies/site state wholesale into replacement profile.
