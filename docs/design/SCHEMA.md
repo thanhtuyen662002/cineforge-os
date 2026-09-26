@@ -1,5 +1,21 @@
 # CineForge OS — Detailed Domain & Database Schema v1
 
+# 0. Persistence authority rule
+
+CineForge V1 is **event/audit-backed, not pure event-sourced**.
+
+In one Core transaction, a successful canonical command writes:
+- normalized authoritative domain rows/revisions;
+- the corresponding append-only `domain_events`;
+- outbox messages when external dispatch is required.
+
+The normalized domain tables/revision registries are the operational canonical state.
+`domain_events` are the immutable causality/audit ledger and support reconciliation/projection rebuilds, but V1 does not require reconstructing every canonical table solely by replaying events.
+
+Derived projections/search/indexes may be rebuilt from canonical domain data plus events/snapshots.
+
+This avoids two competing canonical models while preserving auditability and future replay capabilities.
+
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
 > This document describes canonical data. Search indexes, embeddings, thumbnails, previews and caches are derived data.
@@ -34,19 +50,14 @@ logical entity
   └─ revision 3 (approved)
 ```
 
-Revision columns shared by domain revision tables:
-- id
-- logical_entity_id
-- revision_no
-- parent_revision_id nullable
-- lifecycle_state
-- content_hash
-- schema_version
-- created_by_actor_id
-- created_at_utc_us
-- approved_by_actor_id nullable
-- approved_at_utc_us nullable
-- supersedes_revision_id nullable
+Revision metadata is conceptually shared across domain revisions, but physically it has one authoritative owner: `revision_registry` (defined later in this document).
+
+Typed domain revision tables:
+- reuse `revision_registry.id` as their PK/FK;
+- store only domain-specific revision fields;
+- do not duplicate revision_no/lifecycle/content_hash/approval metadata as a second source of truth.
+
+Legacy phrases below such as “common revision envelope” mean “row exists in revision_registry plus typed domain fields”, not duplicated columns.
 
 No production job resolves “latest”; it pins an explicit revision ID.
 
@@ -145,7 +156,12 @@ Authoritative mutation intent.
 - error_code nullable
 - error_details_json nullable
 
-Unique partial index on idempotency_key when not null.
+Idempotency uniqueness is scoped, not a free global string collision.
+
+Recommended unique partial key:
+- (actor_id, command_type, idempotency_key) when idempotency_key is not null.
+
+System-generated globally unique keys may additionally be indexed for lookup.
 
 ## command_impacts
 - command_id FK
@@ -677,13 +693,24 @@ Legal/creative logical asset.
 - rebuildability: ORIGINAL | CANONICAL | REBUILDABLE | EPHEMERAL
 
 ## storage_objects
+Content identity only; location is separate.
 - id PK
 - sha256 UNIQUE
 - byte_size
 - storage_class
-- relative_object_path
 - verified_at_utc_us
 - created_at_utc_us
+
+## storage_object_locations
+A content object may exist on multiple managed roots/mirrors.
+- id PK
+- storage_object_id FK
+- storage_root_id FK
+- relative_path
+- location_role: PRIMARY | MIRROR | BACKUP | STAGING_RECOVERED
+- state: AVAILABLE | MISSING | CORRUPT | OFFLINE
+- last_verified_at_utc_us
+UNIQUE(storage_object_id, storage_root_id, relative_path)
 
 ## asset_locations
 - id PK
@@ -1426,10 +1453,11 @@ Every logical domain entity registers exactly once.
 - project_id nullable FK
 - created_at_utc_us
 - archived_at_utc_us nullable
-- row_version
 UNIQUE(id, entity_type)
 
 Domain logical tables reuse the same ID and FK to entity_registry.
+
+`entity_registry` is identity metadata only. Mutable aggregate concurrency is owned by the typed logical table's `row_version`; do not maintain a second row_version in the registry.
 
 ## revision_registry
 Every immutable canonical/checkpoint revision registers here.
