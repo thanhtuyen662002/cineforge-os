@@ -662,3 +662,103 @@ After restore epoch changes, search/vector/read projections/cache created after 
 
 ## X55 — Release revalidates artifact availability (P1)
 Immediately before final release/sign/publish, verify required storage objects/hash/rights/signing readiness against the immutable release manifest.
+
+
+# 17. Third-wave cross-control attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 221 | Rights revoked after a 100-item bulk command is confirmed but before item 63 executes | **GAP/P1** | bulk scope snapshot must not bypass per-item execution-time rights recheck |
+| 222 | User permission/role revoked while a long command continues | **GAP/P1** | authority snapshot at plan time alone is insufficient for dangerous later phases |
+| 223 | GC dry-run marks proxy rebuildable, then required package is removed before execute | **GAP/P1** | GC execute must revalidate recipe/package/license dependencies |
+| 224 | Backup references storage object that GC deletes before backup copy completes | **GAP/P1** | backup needs snapshot protection/retention lease over referenced objects |
+| 225 | Restore selects backup whose referenced immutable package manifest is missing | **GAP/P1** | recoverability includes dependency manifest availability or readable degraded mode |
+| 226 | Connection goes REAUTH_REQUIRED and router silently chooses a stylistically different provider | CONTAINED by new rule if implemented |
+| 227 | Rights revocation arrives while provider generation is already accepted and non-cancellable | PARTIAL | local result can be blocked; exposure/taint state must remain explicit |
+| 228 | Provider returns result after consent was revoked mid-flight | **GAP/P1** | result must inherit current rights/taint recheck, not only dispatch-time rights snapshot |
+| 229 | Manual lock is released after AI job starts but before it finishes | **GAP/P2** | canonicalization must compare generation base revision and current ownership/revision, not only lock boolean |
+| 230 | User force-deletes a package while jobs using its executable are running | **GAP/P1** | package removal needs active-use lease/refcount and drain semantics |
+| 231 | App shutdown kills Core while SQLite checkpoint is blocked and external callback is arriving | PARTIAL | shutdown/reconciliation exists; ordered shutdown barrier should be explicit |
+| 232 | Windows update reboots machine during schema migration | **GAP/P1** | migration journal must be crash-resumable/idempotent and safe-mode on ambiguous step |
+| 233 | Machine resumes from hibernate with expired browser cookies and stale GPU reservations | PARTIAL | resource/session revalidation on resume should be explicit |
+| 234 | System time jumps forward one year causing tokens/certs/leases to look expired | **GAP/P1** | monotonic duration vs wall-clock validity must be separated |
+| 235 | System time jumps backward and an expired certificate appears valid by local clock | **GAP/P1** | security validity needs trusted time policy/grace/diagnostic handling |
+| 236 | Root signing key revocation metadata cannot be fetched because machine is offline | **GAP/P1** | offline trust policy must define last-known revocation freshness and fail-safe behavior |
+| 237 | Rights service/policy source is unavailable during release | CONTAINED if UNKNOWN blocks; verify release gate |
+| 238 | Database integrity auditor finds mismatch while production jobs are active | **GAP/P1** | integrity incident needs freeze scope and repair precedence |
+| 239 | Backup restore repairs DB but not OS-level model/runtime cache; stale binary with same path is used | **GAP/P1** | executable/package identity must be hash/pin verified before use |
+| 240 | User imports a file named like an existing canonical asset and UI visually confuses them | **GAP/P2 UX** | display-name collision should not hide immutable identity/source |
+| 241 | An attacker creates millions of tiny files causing directory enumeration/UI denial of service | **GAP/P1** | import directory preflight needs file-count/time budgets before recursive full scan |
+| 242 | A single project creates millions of events and audit rows; SQLite projections/rebuild become impractical | **GAP/P1 scale** | event retention/snapshot/partition/archive strategy needs bounded rebuild path |
+| 243 | Projection rebuild from event 0 takes hours while app is unusable | **GAP/P1** | durable projection checkpoints/snapshot rebuild strategy required |
+| 244 | Search/vector index returns deleted/revoked entity after lag | PARTIAL | index not identity; result resolver must revalidate canonical state before action |
+| 245 | User performs bulk action from stale search results | **GAP/P1** | bulk plan must resolve canonical current revisions, not search index payload |
+| 246 | A package/model file is replaced on disk after certification but before execution | **GAP/P0/P1** | execution must verify pinned hash/signature at load/start, not only install time |
+| 247 | Self-hosted runner workspace from prior PR contains malicious leftover file | **GAP/P1** | ephemeral/clean workspace policy required even for trusted internal branches |
+| 248 | Release signing uses artifact from an unclean workspace with untracked file influence | **GAP/P0/P1** | release build must use hermetic/clean checkout and attested inputs |
+| 249 | Browser human takeover leaves secret text in clipboard; later diagnostics capture clipboard | **GAP/P2 privacy** | clipboard is transient sensitive channel; diagnostics must never capture it by default |
+| 250 | User cancels a destructive local operation after physical delete started | PARTIAL | compensatability exists; delete/GC should stage/tombstone before irreversible purge where possible |
+
+# 18. Further findings
+
+## X39 — Execution-time policy revalidation (P1)
+Plan-time checks are necessary but insufficient for long/bulk/external operations.
+Before each irreversible/high-impact item/phase, revalidate:
+- rights/consent;
+- actor authority where relevant;
+- manual ownership/current revision;
+- recovery epoch;
+- package/resource lease;
+- budget exposure.
+
+## X40 — Snapshot protection leases for backup/GC/package use (P1)
+Backup/export/job/restore operations that depend on objects/packages need temporary protection leases so concurrent GC/removal cannot invalidate the operation.
+
+## X41 — Package executable identity at execution (P0/P1)
+Pinned package/model/runtime identity is verified by hash/signature when loaded/launched.
+Path/install record alone is not enough.
+
+## X42 — Time-source separation (P1)
+Use:
+- monotonic clock for durations/lease elapsed time inside one machine/process;
+- trusted wall/server time for absolute expiry/certificate/policy validity;
+- detect large wall-clock jumps and enter degraded verification where security-sensitive.
+
+Never use UUIDv7/event wall timestamp as sole ordering/expiry authority.
+
+## X43 — Crash-resumable migration protocol (P1)
+Migration steps are idempotent/checkpointed with pre/postconditions.
+On crash/reboot:
+- determine last durable completed step;
+- never blindly restart destructive step;
+- enter safe mode if state is ambiguous.
+
+## X44 — Integrity incident freeze policy (P1)
+If canonical/event integrity mismatch is severe:
+- freeze affected aggregate/project/system mutation scope;
+- preserve evidence;
+- complete safe read/diagnostic operations;
+- typed repair/rebuild/reconcile before normal writes resume.
+
+## X45 — Event/projection scale strategy (P1)
+Long-lived projects need bounded rebuild:
+- durable aggregate/projection snapshots/checkpoints;
+- event archival by verified ranges;
+- retained audit lookup;
+- rebuild from nearest compatible checkpoint, not always event 0.
+
+## X46 — Clean/hermetic execution for CI/release (P0/P1)
+Trusted internal code is not a reason to reuse dirty workspaces.
+Release/signing and security-critical CI use clean checkout/worktree/container/VM with declared inputs and no prior-PR residue.
+
+## X47 — Search result freshness boundary (P1)
+Search/vector results are navigation hints.
+Any mutation/bulk plan resolves exact canonical entities/revisions and authorization at command planning time.
+
+## X48 — Large-directory denial-of-service budget (P1)
+Directory intake has bounded:
+- file enumeration count/time;
+- nesting depth;
+- metadata read budget;
+- incremental pause/cancel;
+before expensive hash/proxy fanout begins.
