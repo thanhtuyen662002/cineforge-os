@@ -5032,3 +5032,188 @@ Self-reported “still working” heartbeat alone cannot keep a poisoned worker 
 293. stale Capacity epoch metrics ignored by Flow Governor;
 294. worker fake heartbeat vs no semantic progress;
 295. operational log unavailable during recovery while canonical state remains usable.
+
+
+# 23. Sixth-wave CI/CD, artifact, installer and update supply-chain attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 331 | Third-party GitHub Action uses mutable tag and upstream account is compromised | **GAP/P0/P1** | production CI actions should be pinned to immutable commit SHA |
+| 332 | Workflow grants `contents: write` to all jobs by default | **GAP/P1** | least-privilege permissions must be explicit per job |
+| 333 | PR workflow receives OIDC `id-token: write` unnecessarily | **GAP/P0/P1** | untrusted code could mint cloud identity |
+| 334 | Fork PR artifact is later downloaded by privileged release workflow by name only | **GAP/P0** | artifact provenance/run/repo/commit/trust class must be bound |
+| 335 | Two workflow runs upload artifact with same display name; release picks wrong one | **GAP/P1** | immutable artifact ID + source run/commit required |
+| 336 | `workflow_run` privileged workflow downloads artifacts from untrusted PR without validation | **GAP/P0** | trust boundary often missed in GitHub Actions |
+| 337 | Cache from feature branch restores executable toolchain into release job | PARTIAL | cache trust policy exists; release should prefer clean/attested inputs |
+| 338 | Action cache key omits lockfile/toolchain and returns stale binary | **GAP/P1** | cache key semantics/provenance must be explicit |
+| 339 | Release workflow builds from branch name that advanced after approval | **GAP/P0/P1** | release binds immutable commit/release manifest |
+| 340 | Git tag is moved/recreated after release | **GAP/P1** | release tag/commit mapping must be immutable/verified |
+| 341 | Signed installer contains unsigned mutable sidecar downloaded at first launch | **GAP/P0** | installer trust must cover every executable/runtime/bootstrap component |
+| 342 | Installer verifies signature, then modifies binary/resource before execution | **GAP/P0** | no post-sign mutation; hash/sign verification at final byte boundary |
+| 343 | Timestamp server is malicious/unavailable and signing validity semantics differ | **GAP/P1** | timestamp trust/failure policy must be explicit |
+| 344 | Update manifest is old but validly signed and replays vulnerable version | **GAP/P0/P1** | anti-rollback monotonic version/epoch required |
+| 345 | Update server serves manifest A then package B (mix-and-match) | **GAP/P0** | manifest binds exact package digest/size/key/version |
+| 346 | Differential patch applies to wrong base version but still produces runnable binary | **GAP/P0/P1** | patch must bind base hash and verify final hash/signature |
+| 347 | Update downloads through CDN/proxy cache serving stale revoked package | **GAP/P1** | revocation/anti-rollback evaluated after download, not CDN freshness |
+| 348 | Installer runs elevated and inherits user-controlled current directory / DLL search path | **GAP/P0** | elevation boundary requires clean working dir/loader path |
+| 349 | Elevated installer executes helper from writable temp path | **GAP/P0** | helper path/signature/ACL must be trusted |
+| 350 | Installer rollback restores app files but leaves migrated service/task/registry entries | **GAP/P1** | installer transaction journal + compensation needed |
+| 351 | Uninstaller removes shared runtime/model used by another CineForge install/project | **GAP/P1** | package ownership/refcount/scope required |
+| 352 | Uninstaller deletes user media because it lives under application directory | **GAP/P0/P1 UX/data loss** | app binaries and user data roots must be structurally separate |
+| 353 | Repair install overwrites newer config/policy with bundled old defaults | **GAP/P1** | repair must preserve/merge versioned user/security config |
+| 354 | Update installs new connector while old jobs still use previous binary | PARTIAL | package pin/drain exists; executable lifetime/refcount must be explicit |
+| 355 | Release signing job signs artifact produced by different source commit | **GAP/P0** | signing request must bind attested source/build provenance |
+| 356 | Signing key service signs arbitrary bytes from compromised CI job | **GAP/P0** | signing policy service should authorize release manifest, not raw arbitrary file request |
+| 357 | Attacker uploads artifact after CI and before signing under same path/name | **GAP/P0** | content digest immutable handoff |
+| 358 | Release notes/manifest says version 1.2.0 but binary reports 1.1.9 | **GAP/P1** | version identity consistency check across binary/manifest/tag/update metadata |
+| 359 | SBOM generated from source tree differs from actual packaged binaries/dependencies | **GAP/P1** | SBOM must be tied to built artifact/package contents |
+| 360 | License notices omitted from packaged third-party runtime/model | **GAP/P1 legal** | release compliance manifest from actual shipped package |
+| 361 | Reproducible build fails but release silently accepts different hashes | PARTIAL | reproducibility class exists; policy should distinguish expected nondeterminism |
+| 362 | Build timestamp/random path embeds secrets/usernames into binary/PDB | **GAP/P1 privacy** | build artifact scanning/redaction and deterministic path mapping |
+| 363 | Debug symbols contain source paths/secrets and are published publicly | **GAP/P1** | symbol publishing is separate classified artifact pipeline |
+| 364 | Crash-report symbols come from wrong build, causing false diagnosis | **GAP/P2** | symbol set binds exact build ID/artifact hash |
+| 365 | Installer/UAC publisher name differs unexpectedly but user clicks through | **GAP/P1 UX/security** | expected publisher identity should be shown/verified by updater |
+| 366 | Windows SmartScreen reputation warning is treated as “signature invalid” | PARTIAL | UX must distinguish reputation from cryptographic validity |
+| 367 | Update requires reboot; user continues old Core while new files partially staged | **GAP/P1** | activation boundary/version ownership must be atomic |
+| 368 | Power loss during self-update leaves neither old nor new executable bootable | PARTIAL | staged atomic update exists; bootstrap/recovery launcher must be tested |
+| 369 | Auto-updater itself is corrupted while updating the main app | **GAP/P0/P1** | updater/bootstrapper is separate root-of-trust component |
+| 370 | Release workflow is triggered from untrusted tag/branch actor | **GAP/P0** | release trigger authorization/source branch policy needed |
+| 371 | GitHub Environment approval is assumed but environment was renamed/deleted | **GAP/P1 governance drift** | release gate verifies actual environment/rules identity |
+| 372 | Required workflow/check App is uninstalled and agents weaken rule to keep throughput | CONTAINED conceptually | governance says no blind weakening; needs incident playbook |
+| 373 | Release uses old approved PR artifact after a security hotfix landed on main | **GAP/P1** | release manifest must choose exact release commit and re-run gates |
+| 374 | Installer accepts downgrade because older package signature is still valid | **GAP/P0/P1** | anti-rollback applies to installer/manual update too |
+| 375 | Offline installer cannot check revocation and installs known-bad package | **GAP/P1** | offline trust/revocation freshness policy needed |
+| 376 | Mirror/download is compromised but hash fetched from same compromised mirror | **GAP/P0** | digest trust must come from signed manifest independent of transport |
+| 377 | Build system downloads “latest” toolchain/model at build time | **GAP/P1 reproducibility** | release toolchain inputs pinned by digest/version |
+| 378 | Package manager resolves transitive dependency differently on release day | **GAP/P1** | lockfile + frozen/offline/verified resolution |
+| 379 | Release build uses developer machine global dependency not declared in manifest | **GAP/P1** | hermetic/declared build environment |
+| 380 | Different CPU/GPU backend creates materially different bundled artifact/QC result | PARTIAL | environment-bound provenance exists; release acceptance needs backend-specific evidence |
+
+# 24. Supply-chain findings
+
+## X73 — GitHub Actions pinning and permission baseline (P0/P1)
+Production workflows:
+- pin third-party actions by immutable commit SHA;
+- set workflow/job token permissions explicitly;
+- `id-token: write` only for jobs that truly need OIDC;
+- no privileged secrets/identity for untrusted PR execution;
+- controlled action upgrades are governance changes.
+
+## X74 — Privileged artifact provenance (P0)
+A privileged release/signing job never selects artifact by human-readable name alone.
+
+Artifact trust binds:
+- repository/workflow identity;
+- source run ID/attempt;
+- source commit/tree;
+- producer trust class;
+- artifact ID;
+- content digest;
+- build manifest/attestation.
+
+Untrusted PR artifacts cannot cross into privileged release merely through `workflow_run`.
+
+## X75 — Release commit/tag immutability (P0/P1)
+Release is built/verified from one immutable commit/release manifest.
+Tag/version/binary/update manifest identities must agree.
+Moved/recreated tags or advanced branch names are not release authority.
+
+## X76 — Signed-manifest anti-rollback and mix-and-match defense (P0)
+Update/release manifest binds:
+- release/update epoch;
+- semantic version/build ID;
+- exact package digest/size;
+- compatible base hash for differential patches;
+- signing key ID;
+- minimum allowed version/revocation floor.
+
+A valid older signature does not authorize rollback below policy floor.
+
+## X77 — Installer/elevation boundary (P0)
+Elevated installer/bootstrapper:
+- runs from trusted signed bytes;
+- uses trusted working directory;
+- disables unsafe DLL/plugin search paths;
+- does not execute helpers from user-writable/untrusted locations;
+- validates helper/package digest and publisher;
+- separates user-data roots from application binary roots.
+
+## X78 — Installer transaction and uninstall ownership (P1)
+Installer/uninstaller maintains journal/ownership:
+- files;
+- services/tasks;
+- registry/protocol handlers;
+- runtimes/packages;
+- shared vs per-install objects.
+
+Rollback/repair compensates all owned system changes.
+Uninstall never guesses that project/media data is disposable.
+
+## X79 — Signing service authorization (P0)
+Signing is not “CI sends arbitrary bytes to a key”.
+
+Signing service/policy verifies:
+- approved immutable release manifest;
+- artifact digest;
+- source/build provenance;
+- release actor/trigger;
+- key purpose/epoch;
+- required CI/security evidence.
+
+Only then is exact digest signed.
+
+## X80 — Final-byte signing boundary (P0)
+No executable/package mutation after signature.
+If packaging adds outer container after inner signing, trust chain explicitly verifies both layers.
+Updater verifies final expected digests/signatures after download/staging.
+
+## X81 — Updater bootstrap root-of-trust (P0/P1)
+Updater/bootstrapper is independently versioned/trusted and recovery-tested.
+Self-update uses staged replacement/rollback such that a failed app update cannot destroy the only recovery mechanism.
+
+## X82 — Hermetic release inputs (P1)
+Release builds pin:
+- toolchain;
+- package dependencies/transitives;
+- model/runtime/package inputs;
+- build scripts;
+- relevant environment.
+
+No unpinned “latest” downloads or undeclared global developer dependencies.
+
+## X83 — Package-content SBOM/compliance (P1)
+SBOM/license notices are generated/validated against **actual packaged contents**, not source declarations alone.
+
+Release gate compares:
+- package file inventory;
+- embedded native/runtime deps;
+- SBOM;
+- license notices;
+- approved dependency manifest.
+
+## X84 — Build artifact privacy scan (P1)
+Release/public symbols/artifacts are scanned for:
+- local usernames/paths;
+- credentials/tokens;
+- private URLs;
+- debug-only secrets/config;
+- confidential fixtures/media.
+
+Debug symbols have separate access/retention policy and exact build identity.
+
+## X85 — Release trigger/environment authority (P0/P1)
+Release job validates:
+- trigger actor/source;
+- allowed branch/tag/release state;
+- GitHub Environment/rules identity where used;
+- current governance policy.
+
+Missing/renamed protection does not silently become approval.
+
+## X86 — Offline update/install revocation policy (P1)
+Offline installation explicitly defines revocation freshness:
+- trusted embedded revocation floor/list;
+- package age/version policy;
+- optional “cannot verify newest revocation” warning/block by security profile.
+
+Offline mode must not claim equivalent freshness to online verification when it is not.
