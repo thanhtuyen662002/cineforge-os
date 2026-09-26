@@ -1020,3 +1020,24 @@ Example:
 - projected health becomes UNKNOWN/STALE, never HEALTHY.
 
 “No new failures” is not equivalent to healthy monitoring.
+
+
+# 52. Creative variant lifecycle
+
+Variant group states:
+- OPEN
+- COMPARING
+- RESOLVED
+- ARCHIVED
+
+Candidate states:
+- ACTIVE
+- REJECTED
+- PROMOTED
+- ARCHIVED
+
+Rules:
+- promotion creates an explicit command outcome; it never overwrites the base revision;
+- promotion revalidates candidate/base dependencies before impact propagation;
+- resolving a group records the promoted revision;
+- non-promoted candidates remain historical/inspectable according to retention policy.
