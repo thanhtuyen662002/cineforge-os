@@ -1467,3 +1467,62 @@ A finding cannot disappear solely because a repair was attempted; recheck must v
 - CANCELLED
 
 Revision changes can make individual scope items stale without adding new items to the confirmed set.
+
+
+
+# 67. Protection lease lifecycle
+
+- ACTIVE
+- RENEWING
+- RELEASED
+- EXPIRED
+- REVOKED
+
+Removal/GC cannot cross irreversible delete/uninstall boundary while required lease is ACTIVE.
+
+# 68. Migration run lifecycle
+
+```text
+PLANNED
+→ RUNNING
+→ COMPLETE
+```
+
+Failure/recovery:
+- RUNNING → RECOVERY_REQUIRED
+- RECOVERY_REQUIRED → RUNNING after verified step state
+- RECOVERY_REQUIRED → FAILED_SAFE_MODE
+- RUNNING → FAILED_SAFE_MODE
+
+An AMBIGUOUS destructive step forces RECOVERY_REQUIRED.
+
+# 69. Integrity incident lifecycle
+
+- OPEN
+- CONTAINED
+- REPAIRING
+- RECHECKING
+- RESOLVED
+- WAIVED
+
+Mutation freeze is active while policy says incident remains blocking.
+
+# 70. Time-health state
+
+- NORMAL
+- SUSPICIOUS
+- UNTRUSTED
+- REVALIDATING
+
+Security/expiry-sensitive operations may block in UNTRUSTED until revalidation or explicit authority policy.
+
+# 71. Directory enumeration state
+
+- NOT_STARTED
+- ENUMERATING
+- PAUSED_LIMIT
+- COMPLETE
+- CANCELLED
+- FAILED
+
+PAUSED_LIMIT is a normal bounded state, not an error.
