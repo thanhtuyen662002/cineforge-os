@@ -2812,3 +2812,121 @@ Release gate evaluates a concrete instant, not a vague localized date string.
 
 ## X54 — Stable ordering/rebalancing (P2)
 Editable ordered lists use order keys with deterministic rebalance that preserves logical identity/history and does not force renumbering as a semantic change.
+
+
+# 21. Trust-root, package/archive and post-signing attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 281 | Signed package is an older vulnerable version still signed by trusted key | PARTIAL | anti-rollback exists; trust floor/version revocation must remain pinned |
+| 282 | Attacker replays old valid update manifest pointing to vulnerable package | **GAP/P1** | manifest freshness/monotonic release epoch needed |
+| 283 | Package manifest signed, but one downloaded sidecar is replaced after verification | **GAP/P0/P1** | activation must bind exact file-tree/content digest after final placement |
+| 284 | Binary is verified then DLL/plugin search path loads attacker file at runtime | PARTIAL | trusted executable/DLL loading exists; activation/runtime revalidation critical |
+| 285 | Artifact is signed, then metadata/resource is modified afterward | **GAP/P0/P1** | signing must bind final bytes; post-sign mutation must invalidate publication |
+| 286 | Release manifest records hash before code-signing modifies binary | **GAP/P1** | provenance order must define pre/post-sign hashes explicitly |
+| 287 | Timestamp authority response is absent/invalid and certificate expires later | **GAP/P2 release** | signing evidence should distinguish signing time/timestamp trust |
+| 288 | Trusted online signing key is compromised but revocation list is stale/offline | PARTIAL | trust freshness exists; release should fail safe for stale critical revocation evidence |
+| 289 | Portable project archive claims to be CineForge package but manifest is unsigned/tampered | PARTIAL | portable package trust exists; authenticity levels must be explicit |
+| 290 | Project archive contains path traversal/symlink entries | PARTIAL | hostile archive policy exists; portable package importer must reuse it |
+| 291 | Project archive contains valid IDs colliding with local project IDs | **GAP/P1** | import namespace/remap policy required |
+| 292 | Imported project carries a “trusted” connection credential reference from another machine | **GAP/P1** | credentials/secrets must never be trusted/portable by reference |
+| 293 | Imported project includes old signed connector/model package no longer allowed | **GAP/P1** | portable import must re-evaluate current package/trust/license policy |
+| 294 | Backup manifest hash is modified together with files | **GAP/P0/P1** | checksum alone not authenticity; manifest MAC/signature/trusted storage needed |
+| 295 | Backup encryption succeeds but recovery key is unavailable | **GAP/P1** | recoverability requires decryptability test/key escrow strategy |
+| 296 | Backup key and encrypted backup reside in same compromised account/device | **GAP/P1 ops** | common-mode failure should be visible in durability policy |
+| 297 | Restore from authentic backup reintroduces revoked signing/trust policy from old date | **GAP/P1** | forward trust/revocation journal must dominate historical backup |
+| 298 | Restore from backup reintroduces asset that user previously requested deleted | **GAP/P1 privacy** | forward deletion/privacy journal must be reapplied after restore |
+| 299 | Project clone duplicates rights/consent references that are not transferable | **GAP/P1 legal** | clone must distinguish reusable vs non-transferable legal bindings |
+| 300 | Project clone duplicates external publication destinations/accounts | **GAP/P1** | clone should not silently inherit dangerous external side effects |
+| 301 | Two app windows edit same entity offline then reconnect | PARTIAL | multi-window/edit-session exists; conflict resolution needs per-domain policy |
+| 302 | One window approves while another still has dirty draft based on old revision | CONTAINED/PARTIAL | stale version guard; UI must preserve losing draft as branch/copy |
+| 303 | Clipboard from one project pasted into another carries hidden asset IDs | **GAP/P1 privacy/integrity** | clipboard transfer must serialize safe portable refs, not raw internal authority |
+| 304 | Drag/drop from Explorer points to file that is replaced before CineForge stages it | PARTIAL | stable-ingest handle policy handles if implemented |
+| 305 | Export package contains absolute local paths/usernames in metadata | **GAP/P1 privacy** | portable/export sanitation needed |
+| 306 | Render metadata embeds internal prompt/API endpoint/model path unintentionally | **GAP/P1 privacy/IP** | release metadata allowlist, not blacklist |
+| 307 | Release file hash is verified, then copied to publish staging and corrupted | **GAP/P1** | publish should verify final staged bytes immediately before upload |
+| 308 | Upload succeeds but platform transforms file; remote result differs materially | PARTIAL | post-publication verification exists where possible |
+| 309 | Multi-destination publish partially succeeds; retry republishes already-successful destination | PARTIAL | publication destination state exists; per-destination idempotency required |
+| 310 | User requests takedown while another scheduled publish attempt is queued | **GAP/P1** | takedown/revocation should fence future publish attempts immediately |
+
+# 22. Trust/package/release findings
+
+## X55 — Signed manifest freshness / anti-replay (P1)
+Update/package manifests need monotonic release epoch/version and policy floor.
+A cryptographically valid old manifest may still be rejected as replay/rollback.
+
+## X56 — Final file-tree activation hash (P0/P1)
+Package verification must cover exact activated file tree after staging/finalization, not only downloaded archive/manifest.
+Activation records:
+- package manifest hash;
+- every executable/resource digest;
+- final path identity;
+- verification time/trust revision.
+
+## X57 — Signing order and post-sign immutability (P0/P1)
+Release pipeline defines ordering:
+build → normalize → package → sign → hash final signed bytes → attest → publish.
+Any modification after signing/attestation invalidates downstream evidence.
+
+## X58 — Signing timestamp/trust evidence (P2)
+When platform signing relies on timestamp authority:
+- record timestamp response/evidence;
+- distinguish “signature valid now” vs “valid at trusted signing time”;
+- release policy determines whether missing/stale timestamp is blocking.
+
+## X59 — Portable project namespace and trust re-evaluation (P1)
+Imported CineForge project/archive:
+- never trusts raw local IDs as globally safe;
+- remaps project-local IDs where collision is possible;
+- does not import active credentials/secrets;
+- re-evaluates packages/models/licenses/rights under current policy;
+- imports external connections disabled/unverified unless explicitly rebound.
+
+## X60 — Authenticated backup + decryptability (P0/P1)
+Backup integrity requires:
+- authenticated manifest (signature/MAC or trusted immutable storage);
+- encryption state;
+- key availability/recovery policy;
+- periodic decrypt/restore verification.
+
+Hash alone detects corruption, not malicious replacement.
+
+## X61 — Forward trust/privacy journals across restore (P1)
+Some events must survive restoring old project data:
+- key revocations;
+- package/model blocks;
+- deletion/privacy revocations;
+- consent/rights revocations.
+
+A historical backup must not resurrect something that a later authoritative forward policy event revoked.
+
+## X62 — Clone semantics (P1)
+Project clone defines what is:
+- copied by value;
+- referenced/shared;
+- omitted;
+- reset to UNVERIFIED;
+- legally non-transferable.
+
+Credentials, publication destinations and non-transferable consents are not silently duplicated.
+
+## X63 — Portable/export metadata allowlist (P1)
+Deliverables/archives use metadata allowlist.
+Strip or transform:
+- absolute local paths;
+- usernames;
+- temp directories;
+- API/provider endpoints;
+- internal prompts;
+- credential references;
+- debug traces
+unless explicitly part of requested technical delivery.
+
+## X64 — Publish staging final-byte verification (P1)
+Publication binds the exact bytes uploaded:
+canonical release artifact → publish staging → final hash verify → upload.
+Post-copy corruption/path swap must be detected.
+
+## X65 — Per-destination publication idempotency and takedown fence (P1)
+Each destination has independent state/idempotency key.
+Takedown/revocation creates a forward fence that blocks queued/future publication for that release/destination until explicitly cleared.
