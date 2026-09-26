@@ -1455,3 +1455,70 @@ Rules:
 - remote embedded resources blocked or explicitly mediated by privacy policy;
 - external links visibly leave CineForge;
 - HTML/Markdown sanitization must not expose native bridge capabilities.
+
+
+# 61. URL intake safety UX
+
+If a pasted URL is blocked:
+`CineForge không thể truy cập địa chỉ này vì nó trỏ tới vùng mạng bị hạn chế.`
+
+Do not expose internal IP/SSRF jargon by default.
+
+For redirects crossing trust/origin boundaries, the UI may require explicit confirmation when policy says user-assisted.
+
+# 62. Corrupt asset/storage integrity UX
+
+Important canonical asset corruption:
+- show affected project/release scope;
+- whether a verified mirror/backup can repair it;
+- prevent release/export that would silently substitute unknown bytes.
+
+# 63. Dependency change UX (Advanced / developer)
+
+When an agent needs a new executable dependency:
+- package/version;
+- why;
+- license;
+- vulnerability/provenance status;
+- install/build scripts;
+- size/runtime impact.
+
+Normal filmmaker users do not see dependency approval unless they are operating developer/admin mode.
+
+# 64. Web account/workspace mismatch UX
+
+Connection card:
+`Đã đăng nhập nhưng đang ở workspace khác`
+
+Actions:
+- Chuyển về workspace đã cấu hình
+- Xác nhận dùng workspace mới
+
+Do not silently run queued jobs in the newly active workspace.
+
+# 65. Bulk action scope UX
+
+Confirmation states exact immutable scope:
+`Bạn đang duyệt 38 shot`
+
+If the live filtered list changes after confirmation, the running command still applies only to those 38 pinned items.
+
+For destructive actions:
+- show exact count;
+- selected project/scene scope;
+- excluded newly-added items;
+- undo/compensation semantics.
+
+# 66. Worker quarantine UX
+
+Normal user sees:
+`Một thành phần nền đang gặp lỗi lặp lại. CineForge đã tạm dừng thành phần này để tránh ảnh hưởng dự án.`
+
+Advanced detail identifies worker/runtime/package and repair action.
+
+# 67. Local privacy/shared-root UX
+
+When user chooses a shared filesystem root:
+- explain whether other OS users may access project/media;
+- offer safe user-private default;
+- do not silently relax ACLs.
