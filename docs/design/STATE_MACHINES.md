@@ -1299,3 +1299,89 @@ If any required pinned revision changes:
 - VERIFIED
 - PARTIAL
 - FAILED
+
+
+# 69. Core ownership lifecycle
+
+```text
+STARTING
+→ ACQUIRING_DB_OWNERSHIP
+→ ACTIVE
+→ DRAINING
+→ RELEASED
+```
+
+Alternate:
+- ACQUIRING_DB_OWNERSHIP → ALREADY_ACTIVE
+- ACTIVE → OWNERSHIP_LOST → SAFE_STOP
+- stale prior owner → RECOVERING_OWNERSHIP → ACTIVE
+
+Losing ownership/fencing token blocks new external dispatch/mutation phases.
+
+# 70. Database maintenance lifecycle
+
+- PLANNED
+- PREFLIGHT
+- WAITING_SAFE_BOUNDARY
+- RESERVING_SPACE
+- EXECUTING
+- VERIFYING
+- COMPLETE
+
+Failure:
+- INSUFFICIENT_SPACE
+- CHECKSUM_MISMATCH
+- INVARIANT_FAILED
+- RECOVERY_REQUIRED
+- FAILED
+
+# 71. Time health state
+
+- NORMAL
+- TIME_UNCERTAIN
+- REVALIDATING
+
+TIME_UNCERTAIN does not rewrite historical ordering.
+
+# 72. Derived data lifecycle
+
+- ACTIVE
+- STALE
+- REVOKED
+- PURGING
+- PURGED
+- REBUILDING
+
+Security/privacy revocation can move query-visible index data to a fenced state before asynchronous physical cleanup completes.
+
+# 73. Local service exposure state
+
+- LOCAL_PRIVATE
+- LOCAL_SHARED
+- EXTERNALLY_EXPOSED
+- INVALID
+- QUARANTINED
+
+Unexpected EXTERNALLY_EXPOSED from a local-only service is a security failure.
+
+# 74. Timeline compaction state
+
+- DIRTY
+- SNAPSHOTTING
+- COMPACTING
+- VERIFIED
+- COMPLETE
+- FAILED
+
+Undo horizon is explicit and cannot drop dependencies still reachable by retained history.
+
+# 75. Final release verification state
+
+- NOT_RUN
+- RUNNING
+- PASS
+- FAIL
+- UNKNOWN
+- STALE
+
+Any release-manifest input change invalidates PASS.
