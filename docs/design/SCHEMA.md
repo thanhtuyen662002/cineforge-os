@@ -3053,3 +3053,132 @@ Extend import session/policy with:
 - max_metadata_bytes nullable
 - enumeration_count
 - enumeration_state: NOT_STARTED | ENUMERATING | PAUSED_LIMIT | COMPLETE | CANCELLED | FAILED
+
+
+
+# 67. At-rest protection and encryption keys
+
+## at_rest_policies
+- id PK
+- studio_id FK
+- policy_name
+- mode: OS_VOLUME_PROTECTED | CINEFORGE_MANAGED_ENCRYPTION | EXTERNAL_ENCRYPTED_TARGET | UNENCRYPTED_ALLOWED_BY_POLICY
+- protected_classes_json
+- policy_revision
+- created_at_utc_us
+
+## encryption_keys
+- id PK
+- authority_id
+- key_id
+- purpose: DATA_AT_REST | BACKUP | ARCHIVE | DIAGNOSTIC | OTHER
+- algorithm
+- key_version
+- wrapping_method
+- secure_store_ref nullable
+- recovery_wrapped_key_ref nullable
+- state: ACTIVE | ROTATING | REVOKED | LOST | EXPIRED
+- created_at_utc_us
+- rotated_at_utc_us nullable
+- revoked_at_utc_us nullable
+UNIQUE(authority_id, key_id, key_version)
+
+## encrypted_object_bindings
+- storage_object_id FK
+- key_record_id FK
+- encryption_algorithm
+- envelope_metadata_json
+- verification_state
+- last_decrypt_test_at_utc_us nullable
+PRIMARY KEY(storage_object_id, key_record_id)
+
+# 68. Data-use purpose permissions
+
+## data_use_permissions
+- id PK
+- subject_type
+- subject_id
+- purpose: PRODUCTION | EVALUATION_QC | SEARCH_INDEX | CROSS_PROJECT_RETRIEVAL | FAILURE_ANALYSIS | LEARNING | TRAINING_FINE_TUNING | EXTERNAL_PROVIDER_PROCESSING | EXPORT_SHARE | PUBLIC_RELEASE
+- scope_type
+- scope_id nullable
+- state: ALLOWED | RESTRICTED | UNKNOWN | REVOKED | EXPIRED
+- source_rights_record_id nullable
+- valid_from_utc_us nullable
+- valid_to_utc_us nullable
+
+Derived-data/learning records reference the applicable purpose permission where required.
+
+# 69. Project clone manifests
+
+## project_clone_manifests
+- id PK
+- source_project_id FK
+- target_project_id FK
+- clone_policy_json
+- asset_manifest_hash
+- rights_revalidation_required BOOL
+- connection_permissions_cloned BOOL
+- credentials_cloned BOOL DEFAULT false
+- browser_sessions_cloned BOOL DEFAULT false
+- created_by_actor_id
+- created_at_utc_us
+
+# 70. Egress permission scopes
+
+Extend permissions with explicit codes/classes for:
+- DATA_VIEW
+- CLOUD_EGRESS
+- EXPORT
+- SHARE
+- PUBLISH
+- DIAGNOSTIC_EXPORT
+- LEARNING_USE
+- TRAINING_USE
+
+Actor/session authority checks use the exact command capability, not a generic read permission.
+
+# 71. Diagnostic artifact policy
+
+Extend `diagnostic_bundles`:
+- sensitivity_class
+- at_rest_policy_id nullable
+- expires_at_utc_us nullable
+- allowed_recipient_scope_json nullable
+- includes_absolute_paths BOOL
+- includes_raw_media BOOL
+- includes_browser_capture BOOL
+- includes_clipboard BOOL DEFAULT false
+
+# 72. Archive crypto compatibility
+
+## archive_crypto_health
+- id PK
+- archive_or_backup_id
+- encryption_algorithm
+- key_record_id nullable
+- decryptability_state: VERIFIED | UNKNOWN | FAILED | KEY_UNAVAILABLE | ALGORITHM_DEPRECATED
+- last_verified_at_utc_us
+- migration_required BOOL
+
+# 73. Release privacy findings
+
+## release_privacy_findings
+- id PK
+- release_candidate_id FK
+- finding_type
+- severity
+- source_asset_revision_id nullable
+- evidence_json
+- state: OPEN | ACCEPTED | FIXED | WAIVED
+- created_at_utc_us
+
+# 74. Child-process privacy observations
+
+## worker_privacy_observations
+- id PK
+- worker_id FK
+- job_attempt_id nullable
+- observation_type: UNDECLARED_WRITE | UNEXPECTED_NETWORK | CLIPBOARD_ACCESS | CRASH_DUMP | SENSITIVE_LOG | OTHER
+- target_redacted
+- decision: ALLOWED | BLOCKED | QUARANTINED
+- observed_at_utc_us
