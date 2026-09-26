@@ -1,15 +1,15 @@
 ## Immutable claim record
 
 agent_claim_v1:
-- issue: 0
-- attempt: 1
-- agent_instance_id:
-- run_id_at_claim:
-- slot_id:
-- role_profile:
-- claim_base_sha:
-- architecture_refs: []
-- risk_profile: LOW | MEDIUM | HIGH
+  issue: 0
+  attempt: 1
+  agent_instance_id: ""
+  run_id_at_claim: ""
+  slot_id: ""
+  role_profile: ""
+  claim_base_sha: ""
+  architecture_refs: []
+  risk_profile: "MEDIUM"
 
 This claim block records the initial claim and is not the live lease state.
 Live state, takeover and review are append-only structured PR events/comments.
