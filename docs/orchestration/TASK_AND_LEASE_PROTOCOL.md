@@ -254,3 +254,21 @@ Next attempt is `max(trusted historical claim attempts)+1`.
 Sources include closed/merged PR history and trusted claim events, not merely currently existing branches.
 
 A deleted branch never makes an old attempt number reusable.
+
+
+
+# 16. Hard-dependency DAG rule
+
+Planner must reject a schedulable Task graph containing a hard-dependency cycle.
+
+Reconciliation periodically checks for cycles introduced by:
+- manual Issue edits;
+- contract revisions;
+- Epic re-slicing.
+
+A cycle:
+- marks involved tasks BLOCKED_GRAPH_CYCLE;
+- prevents READY/claim;
+- creates a Planner/Flow unblock action.
+
+Soft dependencies may form informational cycles; hard execution prerequisites may not.
