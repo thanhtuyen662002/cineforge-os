@@ -1,4 +1,4 @@
-## Immutable claim record
+## Initial claim record
 
 agent_claim_v1:
   issue: 0
@@ -8,11 +8,14 @@ agent_claim_v1:
   slot_id: ""
   role_profile: ""
   claim_base_sha: ""
+  task_contract_version: 1
+  task_contract_hash: ""
+  context_base_sha: ""
   architecture_refs: []
   risk_profile: "MEDIUM"
 
-This claim block records the initial claim and is not the live lease state.
-Live state, takeover and review are append-only structured PR events/comments.
+This is historical/display claim metadata.
+The PR body is technically editable on GitHub, so merge correctness revalidates trusted structured events and live GitHub facts.
 
 ## Outcome
 
@@ -30,26 +33,34 @@ Local:
 - [ ]
 
 CI:
-- [ ] Required verification context is current
+- [ ] Required verification tuple is current
 
 Manual/evidence:
 - [ ]
 
 ## Current resume summary
 
-Convenience only. Latest valid structured PR event is canonical live state.
+Convenience only. Latest valid trusted structured PR event is canonical live state.
 
 - Last known HEAD_SHA:
 - Last known BASE_SHA:
+- Task contract hash:
 - Blocker:
 - Next action:
 
+## Review requirements
+
+- Required profile(s):
+- Required assurance:
+- Review HEAD/BASE tuple:
+
 ## Merge checklist
 
-- [ ] Task contract still valid
-- [ ] Hard dependencies merged
+- [ ] Task contract version/hash still valid
+- [ ] Hard dependencies currently satisfied
 - [ ] Current verification tuple satisfied
-- [ ] Independent review(s) match required verification context
+- [ ] Independent review(s) satisfy required assurance/context
 - [ ] No unresolved blocking review
 - [ ] No stale architecture/schema/migration conflict
 - [ ] Reconciliation found no merged/reopened/obsolete contradiction
+- [ ] Manual merge lease held, or authoritative Merge Queue used
