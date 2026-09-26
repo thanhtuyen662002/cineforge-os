@@ -2250,3 +2250,345 @@ Extend `staging_objects`:
 - finalization_identity_json nullable
 
 Registration verifies identity/content again immediately before CAS finalization.
+
+
+
+
+# 69. Production hierarchy and canon baseline
+
+## production_nodes
+- id PK FK entity_registry
+- project_id FK
+- parent_production_node_id nullable FK production_nodes
+- node_type: SERIES | SEASON | EPISODE | FEATURE | SHORT | AD | MUSIC_VIDEO | DOCUMENTARY | TRAILER | TEST
+- stable_code
+- title
+- lifecycle_state
+- row_version
+
+## production_node_revisions
+- id PK FK revision_registry
+- production_node_id FK
+- intent_json
+- default_media_profile_revision_id nullable
+- canon_baseline_manifest_id nullable
+- release_policy_revision_id nullable
+
+## canon_baseline_manifests
+Immutable set of pinned canon revisions for a production node.
+- id PK
+- project_id FK
+- manifest_hash UNIQUE
+- parent_manifest_id nullable
+- effective_scope_json
+- created_at_utc_us
+- created_by_actor_id
+
+## canon_baseline_members
+- manifest_id FK
+- entity_id FK entity_registry
+- revision_id FK revision_registry
+- canon_role
+PK(manifest_id, entity_id, revision_id)
+
+Sequences/scenes/shots gain `production_node_id` appropriate to their owning production scope.
+Released manifests retain the exact historical canon baseline.
+
+# 70. Narrative contexts and nonlinear continuity
+
+## narrative_contexts
+- id PK FK entity_registry
+- project_id FK
+- production_node_id FK
+- parent_context_id nullable FK narrative_contexts
+- context_type: MAINLINE | FLASHBACK | FLASHFORWARD | DREAM | HYPOTHETICAL | ALTERNATE | LOOP_ITERATION | RETELLING | CUSTOM
+- fork_chronology_key nullable
+- display_name
+- lifecycle_state
+- row_version
+
+## narrative_context_revisions
+- id PK FK revision_registry
+- narrative_context_id FK
+- context_rules_json
+- causal_baseline_hash
+- notes
+
+## scene_occurrences
+A scene may be presented in one order while belonging to another diegetic chronology/context.
+- id PK FK entity_registry
+- scene_id FK
+- narrative_context_id FK
+- chronology_key INTEGER
+- presentation_order_key INTEGER
+- source_story_event_id nullable
+- canonical_status
+
+## narrative_context_edges
+- from_context_id FK
+- to_context_id FK
+- edge_type: FORK | MERGE_REFERENCE | RETELLING_OF | DREAM_OF | HYPOTHETICAL_FROM | LOOP_NEXT | CUSTOM
+- chronology_key nullable
+- evidence_json nullable
+PK(from_context_id,to_context_id,edge_type)
+
+State interval tables are extended with `narrative_context_id`.
+Their order keys are interpreted inside that context, never as one global film-wide timeline.
+
+Extend:
+- character_state_intervals
+- costume_state_intervals
+- prop_possession_intervals
+- prop_state_intervals
+- environment_state_intervals
+- style bindings when story-scoped
+- causality facts
+
+## shot_continuity_snapshots additions
+- narrative_context_id FK
+- chronology_key
+- context_ancestry_hash
+- canon_baseline_manifest_id FK
+
+Legacy `story_key` fields are migration compatibility aliases until context-scoped chronology is implemented.
+
+# 71. People, performers and casting
+
+## people
+Real-person identity, separate from fictional character.
+- id PK FK entity_registry
+- studio_id FK
+- display_name
+- privacy_class
+- rights_identity_id nullable FK rights_identities
+- lifecycle_state
+- row_version
+
+## performer_profiles
+- id PK FK entity_registry
+- person_id FK people
+- profile_type: ON_CAMERA | VOICE | MOCAP | STUNT | BODY_DOUBLE | FACE_SOURCE | HAND_MODEL | OTHER
+- notes
+- lifecycle_state
+
+## casting_bindings
+- id PK FK entity_registry
+- project_id FK
+- production_node_id FK
+- character_id FK
+- performer_profile_id FK
+- role_type: PRINCIPAL_ON_CAMERA | VOICE | DUB_VOICE | STUNT | BODY_DOUBLE | MOCAP | FACE_SOURCE | REFERENCE_ONLY | OTHER
+- narrative_context_id nullable
+- valid_from_chronology_key nullable
+- valid_to_chronology_key nullable
+- scene_id nullable
+- shot_id nullable
+- rights_record_id nullable
+- state: PROPOSED | APPROVED | REVOKED | SUPERSEDED
+- row_version
+
+One Character may have multiple bindings by scope/language/age/shot.
+One Performer may bind multiple Characters.
+
+# 72. Production representations
+
+## production_representations
+Represents how a narrative entity is realized for production.
+- id PK FK entity_registry
+- project_id FK
+- narrative_entity_type: CHARACTER | PROP | ENVIRONMENT | CREATURE | OTHER
+- narrative_entity_id FK entity_registry
+- representation_type: LIVE_PERFORMER | VOICE_PERFORMER | PHYSICAL_PROP | STUNT_PROP | REAL_LOCATION | SET | DIGITAL_DOUBLE | CG_ASSET | AI_IDENTITY | VIRTUAL_ENVIRONMENT | OTHER
+- lifecycle_state
+- rights_identity_id nullable
+- row_version
+
+## production_representation_revisions
+- id PK FK revision_registry
+- production_representation_id FK
+- identity_manifest_json
+- technical_requirements_json
+- source_asset_manifest_json
+- performer_binding_manifest_json nullable
+
+## representation_bindings
+- id PK
+- representation_revision_id FK revision_registry
+- production_node_id FK
+- narrative_context_id nullable
+- scene_id nullable
+- shot_id nullable
+- priority
+- required BOOL
+- effective_from_chronology_key nullable
+- effective_to_chronology_key nullable
+
+ShotContinuitySnapshot pins representation revisions in addition to narrative state.
+
+# 73. Live-action capture
+
+## production_units
+- id PK FK entity_registry
+- production_node_id FK
+- name
+- unit_type: MAIN | SECOND | VFX | SPLINTER | OTHER
+- lifecycle_state
+
+## shoot_days
+- id PK FK entity_registry
+- production_unit_id FK
+- shooting_date_local
+- timezone
+- planned_call_time nullable
+- lifecycle_state
+- row_version
+
+## slates
+- id PK FK entity_registry
+- shoot_day_id FK
+- scene_id nullable
+- shot_id nullable
+- slate_code
+- camera_slate_text nullable
+- script_supervisor_slate_text nullable
+- metadata_conflict_state: NONE | CONFLICT | RESOLVED
+- row_version
+
+## production_takes
+- id PK FK entity_registry
+- slate_id FK
+- take_number nullable
+- take_label
+- lifecycle_state
+- director_preference: NONE | CIRCLE | HOLD | REJECT
+- continuity_notes
+- row_version
+
+## capture_rolls
+- id PK FK entity_registry
+- shoot_day_id FK
+- roll_type: CAMERA | AUDIO | OTHER
+- device_identity
+- reel_name
+- roll_label
+- start_timecode_json nullable
+- manifest_asset_revision_id nullable
+- lifecycle_state
+
+## capture_clips
+- id PK FK entity_registry
+- production_take_id nullable FK
+- capture_roll_id FK
+- asset_revision_id FK
+- camera_or_recorder_id
+- source_timecode_json
+- clip_role
+- ingest_verification_state
+- metadata_conflict_json nullable
+
+## sync_groups
+- id PK FK entity_registry
+- production_take_id nullable
+- name
+- state: PROPOSED | SYNCED | VERIFIED | CONFLICT | REJECTED
+- row_version
+
+## sync_group_members
+- sync_group_id FK
+- capture_clip_id FK
+- offset_num
+- offset_den
+- drift_ppm nullable
+- time_stretch_ratio_num nullable
+- time_stretch_ratio_den nullable
+- sync_method: TIMECODE | WAVEFORM | CLAP | MANUAL | LTC | OTHER
+- evidence_json
+PK(sync_group_id,capture_clip_id)
+
+## ingest_card_manifests
+- id PK
+- shoot_day_id nullable
+- source_volume_identity
+- camera_or_recorder_id nullable
+- file_count
+- byte_count
+- manifest_hash
+- verified_copy_count
+- original_preserved BOOL
+- created_at_utc_us
+
+## ingest_card_files
+- manifest_id FK
+- relative_source_path
+- content_hash_algorithm
+- content_hash
+- byte_size
+- resulting_asset_revision_id nullable
+- verification_state
+PK(manifest_id,relative_source_path)
+
+# 74. Documentary/factual evidence
+
+## source_records
+- id PK FK entity_registry
+- project_id FK
+- production_node_id FK
+- source_type: INTERVIEW | ARCHIVAL_VIDEO | ARCHIVAL_AUDIO | DOCUMENT | WEB | PHOTO | FIELD_RECORDING | DATASET | OTHER
+- title
+- source_date nullable
+- origin_description
+- primary_asset_revision_id nullable
+- rights_identity_id nullable
+- lifecycle_state
+- row_version
+
+## source_snapshots
+- id PK FK revision_registry
+- source_record_id FK
+- captured_content_hash nullable
+- source_uri nullable
+- captured_at_utc_us
+- context_json
+- archival_policy_json
+
+## documentary_participants
+- id PK FK entity_registry
+- source_record_id FK
+- person_id FK people
+- participant_role
+- consent_rights_record_id nullable
+- state
+
+## fact_claims
+- id PK FK entity_registry
+- project_id FK
+- production_node_id FK
+- claim_text
+- claim_type
+- state: DRAFT | UNVERIFIED | CORROBORATED | CONFLICT | DISPUTED | APPROVED_FOR_USE | REJECTED | STALE
+- row_version
+
+## fact_claim_evidence
+- id PK
+- fact_claim_id FK
+- source_record_id FK
+- source_snapshot_revision_id nullable
+- asset_revision_id nullable
+- start_time_json nullable
+- end_time_json nullable
+- quote_text nullable
+- evidence_role: SUPPORTS | CONTRADICTS | CONTEXT | PRIMARY_SOURCE | SECONDARY_SOURCE
+- confidence nullable
+- notes
+
+## quote_usages
+- id PK FK entity_registry
+- fact_claim_evidence_id FK
+- timeline_revision_id nullable
+- clip_instance_id nullable
+- transcript_text
+- edited_text nullable
+- context_before_after_json
+- meaning_review_state: UNREVIEWED | CONSISTENT | POTENTIALLY_MISLEADING | MISLEADING | APPROVED_EXCEPTION
+
+Documentary release policy can require factual-review gates independently from artistic story approval.
