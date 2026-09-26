@@ -2330,3 +2330,51 @@ Before collaboration mention/review/task notification is emitted:
 - resolve current recipient access;
 - apply lock-screen/privacy mode;
 - drop/redact if access was removed.
+
+
+
+# 81. Scheduler/retry coordination API
+
+Queries:
+- `query.scheduler.failure_domains`
+- `query.scheduler.project_fair_share`
+- `query.scheduler.retry_budget`
+- `query.scheduler.quota_scope`
+- `query.scheduler.maintenance_deadlines`
+
+Internal commands:
+- OpenCircuit
+- AllowHalfOpenProbe
+- RecordRetryFailure
+- ExtendRetryBudget
+- ReserveProviderQuota
+- ReleaseProviderQuota
+- RebalanceProjectShare
+- ScheduleMandatoryMaintenance
+
+Worker retry request does not directly dispatch; it asks the coordinator for authorization.
+
+# 82. Fallback routing API
+
+`routing.plan_fallback` returns:
+- source failure domain;
+- candidate targets;
+- target quota/capacity;
+- privacy/rights compatibility;
+- ramp percentage;
+- cooldown/hysteresis evidence;
+- max additional cost exposure.
+
+No binary “provider down → all traffic to fallback” operation.
+
+# 83. Paid dispatch budget API additions
+
+Paid dispatch response includes:
+- settled actual;
+- currently reserved;
+- unreconciled unknown exposure;
+- planned new exposure;
+- provider price snapshot time/confidence;
+- current project/studio ceiling.
+
+If delayed settlement later pushes actual over nominal cap, UI/audit records it as external settlement overrun, not as evidence that admission control never existed.
