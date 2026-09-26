@@ -2212,3 +2212,53 @@ Before persisting external/tool error evidence:
 - preserve enough evidence for debugging without making logs a secret store.
 
 Raw untrusted error text is data and cannot become control instruction.
+
+
+# CN. Native notification and clipboard privacy
+
+Content sensitivity controls presentation outside CineForge.
+
+Native notification payloads default to minimal text for sensitive projects:
+- no script/dialogue;
+- no confidential character/client names unless policy permits;
+- lock-screen behavior follows privacy setting.
+
+Clipboard/manual handoff:
+- label sensitive copy actions;
+- avoid copying credentials/internal auth identifiers;
+- support auto-clear/private-copy behavior where platform permits and user opts in;
+- warn that system clipboard/history may be outside CineForge retention control.
+
+# CO. CAS integrity scrub and repair
+
+Protected storage classes define scrub policy:
+- periodic full/sample verification;
+- hash algorithm/version;
+- last verified time;
+- mirror/backup repair priority.
+
+On mismatch:
+- object → QUARANTINED_CORRUPT;
+- dependent asset revisions become unavailable/corrupt projection;
+- attempt repair from independently verified mirror/backup;
+- repaired bytes receive verification evidence;
+- unrecoverable loss becomes explicit DecisionRequest/diagnostic incident.
+
+# CP. Dedup privacy and shared-byte deletion
+
+Physical dedup is not exposed as cross-project existence oracle.
+
+API/UI must not reveal:
+- “already existed in another project”;
+- owner/project of matching bytes;
+- timing that materially distinguishes unauthorized prior existence when avoidable.
+
+Deletion tracks logical/legal identity and storage references separately.
+
+A secure-delete statement must distinguish:
+- logical removal from this project;
+- removal from all authorized references;
+- physical byte deletion;
+- crypto-erasure.
+
+If shared bytes remain required elsewhere, CineForge does not falsely claim physical destruction.
