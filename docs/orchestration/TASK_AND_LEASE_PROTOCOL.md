@@ -277,3 +277,36 @@ If branch exists but its association to the winning claim intent cannot be prove
 - do not write substantive commits;
 - classify CLAIM_ASSOCIATION_UNKNOWN;
 - Flow Governor reconciles.
+
+
+
+# 16. Park-state evidence
+
+A parked state must bind a real blocker.
+
+Examples:
+- WAITING_CI: exact check/run ID + expected head;
+- WAITING_REVIEW: requested review profile/identity or blocking review event;
+- BLOCKED_DEPENDENCY: exact dependency task/PR/current unsatisfied state;
+- EXTERNAL_BLOCKER: exact credential/account/user/business dependency category.
+
+Reconciler rejects fictitious/obsolete park state and returns task to actionable flow.
+
+# 17. Task-contract hash verification
+
+Consumers recompute TASK_CONTRACT_HASH from the canonical parsed task contract.
+
+The stored hash in Issue/PR is evidence/cache only.
+Mismatch:
+- blocks claim/merge;
+- creates reconciliation finding;
+- requires Planner correction/version revision.
+
+# 18. Commit adoption provenance
+
+When a worker adopts/cherry-picks code from another PR/branch:
+- record source PR/commit;
+- inspect unresolved review/security findings affecting adopted diff;
+- preserve relevant provenance in the destination PR.
+
+A new branch/title cannot erase known risk attached to the code being adopted.
