@@ -2373,3 +2373,220 @@ An asset revision requiring durable media cannot become AVAILABLE/READY from REM
 - row_version
 
 Upstream invalidation/correction can pause/cancel the remaining undispatched portion quickly.
+
+
+# 51. URL/network intake policy
+
+## network_fetch_policies
+- id PK
+- studio_id FK
+- allowed_schemes_json
+- allow_private_network BOOL
+- allow_loopback BOOL
+- allow_link_local BOOL
+- allow_custom_protocols BOOL
+- max_redirects
+- max_bytes
+- max_duration_ms
+- dns_revalidation_required BOOL
+- credential_forwarding_policy
+- row_version
+
+## network_fetch_attempts
+- id PK
+- import_session_id nullable
+- browser_interaction_session_id nullable
+- requested_uri
+- resolved_endpoints_json
+- redirect_chain_json
+- final_uri nullable
+- policy_id FK
+- state
+- byte_count nullable
+- blocked_reason nullable
+- started_at_utc_us
+- finished_at_utc_us nullable
+
+# 52. External callback authentication
+
+Extend `external_inbox_events`:
+- authentication_state: VERIFIED | FAILED | UNKNOWN | NOT_APPLICABLE
+- authentication_method nullable
+- signature_key_id nullable
+- received_transport_identity nullable
+- replay_window_state nullable
+- expected_connection_id nullable FK
+- expected_external_job_id nullable
+
+Only VERIFIED/NOT_APPLICABLE per connector policy may proceed to trusted processing.
+
+# 53. CAS integrity and scrub
+
+Extend `storage_objects`:
+- hash_algorithm
+- content_hash
+- last_scrubbed_at_utc_us nullable
+- scrub_state: UNKNOWN | VERIFIED | CORRUPT | REPAIRED
+
+## storage_integrity_scrubs
+- id PK
+- storage_root_id FK
+- state
+- policy_revision
+- objects_checked
+- objects_corrupt
+- objects_repaired
+- started_at_utc_us
+- finished_at_utc_us nullable
+
+Editable aliases are never represented as canonical object locations unless copy-on-write semantics have been verified.
+
+# 54. Source dependency/SBOM governance
+
+## source_dependencies
+- id PK
+- ecosystem
+- package_name
+- version
+- source_uri nullable
+- resolved_digest nullable
+- publisher_identity nullable
+- license_expression nullable
+- direct BOOL
+- lockfile_path
+- provenance_state
+- security_state
+- license_state
+
+## dependency_reviews
+- id PK
+- source_dependency_id FK
+- change_command_id nullable
+- review_type: NEW | UPGRADE | DOWNGRADE | REMOVE
+- postinstall_scripts_present BOOL
+- vulnerability_summary_json
+- license_summary_json
+- provenance_summary_json
+- decision: ALLOW | BLOCK | NEEDS_REVIEW
+- reviewed_by_actor_id nullable
+- reviewed_at_utc_us nullable
+
+## sbom_snapshots
+- id PK
+- release_candidate_id nullable
+- source_commit
+- manifest_hash
+- storage_object_id FK
+- created_at_utc_us
+
+# 55. Protected invariant suites
+
+## protected_test_suites
+- id PK
+- suite_code UNIQUE
+- protected_domain
+- risk_class
+- policy_revision
+- owner_role
+- state
+
+## protected_test_changes
+- id PK
+- suite_id FK
+- pull_request_ref
+- change_type: ADD | MODIFY | DELETE | DISABLE | EXPECTATION_CHANGE
+- rationale
+- required_review_profile
+- verification_state
+
+# 56. Local ACL/security metadata
+
+## local_security_profiles
+- id PK
+- root_or_endpoint_type
+- target_ref
+- owner_os_identity
+- acl_profile
+- shared BOOL
+- validation_state
+- last_validated_at_utc_us
+
+# 57. Stable external-source evidence
+
+Extend `asset_locations`:
+- expected_hash_algorithm nullable
+- expected_content_hash nullable
+- stable_file_id nullable
+- volume_identity nullable
+- observed_size nullable
+- observed_mtime_utc_us nullable
+
+Path fingerprint is not authoritative when an expected content hash is available.
+
+# 58. Rebuildability dependency edges
+
+## rebuild_recipe_dependencies
+- derived_recipe_id FK
+- dependency_type: ASSET | PACKAGE | MODEL | CONNECTOR | PROVIDER | RIGHTS_POLICY | LICENSE
+- dependency_ref
+- required_revision nullable
+- state: AVAILABLE | MISSING | BLOCKED | UNKNOWN
+PK(derived_recipe_id, dependency_type, dependency_ref)
+
+Derived recipe validity is a projection of all required dependency states.
+
+# 59. Integrity audit runs
+
+## integrity_audit_runs
+- id PK
+- scope_type
+- scope_id nullable
+- state
+- event_seq_start
+- event_seq_end
+- findings_count
+- repairable_count
+- started_at_utc_us
+- finished_at_utc_us nullable
+
+## integrity_findings
+- id PK
+- integrity_audit_run_id FK
+- finding_type
+- entity_type
+- entity_id nullable
+- severity
+- evidence_json
+- state: OPEN | ACKNOWLEDGED | REPAIRED | WAIVED
+
+# 60. Worker restart budget
+
+Extend `workers`:
+- restart_count_window
+- restart_window_started_at_utc_us nullable
+- backoff_until_utc_us nullable
+- quarantine_reason nullable
+
+# 61. Connection account/workspace identity
+
+Extend `connections`:
+- expected_account_identity nullable
+- expected_workspace_identity nullable
+- expected_region nullable
+- current_account_identity nullable
+- current_workspace_identity nullable
+- current_region nullable
+- identity_verification_state: UNKNOWN | VERIFIED | CHANGED | MISMATCH | UNSUPPORTED
+
+# 62. Bulk action snapshots
+
+## bulk_action_snapshots
+- id PK
+- command_id FK
+- scope_type
+- scope_hash
+- item_count
+- entity_revision_manifest_json
+- created_at_utc_us
+
+A bulk command executes only against its pinned manifest/snapshot.
