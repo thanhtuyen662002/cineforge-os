@@ -2378,3 +2378,59 @@ Paid dispatch response includes:
 - current project/studio ceiling.
 
 If delayed settlement later pushes actual over nominal cap, UI/audit records it as external settlement overrun, not as evidence that admission control never existed.
+
+
+
+# 84. Browser profile/session API
+
+Queries:
+- `query.browser.profile_health`
+- `query.browser.session_identity`
+- `query.browser.site_state_class`
+- `query.browser.connector_freshness`
+
+Commands/internal:
+- CreateBrowserProfile
+- DrainBrowserProfile
+- QuarantineBrowserProfile
+- RecreateBrowserProfile
+- BeginBrowserAuthSession
+- CompleteBrowserAuthSession
+- BeginHumanTakeover
+- ResumeAfterHumanTakeover
+
+# 85. Browser action execution API
+
+`browser.execute_typed_action` accepts:
+- connector capability/action ID;
+- expected origin/page fingerprint;
+- exact staged handles;
+- job/session epoch;
+- effect class;
+- precondition hash.
+
+No raw “click arbitrary selector/run page instruction” is exposed as normal production API.
+
+# 86. Browser download receipt API
+
+Download receipt contains:
+- browser/profile/session;
+- tab/page origin;
+- typed action ID;
+- provider job/reference;
+- download event ID;
+- filename/content-type;
+- staged object;
+- association confidence.
+
+Materialization proceeds through normal external-artifact verification.
+
+# 87. Browser auth challenge API
+
+Challenge result:
+- challenge_type;
+- account/workspace expected/observed;
+- human takeover required;
+- retryable generation state: YES | NO | UNKNOWN.
+
+UNKNOWN never authorizes a replacement paid generation.
