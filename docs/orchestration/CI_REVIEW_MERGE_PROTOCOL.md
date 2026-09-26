@@ -1,209 +1,165 @@
 # CineForge OS — CI, Review and Merge Protocol
 
-> **v1.1 verification rule:** “exact-head” alone is insufficient when main/base moved. Required evidence is a verification tuple of HEAD_SHA plus BASE_SHA/merge-base context and, when applicable, the synthetic PR merge SHA used by CI.
+> Required verification is a context tuple, not merely a recent green check.
+> Read with `CONTROL_PLANE_TRUST_AND_CONCURRENCY.md` and `GOVERNANCE_AND_CI_SECURITY.md`.
 
 # 1. CI objective
 
-CI exists to give fast, trustworthy merge evidence.
-
-It must not turn every agent into a two-hour waiter.
+Give fast trustworthy merge evidence without making agents idle.
 
 # 2. CI tiers
 
 ## Tier A — Fast PR Gate
-Run on nearly every code PR:
-- formatting/lint;
+- format/lint;
 - compile/typecheck;
-- focused unit tests;
-- schema/event/API contract tests;
-- static security checks;
+- focused unit/contract tests;
+- static checks;
 - changed-area tests.
 
-Target design: small and predictable.
-
 ## Tier B — Impacted Integration
-Run only when touched paths/domains require:
-- Core↔UI contract;
-- DB migration;
-- connector integration;
-- media pipeline;
-- installer/update;
-- storage/recovery.
+For semantic/API/schema/media/storage/installer/connector boundaries.
 
 ## Tier C — Slow/Full
-Run:
-- nightly;
-- on merge queue/release candidate;
-- on explicitly high-risk PRs.
-
-Includes:
-- full platform matrices;
+Nightly, merge/release/high-risk:
+- platform matrices;
 - packaging;
-- long media integration;
+- long media;
 - fuzz/chaos;
-- restore drills;
-- expensive end-to-end tests.
+- restore;
+- expensive E2E.
 
-# 3. CI throughput rules
+# 3. Semantic impact > path-only impact
 
-- cancel/supersede obsolete runs when supported;
-- cache dependencies/build outputs safely;
-- path-filter expensive jobs;
-- split flaky tests from deterministic gates;
-- verification result must match current required HEAD + BASE/merge context;
-- do not rerun a deterministic failure without a change;
-- infrastructure/flaky rerun must be recorded/classified;
-- a red main is P0 flow work.
+Path filters are optimization only.
 
-# 4. CI while worker continues
+Required CI tier is derived from:
+- actual diff paths;
+- task risk/domain metadata;
+- changed API/schema/event contracts;
+- dependency/architecture impact;
+- governance/security file classes.
 
-If Tier B/C is long:
-- push/checkpoint;
-- park PR;
-- slot picks independent task;
-- Flow Governor watches completion.
+If impact cannot be proven narrow, fail safe to broader testing.
 
-A long CI run is not an excuse for an idle scheduled slot.
+A new/unknown path must not accidentally receive less testing because no path rule exists.
 
-# 5. Independent review
+# 4. Verification tuple
 
-Reviewer must be a different logical AGENT_INSTANCE_ID from author.
+Evidence records:
 
-Review checklist:
-- task outcome/acceptance;
-- architecture/design compliance;
-- scope discipline;
-- state/error/cancel/retry semantics;
-- migrations/backward compatibility;
-- tests;
-- security/rights;
-- user-visible UX states if relevant;
-- exact HEAD_SHA and reviewed BASE_SHA/merge context.
-
-Review comment records:
 ```text
-REVIEW_AGENT_INSTANCE_ID:
-REVIEW_HEAD_SHA:
-REVIEW_BASE_SHA:
-VERIFICATION_MERGE_SHA:
-REVIEW_PROFILE:
-VERDICT: APPROVE | REQUEST_CHANGES | COMMENT
-BLOCKERS:
-FOLLOWUPS:
+HEAD_SHA
+BASE_SHA or MERGE_BASE_SHA
+optional SYNTHETIC_MERGE_SHA
+WORKFLOW/CHECK_ID
+WORKFLOW_REVISION when relevant
+ATTEMPT
+RESULT
 ```
 
-# 6. Risk profiles
+Generic old green status is historical only.
 
-## Low
-Examples:
-- docs;
-- isolated tests;
-- small UI presentation;
-- non-semantic refactor.
+# 5. CI throughput
 
-Gate:
+- cancel superseded runs when safe;
+- cache safely with trust boundaries;
+- do not blind-rerun deterministic failures;
+- classify flaky/infra failures;
+- a red main is P0 flow work;
+- long CI parks PR and releases worker capacity.
+
+# 6. Review assurance
+
+Review event records exact verification context plus:
+- reviewer logical identity;
+- runtime identity where available;
+- GitHub authenticated author;
+- assurance level:
+  - LOGICAL_INDEPENDENT
+  - RUNTIME_INDEPENDENT
+  - CREDENTIAL_INDEPENDENT
+
+Minimum assurance comes from risk/governance policy.
+
+Different logical IDs using one GitHub credential are not cryptographic separation.
+
+# 7. Risk profiles
+
+LOW:
 - fast CI;
-- one independent review.
+- logical independent review.
 
-## Medium
-Examples:
-- ordinary feature;
-- API contract extension;
-- connector;
-- timeline/UI workflow.
-
-Gate:
+MEDIUM:
 - fast + impacted CI;
-- one independent domain review.
+- preferably runtime-independent domain review.
 
-## High
-Examples:
-- schema migration;
-- command/event semantics;
-- storage delete/GC;
-- updater;
-- security/credentials;
-- rights/release;
-- installer/signing;
-- concurrency/idempotency.
-
-Gate:
+HIGH:
 - impacted/full policy tests;
-- domain/integrator review;
-- QA/security/release review as applicable.
+- runtime-independent domain/QA/security review as applicable.
 
-# 7. Ready for merge
+Governance/security changes that weaken gates/credentials/signing/trust boundary:
+- credential-independent or explicit external/human approval if policy requires adversarial separation.
 
-A PR is MERGE_READY only when:
-- linked task still valid;
-- required checks match the current verification tuple;
-- required independent review(s) tied to current head;
-- no unresolved blocking review thread;
-- no unmet dependency;
-- no merge conflict;
-- migration/order gate satisfied.
+# 8. Base drift
 
-If author pushes after review:
-- material code changes invalidate review according to policy;
-- reviewer/integrator rechecks exact head.
+Before merge, compare verification base with current main.
 
-# 7.1 Base drift and stale verification
+If main advanced:
+- determine semantic overlap/dependency impact;
+- HIGH/HOTSPOT default to fresh-base verification;
+- MEDIUM reruns when overlap/impact unknown/material;
+- LOW docs-only may proceed with recorded unrelated judgment.
 
-Before merge, Integrator compares the PR verification context with current main.
+Review on same HEAD may be stale when BASE changed materially.
 
-If main advanced after CI/review:
-- determine whether changed main files/contracts overlap the PR's touched paths, dependencies, migrations or architecture context;
-- if overlap/material semantic risk exists, update/rebase/merge main into the branch according to repo policy and rerun impacted CI/review;
-- if change is demonstrably unrelated, record that judgment and continue;
-- HIGH-risk and HOTSPOT PRs default to fresh-base verification unless policy explicitly says otherwise.
+# 9. Manual merge serialization
 
-A review on the same HEAD can still be stale if the effective diff/dependency context changed because BASE moved.
+When GitHub Merge Queue is not authoritative:
+1. current Integrator obtains control-role lease;
+2. obtain repository `MERGE_LEASE_V1`;
+3. re-read current main SHA;
+4. revalidate task contract, dependencies, review assurance and verification tuple;
+5. merge one PR using expected HEAD;
+6. refresh main before considering another PR;
+7. release merge lease.
 
-If CI runs on GitHub's synthetic pull-request merge commit, record that merge SHA in the verification evidence.
+This closes the race where two Integrators validate against one base then merge concurrently.
 
-# 8. Merge
+If Merge Queue is enabled and configured to test queued merge state, it replaces manual merge serialization.
 
-Preferred default: squash merge for task PRs unless preserving commits is important.
+# 10. Review after author push
 
-Integrator supplies expected head SHA when merging.
+Material head changes invalidate review according to policy.
 
-After merge:
-- close/complete Task Issue;
-- update/unblock dependent issues;
-- delete/retire claim branch when supported;
-- trigger post-merge verification where required.
+Do not rely on a review event tied to an older HEAD.
 
-# 9. Auto-merge
+# 11. After merge
 
-Current repo may have GitHub auto-merge disabled.
+- reconcile/close Task;
+- unblock/recompute dependents;
+- post-merge test if required;
+- refresh main before next merge;
+- preserve evidence.
 
-Protocol supports:
-- AUTO_MERGE mode when repository settings permit;
-- INTEGRATOR_MERGE mode otherwise.
+# 12. Review bottleneck
 
-Correctness gates are identical.
+When review queue dominates:
+- reassign Flex/builders to reviews;
+- prioritize critical-path/downstream-unblock value;
+- Integrator is not sole reviewer.
 
-# 10. Review bottleneck response
-
-If review queue exceeds capacity:
-- Flow Governor assigns Flex/build slots temporarily as reviewers;
-- oldest critical-path PR first;
-- small independent PRs can be cleared rapidly;
-- Integrator should not be sole reviewer for all code.
-
-# 11. CI bottleneck response
+# 13. CI bottleneck
 
 Detect:
-- queue delay;
-- runner offline;
-- same job hanging repeatedly;
-- workflow unnecessarily global;
-- cache failure;
-- flaky test cluster.
+- runner queue/offline;
+- long repeated job;
+- global workflow overreach;
+- cache issue;
+- flaky cluster.
 
 Response:
-- create/claim CI unblock issue;
+- create CI unblock task;
 - park affected PRs;
-- reroute workers to independent work;
+- redirect builders;
 - fix CI architecture;
-- do not ask user to babysit reruns.
+- no user babysitting.
