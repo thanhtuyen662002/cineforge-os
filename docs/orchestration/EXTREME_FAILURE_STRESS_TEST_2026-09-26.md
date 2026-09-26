@@ -994,3 +994,153 @@ Version string alone is not identity.
 
 ## X67 — Browser observation privacy (P1)
 Screenshots/DOM/recordings sent to AI evaluators must pass redaction/privacy policy, especially login/MFA/account pages.
+
+
+# 17. Third-wave: local split-brain, privacy, corruption and release attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 221 | User launches CineForge twice; both Core processes believe they are the single writer | **GAP/P0/P1** | SQLite serializes writes but domain single-writer/event/outbox assumptions can still split |
+| 222 | Old Core process hangs, new Core starts, old process later resumes | **GAP/P0/P1** | local Core needs instance fencing epoch, not only process mutex |
+| 223 | Windows sleep pauses process beyond lease TTL, resumes with stale timers | **GAP/P1** | monotonic elapsed-time/reconciliation on resume needed |
+| 224 | System clock jumps forward 2 hours and expires every job/session | PARTIAL | authoritative monotonic/server ordering exists conceptually; local timeout semantics need explicit clock source |
+| 225 | SQLite page corruption affects one table but app still opens | **GAP/P0/P1** | periodic integrity_check/quick_check and corruption recovery mode required |
+| 226 | Disk/SSD returns stale/corrupt read while hash metadata remains unchanged | PARTIAL | scrub/hash verification added conceptually; critical reads need verification policy |
+| 227 | WAL/shm files survive crash but user copies only DB elsewhere manually | **GAP/P1 UX** | manual-copy warnings/exported portable backup needed |
+| 228 | Another process/user modifies SQLite DB file directly | **GAP/P0/P1** | ACL + integrity audit help; Core instance ownership and tamper detection needed |
+| 229 | PR base is retargeted from main after review | **GAP/P1** | merge gate must verify expected base ref/repo, not only SHAs |
+| 230 | PR head repository changes/is forked/mirrored unexpectedly | **GAP/P0/P1** | Claim PR must verify canonical head repo + branch |
+| 231 | PR is closed/reopened and old approvals/comments appear current | PARTIAL | exact-head/base tuple helps; PR generation/claim epoch should be revalidated |
+| 232 | GitHub branch is deleted/recreated with same name and different history | **GAP/P1** | branch name alone cannot carry ownership; PR/head SHA + claim attempt marker identity must match |
+| 233 | A trusted agent accidentally pastes API secret into PR/Issue/log | **GAP/P0/P1** | secret scanning/redaction needed before GitHub publication |
+| 234 | CI log prints Authorization header on error | **GAP/P0** | log redaction + secret masking cannot rely only on agent discipline |
+| 235 | Diagnostic bundle excludes raw media but contains full prompts/client names/paths | PARTIAL | redaction classes exist; privacy classification should cover prompt/path/project identity |
+| 236 | Context Compiler sends entire confidential Film Bible to cloud tool that only needs one shot | **GAP/P0/P1 privacy** | data-minimization and egress classification need enforceable fields/budget |
+| 237 | User marks project LOCAL_ONLY after some cloud jobs already queued | **GAP/P1** | privacy policy change must cancel/block undispatched and reconcile accepted jobs |
+| 238 | A connector silently uploads extra telemetry/assets beyond declared request | **GAP/P0/P1** | sandbox/network egress allowlist + declared-data manifest needed |
+| 239 | Local model/plugin with valid signature makes outbound network request | **GAP/P1** | package signature != behavioral permission; runtime network sandbox needed |
+| 240 | Browser connector carries cookies from Project A into Project B | PARTIAL | profile scoping exists; project/privacy partition requirement should be explicit |
+| 241 | Screenshot/OCR captures another app window containing secrets | **GAP/P1 privacy** | screen-capture capability needs explicit scoped user consent and minimization |
+| 242 | Clipboard import reads more formats/data than user intended | **GAP/P1 privacy** | clipboard intake should consume explicitly selected/supported representation only |
+| 243 | Voice recording accidentally captures background confidential conversation | **GAP/P2/P1 privacy** | recording UX needs live scope/consent and easy trim/delete before cloud upload |
+| 244 | Agent sends unreleased media to web provider due AUTO routing after privacy classification bug | **GAP/P0** | privacy/egress gate must be fail-closed and independent from routing recommendation |
+| 245 | Rights status UNKNOWN is accidentally treated as ALLOWED by a connector-specific adapter | **GAP/P0/P1** | central gate must be outside adapters; adapters cannot downgrade rights/privacy policy |
+| 246 | Malicious connector reports lower cost to win router selection | **GAP/P1** | estimates are untrusted provider claims; benchmark/observed cost and policy trust needed |
+| 247 | Connector reports capability it does not actually support, causing repeated destructive retries | PARTIAL | certification/health exists; semantic conformance tests should be required |
+| 248 | Browser tool changes from “Generate” to “Delete” but DOM selector still matches | GAP already noted | semantic action confirmation/connector certification invalidation needed |
+| 249 | Model output includes a valid-looking JSON tool call inside creative text | **GAP/P0 prompt/tool boundary** | tool invocation must come through typed model/tool channel, never parsed from plain output text |
+| 250 | Agent reasoner follows instructions embedded in subtitles/image OCR despite typed context | PARTIAL | trust segments help; tool executor must enforce policy independent of model decision |
+| 251 | Context Compiler truncates the segment containing “do not upload to cloud” | **GAP/P0** | critical privacy/rights constraints must be non-droppable and separately validated |
+| 252 | Token-budget optimizer removes a character identity constraint but leaves prompt syntactically valid | **GAP/P1** | required constraint manifest/completeness check before dispatch |
+| 253 | Two workers reserve same GPU because reservation DB write happens after dispatch | **GAP/P1** | reserve transaction must precede dispatch; worker validates fencing token |
+| 254 | GPU process uses more VRAM than reserved and starves another critical job | **GAP/P1** | headroom + runtime enforcement/preemption/degraded mode required |
+| 255 | Browser profile “exclusive” lease expires while generation page still active | **GAP/P1** | session lease renewal + stale-profile fencing similar to worker takeover |
+| 256 | Provider returns valid media but metadata lies about duration/frame rate | CONTAINED if locally probed | local probe must remain authoritative technical metadata |
+| 257 | Provider output has malicious embedded subtitle/attachment/metadata | **GAP/P1** | generated output requires same hostile-media sanitization as imports |
+| 258 | Release master contains a hidden stream/attachment not visible in preview | **GAP/P1** | release probe must validate stream whitelist/container manifest |
+| 259 | Master is correct but export destination already has same filename; overwrite wrong file | **GAP/P1 UX/data** | atomic destination policy + no silent overwrite + hash confirmation |
+| 260 | Publish target account is correct provider but wrong channel/page | **GAP/P1** | publication destination identity must be pinned/previewed |
+| 261 | “Takedown” succeeds locally but remote platform keeps serving cached copy | CONTAINED as compensatable | verification must distinguish requested vs externally verified |
+| 262 | User rotates encryption/credential key while jobs hold old secret handles | **GAP/P1** | credential version pin + drain/renew semantics required |
+| 263 | API key revoked mid-job; retry switches credential/account and duplicates charge | **GAP/P1** | job attempt pins credential binding; retry replan required |
+| 264 | User has multiple identical provider accounts; reauth binds the wrong one | GAP overlaps workspace identity | must verify stable provider account identity |
+| 265 | Database migration code is non-idempotent and app crashes halfway | PARTIAL | migration journal exists; each migration needs resume/rollback contract |
+| 266 | Migration “success” passes but derived projection indexes are stale/incompatible | **GAP/P1** | migration completion must include projection rebuild/version readiness |
+| 267 | Projection rebuild consumes disk until system enters pressure during update | **GAP/P1** | migration/update plan needs storage exposure reservation |
+| 268 | Old app binary remains running during updater swap and writes old schema | **GAP/P0/P1** | update requires Core process fencing/drain |
+| 269 | Update installs connector v2 while jobs are pinned to connector v1 whose files are deleted | **GAP/P1** | package version retention until no pinned active/history reconstruction dependency |
+| 270 | GC removes old connector/model needed to inspect provenance/audit | **GAP/P2/P1** | executable may be removable, but descriptor/license/manifest evidence must remain archived |
+
+# 18. Third-wave findings
+
+## X39 — Local Core single-writer fencing (P0/P1)
+Use a user/session-scoped OS mutex **and** persistent Core instance epoch/fencing.
+Only the current Core epoch may execute canonical writes/outbox dispatch.
+A zombie/stale Core that resumes must fail the epoch check and stop mutating.
+
+## X40 — Clock/sleep semantics (P1)
+Use monotonic clocks for local elapsed timeout/lease duration where available.
+On sleep/resume, Core performs a reconciliation pass before assuming timers/jobs/sessions are valid.
+Wall clock remains display/evidence time, not sole ordering/fencing authority.
+
+## X41 — SQLite corruption detection/recovery (P0/P1)
+Run appropriate `quick_check/integrity_check` policy:
+- startup after unclean shutdown;
+- scheduled/background cadence;
+- before/after critical restore/migration when practical.
+Corruption triggers SAFE_MODE and recovery from verified backup/object evidence; never “repair by deleting rows” automatically.
+
+## X42 — Claim PR identity includes canonical repo/base/head (P1)
+Merge gate verifies:
+- base repo == canonical repo;
+- base ref == expected main/release branch;
+- head repo == canonical repo for autonomous Claim PR;
+- head branch matches claim key/replacement branch;
+- current HEAD matches reviewed tuple.
+
+Retarget/recreate anomalies invalidate the claim/review.
+
+## X43 — Secret/DLP publication guard (P0/P1)
+Before agent writes GitHub Issue/PR/comment/log/artifact:
+- redact known secret classes;
+- block obvious credentials/private keys/tokens;
+- keep diagnostic/media/customer-sensitive content out by default.
+CI has secret scanning as defense in depth.
+
+## X44 — Data egress manifest / minimization (P0/P1)
+Every external/cloud/browser job has a machine egress manifest:
+- exact asset revisions/segments;
+- text/context classes;
+- provider/region/account;
+- privacy classification;
+- retention/terms snapshot.
+Central policy gate validates it before connector sees data.
+
+## X45 — Privacy/rights fail-closed outside adapters (P0)
+Routing proposes; a central independent authorization gate permits/denies.
+Connector implementations cannot reinterpret UNKNOWN as ALLOWED or bypass LOCAL_ONLY.
+
+## X46 — Runtime network sandbox (P1)
+Local model/plugin/tool network access is denied by default unless capability manifest explicitly requires and policy permits destinations.
+Signed code is not automatically trusted to exfiltrate data.
+
+## X47 — Non-droppable constraint manifest (P0/P1)
+Context compilation separates mandatory constraints from compressible context.
+Before dispatch verify all required:
+- privacy;
+- rights;
+- character/canon;
+- safety;
+- output contract
+constraints are present or explicitly represented in structured provider fields.
+
+## X48 — Typed model tool channel only (P0)
+Plain model text/JSON-looking prose never invokes a tool.
+Only an authenticated/typed tool-call channel accepted by the orchestrator may request actions, and policy revalidates every call.
+
+## X49 — Generated outputs re-enter hostile-media pipeline (P1)
+Provider/model-generated files are untrusted inputs too:
+probe/sanitize/quarantine before use, including attachments/subtitle streams/metadata.
+
+## X50 — Credential version pinning (P1)
+JobAttempt pins connection + credential binding version/account identity.
+If credential changes/revokes, retry is a new planned attempt; do not silently continue under another account.
+
+## X51 — Migration completion contract (P1)
+Migration is complete only when:
+- schema step complete;
+- data backfill complete;
+- projections/indexes at target version;
+- compatibility health check green;
+- storage budget remains safe.
+Each migration defines idempotent resume semantics.
+
+## X52 — Package retention/drain (P1)
+Package update/removal cannot delete a pinned version while an active job/session needs it.
+Archive lightweight descriptor/manifest/license/signature provenance even after executable bytes are removed.
+
+## X53 — Publication destination identity (P1)
+Publish plan pins provider account + channel/page/workspace identity and shows it at final irreversible confirmation.
+
+## X54 — Release stream whitelist (P1)
+Release validation enumerates allowed streams/tracks/attachments/metadata and rejects unexpected hidden streams or embedded content.
