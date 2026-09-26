@@ -198,3 +198,6 @@ Mọi schema/event/manifest public phải versioned.
 - Active Task claims bind TASK_CONTRACT_VERSION/HASH and CONTEXT_BASE_SHA.
 - Global WIP/backpressure takes precedence over the simplistic “claim another task” rule when CI/review is saturated.
 - After orchestration baseline lock, governance/control-plane files must change through HIGH-risk PR flow, not direct-main writes.
+
+
+- `docs/design/EXTREME_HARDENING_CONTRACTS.md`
