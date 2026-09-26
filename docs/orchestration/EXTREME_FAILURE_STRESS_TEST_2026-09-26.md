@@ -4125,3 +4125,81 @@ An autonomous run reports completion/state from verified durable facts:
 - blocker/next action recorded.
 
 “No tool exception was shown” is not completion evidence.
+
+
+# 25. Seventh-wave media-correctness/cache/mastering attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 371 | Cache reuses generated output after character canon revision changed but prompt text happens to match | **GAP/P0/P1 creative integrity** | cache key must bind semantic dependency manifest, not prompt string |
+| 372 | Cache hit returns asset generated before rights/privacy policy changed | **GAP/P0/P1** | legality/privacy state participates in cache eligibility |
+| 373 | Cache returns output from same provider/model name but different hidden backend revision | **GAP/P1** | cache identity must include certified provider semantic generation where possible |
+| 374 | Cache entry references external remote URL now expired | **GAP/P1** | durable cache result must reference verified local object or declared ephemeral class |
+| 375 | Revoked/deleted asset remains reachable through thumbnail/proxy/vector cache | **GAP/P1 privacy** | derived cache tombstone/fence must be immediate |
+| 376 | Approved 720p proxy looks fine but 4K master contains face artifact | **GAP/P1 QC** | approval must bind representation and release master needs master-resolution QC |
+| 377 | Proxy uses different color transform than master and hides clipping/gamut issue | **GAP/P1** | proxy generation profile must be traceable; master QC independent |
+| 378 | Proxy audio is normalized but master mix clips | **GAP/P1** | review representation cannot substitute mastering loudness/peak checks |
+| 379 | VFR phone footage conformed to CFR by frame duplication/drop shifts dialogue sync over 40 minutes | **GAP/P1** | explicit source timestamp mapping/conform evidence required |
+| 380 | 23.976/24 conversion uses repeated rounding and drifts subtitle/music cue positions | **GAP/P1** | rational mapping anchored to canonical timeline, no cumulative float rounding |
+| 381 | 44.1kHz source is repeatedly resampled through several stages and accumulates timing/quality loss | **GAP/P1** | audio working sample-rate policy + one authoritative resample chain |
+| 382 | Two stems start at sample 0 locally but one encoder adds priming/delay so final mux is misaligned | **GAP/P1** | codec delay/encoder priming must be modeled/verified at mux |
+| 383 | Loudness measured on dialogue stem, not final mix | **GAP/P1 release** | integrated loudness/true-peak measured on exact release master |
+| 384 | True peak is safe in PCM but AAC/platform transcode creates inter-sample clipping | **GAP/P1** | codec/platform-aware headroom/transcode QC policy |
+| 385 | Surround/channel layout labels are wrong though audio samples exist | **GAP/P1** | channel-order/layout verification needed, not channel count only |
+| 386 | Mono voice is duplicated to stereo, then phase/processing makes center collapse weirdly | PARTIAL | mix domain exists; downmix/upmix policy should be explicit |
+| 387 | Subtitle uses source script timing, but final retime changed shot duration | PARTIAL/GAP | dependency invalidation exists; release gate must verify exact timeline revision |
+| 388 | Dubbing track is approved against an older subtitle/translation revision | **GAP/P1** | localization dependencies need exact revision snapshot |
+| 389 | Subtitle text fits editor UI but exceeds platform safe-area/line constraints | **GAP/P2** | target deliverable profile needs subtitle validation |
+| 390 | Font renders correctly locally but target renderer substitutes missing glyphs | PARTIAL | font coverage exists; packaged/embedded font capability needs destination check |
+| 391 | HDR master is interpreted as SDR due missing/wrong metadata | **GAP/P1 release** | mastering metadata validation + decoded test on final bytes |
+| 392 | SDR proxy approval hides HDR highlight artifacts | **GAP/P1** | representation-specific QC policy |
+| 393 | Full/limited range mismatch crushes blacks after export | **GAP/P1** | range/matrix/transfer must be explicit and verified on final master |
+| 394 | Alpha premultiplication differs between VFX render and NLE handoff | PARTIAL | metadata exists; handoff compatibility test needed |
+| 395 | Hardware encoder produces materially different GOP/quality from software fallback under same preset | **GAP/P1 reproducibility** | encoder backend/version belongs to artifact provenance/profile |
+| 396 | FFmpeg update changes default mux metadata/stream disposition | **GAP/P1** | output command/profile must pin explicit semantics and toolchain revision |
+| 397 | Encoder writes non-deterministic creation metadata causing hash mismatch despite same essence | **GAP/P2** | reproducibility should distinguish essence-equivalent vs byte-exact |
+| 398 | Release master passes local decode but target platform rejects unsupported level/profile | **GAP/P1** | destination compatibility profile/preflight required |
+| 399 | Platform accepts file then transcodes to broken audio/subtitle layout | PARTIAL | publish verification exists; destination post-transcode checks should be profile-driven |
+| 400 | Long GOP means corruption near end is missed by spot check | **GAP/P1** | release validation needs full structural decode/check or defined coverage level |
+| 401 | Master file is replaced after QC but before upload by same filename | CONTAINED/PARTIAL | digest binding exists; uploader must open/verify exact object by digest/handle |
+| 402 | Export cache reuses old master after one hidden metadata/rights requirement changed | **GAP/P1** | deliverable cache binds release/profile/rights/provenance policy snapshot |
+| 403 | Music cue approved before edit; retime is within tolerance but destroys musical hit point | PARTIAL | timing dependency exists; tolerance should be semantic/cue-specific |
+| 404 | Dialogue overlap changes but automated ducking/mix cache does not invalidate | **GAP/P1** | audio graph cache depends on neighboring/overlap context |
+| 405 | Lip-sync cache reused after localized text changed but phoneme duration looks similar | **GAP/P1** | language/text/phoneme/voice revision in dependency key |
+| 406 | Voice model outputs same audio bytes but consent scope changed to block commercial use | **GAP/P0/P1** | cache bytes can remain but eligibility must re-evaluate rights before use |
+| 407 | Color LUT file at same path is replaced in place | **GAP/P1** | LUT/profile identity uses immutable digest, not path |
+| 408 | External NLE renders with plugin version different from handoff manifest | **GAP/P1** | round-trip import records external environment/profile and lowers lineage confidence |
+| 409 | Render farm/local worker uses different font version causing title layout shift | **GAP/P1** | font/package digest participates in render context |
+| 410 | Final master is generated from timeline revision T2 but release manifest still references approval/QC from T1 | **GAP/P0/P1** | release gate needs exact dependency snapshot/master lineage closure |
+
+# 26. Seventh-wave findings
+
+## X83 — Semantic cache dependency completeness (P0/P1)
+Cache identity/eligibility binds the complete dependency manifest relevant to meaning and legality: canonical revisions, context/prompt representation, model/package/connector semantic generation, media profile, rights/privacy/policy state, language/voice/style inputs and algorithm/version. A byte-identical cached object can remain stored while becoming INELIGIBLE for reuse after rights/privacy change.
+
+## X84 — Derived cache revocation fence (P1)
+Deletion/revocation immediately fences thumbnails, proxies, embeddings, search entries, preview transcodes and other derived caches from authorized query/use. Physical purge can follow asynchronously; visibility/eligibility cannot wait for cleanup.
+
+## X85 — Proxy/review/master representation separation (P1)
+Approval always binds exact representation. Proxy approval may satisfy creative review only for dimensions policy permits. Release master requires exact-master technical/QC gates for resolution/color/audio/subtitle/stream properties that proxy cannot prove.
+
+## X86 — Canonical timestamp/conform mapping (P1)
+VFR/CFR, frame-rate conversion and retime use explicit timestamp mapping to canonical rational timeline. Conversion records source timestamp→destination mapping and does not accumulate floating rounding frame-by-frame.
+
+## X87 — Audio working-rate, codec delay and mastering contract (P1)
+Audio pipeline declares working sample rate/channel layout. Resampling is explicit/provenanced. Mux/export models encoder priming/delay. Release QC measures exact master integrated loudness, true peak and layout; codec/platform transcode headroom policy is destination-specific.
+
+## X88 — Color/HDR mastering final-byte verification (P1)
+Final master validates actual encoded stream metadata and decoded behavior for color primaries, transfer, matrix/range, HDR signaling and bit depth. Proxy/color transform lineage cannot substitute final-master checks.
+
+## X89 — Toolchain/backend provenance and reproducibility class (P1)
+Media artifact provenance records encoder/muxer/toolchain/backend version and significant explicit parameters. Hardware/software fallback is a semantic change when output can differ. Reproducibility distinguishes BYTE_EXACT, ESSENCE_EQUIVALENT and BEST_EFFORT.
+
+## X90 — Destination compatibility and post-transcode verification (P1)
+Deliverable profile captures target codec/profile/level/container/channel/subtitle/metadata constraints. Publication may verify the platform-processed result when APIs/manual evidence allow; local success alone is not proof of delivered quality.
+
+## X91 — Localization/audio contextual cache keys (P1)
+Subtitle/dub/lip-sync/audio-processing cache dependencies include exact translation/dialogue/voice/phoneme/timeline/neighbor-overlap revisions. Contextual audio cannot be cached by one isolated clip hash when surrounding mix state affects result.
+
+## X92 — Release lineage closure (P0/P1)
+ReleaseCandidate/Manifest computes an immutable dependency closure from exact timeline revision through picture/audio/subtitle/color/QC/rights/provenance to the final master digest. Any master built from a different dependency generation invalidates prior release readiness.
