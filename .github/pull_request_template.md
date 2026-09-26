@@ -1,16 +1,20 @@
-## Claim / lease
+## Immutable claim record
 
-- CLAIMS: #
-- AGENT_INSTANCE_ID:
-- SLOT_ID:
-- ROLE_PROFILE:
-- ATTEMPT:
-- BASE_SHA_AT_CLAIM:
-- LEASE_STATE: ACTIVE
+agent_claim_v1:
+- issue: 0
+- attempt: 1
+- agent_instance_id:
+- run_id_at_claim:
+- slot_id:
+- role_profile:
+- claim_base_sha:
+- architecture_refs: []
+- risk_profile: LOW | MEDIUM | HIGH
+
+This claim block records the initial claim and is not the live lease state.
+Live state, takeover and review are append-only structured PR events/comments.
 
 ## Outcome
-
-<!-- What this PR makes true. -->
 
 ## Scope
 
@@ -20,55 +24,32 @@ In:
 Out:
 - 
 
-## Architecture / design references
-
-- `AGENTS.md`
-- `docs/architecture/FINAL_ARCHITECTURE.md`
-- `docs/design/FINAL_DETAILED_DESIGN.md`
-- Task-specific references:
-
-## Risk profile
-
-- LOW | MEDIUM | HIGH
-- Relevant risk/invariants:
-- External side effects:
-- Migration impact:
-- Security/rights impact:
-
-## Verification
+## Verification plan
 
 Local:
 - [ ]
 
 CI:
-- [ ] Exact-head required checks
+- [ ] Required verification context is current
 
 Manual/evidence:
 - [ ]
 
-## State / resume
+## Current resume summary
 
-Current state:
-- ACTIVE | PARKED_WAITING_CI | PARKED_WAITING_REVIEW | PARKED_BLOCKED_DEPENDENCY | READY_FOR_REVIEW | READY_FOR_MERGE
+Convenience only. Latest valid structured PR event is canonical live state.
 
-Exact head SHA:
-- 
-
-Blocker:
-- None
-
-Next action:
-- 
-
-## Review record
-
-Independent review must bind to the exact head SHA and a different logical AGENT_INSTANCE_ID.
+- Last known HEAD_SHA:
+- Last known BASE_SHA:
+- Blocker:
+- Next action:
 
 ## Merge checklist
 
-- [ ] Task contract satisfied
+- [ ] Task contract still valid
 - [ ] Hard dependencies merged
-- [ ] Required CI green on exact head
-- [ ] Independent review satisfied
+- [ ] Current verification tuple satisfied
+- [ ] Independent review(s) match required verification context
 - [ ] No unresolved blocking review
 - [ ] No stale architecture/schema/migration conflict
+- [ ] Reconciliation found no merged/reopened/obsolete contradiction
