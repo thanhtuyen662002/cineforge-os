@@ -2860,3 +2860,131 @@ Clearing the fence requires explicit authorized decision and does not erase prio
 58. corruption/path swap in publish staging after release verification;
 59. multi-destination retry after partial success;
 60. takedown racing queued publication.
+
+
+# EA. Protected storage integrity scrub
+
+Protected object classes may define periodic scrub policy:
+- ORIGINAL
+- CANONICAL/APPROVED
+- NON_REBUILDABLE
+- RELEASE_MASTER
+- BACKUP_MANIFEST critical artifacts
+
+Scrub:
+1. read bytes;
+2. compute algorithm-qualified digest;
+3. compare with registered identity;
+4. mark VERIFIED or CORRUPT;
+5. if redundant verified source exists, repair by writing a new staged object and re-verifying;
+6. if no verified source, block dependents and surface recovery.
+
+Never “repair” from an unverified mirror.
+
+# EB. SQLite corruption and salvage
+
+Database health can use:
+- `PRAGMA quick_check` for frequent bounded checks;
+- `PRAGMA integrity_check` for deeper scheduled/recovery checks as policy permits.
+
+On corruption:
+- stop canonical writes when severity demands;
+- snapshot evidence/logs;
+- attempt restore from verified backup;
+- allow read-only salvage/export only when SQLite can safely expose data;
+- never delete inconsistent rows automatically just to make checks pass.
+
+# EC. Durable file activation
+
+For critical object/master/package finalization:
+```text
+WRITE_STAGING
+→ FLUSH_CONTENT
+→ VERIFY_CONTENT
+→ ATOMIC_REPLACE/RENAME
+→ DURABILITY_BARRIER
+→ OPTIONAL_READBACK_VERIFY
+→ ACTIVATE_POINTER/MANIFEST
+```
+
+Implementation uses platform-appropriate durability primitives and records the durability class achieved.
+
+If platform/filesystem cannot provide a requested guarantee, policy degrades explicitly or blocks; it does not silently claim stronger durability.
+
+# ED. GC crash recovery
+
+GC object state:
+- LIVE
+- DELETE_INTENT
+- BYTES_DELETING
+- BYTES_ABSENT
+- PURGE_COMMITTED
+- RECONCILIATION_REQUIRED
+
+Delete process:
+1. persist intent and safety generation;
+2. revalidate graph/leases;
+3. delete bytes;
+4. verify absence;
+5. commit logical purge.
+
+Restart reconciler inspects all nonterminal delete states.
+
+# EE. Environment certification fingerprint
+
+For runtime/model/media certification, fingerprint relevant environment:
+- OS build/kernel;
+- GPU vendor/device;
+- driver version;
+- runtime acceleration stack;
+- codec/native library versions;
+- connector/runtime package digests.
+
+Environment drift can mark prior certification:
+- CURRENT
+- RECHECK_REQUIRED
+- INVALIDATED
+
+Critical jobs may require a short health qualification before dispatch after material drift.
+
+# EF. Release-master durable activation
+
+Release state separates:
+- MANIFEST_PLANNED
+- MASTER_WRITING
+- MASTER_VERIFIED
+- MASTER_DURABLE
+- RELEASE_ACTIVATED
+
+On Core restart, activation reconciles exact master digest/path/storage-object identity before allowing publish.
+
+# EG. CAS liveness and clone safety
+
+Canonical liveness is derived from graph/revision references, not an unrecoverable mutable refcount alone.
+
+Optimization refcounts/indexes:
+- may exist;
+- are rebuildable projections;
+- are never the sole deletion truth.
+
+Project clone uses:
+- transactional logical clone intent;
+- explicit shared/copy relationships;
+- post-commit graph reconciliation.
+
+Partial clone cannot cause GC to delete source-referenced objects or permanently leak ownership truth.
+
+# EH. Power-loss/durability test matrix
+
+61. corrupt protected CAS object then scrub/repair from verified mirror;
+62. corrupt CAS with no good mirror and verify dependent blocking;
+63. SQLite quick_check/integrity_check failure enters safe mode;
+64. power loss after file flush before rename;
+65. power loss after rename before manifest activation;
+66. GC crash after intent, after byte delete, before purge commit;
+67. OS/GPU driver drift invalidates runtime certification;
+68. release manifest exists but master bytes are missing after restart;
+69. clone crash before/after logical commit;
+70. external drive letter reused by different volume;
+71. antivirus removes package file after install health check;
+72. storage target truncation despite copy API success.
