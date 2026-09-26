@@ -1,5 +1,7 @@
 # CineForge OS — User Action & Architecture Coverage Gap Analysis
 
+> **Historical gap-analysis source.** The “missing/insufficient” wording in this document describes the pre-final architecture state at the time of analysis. Current implementation authority is `FINAL_ARCHITECTURE.md` + `FINAL_DETAILED_DESIGN.md` + detailed contracts. Use this file to understand why controls exist, not to infer current feature absence.
+
 > Mục tiêu: đối chiếu FOUNDATIONAL_RISK_REGISTER với FOUNDATION + CHARACTER_IDENTITY_SYSTEM theo góc nhìn hành động người dùng.
 > Kết luận: nền kiến trúc đúng hướng nhưng chưa đủ để implementation. Các gap dưới đây phải được giải quyết trước hoặc trong foundation vertical slice.
 
