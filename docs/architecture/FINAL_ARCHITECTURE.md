@@ -2350,3 +2350,146 @@ Limits:
 - deferred/lazy deeper enumeration where appropriate.
 
 Proxy/hash/semantic generation starts under separate fanout budgets, not during uncontrolled traversal.
+
+
+
+# 72. At-rest encryption policy
+
+Filesystem ACLs and encryption are distinct controls.
+
+CineForge supports an explicit at-rest protection policy, for example:
+- `OS_VOLUME_PROTECTED` — rely on validated OS/disk encryption such as BitLocker-equivalent;
+- `CINEFORGE_MANAGED_ENCRYPTION` — CineForge-managed encryption for selected data classes;
+- `EXTERNAL_ENCRYPTED_TARGET` — destination provides verified encryption;
+- `UNENCRYPTED_ALLOWED_BY_POLICY`.
+
+UI/security status must not claim “encrypted” merely because a path is private to one Windows user.
+
+Selected sensitive classes may require stronger policy:
+- Core DB;
+- unreleased media;
+- browser/session material;
+- diagnostic bundles;
+- backups.
+
+# 73. Encryption key lifecycle and crypto agility
+
+Managed encryption requires:
+- authority-qualified globally unique key identity;
+- OS-backed secure key storage;
+- explicit key wrapping/recovery policy;
+- rotation/revocation;
+- resumable rewrap/re-encryption;
+- algorithm/version metadata;
+- periodic decryptability verification for archives.
+
+If no recoverable wrapped key exists, the user must be told that losing the key can make data permanently unreadable.
+
+Key material is never stored beside encrypted backup as plaintext.
+
+# 74. Project clone/duplicate semantics
+
+`DuplicateProject` is not a byte-for-byte policy clone.
+
+The operation explicitly declares inheritance for:
+- creative/canon assets;
+- linked media;
+- rights/consent evidence;
+- project privacy/egress policy;
+- budgets;
+- external connection permissions;
+- automation preferences;
+- learning/data-use scope.
+
+Defaults:
+- do not clone credentials;
+- do not clone browser sessions/cookies;
+- do not assume rights/consent valid for the new purpose/project;
+- shared CAS bytes remain reference-counted/graph-protected.
+
+# 75. Purpose-specific data-use policy
+
+A single `training_allowed` boolean is insufficient for all derivative uses.
+
+Policy distinguishes purposes such as:
+- PRODUCTION
+- EVALUATION_QC
+- SEARCH_INDEX
+- CROSS_PROJECT_RETRIEVAL
+- FAILURE_ANALYSIS
+- LEARNING
+- TRAINING_FINE_TUNING
+- EXTERNAL_PROVIDER_PROCESSING
+- EXPORT_SHARE
+- PUBLIC_RELEASE
+
+Derived-data creation/retrieval/learning obeys the allowed purpose + scope.
+
+# 76. Egress authority is separate from read authority
+
+Permission to view/read project data does not imply permission to:
+- send it to cloud/model/provider;
+- export/share it;
+- publish it;
+- include it in diagnostics;
+- use it for learning/training.
+
+Every egress-capable command validates an egress/share/export permission and current project privacy policy.
+
+# 77. Diagnostic artifact security
+
+Diagnostic bundles are sensitive managed artifacts.
+
+They carry:
+- sensitivity classification;
+- redaction policy;
+- allowed recipient/use;
+- ACL/encryption state;
+- expiry/purge policy;
+- explicit raw-media inclusion flag.
+
+Redaction includes:
+- secrets/tokens;
+- local usernames;
+- sensitive absolute paths;
+- private URLs/query strings;
+- browser form/password fields;
+- clipboard content by default excluded.
+
+# 78. Honest deletion semantics
+
+CineForge differentiates:
+- logical deletion/tombstone;
+- policy purge;
+- provider deletion request;
+- cryptographic erasure where managed key destruction meaningfully renders ciphertext inaccessible;
+- physical secure erase.
+
+The product does not guarantee physical byte erasure on SSD/cloud/provider systems where it cannot prove it.
+
+# 79. Release privacy leakage scan
+
+Final release verification can include privacy/content metadata rules:
+- absolute/local file paths;
+- internal project/client names in metadata;
+- hidden audio/video/data tracks;
+- embedded comments/notes;
+- subtitle/transcript sensitive strings;
+- unintended provenance fields;
+- private identifiers.
+
+Privacy scan is separate from copyright/rights and codec QC.
+
+# 80. Child-process privacy containment
+
+Local tools/models/plugins operate in managed scopes.
+
+Policy controls:
+- writable filesystem roots;
+- temp/log/crash-dump roots;
+- network destinations;
+- environment variable secrets;
+- clipboard access;
+- diagnostic capture.
+
+A child process must not quietly create an unmanaged long-term prompt/media history outside the declared sandbox.
