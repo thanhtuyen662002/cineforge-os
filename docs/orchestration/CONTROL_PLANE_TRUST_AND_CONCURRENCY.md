@@ -285,3 +285,53 @@ Historical Issue remains audit evidence.
 Workers normally read only current epoch plus predecessor checkpoint link when reconciliation requires history.
 
 This limits API/page/context growth without deleting audit history.
+
+
+# 19. Canonical task-contract hashing
+
+`contract_hash` is not computed from raw Markdown/YAML bytes.
+
+Canonicalization:
+1. parse `agent_task_v1` into the versioned task-contract schema;
+2. reject duplicate keys and unknown required enum values;
+3. remove presentation-only fields/comments;
+4. serialize as UTF-8 canonical JSON with lexicographically sorted object keys;
+5. preserve array order only where semantics are ordered; for set-valued arrays, normalize according to schema before serialization;
+6. normalize booleans/null/numbers to canonical JSON representation;
+7. hash the canonical bytes as `sha256:<lowercase-hex>`.
+
+The Issue stores the algorithm-qualified hash. Implementations must not invent their own YAML/string hashing.
+
+# 20. Authoritative trust-root policy
+
+The canonical trusted-control actor/assurance policy lives in a versioned governance document on `main`, not in a mutable Capacity Plan body.
+
+Capacity epochs reference:
+- TRUST_POLICY_REVISION;
+- trusted GitHub control actors;
+- registered logical agent identities/slot patterns as derived from that revision.
+
+The Capacity Plan may display the active trust summary, but cannot expand its own trust root.
+
+Until repository-native protection exists, this remains policy-enforced rather than a cryptographic security boundary.
+
+# 21. Lease renewal and stale-writer fencing
+
+Lease expiry does not by itself make same-branch mutation safe.
+
+Rules:
+- long-running holder renews before a new shared mutation phase;
+- every push/merge/control write revalidates ownership;
+- stale/unconfirmed takeover uses a new fenced owner branch and replacement PR;
+- same-branch takeover is reserved for explicit confirmed handoff.
+
+This prevents a late stale worker from silently adding commits to the active replacement PR.
+
+# 22. Control-plane livelock
+
+When multiple trusted stale controllers repeatedly create sibling plan/lease events:
+- losing contender backs off for the rest of that control cycle;
+- it must re-read the winning chain before another write;
+- repeated conflict increments a control-plane health metric and may force a temporary single-controller degraded mode.
+
+Do not “fight” by continually appending newer sibling events.
