@@ -2941,3 +2941,115 @@ A bulk command references the materialized snapshot and/or explicit command_scop
 - observed_hash nullable
 - state: HEALTHY | CORRUPT | MISSING | REPAIRED | UNRECOVERABLE
 PRIMARY KEY(scrub_run_id, storage_object_id)
+
+
+
+# 60. Protection leases
+
+## protection_leases
+- id PK
+- protected_type: STORAGE_OBJECT | PACKAGE | RUNTIME | MODEL | BACKUP_MANIFEST | REVISION | OTHER
+- protected_id
+- holder_type
+- holder_id
+- reason
+- fencing_token
+- state: ACTIVE | RELEASED | EXPIRED | REVOKED
+- acquired_at_utc_us
+- expires_at_utc_us
+
+GC/uninstall/removal preflight checks active protection leases.
+
+# 61. Migration execution journal
+
+## migration_runs
+- id PK
+- migration_version
+- app_version
+- state: PLANNED | RUNNING | RECOVERY_REQUIRED | COMPLETE | FAILED
+- started_at_utc_us
+- finished_at_utc_us nullable
+- source_schema_version
+- target_schema_version
+
+## migration_steps
+- migration_run_id FK
+- step_no
+- step_id
+- precondition_hash
+- state: PENDING | RUNNING | COMPLETE | AMBIGUOUS | FAILED
+- started_at_utc_us nullable
+- completed_at_utc_us nullable
+- postcondition_hash nullable
+- evidence_json nullable
+PRIMARY KEY(migration_run_id, step_no)
+
+# 62. Integrity incidents
+
+## integrity_incidents
+- id PK
+- severity
+- freeze_scope_type
+- freeze_scope_id nullable
+- state: OPEN | CONTAINED | REPAIRING | RECHECKING | RESOLVED | WAIVED
+- created_from_audit_run_id nullable
+- created_at_utc_us
+- resolved_at_utc_us nullable
+- resolution_json nullable
+
+# 63. Event archive/checkpoint manifests
+
+## event_archive_ranges
+- id PK
+- start_seq
+- end_seq
+- archive_manifest_hash
+- storage_object_id FK
+- schema_version
+- verification_state
+- created_at_utc_us
+
+## projection_snapshot_manifests
+- id PK
+- projection_name
+- event_seq
+- projection_schema_version
+- snapshot_storage_object_id FK
+- snapshot_hash
+- verification_state
+- created_at_utc_us
+
+# 64. Time-health observations
+
+## time_health_samples
+- id PK
+- observed_at_utc_us
+- monotonic_reference_ms nullable
+- wall_clock_delta_ms nullable
+- server_time_delta_ms nullable
+- state: NORMAL | SUSPICIOUS | UNTRUSTED
+- details_json nullable
+
+# 65. Hermetic build attestations
+
+## build_attestations
+- id PK
+- source_commit_sha
+- source_tree_hash nullable
+- workflow_revision
+- runner_trust_class
+- toolchain_manifest_hash
+- dependency_manifest_hash
+- artifact_digest
+- clean_workspace_verified BOOL
+- created_at_utc_us
+
+# 66. Directory intake budgets
+
+Extend import session/policy with:
+- max_enumerated_files nullable
+- max_depth nullable
+- max_enumeration_ms nullable
+- max_metadata_bytes nullable
+- enumeration_count
+- enumeration_state: NOT_STARTED | ENUMERATING | PAUSED_LIMIT | COMPLETE | CANCELLED | FAILED
