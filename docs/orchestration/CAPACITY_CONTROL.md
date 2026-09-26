@@ -1,5 +1,7 @@
 # CineForge OS — Capacity Control and Slot Plan
 
+> Capacity guidance is single-writer and append/revision aware. It never overrides live Issue/PR/CI facts.
+
 # 1. Purpose
 
 The active slot count is runtime configuration.
@@ -8,7 +10,15 @@ Planner converts available capacity into a role/offset plan without changing the
 
 # 2. Capacity Plan
 
-Planner owns a single Capacity Plan record (normally a GitHub Issue) containing:
+Planner owns one canonical Capacity Plan Issue.
+
+Canonical discovery rule:
+- exact title `[CONTROL] Agent Capacity Plan`;
+- if none exists, Planner creates one;
+- if more than one exists, the lowest-numbered open Issue is canonical until Flow reconciliation closes/marks duplicates;
+- workers do not create additional plans.
+
+The plan contains:
 
 ```text
 PLAN_VERSION:
@@ -21,6 +31,9 @@ SLOT_BINDINGS:
 STAGGER_OFFSETS:
 CURRENT_CRITICAL_PATH:
 CURRENT_HOTSPOTS:
+CI_RUNNER_CAPACITY:
+REVIEW_CAPACITY:
+GLOBAL_ACTIVE_WIP_LIMIT:
 CI_HEALTH:
 REVIEW_HEALTH:
 READY_DEPTH:
@@ -28,7 +41,9 @@ UPDATED_BY:
 UPDATED_AT:
 ```
 
-Only Planner/control role edits the plan.
+Only the current PRIMARY_PLANNER edits the canonical plan.
+PRIMARY_FLOW_GOVERNOR is also named explicitly.
+A control role re-reads the current plan version before writing; stale controllers do not overwrite a newer plan.
 Workers treat it as read-only guidance.
 
 The Capacity Plan is not:
@@ -59,7 +74,13 @@ It still uses normal atomic task claim and cannot bypass independent review rule
 
 # 4. Scheduled slots
 
-Each slot has a stable SLOT_ID such as:
+Each slot has a stable SLOT_ID and stable AGENT_INSTANCE_ID such as:
+- SLOT_ID=S03
+- AGENT_INSTANCE_ID=cineforge-S03
+
+Each invocation also has a unique RUN_ID.
+
+Slot examples:
 - S01
 - S02
 - ...
@@ -82,7 +103,8 @@ At start:
 Scheduled systems may start a new invocation while prior work is still running.
 
 Protection layers:
-- same SLOT_ID preflight;
+- same SLOT_ID/AGENT_INSTANCE_ID preflight;
+- task-level atomic claim remains the correctness primitive even if a same-slot overlap slips through before Draft PR creation;
 - one-active-implementation policy;
 - Git branch/non-fast-forward protection;
 - deterministic issue claim branch;
