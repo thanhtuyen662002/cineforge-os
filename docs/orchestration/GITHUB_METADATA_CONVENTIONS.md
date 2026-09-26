@@ -1,12 +1,12 @@
 # CineForge OS — GitHub Metadata Conventions
 
-Metadata helps agents scan quickly but is not a substitute for Issue/PR truth.
+Metadata helps agents scan quickly but is not a substitute for authoritative Issue/PR/CI facts.
 
 # 1. Recommended labels
 
-If repository labels are provisioned, use namespaces:
+If labels are provisioned, use namespaces:
 
-## State
+State:
 - state:ready
 - state:blocked
 - state:claimed
@@ -14,7 +14,7 @@ If repository labels are provisioned, use namespaces:
 - state:waiting-review
 - state:merge-ready
 
-## Type
+Type:
 - type:epic
 - type:feature
 - type:bug
@@ -23,7 +23,7 @@ If repository labels are provisioned, use namespaces:
 - type:infra
 - type:unblock
 
-## Area
+Area:
 - area:core
 - area:data
 - area:desktop
@@ -36,84 +36,151 @@ If repository labels are provisioned, use namespaces:
 - area:security-rights
 - area:ci-release
 
-## Risk
+Risk:
 - risk:low
 - risk:medium
 - risk:high
 
-## Flow
+Flow:
 - flow:critical-path
 - flow:hotspot
 - flow:external-blocker
 - flow:needs-human
 
-# 2. Canonical truth if labels are missing/stale
+Labels are convenience projections. Missing or stale labels never authorize duplicate work.
 
-Labels are convenience projections.
+# 2. Canonical live-state precedence
 
-Agents must derive truth from:
-- Issue dependency contract;
-- open Claim PR;
-- PR state/comments;
-- exact-head CI;
-- merge status.
+Task completion:
+1. merged Claim PR for the Issue;
+2. explicit Issue rework/reopen decision;
+3. Issue open/closed state.
 
-A missing label must never cause duplicate work.
+Claim existence:
+1. open Claim PR;
+2. orphan claim branch requiring reconciliation;
+3. no claim.
 
-# 3. Structured PR comments
+Live PR owner/state:
+1. latest valid AGENT_TAKEOVER event;
+2. latest valid AGENT_STATE event after that takeover;
+3. immutable initial claim record in PR body.
 
-State transition comment format:
+Verification:
+1. evidence matching current required verification tuple;
+2. older evidence is historical only.
+
+Capacity Plan:
+- guidance only;
+- live Issue/PR/CI facts win.
+
+# 3. Structured task metadata
+
+Task Issue contains one canonical `agent_task_v1` block.
+
+Planner edits that block when scheduling metadata changes.
+Narrative sections explain intent/acceptance but must not contradict the block.
+
+# 4. Structured PR state event
+
+Append one event when meaningful state changes:
 
 ```text
-AGENT_STATE
-AGENT_INSTANCE_ID=<id>
-SLOT_ID=<id>
-HEAD_SHA=<sha>
-STATE=<state>
+AGENT_STATE_V1
+AGENT_INSTANCE_ID=<stable logical agent>
+RUN_ID=<unique invocation>
+SLOT_ID=<slot>
+HEAD_SHA=<head observed>
+BASE_SHA=<base observed>
+STATE=<ACTIVE|PARKED_WAITING_CI|PARKED_WAITING_REVIEW|PARKED_BLOCKED_DEPENDENCY|READY_FOR_REVIEW|READY_FOR_MERGE|ABANDONED>
 BLOCKER=<none|description>
 NEXT_ACTION=<description>
 ```
 
-Review:
+Do not spam no-op heartbeat comments.
+
+# 5. Takeover event
 
 ```text
-AGENT_REVIEW
-REVIEW_AGENT_INSTANCE_ID=<id>
-REVIEW_HEAD_SHA=<sha>
+AGENT_TAKEOVER_V1
+FROM=<prior agent id>
+TO=<new agent id>
+RUN_ID=<new invocation>
+SLOT_ID=<new slot>
+HEAD_SHA=<head observed>
+BASE_SHA=<base observed>
+REASON=<reason>
+NEXT_ACTION=<description>
+AUTHORIZED_BY=<primary flow governor/control identity>
+```
+
+A takeover does not rewrite the initial PR claim block.
+
+# 6. Review event
+
+```text
+AGENT_REVIEW_V1
+REVIEW_AGENT_INSTANCE_ID=<stable reviewer identity>
+RUN_ID=<review invocation>
+REVIEW_HEAD_SHA=<head reviewed>
+REVIEW_BASE_SHA=<base/merge-base context reviewed>
+VERIFICATION_MERGE_SHA=<synthetic merge sha if CI/review used one, else none>
 REVIEW_PROFILE=<domain|qa|security|integration>
 VERDICT=<APPROVE|REQUEST_CHANGES|COMMENT>
 BLOCKERS=<none|description>
 ```
 
-Takeover:
+A review on the correct HEAD but materially stale BASE may require renewal.
+
+# 7. CI verification tuple
+
+Do not describe CI as only “exact-head”.
+
+Required evidence tuple is:
 
 ```text
-AGENT_TAKEOVER
-FROM=<prior id>
-TO=<new id>
-HEAD_SHA=<sha>
-REASON=<reason>
-NEXT_ACTION=<description>
+HEAD_SHA
+BASE_SHA or MERGE_BASE_SHA
+optional SYNTHETIC_MERGE_SHA
+WORKFLOW/CHECK_ID
+ATTEMPT
+RESULT
 ```
 
-# 4. Branch names
+If GitHub Actions runs tests on a pull-request synthetic merge commit, record that merge context.
+If tests run directly on branch HEAD, Integrator must separately evaluate base drift before merge.
+
+# 8. Branch names
 
 Task attempt:
 `agent/i<issue>-a<attempt>-<slug>`
 
-Examples:
-- agent/i42-a1-command-envelope
-- agent/i42-a2-command-envelope
+The deterministic next attempt enables atomic issue claim.
 
-The deterministic next attempt is part of distributed claim safety.
+Attempt selection considers:
+- existing branches;
+- open/closed Claim PRs;
+- merged Claim PRs;
+- explicit rework decision.
 
-# 5. Commit messages
+A merged Claim PR is not a reason to create a new attempt unless the Issue explicitly enters rework.
 
-Prefer:
-- feat(core): ...
-- fix(ci): ...
-- test(storage): ...
-- refactor(api): ...
-- docs(orchestration): ...
+# 9. Runtime identity
 
-Commit formatting is useful but never used as task identity.
+- AGENT_INSTANCE_ID: stable logical worker identity, e.g. `cineforge-S03`.
+- RUN_ID: unique invocation/execution id.
+- SLOT_ID: capacity slot, e.g. `S03` or `WORK`.
+
+A scheduled slot should not invent a new AGENT_INSTANCE_ID each run.
+A single runtime must not mint a second identity to self-approve.
+
+# 10. Commit messages
+
+Prefer conventional prefixes where useful:
+- feat(core):
+- fix(ci):
+- test(storage):
+- refactor(api):
+- docs(orchestration):
+
+Commit formatting is never used as task identity.
