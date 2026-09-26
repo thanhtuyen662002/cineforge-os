@@ -970,7 +970,7 @@ Every primary workflow tested at:
 - dark/light;
 - vi-VN/en-US;
 - keyboard-only;
-- 100%/125%/150% scale.
+- 100%/125%/150%/200% scale.
 
 Critical usability test:
 a person who does not know API/MCP/CLI/model/GPU must complete a short film flow without encountering those concepts unless a technical problem requires them.
