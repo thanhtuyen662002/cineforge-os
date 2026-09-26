@@ -2930,3 +2930,105 @@ Post-copy corruption/path swap must be detected.
 ## X65 — Per-destination publication idempotency and takedown fence (P1)
 Each destination has independent state/idempotency key.
 Takedown/revocation creates a forward fence that blocks queued/future publication for that release/destination until explicitly cleared.
+
+
+# 23. Physical corruption, durability and hardware-failure attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 311 | SSD returns stale/corrupt sector months later for canonical asset | PARTIAL | CAS hash exists; scheduled scrub/repair policy needed |
+| 312 | CAS file bit-rot occurs but no read happens for years | **GAP/P1** | latent corruption requires periodic verification for protected data |
+| 313 | Two mirrored copies both derive from same already-corrupt source | **GAP/P1** | mirror count != independent verified good copy |
+| 314 | DB page corruption is detected only after many later writes | **GAP/P0/P1** | integrity_check/backup fallback/safe-mode salvage procedure needed |
+| 315 | WAL is corrupt after abrupt power loss | PARTIAL | SQLite should recover often, but Core needs explicit DB integrity/recovery path |
+| 316 | fsync/write-through call reports success but device/controller loses buffered data on power loss | **RESIDUAL** | cannot fully solve in app; durability class/test and honest guarantees required |
+| 317 | Rename is atomic but directory entry is not durably flushed before power loss | **GAP/P1 implementation** | storage finalization requires platform durability semantics, not atomic rename alone |
+| 318 | Storage move writes switch marker before destination tree is fully durable | **GAP/P1** | switch barrier must require verified/durable destination manifest |
+| 319 | Temp file is sparse; apparent size small but materialization fills disk | **GAP/P1** | physical allocated bytes/free-space and worst-case expansion matter |
+| 320 | Disk has free bytes but filesystem metadata/inodes exhausted | **GAP/P2** | free-space check alone insufficient where relevant |
+| 321 | NTFS/ReFS error causes write to fail after partial temp artifact | CONTAINED/PARTIAL | staging state exists; error classification/retry/quarantine |
+| 322 | RAM bit-flip alters bytes between hash verification and write | **RESIDUAL/P2** | verify after durable write/read-back for critical artifacts reduces risk |
+| 323 | GPU memory corruption produces subtly wrong frame that passes structural decode | PARTIAL | QC/human evidence; no perfect technical containment |
+| 324 | GPU driver reports success but output is non-deterministically corrupted | PARTIAL | candidate QC + optional redundant verification for critical jobs |
+| 325 | CPU thermal throttling stretches job past watchdog, causing false stall/takeover | PARTIAL | progress watchdog/resource health should distinguish slow vs dead |
+| 326 | Sudden machine reboot after provider charge but before local receipt write | PARTIAL/GAP | external installation ledger must persist dispatch fence before call and reconcile afterward |
+| 327 | Sudden reboot after local release manifest created but before master fsync | **GAP/P1** | release manifest activation must verify durable bytes after restart |
+| 328 | Backup target silently truncates large file despite “copy complete” | CONTAINED if post-copy hash/size verified | must not trust copy API success |
+| 329 | Cloud sync conflict creates “file (conflicted copy)” and app opens wrong one | CONTAINED for Core DB if sync-folder blocked; external media links still need fingerprint |
+| 330 | Disk firmware lies about flush semantics | **RESIDUAL** | document durability limits; external/immutable backup remains defense |
+| 331 | Antivirus quarantines one package DLL after health check but before next launch | PARTIAL | package integrity revalidation on activation/launch |
+| 332 | OS update replaces system codec/library behavior overnight | **GAP/P1** | environment/toolchain fingerprint and re-certification triggers |
+| 333 | GPU driver auto-updates; previously certified model/runtime becomes unstable | **GAP/P1** | driver/runtime compatibility fingerprint and health requalification |
+| 334 | BIOS/clock reset breaks TLS/time validation and lease timing together | PARTIAL | trusted time health + provider failures differentiated |
+| 335 | Power outage during key rotation leaves half objects on old key, half new | PARTIAL | resumable rotation exists; per-object key-version manifest must be authoritative |
+| 336 | Power outage during GC after DB marks object deleted but bytes remain / reverse | **GAP/P1** | GC needs tombstone/intent/finalization recovery protocol |
+| 337 | Power outage during project clone after shared refs increment but clone not visible | **GAP/P1** | clone/refcount/reference changes need transactional logical commit + reconciliation |
+| 338 | Filesystem snapshot/backup captures DB and object tree at different instants | CONTAINED conceptually | snapshot manifest/checkpoint required |
+| 339 | User physically removes external drive during approved export | PARTIAL | volume identity + export staging; resume/restart semantics |
+| 340 | Drive reconnects mounted under same letter but different device | CONTAINED/PARTIAL | volume identity should dominate path/letter |
+
+# 24. Physical durability findings
+
+## X66 — Protected CAS integrity scrub (P1)
+Canonical/original/approved/non-rebuildable objects can be assigned scrub policy:
+- periodic content digest verification;
+- health state;
+- independent-copy/mirror evidence;
+- repair only from another verified source;
+- dependent revisions become CORRUPT/BLOCKED if no verified repair source exists.
+
+A second copy is not “good” until independently verified.
+
+## X67 — SQLite corruption and salvage protocol (P0/P1)
+Core startup/maintenance supports:
+- bounded quick_check/integrity_check policy;
+- corruption classification;
+- immediate write stop for severe corruption;
+- verified backup/restore path;
+- read-only salvage/export when safe;
+- no automatic “repair by deleting rows” under ambiguity.
+
+## X68 — Durable storage finalization barrier (P1)
+For critical storage moves/releases:
+- write temp;
+- flush file contents according to platform guarantees;
+- atomically replace/rename;
+- ensure parent directory/metadata durability where platform permits;
+- read-back/hash verify for highest durability classes;
+- only then activate manifest/pointer.
+
+Document platform residual risk honestly.
+
+## X69 — GC crash-recovery protocol (P1)
+GC uses durable phases:
+`MARK_INTENT → VERIFY_STILL_SAFE → DELETE_BYTES → VERIFY_ABSENT → COMMIT_PURGED`.
+
+On restart, reconciler can distinguish:
+- intent without delete;
+- bytes deleted but metadata not finalized;
+- metadata inconsistent with bytes.
+
+## X70 — Environment compatibility fingerprint (P1)
+Certified runtime environment includes relevant:
+- OS build;
+- GPU driver;
+- runtime/CUDA/DirectML/codec versions;
+- key native libraries.
+
+Material environment drift can trigger health requalification before critical production.
+
+## X71 — Release durability activation (P1)
+Release manifest cannot become RELEASED merely because a file path exists.
+After final write/sign/copy:
+- verify durable final bytes/hash;
+- on restart, reconcile manifest↔bytes;
+- missing/corrupt master blocks publish.
+
+## X72 — Reference-count/clone crash safety (P1)
+Do not rely on mutable manual refcounts as sole CAS liveness truth.
+Reference liveness derives from canonical graph or transactionally maintained index that can be rebuilt/reconciled.
+Partially created clone must not leak/lose shared objects.
+
+## X73 — Honest durability classes (P2)
+Expose guarantees as classes/evidence rather than promising absolute power-loss durability on unknown consumer hardware.
+Independent verified backup remains the ultimate recovery layer.
