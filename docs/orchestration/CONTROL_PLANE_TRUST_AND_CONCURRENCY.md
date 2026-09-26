@@ -418,3 +418,75 @@ Out-of-scope change requires:
 - appropriate risk/review escalation.
 
 An agent must not silently expand scope because “the code needed it”.
+
+
+# 23. Ambiguous GitHub mutation outcome
+
+All correctness-critical GitHub writes use a stable operation identity and explicit outcome state.
+
+Possible caller result:
+- CONFIRMED_SUCCESS
+- CONFIRMED_FAILURE
+- UNKNOWN_OUTCOME
+
+UNKNOWN_OUTCOME rule:
+1. do not perform dependent control mutation;
+2. read current server truth through direct endpoint/ref/Issue/PR collection;
+3. reconcile by stable operation/event identity;
+4. retry only when absence is established.
+
+Never convert network timeout into “operation failed”.
+
+# 24. Structured event idempotency
+
+Every structured control event includes:
+`CONTROL_EVENT_ID=<uuid/random-stable-before-send>`
+
+Event schema also includes the logical key relevant to its class:
+- RUN_ID
+- SLOT_ID
+- ROLE/EPOCH
+- CLAIM_INTENT_ID
+- MERGE_OPERATION_ID
+- PLAN_VERSION parent
+
+Reconciliation:
+- duplicate copies with same CONTROL_EVENT_ID are one logical event;
+- conflicting payloads under same ID are governance corruption;
+- retries reuse the same event ID.
+
+# 25. Claim-intent election
+
+Task claim under partial failure uses a two-stage protocol.
+
+1. claimant appends trusted `CLAIM_INTENT_V1`:
+   - CONTROL_EVENT_ID
+   - CLAIM_INTENT_ID
+   - issue
+   - attempt
+   - task_contract_hash
+   - agent/slot/run
+2. after a complete direct read of trusted claim intents for the attempt, lowest valid GitHub comment ID wins;
+3. only winner creates exact branch `agent/i<issue>-a<attempt>`;
+4. claim marker records winning CLAIM_INTENT_ID/comment ID;
+5. Draft PR records same identity.
+
+If intent append outcome is UNKNOWN, reconcile that event ID before retry.
+If branch creation outcome is UNKNOWN, reconcile branch + winning marker/PR before any substantive work.
+
+# 26. Merge mutation ambiguity
+
+MERGE_LEASE does not imply a merge API response is authoritative.
+
+Integrator creates stable MERGE_OPERATION_ID before call.
+
+On timeout/UNKNOWN:
+- fetch PR directly;
+- inspect `merged`, merge commit SHA and current base/main;
+- reconcile expected HEAD;
+- only then record success/failure.
+
+Until reconciled:
+- keep merge lane blocked;
+- do not merge next PR;
+- do not unblock dependents.
