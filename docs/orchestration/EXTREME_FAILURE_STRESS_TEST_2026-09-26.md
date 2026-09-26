@@ -4342,3 +4342,160 @@ One canonical release manifest provides:
 - SBOM/provenance IDs.
 
 Mismatch across surfaces blocks release rather than being treated as cosmetic metadata.
+
+
+# 25. Seventh-wave AI model/runtime/native-code attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 371 | User downloads a PyTorch pickle checkpoint that executes code on load | **GAP/P0** | model files are not always passive data |
+| 372 | Model repo requires `trust_remote_code=true` and runs arbitrary Python | **GAP/P0** | remote model code needs explicit trusted-package treatment |
+| 373 | TorchScript/custom op library loads native DLL from model package | **GAP/P0/P1** | native operator trust must be separated from weight trust |
+| 374 | ONNX model references/custom op provider not in certified runtime | **GAP/P1** | custom-op/runtime provider identity must be pinned |
+| 375 | TensorRT engine built on one GPU/driver silently misbehaves on another | **GAP/P1** | compiled-engine compatibility fingerprint needed |
+| 376 | CUDA extension built from source during install executes arbitrary build script | PARTIAL | package governance exists; model install path must inherit it explicitly |
+| 377 | Safetensors file is safe structurally but malicious model behavior exfiltrates through connector/tool calls | PARTIAL | weight safety != behavioral/tool safety |
+| 378 | Tokenizer version changes token boundaries and breaks prompt/context safety limits | **GAP/P1** | tokenizer is part of model semantic identity |
+| 379 | Chat template changes role separators and turns quoted user data into instruction context | **GAP/P0/P1** | chat template/context formatter is a security-relevant artifact |
+| 380 | System prompt/template is updated independently from model version | **GAP/P1** | prompt compiler/template revision belongs to execution fingerprint |
+| 381 | LoRA/adapter is applied to wrong base model revision | **GAP/P1** | adapter compatibility/base-model binding required |
+| 382 | Two adapters with same display name but different hashes are confused | **GAP/P1** | adapter identity must be digest/version-based |
+| 383 | Quantized model changes behavior materially but benchmark treats it as same model | **GAP/P1** | quantization/backend is part of semantic/reproducibility identity |
+| 384 | GPU backend falls back from CUDA to CPU or different kernel and output/QC behavior shifts | **GAP/P2/P1** | backend/fallback must be recorded and policy-aware |
+| 385 | Deterministic seed produces different output after kernel/runtime upgrade | PARTIAL | reproducibility class exists; model runtime fingerprint must include backend |
+| 386 | Model cache path is replaced by another checkpoint with same filename | **GAP/P0/P1** | model activation must verify manifest/digest every time policy requires |
+| 387 | Partial/corrupt model download is accepted because file size matches | **GAP/P1** | full digest/chunk manifest verification needed |
+| 388 | Model mirror/CDN serves different bytes for same revision tag | **GAP/P1** | immutable digest/provenance > mutable model tag |
+| 389 | Model card/license says noncommercial after cached copy was already certified | **GAP/P1 legal** | model license snapshot/revalidation needs first-class state |
+| 390 | Model author revokes/changes terms but local cache remains “READY” forever | **GAP/P1** | certification must separate technical readiness from legal eligibility |
+| 391 | Model metadata embeds huge/hostile JSON causing parser DoS | PARTIAL | parser budgets apply but model-manifest parser should inherit them |
+| 392 | Tokenizer vocabulary contains malicious Unicode/control sequences rendered in diagnostics | PARTIAL | UI/log escaping exists |
+| 393 | Local LLM outputs a tool call JSON that bypasses capability schema because parser is permissive | **GAP/P0/P1** | model-generated tool calls must use strict typed boundary |
+| 394 | Model emits extremely long tool arguments causing allocation/DB/log pressure | **GAP/P1** | tool-call payload budgets required |
+| 395 | Embedding model changes, making vector search scores incomparable but old index remains | **GAP/P1** | embedding-index generation/model fingerprint must be pinned |
+| 396 | User switches embedding model; stale vector index returns wrong cross-project assets | **GAP/P1 privacy/correctness** | index invalidation + project scope needed |
+| 397 | Vision model rotates image according to EXIF differently than media canonicalization | **GAP/P2** | model input preprocessing fingerprint required |
+| 398 | Audio model silently resamples internally with different quality/timing | **GAP/P2** | preprocessing/resample profile belongs to execution evidence |
+| 399 | Safety/QC model is upgraded and starts classifying old accepted outputs differently | PARTIAL | evaluator versioning exists; promotion policy handles |
+| 400 | Model benchmark dataset leaks into prompt/memory and overfits routing | PARTIAL | learning governance exists; benchmark isolation should include model-routing context |
+| 401 | Malicious model intentionally writes hidden steganographic identifier into output | **GAP/P2/P1 privacy** | high-security release may need provenance/watermark policy/QC |
+| 402 | Provider/local model embeds training-data memorization containing private text | RESIDUAL/P1 | privacy/content QC can detect some, never fully guarantee |
+| 403 | Model output includes malformed image/video bytes that exploit downstream decoder | PARTIAL | output still untrusted and must be sandbox/decode verified |
+| 404 | Model process loads arbitrary plugin from user HOME/site-packages despite managed runtime | **GAP/P0/P1** | model worker environment/module path must be hermetic |
+| 405 | Python model runtime imports project-local file shadowing trusted package | **GAP/P0** | working directory/module path isolation required |
+| 406 | Native inference DLL search finds attacker DLL in temp/project path | **GAP/P0** | verified absolute native dependency loading/safe DLL search required |
+| 407 | GPU OOM leaves partially initialized model registered as READY | **GAP/P1** | activation state needs transactional health/certification |
+| 408 | Model initialization allocates most VRAM and starves production jobs without doing work | **GAP/P1** | model residency is a schedulable resource reservation |
+| 409 | Multiple large models thrash VRAM loading/unloading and kill throughput | **GAP/P1 flow** | residency/cache admission/eviction policy required |
+| 410 | Model unload fails, driver retains memory, scheduler believes VRAM reclaimed | PARTIAL | physical release confirmation principle exists; model residency needs explicit reconciliation |
+
+# 26. Seventh-wave AI model/runtime findings
+
+## X83 — Model artifact trust classes (P0/P1)
+Model packages declare artifact classes:
+- PASSIVE_WEIGHTS
+- SERIALIZED_CODE_CAPABLE
+- NATIVE_OPS
+- REMOTE_CODE_REQUIRED
+- COMPILED_ENGINE
+
+Policies:
+- PASSIVE_WEIGHTS may use strict safe loaders;
+- pickle/TorchScript/remote code/native ops are executable supply-chain artifacts;
+- executable model artifacts require signed/provenance/package review and isolated runtime;
+- “model file” is never assumed safe solely from extension/name.
+
+## X84 — Model semantic execution fingerprint (P1)
+Execution fingerprint includes:
+- model content digest;
+- base model revision;
+- tokenizer digest/version;
+- chat/prompt template revision;
+- adapters/LoRAs ordered identities;
+- quantization profile;
+- inference backend/provider;
+- preprocessing profile;
+- runtime/toolchain/driver compatibility class.
+
+Routing/QC/reproducibility compare this fingerprint, not display model name only.
+
+## X85 — Adapter/base compatibility contract (P1)
+Adapter declares:
+- compatible base model family/revision range;
+- required tokenizer/template if relevant;
+- tensor/key shape compatibility;
+- intended merge/application order;
+- license/rights constraints.
+
+Wrong base/ordering blocks activation.
+
+## X86 — Compiled-engine environment binding (P1)
+TensorRT/native compiled engines bind:
+- GPU architecture;
+- driver/runtime;
+- backend version;
+- precision/calibration profile;
+- builder/toolchain digest.
+
+Mismatch triggers rebuild/revalidation, not silent READY reuse.
+
+## X87 — Model license/legal eligibility axis (P1)
+Technical readiness and legal eligibility are independent:
+- INSTALLED/HEALTHY does not imply COMMERCIAL_ALLOWED;
+- license/model-card/terms snapshots are versioned;
+- release/routing revalidates current policy;
+- cached old package cannot silently bypass changed eligibility.
+
+## X88 — Strict model-generated tool-call boundary (P0/P1)
+Model output proposing tools/actions is always untrusted data until:
+- strict JSON/schema decode;
+- payload size/depth limits;
+- capability ID/effect-class validation;
+- actor/task/project scope authorization;
+- command planning/policy/rights/budget checks.
+
+No model output can directly invoke shell/MCP/API because it “looks like a tool call”.
+
+## X89 — Embedding/vector index generation identity (P1)
+Each vector/search index binds:
+- embedding model semantic fingerprint;
+- preprocessing/chunking revision;
+- project/privacy scope;
+- source revision manifest;
+- index schema/version.
+
+Changing embedding/preprocessing invalidates/rebuilds index before it can drive authoritative retrieval.
+
+## X90 — Hermetic model worker runtime (P0/P1)
+Model workers:
+- managed working directory;
+- sanitized module/library search paths;
+- no project-local package shadowing;
+- verified native dependency paths;
+- isolated user site-packages;
+- controlled environment;
+- no `trust_remote_code` without explicit executable-package policy.
+
+## X91 — Model activation transaction (P1)
+Model state:
+`DOWNLOADED → DIGEST_VERIFIED → MANIFEST_VALIDATED → RUNTIME_COMPATIBLE → HEALTH_TESTED → CERTIFIED_READY`.
+
+Failure/OOM/crash before certification cannot leave model advertised READY.
+
+## X92 — Model residency as resource scheduling (P1)
+Loaded model residency consumes:
+- VRAM/RAM;
+- process slots;
+- warm-cache capacity.
+
+Scheduler manages residency reservations, eviction priority, pinning and thrash protection.
+“Model installed” and “model currently cheap/possible to use” are separate states.
+
+## X93 — Model/output privacy residual policy (P1/P2)
+High-security profiles may add:
+- private-text leakage scanning where applicable;
+- watermark/provenance/steganography policy;
+- stricter local-only model eligibility;
+- model/training-source trust classification.
+
+No policy claims complete detection of memorized/private/steganographic content from arbitrary AI models.
