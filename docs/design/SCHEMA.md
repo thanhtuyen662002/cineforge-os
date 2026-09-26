@@ -3257,3 +3257,78 @@ LOCAL_ONLY scope cannot use a cloud collaboration_channel unless policy explicit
 - outcome: APPLIED | CONFLICT | REJECTED
 - observed_current_revision_id nullable
 - created_at_utc_us
+
+
+
+# 79. Retry/failure domains and fair-share scheduling
+
+## external_failure_domains
+- id PK
+- provider_key
+- account_scope nullable
+- workspace_scope nullable
+- model_scope nullable
+- region_scope nullable
+- rate_limit_scope_key
+- breaker_state
+- opened_at_utc_us nullable
+- cooldown_until_utc_us nullable
+- half_open_probe_budget
+- last_probe_at_utc_us nullable
+- state_version
+
+## logical_retry_budgets
+- id PK
+- logical_effect_key UNIQUE
+- command_id nullable
+- project_id nullable
+- failure_domain_id nullable
+- max_attempts
+- attempts_used
+- manual_extensions
+- next_eligible_at_utc_us nullable
+- last_failure_class nullable
+- unreconciled_exposure_minor_units nullable
+- state_version
+
+## provider_quota_ledgers
+- id PK
+- failure_domain_id FK
+- quota_kind
+- period_start_utc_us
+- period_end_utc_us
+- observed_limit nullable
+- observed_used nullable
+- reserved_amount nullable
+- confidence
+- source_observed_at_utc_us nullable
+
+## project_scheduler_shares
+- project_id PK
+- priority_class
+- weight
+- max_active_jobs nullable
+- max_provider_share nullable
+- starvation_credit
+- updated_at_utc_us
+
+## maintenance_deadlines
+- id PK
+- maintenance_type
+- earliest_start_utc_us
+- latest_safe_start_utc_us
+- resource_bundle_json
+- reserved_capacity_json nullable
+- borrowable BOOL
+- state
+
+## dead_letter_entries
+- id PK
+- logical_effect_key
+- failure_class
+- payload_ref
+- created_at_utc_us
+- retain_until_utc_us nullable
+- evidence_priority
+- archive_state
+- resolution_state
