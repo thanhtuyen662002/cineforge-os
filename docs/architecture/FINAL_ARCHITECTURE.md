@@ -2768,3 +2768,183 @@ Planning materializes:
 
 Execution operates on that pinned scope.
 New items arriving after confirmation are excluded unless the user explicitly replans.
+
+
+
+# 65. Local Core instance fencing
+
+“Single Core writer” is enforced, not assumed.
+
+Startup acquires:
+- OS user/session-scoped Core mutex/lock;
+- persistent Core instance epoch/fencing token stored in canonical DB.
+
+Every canonical mutation/outbox dispatch validates the active Core epoch.
+
+If an old/zombie Core resumes after a newer Core took ownership:
+- its epoch is stale;
+- it must stop mutating and enter shutdown/reconnect behavior.
+
+SQLite's own writer serialization is not a substitute for CineForge domain single-writer ownership.
+
+# 66. Clock and sleep/resume semantics
+
+Use:
+- monotonic time for local elapsed-duration/timeout/lease calculations where available;
+- wall-clock UTC for human/audit timestamps;
+- DB/event sequence/fencing tokens for authoritative ordering.
+
+After system sleep/hibernate/resume:
+- Core revalidates leases, credentials, browser sessions, resources and external jobs;
+- expired timers are reconciled, not blindly executed as a backlog burst.
+
+UUIDv7/time-derived IDs are identifiers, not authoritative event ordering.
+
+# 67. SQLite corruption detection and recovery
+
+CineForge defines integrity verification policy using SQLite-supported checks appropriate to scale:
+- after unclean shutdown when indicated;
+- around restore/migration checkpoints;
+- periodic/background health checks.
+
+Detected corruption:
+- enters SAFE_MODE/RECOVERY;
+- freezes unsafe writes;
+- preserves evidence;
+- restores/reconciles from verified backups/object storage where possible.
+
+No automatic “repair” by deleting inconsistent rows merely to reopen the app.
+
+# 68. External data egress manifest
+
+Every external/cloud/browser job has an immutable planned egress manifest:
+- provider/connection/account/region;
+- exact asset revisions or bounded segments;
+- text/context segment IDs and trust/privacy classes;
+- purpose;
+- retention/terms snapshot;
+- rights/privacy decision;
+- hash of compiled outbound payload where practical.
+
+Routing chooses a capability.
+A separate central authorization gate validates the egress manifest before any connector receives sensitive data.
+
+Adapters cannot downgrade UNKNOWN/BLOCKED/LOCAL_ONLY into ALLOWED.
+
+# 69. Runtime network sandbox
+
+Local model/plugin/tool packages do not receive network access merely because they are signed.
+
+Network policy is capability-based:
+- DENY by default for offline/local execution;
+- explicit destination/protocol scopes for tools requiring network;
+- no arbitrary outbound exfiltration;
+- DNS/redirect rules follow the same trust principles as URL intake.
+
+# 70. Non-droppable constraint manifest
+
+Context compilation has two classes:
+- REQUIRED constraints;
+- COMPRESSIBLE supporting context.
+
+Required manifest includes as applicable:
+- privacy/egress;
+- rights;
+- canonical identity/continuity;
+- safety/policy;
+- output schema/technical contract;
+- user-locked constraints.
+
+Token optimization/truncation may reduce compressible context but must not silently remove required constraints.
+
+Dispatch validates completeness before execution.
+
+# 71. Typed model tool-call boundary
+
+Creative/model text is never parsed as a command solely because it resembles JSON/tool syntax.
+
+Tool execution accepts only:
+- the orchestrator's typed/authenticated tool-call channel;
+- known tool schema;
+- current actor/agent authority;
+- current policy/rights/privacy gate.
+
+Policy is revalidated even for syntactically valid model tool calls.
+
+# 72. Generated outputs are hostile inputs
+
+Files returned by trusted providers/models are still untrusted media/data until normalized.
+
+They pass the same hostile-input controls as imports:
+- parser sandbox;
+- stream/attachment enumeration;
+- metadata sanitation;
+- size/decode budgets;
+- hash/materialization;
+- quarantine on anomaly.
+
+Trusting the provider does not imply trusting every byte of its output.
+
+# 73. Credential binding/version pinning
+
+JobAttempt pins:
+- connection ID;
+- credential binding/version reference;
+- provider account/tenant identity.
+
+Credential rotation/revocation/re-login does not silently change the identity under an existing attempt.
+
+Retry after credential identity change is a newly planned/reconciled attempt.
+
+# 74. Migration completion contract
+
+A migration is not COMPLETE when DDL alone succeeded.
+
+Migration completion may require:
+- schema version;
+- data backfill;
+- projection/index rebuild;
+- package/runtime compatibility;
+- integrity checks;
+- storage headroom;
+- rollback/recovery checkpoint.
+
+Each migration defines idempotent resume semantics after crash.
+
+# 75. Package version retention and provenance archive
+
+Updater/package manager cannot remove an executable version while:
+- an active job/session pins it;
+- recovery of an active attempt requires it.
+
+After executable bytes are eligible for removal, retain lightweight durable provenance:
+- package descriptor;
+- version/hash;
+- license snapshot;
+- signature/certification evidence;
+- capability manifest.
+
+# 76. Publication destination identity
+
+Publish planning pins:
+- provider;
+- authenticated account;
+- tenant/workspace;
+- channel/page/project destination identifier.
+
+Final irreversible confirmation shows that exact destination identity.
+Authentication success alone is not enough.
+
+# 77. Release container/stream whitelist
+
+Release validation enumerates expected:
+- video streams;
+- audio streams/layouts;
+- subtitle/caption tracks;
+- attachments;
+- chapters/data streams;
+- metadata classes.
+
+Unexpected embedded streams/attachments cause review/failure according to release policy.
+
+A preview that looks correct is insufficient evidence that the container contains only intended content.
