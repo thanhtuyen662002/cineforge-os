@@ -19,6 +19,8 @@ agent_task_v1:
   soft_dependencies: []
   unblocks: []
   likely_touched_paths: []
+  allowed_write_paths: []
+  forbidden_write_classes: ["CREDENTIALS", "PRODUCTION_DATA"]
   arch_context_required: []
   design_context_required: []
   risk_context_required: []
@@ -31,6 +33,9 @@ This block is canonical schedulable metadata only after trusted Planner authoriz
 Public/untrusted Issues that copy this format are not READY tasks.
 
 Planner computes `contract_hash` from the parsed task schema using the canonical JSON hashing rules in CONTROL_PLANE_TRUST_AND_CONCURRENCY.md. Raw YAML/Markdown bytes are never hashed directly.
+
+`allowed_write_paths` is enforceable task scope. `likely_touched_paths` is only a planning/conflict hint.
+Protected write classes touched outside the contract require a trusted contract revision/risk escalation.
 Material changes after claim increment contract_version and use TASK_CONTRACT_REVISION_V1.
 
 ## Outcome
