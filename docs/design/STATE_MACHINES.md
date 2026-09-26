@@ -1354,3 +1354,122 @@ Operational-data state:
 - RECOVERING
 
 Security/audit retention priority is preserved while low-value debug telemetry may be sampled/dropped under pressure.
+
+
+
+
+# 78. Production node lifecycle
+
+- DRAFT
+- ACTIVE
+- PAUSED
+- RELEASED
+- ARCHIVED
+- CANCELLED
+
+RELEASED nodes retain immutable release/canon baseline references.
+Later shared-canon revisions do not mutate released node history.
+
+# 79. Narrative context lifecycle
+
+- DRAFT
+- ACTIVE
+- LOCKED_FOR_RELEASE
+- SUPERSEDED
+- ARCHIVED
+
+Context edges/forks are explicit.
+A state interval without narrative_context_id cannot be used for nonlinear-continuity-aware production once project migration is complete.
+
+# 80. Casting binding lifecycle
+
+- PROPOSED
+- UNDER_REVIEW
+- APPROVED
+- ACTIVE
+- REVOKED
+- SUPERSEDED
+- STALE_RIGHTS
+
+Rights revocation can move ACTIVE → STALE_RIGHTS/REVOKED without deleting the Character.
+
+# 81. Production representation lifecycle
+
+- DRAFT
+- CANDIDATE
+- APPROVED
+- ACTIVE
+- STALE
+- REVOKED
+- SUPERSEDED
+
+Representation staleness does not imply narrative entity invalidity.
+
+# 82. Live-action take lifecycle
+
+```text
+PLANNED
+→ RECORDED
+→ INGESTING
+→ VERIFIED
+→ AVAILABLE
+```
+
+Editorial preference:
+- UNRATED
+- CIRCLE
+- HOLD
+- REJECT
+
+Preference is orthogonal to technical availability.
+
+# 83. Capture ingest lifecycle
+
+- DISCOVERED
+- ENUMERATING
+- COPYING
+- HASHING
+- VERIFYING
+- VERIFIED
+- PARTIAL
+- FAILED
+- QUARANTINED
+
+Source media is not auto-erased after VERIFIED.
+
+# 84. Sync group lifecycle
+
+- PROPOSED
+- ANALYZING
+- SYNCED
+- VERIFIED
+- CONFLICT
+- REJECTED
+- STALE
+
+Offset/drift changes create a new verified state/evidence, not silent overwrite.
+
+# 85. Documentary fact claim lifecycle
+
+- DRAFT
+- UNVERIFIED
+- CORROBORATING
+- CORROBORATED
+- CONFLICT
+- DISPUTED
+- APPROVED_FOR_USE
+- REJECTED
+- STALE
+
+Evidence/source withdrawal or correction can move approved claim to STALE/CONFLICT according to policy.
+
+# 86. Quote meaning review
+
+- UNREVIEWED
+- CONTEXT_REVIEW
+- CONSISTENT
+- POTENTIALLY_MISLEADING
+- MISLEADING
+- APPROVED_EXCEPTION
+
+Transcript correctness alone does not imply CONSISTENT meaning.
