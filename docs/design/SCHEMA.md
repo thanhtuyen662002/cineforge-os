@@ -3500,3 +3500,165 @@ LOCAL_ONLY scope cannot use a cloud collaboration_channel unless policy explicit
 - state: OPEN | RESOLVED | WAIVED
 - resolved_by_actor_id nullable
 - resolution_json nullable
+
+
+
+# 84. Learning feedback provenance and evaluation context
+
+## learning_feedback_events
+- id PK
+- subject_revision_id FK revision_registry
+- project_id nullable
+- tenant_scope_id nullable
+- source_type: HUMAN_REVIEW | AI_EVALUATOR | PROVIDER_SIGNAL | USER_OVERRIDE | SYSTEM_METRIC | OTHER
+- source_actor_id nullable FK actors
+- source_evaluator_id nullable
+- source_provider_id nullable
+- source_lineage_hash
+- review_session_id nullable FK review_sessions
+- presentation_context_id nullable
+- outcome_type: APPROVED_SUCCESS | REJECTED | USER_OVERRIDE | ABANDONED | TIMEOUT | CANCELLED | POLICY_BLOCKED | EXTERNAL_FAILURE | UNKNOWN
+- confidence nullable
+- authority_weight_hint nullable
+- training_eligibility: UNTRUSTED_FEEDBACK | CURATION_REQUIRED | ELIGIBLE | INELIGIBLE | TAINTED
+- privacy_scope: PROJECT_LOCAL | STUDIO_LOCAL | TENANT_LOCAL | GLOBAL_ELIGIBLE
+- created_at_utc_us
+
+## feedback_dedup_groups
+- id PK
+- grouping_type: EXACT_EVENT | SAME_ASSET_LINEAGE | SAME_PERFORMANCE | NEAR_DUPLICATE | SAME_SOURCE_CHAIN | CUSTOM
+- group_manifest_hash
+- created_at_utc_us
+
+## feedback_dedup_members
+- group_id FK
+- feedback_event_id FK
+PK(group_id, feedback_event_id)
+
+## evaluation_presentation_contexts
+- id PK
+- blinded BOOL
+- candidate_order_json
+- recommendation_visible BOOL
+- provider_identity_visible BOOL
+- ui_policy_revision
+- reviewer_sequence_index nullable
+- session_fatigue_bucket nullable
+- created_at_utc_us
+
+## evaluation_context_snapshots
+- id PK
+- benchmark_set_id nullable FK benchmark_sets
+- benchmark_version nullable
+- evaluator_version
+- threshold_policy_revision
+- feature_schema_version nullable
+- normalization_calibration_version nullable
+- ui_policy_revision nullable
+- domain_mix_manifest_hash
+- task_difficulty_profile_hash nullable
+- environment_profile_hash nullable
+- context_hash UNIQUE
+- created_at_utc_us
+
+Extend benchmark_runs:
+- evaluation_context_snapshot_id FK
+- matched_cohort_manifest_hash nullable
+- holdout_exposure_count
+- holdout_access_policy_revision
+- leakage_state: CLEAN | SUSPECTED | TAINTED | UNKNOWN
+
+## sealed_holdout_access_events
+- id PK
+- benchmark_set_id FK
+- actor_or_component_id
+- access_purpose
+- access_level: SCORE_ONLY | EVIDENCE_SUMMARY | EXAMPLE_CONTENT
+- authorized BOOL
+- policy_revision
+- created_at_utc_us
+
+## learning_taint_records
+- id PK
+- source_entity_type
+- source_entity_id
+- taint_type: RIGHTS_REVOKED | PRIVACY_REVOKED | LABEL_INVALID | BENCHMARK_LEAKAGE | HOLDOUT_OVEREXPOSED | CORRELATED_FEEDBACK | OTHER
+- caused_at_utc_us
+- resolved_at_utc_us nullable
+- resolution_state
+
+## promotion_evidence_dependencies
+- promotion_record_id FK
+- evidence_type
+- evidence_id
+- evidence_context_hash
+- current_validity: VALID | STALE | TAINTED | REVOKED | UNKNOWN
+PK(promotion_record_id, evidence_type, evidence_id)
+
+# 85. Promoted component bundle closure
+
+## promoted_component_bundles
+- id PK
+- component_type
+- component_version
+- binary_or_model_digest
+- feature_schema_version nullable
+- normalization_version nullable
+- calibration_version nullable
+- threshold_policy_revision nullable
+- config_manifest_hash
+- dependency_manifest_hash
+- rollback_compatible_bundle_id nullable
+- bundle_hash UNIQUE
+
+Promotion/rollback references bundle ID rather than only a model/router version string.
+
+# 86. Router objective and exploration policy
+
+## router_objective_profiles
+- id PK
+- profile_version
+- quality_constraints_json
+- privacy_constraints_json
+- rights_constraints_json
+- diversity_constraints_json
+- concentration_constraints_json
+- cost_constraints_json
+- latency_constraints_json
+- reliability_constraints_json
+- exploration_budget_json
+- created_at_utc_us
+
+## router_exploration_events
+- id PK
+- objective_profile_id FK
+- project_id nullable
+- candidate_provider_or_model
+- domain_profile
+- exploration_reason
+- privacy_rights_gate_snapshot_hash
+- cost_reservation_id nullable
+- result_feedback_event_id nullable
+- created_at_utc_us
+
+# 87. Reviewer calibration and contested golden truth
+
+## reviewer_calibration_records
+- id PK
+- reviewer_actor_id nullable
+- evaluator_id nullable
+- calibration_suite_version
+- domain_profile
+- calibration_metrics_json
+- valid_from_utc_us
+- valid_to_utc_us nullable
+
+## golden_example_disputes
+- id PK
+- golden_example_id FK
+- opened_by_actor_id nullable
+- reason
+- state: OPEN | UNDER_REVIEW | CONFIRMED | REVISED | RETIRED
+- replacement_golden_example_id nullable
+- opened_at_utc_us
+- resolved_at_utc_us nullable
