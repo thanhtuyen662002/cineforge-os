@@ -1730,3 +1730,100 @@ The search document/vector payload itself is never command authority.
 - explicit “continue deeper/larger scan” where user/policy permits.
 
 No giant folder requires one monolithic blocking enumeration before UI feedback.
+
+
+
+# 79. At-rest protection API
+
+Queries:
+- `query.security.at_rest_status`
+- `query.security.encryption_keys`
+- `query.archive.crypto_health`
+
+Commands:
+- ConfigureAtRestPolicy
+- RotateEncryptionKey
+- RewrapEncryptedObjects
+- VerifyArchiveDecryptability
+
+UI/API must distinguish:
+- ACL-protected;
+- OS-volume encrypted;
+- CineForge-managed encrypted;
+- unencrypted.
+
+# 80. Project clone API
+
+`project.plan_duplicate` returns an inheritance matrix:
+- creative assets;
+- linked sources;
+- rights/consents;
+- policies;
+- connections;
+- budgets;
+- learning/data-use scopes.
+
+`DuplicateProject` executes the approved matrix.
+
+Credentials/browser sessions default to excluded.
+Rights/purpose requiring revalidation are marked NEEDS_REVIEW in target project.
+
+# 81. Data-use purpose API
+
+`query.data_use.permissions(subject, purpose)`
+
+Commands:
+- GrantDataUsePermission
+- RevokeDataUsePermission
+- RevalidateDerivedDataPurpose
+
+Search/index/learning/training pipelines request permission for the actual purpose rather than reading one generic training flag.
+
+# 82. Egress authorization API
+
+Every egress-capable command declares an egress class.
+
+Examples:
+- cloud generation → CLOUD_EGRESS
+- export → EXPORT
+- publication → PUBLISH
+- diagnostic bundle → DIAGNOSTIC_EXPORT
+
+Core derives actor/session permissions and project privacy policy.
+Read permission alone never authorizes egress.
+
+# 83. Diagnostic artifact API
+
+`diagnostics.plan_bundle` returns:
+- sensitivity class;
+- redacted metadata classes;
+- media inclusion;
+- path/URL redaction;
+- encryption/ACL state;
+- expiry;
+- intended recipient/use.
+
+Clipboard content is not captured by default.
+
+# 84. Deletion semantics API
+
+Deletion/cleanup planning returns a truthful erasure class:
+- LOGICAL_ONLY
+- LOCAL_PURGE
+- CRYPTOGRAPHIC_ERASURE
+- PROVIDER_DELETE_REQUEST
+- PHYSICAL_ERASE_NOT_GUARANTEED
+
+UI uses these exact semantics instead of generic “permanently delete” claims when proof is unavailable.
+
+# 85. Release privacy verification API
+
+`release.verify_privacy(release_candidate_id)`
+
+Checks policy-selected metadata/leakage classes and returns:
+- PASS
+- FAIL
+- UNKNOWN
+- NOT_APPLICABLE
+
+UNKNOWN may block release according to policy.
