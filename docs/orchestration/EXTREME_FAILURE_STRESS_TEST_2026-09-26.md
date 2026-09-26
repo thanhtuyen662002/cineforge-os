@@ -530,3 +530,135 @@ A connection can optionally pin/verify account/tenant/workspace identity so auto
 ## X38 — Bulk command snapshot scope (P1)
 Bulk approve/delete/generate command binds exact entity IDs/revisions or a materialized query snapshot.
 Newly appearing items cannot silently enter the action after confirmation.
+
+
+# 17. Third-wave attacks: false truth, process split-brain and governance escape
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 221 | User launches CineForge twice; two Core processes share one DB | **GAP/P0/P1** | SQLite serialization does not prevent duplicate schedulers/external dispatch |
+| 222 | Old Core survives updater while new Core starts | **GAP/P0/P1** | process-level ownership/fencing required |
+| 223 | Two Windows users intentionally point to the same live DB | **GAP/P0/P1** | V1 single-Core architecture cannot safely treat shared DB as multi-user service |
+| 224 | Core OS lock file remains after crash | PARTIAL | lock must be liveness/fencing aware, not existence-only |
+| 225 | SQLite migration starts with insufficient free space for copy/rebuild/VACUUM | **GAP/P1** | migration needs worst-case storage reservation/preflight |
+| 226 | User manually copies only `cineforge.db` while WAL has latest commits | **GAP/P1 UX** | “copy DB file” must not be presented as valid backup |
+| 227 | Migration checksum in repo changes after migration was already applied | PARTIAL | schema_migrations hash can detect; startup must fail safe rather than overwrite |
+| 228 | App opens DB with foreign_keys accidentally OFF on a secondary connection | **GAP/P1** | every Core DB connection must enforce/verify required PRAGMAs |
+| 229 | Long VACUUM blocks production unexpectedly | **GAP/P2/P1** | maintenance must be scheduled/safe-boundary aware |
+| 230 | System clock jumps years forward; licenses/tokens/rights suddenly expire | **GAP/P1** | wall-clock uncertainty needs detection/separation from monotonic durations |
+| 231 | System clock jumps backward; “newest by timestamp” selects old record | **GAP/P1** | authoritative ordering must use seq/version, not timestamp |
+| 232 | GitHub control event comment is edited after agents consumed it | PARTIAL | append-only policy is not technical immutability; hash chain/anomaly detection useful |
+| 233 | Trusted actor deletes a critical control comment | **GAP/P1** | predecessor-chain gap should become governance anomaly/UNKNOWN |
+| 234 | Unicode homoglyph `AGENT_REVIEW_V１` or zero-width key bypasses parser/human review | **GAP/P1** | machine grammar should be ASCII-strict / reject control/confusable keys |
+| 235 | Oversized Issue/comment exhausts model/parser context | PARTIAL | size limits mentioned; parser/control fetch should cap and page |
+| 236 | Capacity epoch old Issue accidentally remains open; discovery chooses wrong Issue | **GAP/P1** | current epoch must follow signed/valid epoch chain, not “lowest open Issue” alone |
+| 237 | Task attempt branch was deleted; new agent reuses attempt number and historical evidence collides | **GAP/P1** | attempt identity should be monotonic from trusted claim history, not branch existence |
+| 238 | Agent task allows Core code but agent modifies CI/governance too | **GAP/P0/P1** | task needs explicit write scope + high-risk escape rule |
+| 239 | Agent accidentally commits API key/test credential | **GAP/P0** | secret scanning/gitleaks-style CI/pre-merge gate needed |
+| 240 | Agent pastes third-party source with incompatible license into public repo | **GAP/P1** | external code provenance/license policy needed |
+| 241 | User/project media is copied into public GitHub test fixture | **GAP/P0 privacy** | strict data classification + synthetic fixture policy |
+| 242 | GitHub Action uses floating tag `@v4` and upstream is compromised | **GAP/P1** | security-sensitive actions should pin immutable commit SHA |
+| 243 | CI artifact from untrusted job is consumed by release/signing workflow | PARTIAL | cache trust addressed; artifact provenance/attestation must also be enforced |
+| 244 | PR changes allowed-write-path validator to allow its own out-of-scope diff | **GAP/P0 governance** | validator must obey non-self-approval/protected base rules |
+| 245 | Required test suite passes but coverage drops drastically in critical module | PARTIAL | invariant suite protects some; risk-based coverage regression should be signal |
+| 246 | Agent adds huge binary to Git history instead of object/artifact store | **GAP/P1 repo ops** | repo size/file policy needed |
+| 247 | Generated snapshot/test file contains PII/path/user name and is committed | **GAP/P1 privacy** | fixture sanitization/data classification |
+| 248 | Control event hash algorithm changes without migration | **GAP/P2** | event-chain hash must be algorithm-qualified if introduced |
+| 249 | Control epoch rollover occurs while slot acquires lease on old epoch | **GAP/P1** | epoch transition needs drain/fence and new lease epoch |
+| 250 | Old epoch Flow Governor posts takeover after new epoch activates | **GAP/P1** | control events bind epoch and stale epoch is rejected |
+| 251 | Browser profile cookie backup leaks authentication outside DPAPI store | **GAP/P0/P1** | profile backup policy must exclude/protect secrets |
+| 252 | Diagnostics screenshot accidentally captures unreleased media | **GAP/P1 privacy** | diagnostic media capture opt-in/redaction |
+| 253 | Thumbnail/cache remains after rights revocation/private asset purge | **GAP/P1 privacy/rights** | derived cache taint/purge path must include previews/embeddings |
+| 254 | Search embedding from Project A appears in Project B semantic search | **GAP/P0/P1 confidentiality** | retrieval index must enforce scope/tenant/project boundary at storage/query |
+| 255 | Global learning corpus ingests confidential project data despite no training permission | **GAP/P0/P1** | learning ingestion gate must bind explicit training permission/provenance |
+| 256 | Local model/runtime unexpectedly sends telemetry/internet requests | **GAP/P1 privacy** | worker network egress policy/sandbox needed |
+| 257 | Plugin/MCP server binds 0.0.0.0 instead of localhost and exposes control API | **GAP/P0** | bind/ACL/firewall policy and health validation needed |
+| 258 | Local RPC token is written to world-readable log | **GAP/P0** | secret redaction + token lifetime/storage policy |
+| 259 | RPC client replays captured privileged command | **GAP/P1** | session-bound nonce/replay protection/idempotency/authorization needed |
+| 260 | Tauri/WebView XSS uses a valid command repeatedly until cost/storage exhausted | PARTIAL | IPC authorization exists; per-command policy/rate/exposure still matters |
+| 261 | GPU produces NaN/black frames with valid codec | PARTIAL | decode verification not semantic media validity; QC should detect signal anomalies |
+| 262 | Huge rational numerator/denominator overflows timing math cross-multiplication | **GAP/P1/P2** | checked integer math/canonical rational bounds required |
+| 263 | Timeline has millions of edit ops; startup replay becomes minutes | **GAP/P1 scale** | working-session compaction/snapshots needed |
+| 264 | Undo history references GC'd temporary assets | **GAP/P1** | undo retention pins required dependencies until checkpoint/policy expiry |
+| 265 | Variant explosion creates 100k candidates and storage/search/UI collapse | **GAP/P1 scale** | variant retention/WIP/archive policy needed |
+| 266 | Full-text/vector index lags and UI shows deleted confidential asset | **GAP/P1 privacy** | security-sensitive delete/revoke must invalidate derived index synchronously or block query |
+| 267 | Embedding model update makes nearest-neighbor semantics incomparable across index versions | PARTIAL | embedding version migration exists; query must avoid mixed-space comparison |
+| 268 | Release signing timestamp service is unavailable | **GAP/P2** | release policy needs fail/wait/fallback semantics, not unsigned silent release |
+| 269 | Antivirus quarantines updater after DB migration started | **GAP/P1** | update ordering/staging must prevent migration before executable trust/availability is certain |
+| 270 | Installer rollback removes new executable but leaves new runtime/package side effects | **GAP/P1** | update planes need compensating plan/manifests |
+| 271 | Provider API base URL is DNS-hijacked after initial certificate validation | PARTIAL | TLS validates host; managed connector endpoint policy/cert diagnostics still important |
+| 272 | Callback signature key rotates and old/new overlap causes false rejects | **GAP/P2** | connector auth keyset rotation/grace policy needed |
+| 273 | User rotates Windows account password/DPAPI context and credentials fail | PARTIAL | REAUTH_REQUIRED handles |
+| 274 | Media root is BitLocker-encrypted and unavailable before login/startup | PARTIAL | volume availability; startup should degrade not declare missing/deleted |
+| 275 | Offline immutable backup credential itself is lost | **GAP/P2 ops** | backup health must include recoverability of access credentials/key escrow where configured |
+| 276 | Bulk action snapshot includes 50k IDs and blows command/event size limits | **GAP/P1** | large scope should use immutable manifest object, not giant JSON event |
+| 277 | User closes project while background import still staging data | PARTIAL | lifecycle exists; project close/GC must pin active staging |
+| 278 | Project is trashed while a publication is processing externally | PARTIAL | reconciliation continues; UI needs tombstoned project external-side-effect view |
+| 279 | Release manifest points to asset whose storage mirror is corrupt after approval | PARTIAL | release-time availability/hash recheck needed |
+| 280 | Restore succeeds but search/projections are from newer pre-restore state | **GAP/P1** | recovery epoch must rebuild/invalidate derived projections/indexes |
+
+# 18. Third-wave findings
+
+## X39 — Core process singleton/fencing (P0/P1)
+V1 requires one authoritative Core per live DB.
+Use OS-user scoped instance lock plus DB ownership epoch/heartbeat/fencing.
+A stale lock alone cannot permanently block startup; a second live Core cannot become active writer/orchestrator.
+
+## X40 — Database maintenance preflight (P1)
+Migrations/VACUUM/rebuild operations reserve worst-case storage and run at safe boundary.
+Every Core DB connection verifies required SQLite PRAGMAs.
+
+## X41 — Wall-clock uncertainty (P1)
+Use monotonic time for durations/TTL inside a process and seq/version for ordering.
+Wall clock is evidence for legal/expiry/scheduling; large clock skew creates TIME_UNCERTAIN state rather than silently reordering history.
+
+## X42 — Control event integrity chain (P1)
+Structured control events should carry algorithm-qualified `event_hash` and `prev_event_hash` within each stream/epoch.
+Edit/delete/predecessor gap becomes governance anomaly/UNKNOWN, not silently accepted state.
+
+## X43 — ASCII-strict machine control grammar (P1)
+Machine keys/version tokens are normalized/validated against ASCII grammar; reject zero-width/control/confusable key characters.
+
+## X44 — Current control epoch pointer/transition fencing (P1)
+Epoch discovery follows a valid epoch chain/current pointer, not merely Issue title/open age.
+Epoch rollover drains/invalidates old control leases and rejects stale-epoch mutations.
+
+## X45 — Monotonic claim attempt identity (P1)
+Attempt numbers derive from trusted historical claim events/PRs, not only existing branches.
+Deleted branch cannot reset attempt identity.
+
+## X46 — Agent write-scope policy (P0/P1)
+Task contract separates:
+- expected/likely paths;
+- ALLOWED_WRITE_PATHS;
+- FORBIDDEN_WRITE_CLASSES.
+Out-of-scope high-risk files require contract revision/governance task.
+
+## X47 — Secret/data-classification gate (P0)
+Pre-merge scanning + policy prevents credentials, real client/media/private artifacts and unsafe diagnostics from entering public Git history.
+
+## X48 — GitHub Actions/dependency provenance (P1)
+Security-sensitive Actions are pinned to immutable commit SHA.
+Workflow artifacts carry producer/source digest; privileged release never trusts arbitrary PR artifact.
+
+## X49 — Derived confidential data lifecycle (P0/P1)
+Thumbnails, proxies, waveforms, embeddings, search indexes, logs and learning examples inherit source privacy/rights scope and deletion/revocation requirements.
+
+## X50 — Local worker network egress policy (P1)
+Local runtime/process manifest declares network DENY/ALLOWLIST/REQUIRED.
+“Runs locally” does not imply “does not send data out”.
+
+## X51 — Local service bind/IPC replay security (P0/P1)
+Local services bind approved interfaces only, use OS ACL/session auth, short-lived secrets/nonces and replay-safe command authorization.
+
+## X52 — Timeline/undo/variant compaction (P1 scale)
+Large mutable histories require snapshots/compaction; undo pins dependencies until no longer reachable; variants have WIP/retention/archive policies.
+
+## X53 — Large bulk-scope manifest (P1)
+Large bulk action scopes use immutable manifest storage/hash rather than oversized command/event JSON.
+
+## X54 — Recovery invalidates all derived projections (P1)
+After restore epoch changes, search/vector/read projections/cache created after restored checkpoint are rebuilt or version-invalidated before authoritative UI use.
+
+## X55 — Release revalidates artifact availability (P1)
+Immediately before final release/sign/publish, verify required storage objects/hash/rights/signing readiness against the immutable release manifest.
