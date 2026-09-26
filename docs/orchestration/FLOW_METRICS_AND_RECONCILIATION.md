@@ -1,0 +1,153 @@
+# CineForge OS — Flow Metrics and Reconciliation
+
+> Purpose: make Flow Governor decisions evidence-based and make GitHub state self-healing after partial failures.
+
+# 1. Why reconciliation is mandatory
+
+GitHub mutations are not one transaction.
+
+Examples:
+- PR merges but linked Issue is not closed;
+- claim branch is created but Draft PR creation fails;
+- CI finishes but PR state comment still says waiting;
+- takeover comment lands but Capacity Plan still names old owner;
+- main advances while old review/CI evidence remains attached to the PR.
+
+Workers must reconcile observed GitHub facts before creating new work.
+
+# 2. Canonical fact precedence
+
+For task completion:
+1. merged Claim PR on the task
+2. explicit reopened/rework decision on the Issue
+3. Issue open/closed state
+
+A merged Claim PR means the same Issue must not be newly claimed merely because the Issue was accidentally left open.
+
+For claim ownership:
+1. open Claim PR exists
+2. latest valid structured PR state/takeover event
+3. initial immutable claim block in PR body
+
+PR body is the initial claim record, not the live lease state.
+
+For verification:
+1. verification evidence matching current required head/base/merge context
+2. older checks/reviews are historical only
+
+For Capacity Plan:
+- it is guidance;
+- Issue/PR/CI facts win if the plan is stale.
+
+# 3. Reconciliation cycle
+
+Before Planner/Flow/Integrator creates or reassigns work:
+
+1. Find open Issues with merged Claim PRs.
+   - close/reconcile Issue unless explicitly reopened for rework.
+2. Find open Claim PRs whose Issue is closed/not-planned.
+   - determine whether PR is obsolete, needs re-linking, or Issue should reopen.
+3. Find `agent/i*` claim branches without PR.
+   - classify ORPHAN_EMPTY or ORPHAN_WITH_WORK.
+4. Find PRs whose latest state says WAITING_CI but required CI is complete.
+   - advance to failure/review/merge handling.
+5. Find PRs whose review/CI evidence is for an old verification tuple.
+   - mark evidence stale.
+6. Find stale Capacity Plan slot/owner references.
+   - update guidance; do not mutate claims merely to match the plan.
+7. Find dependencies whose blocking Issue/PR merged.
+   - recompute readiness.
+
+# 4. Flow metrics
+
+Flow Governor tracks trends, not vanity totals.
+
+Core metrics:
+- READY_DEPTH = ready tasks / active builder capacity
+- ACTIVE_WIP = active implementation PRs
+- PARKED_WIP = parked PRs
+- BLOCKED_RATIO = blocked open tasks / schedulable open tasks
+- CLAIM_TO_FIRST_PUSH
+- CODE_TO_CI_START
+- CI_QUEUE_WAIT
+- CI_RUN_TIME
+- CI_FAILURE_RATE
+- FLAKE_RATE
+- GREEN_TO_REVIEW
+- REVIEW_TIME
+- REVIEW_TO_MERGE
+- PR_CYCLE_TIME
+- MERGE_CONFLICT_RATE
+- STALE_TAKEOVER_COUNT
+- REOPEN/REWORK_RATE
+- MAIN_RED_DURATION
+- HOTSPOT_CONTENTION
+- READY_STARVATION_EVENTS
+
+# 5. Relative thresholds
+
+Do not hard-code one universal minute threshold.
+
+Maintain a rolling baseline by class:
+- docs/small;
+- ordinary code;
+- media/integration;
+- installer/release;
+- high-risk migration/security.
+
+Flag:
+- sudden regression from baseline;
+- oldest item far beyond peers;
+- queue growth across multiple control cycles;
+- repeated failure of same stage.
+
+# 6. Flow Governor decision order
+
+Each control cycle:
+1. Is main red or a mandatory gate broken?
+2. Is a critical-path task blocked?
+3. Is review/merge queue the dominant wait?
+4. Is CI queue/runtime dominant?
+5. Is READY depth too low?
+6. Is WIP too high?
+7. Is a hotspot causing repeated conflicts?
+8. Are old parked/stale claims accumulating?
+9. Are easy tasks starving hard/high-value work?
+
+Then act on the largest constraint.
+
+# 7. Aging/fairness
+
+Critical path has priority, but noncritical work must not starve indefinitely.
+
+Ready-task ranking includes an aging bonus after repeated eligible cycles.
+
+Aging never overrides:
+- security/rights blocks;
+- unmet hard dependency;
+- invalid architecture contract.
+
+# 8. Task-size interpretation
+
+Suggested scheduling size:
+- S: expected to reach a merge/review checkpoint in one active worker cycle
+- M: expected to need 1–3 active cycles with resumable checkpoints
+- L: expected >3 active cycles or cross-domain; Planner should normally split before claim
+
+Size is planning guidance, not a promise of wall-clock duration.
+
+# 9. Orchestration health report
+
+Flow Governor should write concise actionable state only when useful:
+- largest bottleneck;
+- critical path;
+- ready depth;
+- old/stale claims;
+- review/CI health;
+- capacity change if needed.
+
+Avoid verbose status reporting that itself consumes the control slot.
+
+# 10. Success criterion
+
+The flow system is healthy when most waiting time is intentional work-in-progress or unavoidable external latency—not confusion about ownership, stale evidence, queue starvation, CI architecture or review capacity.
