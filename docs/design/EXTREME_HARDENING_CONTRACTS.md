@@ -1251,3 +1251,217 @@ Archive UI distinguishes:
 - reproducible locally;
 - best-effort reproducible;
 - cloud generation not reproducible.
+
+
+# AK. Multi-window/edit-session concurrency
+
+## AK1. Edit session identity
+Every mutable workspace session has:
+- session_id;
+- actor_id;
+- client_instance_id;
+- base_revision/row_version;
+- last_acknowledged_server_version;
+- mode: SHARED_SAFE | EXCLUSIVE | BRANCH_REQUIRED;
+- lease/fencing token where required.
+
+Unsafe domains such as canonical timeline structure or high-impact canon edits default to EXCLUSIVE or explicit branch/merge behavior.
+
+A suspended/stale window cannot autosave over a newer revision.
+
+## AK2. Reconnect behavior
+On reconnect/resume:
+- fetch current revision;
+- compare against session base;
+- if unchanged, resume;
+- if changed and operations are merge-safe, rebase typed ops;
+- otherwise enter CONFLICT/BRANCH_REQUIRED.
+
+No silent last-write-wins.
+
+# AL. Untrusted CineForge project/package import
+
+A project package is hostile structured input unless it was produced by a verified backup/restore path.
+
+Import pipeline:
+QUARANTINE
+→ schema/version validate
+→ archive/path/resource validate
+→ namespace/ID remap plan
+→ credential/session strip
+→ dependency/right/provenance inspect
+→ isolated migration
+→ preview/impact
+→ explicit adoption
+→ registered project/entities.
+
+Rules:
+- package IDs never directly overwrite existing global entity IDs;
+- absolute/external paths are converted to untrusted references/remap candidates;
+- browser sessions, API credentials, secure refs and control-plane identities are never trusted from package contents;
+- migration/parser runs in staging before canonical DB mutation;
+- package may carry evidence/provenance, but trust is re-evaluated locally.
+
+# AM. Manifest-only output packaging and metadata sanitation
+
+## AM1. Explicit deliverable manifest
+Release, handoff, diagnostics and support archives are assembled only from an explicit manifest of allowed artifacts.
+
+Never recursively package:
+- project working directory;
+- browser profile;
+- environment/home folder;
+- temp root;
+- repository root;
+- credential/runtime directories.
+
+## AM2. Metadata policy
+Before outward delivery, inspect and classify:
+- container/global metadata;
+- EXIF/XMP;
+- GPS/device identifiers;
+- user/home paths;
+- creation software/version;
+- comments;
+- attachments;
+- fonts/subtitles;
+- hidden streams.
+
+Policy decides PRESERVE | REMOVE | REWRITE.
+
+Rights attribution/required credits are independent obligations and cannot be removed merely because privacy sanitation is active.
+
+## AM3. Published-output verification
+Where target platform permits retrieval, verify:
+- expected video/audio streams;
+- subtitle/caption presence;
+- attachment/metadata policy;
+- duration/timing;
+- unexpected hidden streams;
+- actual platform transcode identity/evidence.
+
+# AN. Additional hostile parser surfaces
+
+Fonts, subtitle formats, ICC/ICM profiles, LUTs, SVG, PDF and similar rich documents use the same untrusted parser contract as media/archive inputs.
+
+Controls:
+- memory/CPU/time/item-count limits;
+- recursion/embedded-object limits;
+- external network/resource loading denied by default;
+- PDF launch/actions ignored;
+- SVG scripts/events/external resources disabled or rasterized in sandbox;
+- font/color parsers isolated from privileged Core process;
+- cue/text count and per-item size bounded.
+
+# AO. Local service exposure boundary
+
+Local runtime/media/model services:
+- bind loopback only by default;
+- authenticate requests with scoped capability/session token;
+- do not trust browser origin merely because it reaches localhost;
+- expose no unauthenticated management/debug endpoint;
+- LAN exposure is an explicit advanced deployment mode with firewall/listen-address/auth warnings and policy.
+
+Desktop WebView cannot ambiently call arbitrary local services outside the scoped Core bridge.
+
+# AP. Telemetry, logs and crash-artifact data classes
+
+All emitted operational data is classified:
+- SAFE_TELEMETRY
+- PROJECT_METADATA
+- CONTENT_SENSITIVE
+- BIOMETRIC_OR_IDENTITY_SENSITIVE
+- CREDENTIAL_SECRET
+
+Policy governs:
+- log inclusion;
+- analytics egress;
+- crash dump inclusion;
+- diagnostic bundle inclusion;
+- retention;
+- redaction/pseudonymization.
+
+CREDENTIAL_SECRET is never logged/telemetried.
+CONTENT_SENSITIVE/BIOMETRIC data is opt-in or local-only according to policy.
+
+User/home paths and machine/user identifiers are pseudonymized/redacted in shareable diagnostic bundles unless explicitly required and approved.
+
+# AQ. Derived face/voice identity feature lifecycle
+
+Embeddings/descriptors used for face/voice identity are first-class derived sensitive artifacts.
+
+They bind:
+- source revision(s);
+- purpose;
+- model/version;
+- consent/rights scope;
+- project/studio scope;
+- retention class;
+- deletion/revocation state.
+
+Deletion/revocation of the source/consent triggers lineage impact on:
+- embeddings;
+- indexes;
+- caches;
+- learned/promoted datasets where policy permits removal;
+- future matching/routing.
+
+A deleted source cannot remain indirectly active through an unlabeled embedding cache.
+
+# AR. Desktop/Core/API/schema coherent activation
+
+A running component set has:
+- Desktop version;
+- Core version;
+- local API protocol min/max;
+- DB schema min/max;
+- worker/sidecar compatibility manifest.
+
+Startup handshake fails closed on unsupported combinations.
+
+Only one compatible Core ownership epoch may mutate a DB.
+
+Updater activates Desktop + Core + required sidecars as one coherent release set.
+Rollback/recovery also reasons about the set, not individual executable files independently.
+
+An old UI may enter a limited compatibility/read-only path only when the Core explicitly advertises it.
+
+# AS. Security-sensitive display and logging
+
+For filenames, project titles, provider names and external identifiers:
+- strip/escape terminal/control characters in logs;
+- detect/flag Unicode bidi overrides and deceptive control characters in security-sensitive UI;
+- show detected file/media type separately from display name/extension;
+- deterministic truncation preserves a manifest mapping to the original logical name.
+
+User-friendly rendering must not hide the real security-relevant identity.
+
+# AT. Privacy sanitation + rights attribution reconciliation
+
+Release preflight computes both:
+- privacy metadata policy;
+- rights/license/attribution obligations.
+
+If they conflict:
+- create a DecisionRequest or fail the release policy;
+- do not silently strip required attribution;
+- do not silently publish private metadata merely to satisfy a generic metadata-preserve setting.
+
+Release manifest records:
+- original metadata classes;
+- removed/rewritten/preserved fields;
+- attribution items inserted/preserved;
+- policy revision and evidence.
+
+# AU. Secure temporary-data lifecycle
+
+Job/import/browser/media temporary roots:
+- are user-scoped and non-world-readable;
+- use unpredictable per-job directories;
+- never alias canonical CAS;
+- are journaled for crash cleanup;
+- are scanned/reconciled on startup;
+- support secure deletion/crypto-erasure policy where required by sensitivity class;
+- never become support/export payload by directory recursion.
+
+Temp cleanup failure is visible storage/privacy debt rather than silently ignored.
