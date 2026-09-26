@@ -2017,3 +2017,88 @@ Later retcon:
 - may invalidate current/future production work according to policy;
 - does not rewrite the historical meaning/evidence of already released production;
 - can create explicit supersession/continuity notes across seasons/episodes.
+
+
+# 71. Shared Canon Space
+
+Canon ownership is independent from Project.
+
+A `CanonSpace` may be scoped as:
+- PROJECT
+- SERIES
+- FRANCHISE
+- STUDIO_LIBRARY
+
+Canonical entities such as Character, Style, Prop, Environment and reusable identity packages may belong to a CanonSpace.
+
+Projects mount CanonSpaces with explicit mode:
+- PINNED_READ
+- TRACK_APPROVED
+- BRANCH_FOR_PROJECT
+- AUTHOR_SHARED (authority required)
+
+Production canon baselines pin exact revisions from one or more mounted CanonSpaces.
+
+Shared-canon promotion is a separate authority action from project-local approval.
+
+# 72. Shared canon and rights separation
+
+Mounting a shared canonical identity never grants usage rights.
+
+Rights/consent are evaluated for:
+- production;
+- territory;
+- medium;
+- purpose;
+- derivative/cloning/training use;
+- performer/source.
+
+A shared Character may be technically available but RIGHTS_BLOCKED in a specific production.
+
+# 73. Documentary evidence lineage and temporal truth
+
+Source evidence may declare:
+- originating source;
+- derived/copy/syndicated relation;
+- independence group;
+- effective/observed time;
+- correction/retraction/supersession.
+
+Corroboration logic does not count dependent copies as independent evidence merely by quantity.
+
+FactClaim approval records temporal/context scope.
+A later correction may stale future/re-release use without rewriting what reviewers knew historically.
+
+# 74. Casting overlap constraints
+
+Casting role semantics define overlap policy by scope.
+
+Examples:
+- PRINCIPAL_ON_CAMERA commonly exclusive for one character/shot unless explicitly multi-cast;
+- MOCAP + FACE_SOURCE + VOICE can coexist;
+- split-screen/double/twin effects may intentionally bind multiple on-camera representations.
+
+Core validates overlaps and creates CONFLICT rather than silently selecting one.
+
+# 75. Historical credit identity
+
+Person private/legal identity is separate from public credit representation.
+
+Release manifests pin:
+- credit name/version;
+- role;
+- contractual attribution requirement;
+- production/release scope.
+
+Later display-name/pseudonym changes do not rewrite prior release evidence.
+
+# 76. Canon/context hierarchy integrity
+
+These parent graphs require DAG validation:
+- ProductionNode parent hierarchy;
+- CanonSpace parent/inheritance where used;
+- NarrativeContext parent/fork ancestry.
+
+Narrative time loops use explicit non-parent loop/causal edges.
+
+A continuity snapshot pins exact scene occurrence + narrative context revision + ancestry hash.
