@@ -1054,3 +1054,26 @@ Promotion command requires:
 - no unresolved systemic-monitor blocking alert.
 
 Production feedback cannot directly call PromoteComponentVersion.
+
+
+# 47. Creative variant API
+
+Queries:
+- query.variants.list(subject_entity_id)
+- query.variants.compare(variant_group_id)
+
+Commands:
+- CreateVariantGroup
+- AddVariantCandidate
+- RejectVariantCandidate
+- PromoteVariantCandidate
+- ArchiveVariantGroup
+
+Promotion plan returns:
+- candidate/base revision context;
+- affected dependencies;
+- approved descendants affected;
+- cost/time implications when regeneration may follow;
+- stale/conflict status.
+
+Promotion never directly overwrites an approved base revision.
