@@ -1360,3 +1360,73 @@ Do not show a green “Ready” card that implies browser automation is permitte
 # Extreme hardening extension
 
 UI behavior for recovery reconciliation, storage pressure, secure URL import, reauthentication, manual ownership, bulk fanout, durable provider materialization, dependency review, backup resilience and other extreme-hardening cases is governed by `docs/design/EXTREME_HARDENING_CONTRACTS.md` plus the architecture invariants. Keep normal UX intent-first; expose technical detail progressively.
+
+
+
+# 61. URL import security UX
+
+When a pasted URL is blocked, normal users see:
+- “CineForge không thể truy cập địa chỉ này một cách an toàn.”
+- concise reason category;
+- no encouragement to disable network protections.
+
+Advanced detail may show redirect/private-network diagnostics.
+
+# 62. Dependency change UX (Advanced / Development)
+
+When CineForge/agent needs a new library/runtime dependency, the change view shows:
+- package/source;
+- version;
+- why needed;
+- license;
+- security/advisory state;
+- install/build scripts;
+- release/SBOM impact.
+
+Do not hide executable dependency additions inside an unrelated feature review.
+
+# 63. Integrity warning UX
+
+If Core detects canonical/audit inconsistency:
+`CineForge phát hiện dữ liệu nội bộ không khớp và đã hạn chế một số thao tác để bảo vệ dự án.`
+
+Actions:
+- Xem phạm vi ảnh hưởng
+- Chạy đối chiếu
+- Khôi phục từ checkpoint if applicable
+
+Do not offer a blind “Fix automatically” when authority is ambiguous.
+
+# 64. Connection identity mismatch UX
+
+Example:
+`Bạn đã đăng nhập, nhưng tài khoản/workspace hiện tại khác với workspace đã cấu hình cho kết nối này.`
+
+Actions:
+- Đăng nhập đúng workspace
+- Cập nhật cấu hình connection (requires appropriate authority)
+- Tạm dừng connection
+
+Do not silently continue merely because authentication succeeded.
+
+# 65. Bulk action scope UX
+
+Bulk confirmation displays a frozen scope:
+`Duyệt 87 mục`
+
+If the list changes after confirmation:
+- the original 87 remain the action scope;
+- newly arriving items stay unselected;
+- if existing selected revisions changed materially, show stale-scope handling before execute.
+
+# 66. External source change UX
+
+If an externally linked source changes after approval:
+`File nguồn đã thay đổi kể từ lần CineForge duyệt trước.`
+
+Actions:
+- Xem thay đổi
+- Tạo revision mới
+- Relink correct file
+
+Do not silently replace approved bytes behind the same asset revision.
