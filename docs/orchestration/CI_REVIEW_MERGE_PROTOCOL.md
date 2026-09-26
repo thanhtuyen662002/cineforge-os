@@ -220,3 +220,51 @@ Immediately before the merge API mutation, Integrator revalidates:
 - required CI/review evidence.
 
 A lease that expired before this final check does not authorize the merge.
+
+
+
+# 18. Review/evidence source semantics
+
+Review records include:
+- evidence_source_class;
+- reviewer logical/runtime/authenticated identity;
+- exact head/base/stack context;
+- review profile;
+- independent tools/evidence used where applicable.
+
+High-risk review may require evidence diversity, not merely multiple comments.
+
+# 19. Stacked PR verification
+
+A PR based on another unmerged PR declares:
+- stack_base_pr;
+- stack_base_head_sha;
+- expected merge order.
+
+CI/review evidence binds the stack base.
+
+If the dependency PR changes, is rebased, closes or merges with different resulting base:
+- re-evaluate semantic/base drift;
+- rerun required CI/review.
+
+A review performed on a stacked branch cannot be transplanted blindly to a different final base.
+
+# 20. History rewrite and force-push
+
+Any non-fast-forward rewrite of an active Claim PR:
+- invalidates existing HEAD-bound review/CI;
+- creates reconciliation anomaly;
+- requires fresh diff/evidence.
+
+Repository-native protection should disable force-push where possible.
+
+# 21. Merge-readiness machine preflight
+
+Before READY_FOR_MERGE verify:
+- task contract hash recomputed from canonical task content;
+- no claim bootstrap marker remains;
+- no forbidden debug/bypass flags;
+- no tracked-source mutation produced by CI/codegen;
+- no required semantic check weakened;
+- no unresolved test/invariant deletion without approval;
+- external approval evidence valid where required.
