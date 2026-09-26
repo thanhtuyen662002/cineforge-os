@@ -1664,3 +1664,55 @@ Commands:
 - SetFactClaimTemporalScope
 
 Corroboration summary reports number of independent source groups, not merely raw source count.
+
+
+
+# 81. Numeric/domain validation contract
+
+All command/import/media APIs may return structured domain errors:
+- INVALID_RATIONAL
+- NUMERIC_OVERFLOW
+- NON_FINITE_NUMBER
+- PHYSICAL_LIMIT_EXCEEDED
+- INVALID_TEMPORAL_INTERVAL
+- UNSUPPORTED_TIMECODE
+- INVALID_MONEY_AMOUNT
+- CURRENCY_MISMATCH
+- CREDIT_UNIT_MISMATCH
+
+Validation happens in Core even if UI already validated.
+
+# 82. Money/FX API
+
+Queries:
+- `query.cost.exposure`
+- `query.cost.fx_evidence`
+- `query.cost.credit_unit`
+
+Cost planning pins:
+- original provider amount/unit;
+- currency/unit identity;
+- FX snapshot if conversion is displayed/enforced;
+- rounding rule.
+
+Actual billing never overwrites estimate.
+
+# 83. Media timing validation API
+
+`media.validate_timing_profile` checks:
+- frame rate/timebase rational validity;
+- timecode/drop-frame compatibility;
+- source interval ordering;
+- conversion overflow;
+- supported bounds.
+
+Timeline operations reject invalid/overflowing timing before creating canonical edit ops.
+
+# 84. Safe spreadsheet export
+
+Structured tabular export API accepts typed cells.
+
+Untrusted text cells are emitted as literal text according to target spreadsheet safety policy.
+Formula cells require explicit trusted formula type/capability.
+
+A raw string beginning with formula syntax is never silently upgraded into an executable formula.
