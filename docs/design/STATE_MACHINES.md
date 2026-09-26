@@ -1207,3 +1207,72 @@ Only MATCHED, or explicitly policy-approved UNKNOWN where provider cannot expose
 - LINK_ESCAPE
 - CONTENT_CHANGED
 - QUARANTINED
+
+
+# 69. Core ownership lifecycle
+
+```text
+UNOWNED
+→ ACQUIRING
+→ OWNED
+```
+
+Alternate:
+- ACQUIRING → CONFLICT
+- OWNED → DRAINING → RELEASED
+- OWNED heartbeat/liveness loss → SUSPECT_STALE
+- SUSPECT_STALE → RECOVERING_OWNERSHIP → OWNED
+- SUSPECT_STALE → CONFLICT
+
+Rules:
+- only OWNED epoch may enable canonical mutation;
+- second Core cannot self-promote while ownership is ambiguous;
+- stale owner recovery requires evidence and a new ownership epoch/session nonce.
+
+# 70. IPC session lifecycle
+
+- CREATED
+- AUTHENTICATING
+- BOUND_TO_CORE_EPOCH
+- ACTIVE
+- DRAINING
+- INVALIDATED
+- CLOSED
+
+Any Core ownership epoch change invalidates old mutating IPC sessions.
+Queued commands from INVALIDATED session require replay classification:
+- SAFE_READ_REPLAY
+- IDEMPOTENT_COMMAND_REVALIDATE
+- DISCARD_REPLAN
+
+# 71. Package anti-rollback state
+
+Package candidate:
+- DISCOVERED
+- SIGNATURE_VALID
+- MANIFEST_VALID
+- VERSION_POLICY_VALID
+- ACTIVATABLE
+
+Failure/blocked:
+- REVOKED_KEY
+- CONTENT_HASH_MISMATCH
+- ROLLBACK_BLOCKED
+- INCOMPATIBLE
+- QUARANTINED
+
+A valid historical signature does not bypass VERSION_POLICY_VALID.
+
+# 72. High-impact decision freshness
+
+Decision/impact snapshot:
+- CURRENT
+- STALE_NONMATERIAL
+- STALE_MATERIAL
+- OBSOLETE
+
+Execution:
+- CURRENT → may execute after normal final guards
+- STALE_NONMATERIAL → policy may refresh/revalidate
+- STALE_MATERIAL → REPLAN_REQUIRED
+- OBSOLETE → cannot execute
