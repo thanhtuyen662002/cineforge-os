@@ -1528,3 +1528,22 @@ If implementation reveals a contradiction:
 3. update architecture + detailed contracts together;
 4. add migration and regression test;
 5. only then resume code.
+
+
+# 36. Persistence authority clarification
+
+CineForge V1 is event/audit-backed, not a pure event-sourced system.
+
+A successful Core mutation transaction writes:
+- normalized authoritative domain rows/revisions;
+- corresponding append-only domain events;
+- outbox records when external dispatch is required.
+
+Operational canonical state lives in the normalized domain model and immutable revision registries.
+Domain events are the immutable causality/audit ledger and support reconciliation/projection rebuilds.
+
+V1 does not require reconstructing every canonical table solely from event replay.
+
+Derived projections/search/indexes are rebuildable and must never become a second source of truth.
+
+This clarification prevents a dual-authority implementation where some agents treat relational tables as canonical and others treat event replay as canonical.
