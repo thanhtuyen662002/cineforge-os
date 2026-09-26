@@ -2079,3 +2079,70 @@ Changing workflow/check producer/path must coordinate with repository rules.
 A required review assurance level can exceed currently available capacity.
 
 **Fix:** gate planner reports `ASSURANCE_UNAVAILABLE` explicitly. It may not silently downgrade. Bootstrap enablement or user/external reviewer is the only path for required higher assurance.
+
+
+# 17. Third-wave platform/trust attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 221 | Attacker replays an older correctly signed updater package | **GAP/P0/P1** | signature validity alone does not prevent downgrade to known-vulnerable release |
+| 222 | PATH is poisoned so “ffmpeg” resolves to attacker binary | **GAP/P0/P1** | typed argv is insufficient if executable resolution is ambient |
+| 223 | DLL search order loads malicious DLL beside executable/current directory | **GAP/P0/P1 Windows** | signed main EXE can still load untrusted dependency if loader policy is weak |
+| 224 | Managed sidecar is replaced after verification but before launch | **GAP/P1 TOCTOU** | launch must verify/identify the exact executable instance |
+| 225 | Two CineForge Core instances start against the same DB at nearly the same time | **GAP/P0/P1** | one-writer design needs process/installation ownership fencing |
+| 226 | Old crashed Core lock remains; new Core treats it as live forever | PARTIAL | stale-lock recovery needs owner nonce/process/liveness evidence |
+| 227 | Local attacker binds expected localhost port before Core starts | **GAP/P0/P1** | UI must authenticate server endpoint, not trust port/address |
+| 228 | Malicious local process sends valid-looking IPC frames | PARTIAL | session auth exists conceptually; peer/endpoint binding must be explicit |
+| 229 | UI displays old approval scope, user clicks “Approve”, backend scope has changed | **GAP/P1** | high-impact commands must bind exact snapshot/version and fail stale |
+| 230 | Bulk-delete preview says 100 items; 20 new items match filter before execute | CONTAINED after bulk snapshot rule |
+| 231 | Old signed connector package is replayed after security revocation | **GAP/P1** | anti-rollback must apply to connectors/runtimes, not only app |
+| 232 | Enterprise AV/Controlled Folder Access blocks DB/CAS writes intermittently | **GAP/P2 ops** | can mimic corruption/disk failure and trigger bad recovery |
+| 233 | Windows device/NT namespace path bypasses ordinary path sanitizer | **GAP/P1** | need canonical OS-path policy beyond illegal-character checks |
+| 234 | Project export/import package embeds absolute paths/symlinks that escape destination | **GAP/P1** | portable project packages need untrusted manifest extraction rules |
+| 235 | Stolen laptop exposes plaintext project DB/media while credentials are protected | **GAP/P1 privacy depending policy** | at-rest threat model must be explicit; optional encrypted workspace may be needed |
+| 236 | Encrypted workspace key is lost; backups exist but are undecryptable | PARTIAL | backup decryptability exists; workspace-key recovery policy must align |
+| 237 | Signed package has valid version but manifest points to different binary hash | **GAP/P0/P1** | signature must bind exact immutable package manifest/content |
+| 238 | Time rollback lets old signed package appear “not expired” | PARTIAL | trusted-time health exists; anti-rollback must use monotonic installed version/trust journal |
+| 239 | Local Core IPC token is copied from crash dump/log | PARTIAL | secret redaction exists; scoped short-lived token rotation needed |
+| 240 | UI reconnects to a different Core instance after restart and replays queued commands | **GAP/P1** | Core ownership/session epoch must fence queued UI commands |
+
+# 18. Third-wave findings
+
+## X39 — Anti-rollback trust monotonicity (P0/P1)
+Signing must bind exact version + manifest + content hashes, and installation maintains a non-rollbackable trust/version floor where policy requires it.
+Old correctly signed vulnerable packages cannot be silently replayed.
+
+## X40 — Executable/DLL resolution trust (P0/P1)
+Managed executables/sidecars use absolute managed paths, hash/signature identity and hardened loader/search behavior.
+Do not trust ambient PATH/current-directory DLL search.
+
+## X41 — Single-Core ownership fencing (P0/P1)
+One installation/database has one mutating Core ownership epoch.
+Startup acquires an OS/file/DB-backed owner lock with process/session nonce; ambiguous ownership fails closed.
+Stale owner recovery is explicit.
+
+## X42 — IPC endpoint identity and session epoch (P0/P1)
+Desktop authenticates the exact Core instance/session, not merely localhost/port.
+Queued commands bind Core session/ownership epoch and are rejected after reconnect to a different epoch unless safely replayable.
+
+## X43 — High-impact stale-decision snapshot (P1)
+Approve/delete/publish/bulk/destructive execution binds exact decision/impact snapshot hash + entity/revision set.
+If current state differs materially, execution returns STALE_DECISION and requires re-plan.
+
+## X44 — Package manifest/content binding (P0/P1)
+Signature covers immutable package manifest containing exact content digests, publisher/key ID, version and compatibility metadata.
+Verification is repeated at activation/launch boundary for security-sensitive binaries.
+
+## X45 — Windows canonical path/device policy (P1)
+Reject/normalize NT device namespaces, ADS, reserved devices, reparse escapes and unsupported UNC/device forms at trust boundaries.
+
+## X46 — Portable project package trust (P1)
+Project/package import is hostile archive ingestion:
+no absolute-path extraction, no escaping links, no embedded executable activation, versioned manifest + hash verification.
+
+## X47 — At-rest privacy threat model (P1 conditional)
+Credential secrecy alone does not encrypt project/media bytes.
+Security policy must explicitly state at-rest guarantees and support an encrypted-workspace profile when required by user/project sensitivity.
+
+## X48 — AV/EDR interference diagnosis (P2)
+Differentiate access-denied/quarantine/Controlled-Folder-Access signals from corruption/disk-full where possible; do not trigger destructive recovery based on ambiguous write failure.
