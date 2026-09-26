@@ -1,0 +1,173 @@
+schema_version: 1
+registry_id: cineforge-control-registry
+purpose: >
+  Stable index of architecture/control identities. Authoritative semantics remain in the owner documents;
+  this registry provides IDs, applicability, maturity, and evidence links so agents do not duplicate meanings.
+
+maturity_levels:
+  - DESIGNED
+  - SPECIFIED
+  - IMPLEMENTED
+  - AUTOMATED_TESTED
+  - CHAOS_TESTED
+  - PRODUCTION_PROVEN
+
+applicability_levels:
+  - V1_FOUNDATION
+  - V1_BEFORE_RELEASE
+  - SCALE_HARDENING
+  - FUTURE_MULTIUSER
+  - OPTIONAL_HIGH_SECURITY
+
+controls:
+  - id: CF-CTRL-COMMAND-GATE
+    title: Typed command and impact-analysis mutation gate
+    owner: docs/architecture/FINAL_ARCHITECTURE.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-IMMUTABLE-REVISION
+    title: Immutable canonical/approved revisions
+    owner: docs/design/FINAL_DETAILED_DESIGN.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-OBJECT-STAGING
+    title: Staged hash/decode-verified artifact registration
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-SINGLE-CORE-WRITER
+    title: Single writable Core/library writer ownership
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-SQLITE-SAFE-ROOT
+    title: Supported local SQLite WAL root and storage-pressure safety
+    owner: docs/architecture/FINAL_ARCHITECTURE.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-IPC-TRUST
+    title: User-scoped authenticated local IPC/native bridge boundary
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-INPUT-SANDBOX
+    title: Hostile input/parser sandbox and resource budgets
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-CONTEXT-TRUST
+    title: Typed trusted-vs-untrusted Context Compiler channels
+    owner: docs/architecture/FINAL_ARCHITECTURE.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-RIGHTS-PRIVACY
+    title: Rights/privacy gate and most-restrictive input closure
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-EXTERNAL-MATERIALIZE
+    title: Provider output must materialize and verify before READY
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
+  - id: CF-CTRL-RECOVERY-EPOCH
+    title: Recovery epoch and external-world reconciliation
+    owner: docs/architecture/FINAL_ARCHITECTURE.md
+    applicability: V1_BEFORE_RELEASE
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-BACKUP-CONSISTENCY
+    title: SQLite-consistent backup and restore verification
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_BEFORE_RELEASE
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-UPDATE-SUPPLY-CHAIN
+    title: Signed update manifest, anti-rollback, bootstrapper recovery
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_BEFORE_RELEASE
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-RELEASE-PROVENANCE
+    title: Immutable release build/artifact/signing provenance
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: V1_BEFORE_RELEASE
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-GITHUB-CLAIM
+    title: Deterministic issue claim and Draft PR lease
+    owner: docs/orchestration/TASK_AND_LEASE_PROTOCOL.md
+    applicability: SCALE_HARDENING
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-GITHUB-TRUST
+    title: Public GitHub trusted control-plane filtering
+    owner: docs/orchestration/CONTROL_PLANE_TRUST_AND_CONCURRENCY.md
+    applicability: SCALE_HARDENING
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-MERGE-SERIAL
+    title: Exact-head/base merge serialization or authoritative merge queue
+    owner: docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md
+    applicability: SCALE_HARDENING
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-WIP-BACKPRESSURE
+    title: Stage WIP/backpressure and bottleneck-aware slot allocation
+    owner: docs/orchestration/CAPACITY_CONTROL.md
+    applicability: SCALE_HARDENING
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-COLLAB-BRANCH
+    title: Offline collaboration branch-and-reconcile
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: FUTURE_MULTIUSER
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-COLLAB-AUTH
+    title: Current-authority revalidation for offline collaboration
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: FUTURE_MULTIUSER
+    maturity: SPECIFIED
+    current_slice_required: false
+
+  - id: CF-CTRL-HIGH-SECURE-ERASURE
+    title: Honest deletion/crypto-erasure/high-security profile
+    owner: docs/design/EXTREME_HARDENING_CONTRACTS.md
+    applicability: OPTIONAL_HIGH_SECURITY
+    maturity: SPECIFIED
+    current_slice_required: false
+
+evidence_policy:
+  rule: >
+    A control does not advance maturity merely because prose exists.
+    IMPLEMENTED and above require concrete code/module references and evidence links.
