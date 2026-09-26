@@ -1046,3 +1046,105 @@ Rules:
 # Extreme hardening extension
 
 For adversarially discovered recovery, fencing, egress, callback, resource, migration, bulk, signing and publication states, use `docs/design/EXTREME_HARDENING_CONTRACTS.md`.
+
+
+
+# 61. Task dependency graph state
+
+Graph health:
+- VALID
+- CYCLIC
+- UNKNOWN
+
+Task projection may include:
+- READY
+- BLOCKED_DEPENDENCY
+- BLOCKED_DEPENDENCY_CYCLE
+
+A cycle is a planning defect; workers do not “pick one task and hope”.
+
+# 62. URL fetch lifecycle
+
+```text
+PROPOSED
+→ PREFLIGHT_VALIDATED
+→ RESOLVING
+→ CONNECT_POLICY_CHECK
+→ FETCHING
+→ RECEIVED
+→ STAGED
+→ VERIFIED
+```
+
+Failure:
+- BLOCKED_SCHEME
+- BLOCKED_PRIVATE_NETWORK
+- REDIRECT_BLOCKED
+- DNS_REBIND_BLOCKED
+- SIZE_LIMIT
+- TYPE_BLOCKED
+- TIMEOUT
+- QUARANTINED
+
+Every redirect/connect hop repeats address policy checks.
+
+# 63. Callback authentication state
+
+- UNVERIFIED
+- VERIFIED
+- FAILED
+- REPLAY_REJECTED
+- UNSUPPORTED_REQUIRES_POLICY
+
+Only VERIFIED or explicit policy-approved unsupported channels may proceed to semantic callback reconciliation.
+
+# 64. Source dependency change lifecycle
+
+- PROPOSED
+- PROVENANCE_CHECK
+- LICENSE_CHECK
+- SECURITY_CHECK
+- BUILD_SCRIPT_CHECK
+- APPROVED
+- APPLIED
+- REJECTED
+- QUARANTINED
+
+# 65. Integrity audit lifecycle
+
+- PLANNED
+- SCANNING
+- FINDINGS_READY
+- RECONCILING
+- CLEAN
+- DEGRADED
+- CRITICAL
+
+CRITICAL may transition Core to SAFE_MODE.
+
+# 66. Connection identity scope
+
+- UNKNOWN
+- VERIFIED
+- CHANGED
+- MISMATCH
+- REAUTH_REQUIRED
+
+Authentication and identity-scope verification are independent axes.
+
+# 67. Bulk operation lifecycle
+
+```text
+PLANNING
+→ SNAPSHOT_MATERIALIZED
+→ IMPACT_ANALYZED
+→ CONFIRMED
+→ EXECUTING
+→ COMPLETE
+```
+
+If snapshot membership/revisions become stale before execution:
+- STALE_SCOPE
+- require replan/reconfirm according to command risk.
+
+New entities matching the original UI filter are not automatically included.
