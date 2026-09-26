@@ -353,3 +353,30 @@ Security CI should include tests for:
 - archive traversal/bomb;
 - parser network-protocol denial;
 - output path sandbox escape.
+
+
+
+# 21. Hermetic security/release workspace rule
+
+Security-critical CI and release/signing must run from clean declared inputs.
+
+Required checks may reject:
+- dirty/untracked workspace;
+- previous-PR residue;
+- unverified executable replacement;
+- cache provenance mismatch;
+- artifact lacking source/toolchain attestation.
+
+# 22. Migration/invariant protection
+
+Migration journal/recovery tests are HIGH-risk when they cover:
+- destructive schema changes;
+- recovery after process/power interruption;
+- executable rollback compatibility.
+
+Feature PRs cannot weaken these recovery tests without explicit architecture/governance review.
+
+# 23. Dependency of rights/authority on execution time
+
+Tests for long/bulk commands should include rights/permission revocation mid-flight.
+A passing plan-time check alone is insufficient evidence.
