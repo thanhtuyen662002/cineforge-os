@@ -7441,3 +7441,89 @@ Unknown editor version cannot silently reuse old certification.
 Materially different reframe/crop/platform variant gets its own framing/text/subtitle/audio checks and approval state.
 
 A master approval does not transitively approve a destructive reframe.
+
+
+
+# NI. Authorization-epoch contract
+
+Membership/role/permission change advances authorization epoch.
+
+Long-lived:
+- sessions;
+- media capability tokens;
+- event subscriptions;
+- connection/project leases
+
+bind the epoch they were authorized under and revalidate according to sensitivity.
+
+A token issued before revocation is not automatically valid until nominal expiry for high-sensitivity scopes.
+
+# NJ. Derived-data scope closure
+
+Search/vector/proxy/thumbnail/evaluation cache identity includes privacy/project/tenant/data-use scope.
+
+Cache/index generation never broadens authorization.
+Security-sensitive revocation can fence an old generation before replacement is ready.
+
+# NK. Domain-specific collaboration merge policy
+
+CineForge does not promise universal CRDT merging.
+
+Each domain declares:
+- exclusive/branch-only;
+- optimistic revision;
+- operation-log merge;
+- structured text merge.
+
+Canon, rights, release and destructive selections default conservative.
+Text notes may be mergeable.
+Timeline auto-merge requires operation-level conflict proof.
+
+# NL. Offline draft preservation without canonical overwrite
+
+Offline/stale edits remain valuable user work.
+They are preserved as working copy/branch and compared against current canonical state.
+
+Conflict resolution is explicit.
+No automatic last-write-wins canonical overwrite.
+
+# NM. Collaborative undo causality
+
+Shared undo is a compensating operation over the actor's own causal operation, validated against current descendants.
+
+It never means “move the entire project back one global history step”.
+
+# NN. Delegation/impersonation audit
+
+Audit records:
+- principal;
+- effective actor/agent;
+- delegate/support actor;
+- authority source;
+- scope.
+
+Support/admin impersonation cannot erase the fact that the human user did not personally perform the action.
+
+# NO. Collaboration metadata portability
+
+Clone/export/archive explicitly classify:
+- creative project truth;
+- comments/annotations;
+- members/roles;
+- notifications;
+- personal preferences;
+- credentials/session data.
+
+Portable creative packages exclude credentials/sessions and unnecessary personal identity by default.
+
+# NP. Forward membership security after restore
+
+Historical backup/archive cannot reactivate revoked membership/invite/credentials against current forward security state.
+
+Recovery reconciles current security policy/identity journal before team access resumes.
+
+# NQ. Cross-project asset reuse boundary
+
+Cross-project drag/copy/reuse is a typed command with rights/privacy/provenance/data-use analysis.
+
+An opaque handle valid in one project does not imply permission to reuse its content in another.
