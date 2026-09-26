@@ -34,7 +34,11 @@ No client:
 
 # 2. Message envelope
 
-Every request:
+Every request is executed inside an authenticated Core session. Client-supplied actor identity is never trusted by itself.
+
+The Core derives the authoritative actor/session identity from the authenticated local session/connection. If `actor_id` is present in the envelope for tracing, it must match the authenticated session or the request is rejected.
+
+Example request:
 
 ```json
 {
@@ -221,6 +225,19 @@ Reconnect:
 - UI never assumes no event occurred while disconnected.
 
 Domain event payloads are not necessarily exposed raw to UI; a stable presentation event layer may project them.
+
+# 6.1 Event cursor expiry and backpressure
+
+The resumable UI event stream is a presentation/event-notification layer, not an infinite transport guarantee.
+
+If `after_seq` is older than retained presentation events:
+- Core returns `CURSOR_TOO_OLD`;
+- UI performs a fresh projection/query refresh;
+- subscription resumes from the returned current checkpoint.
+
+Slow subscribers may be disconnected/restarted rather than forcing Core to retain unbounded notification buffers.
+
+Canonical domain/audit records retain their own policy independently from UI notification retention.
 
 # 7. Media resolver API
 
@@ -710,7 +727,8 @@ Creative text is not translated merely because UI locale changes.
 
 # 29. Security rules
 
-- every request has actor context;
+- every request has actor context derived from authenticated session/connection;
+- client-supplied actor_id cannot elevate or switch identity;
 - privileged commands require permission/authority;
 - local RPC endpoint is not unauthenticated just because it is localhost;
 - secrets never appear in normal API responses;
