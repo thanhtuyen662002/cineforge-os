@@ -2610,3 +2610,139 @@ PK(manifest_id,relative_source_path)
 - meaning_review_state: UNREVIEWED | CONSISTENT | POTENTIALLY_MISLEADING | MISLEADING | APPROVED_EXCEPTION
 
 Documentary release policy can require factual-review gates independently from artistic story approval.
+
+
+
+
+# 75. Shared canon spaces
+
+## canon_spaces
+- id PK FK entity_registry
+- studio_id FK
+- parent_canon_space_id nullable FK canon_spaces
+- space_type: PROJECT | SERIES | FRANCHISE | STUDIO_LIBRARY
+- stable_code
+- title
+- lifecycle_state
+- row_version
+
+## canon_space_revisions
+- id PK FK revision_registry
+- canon_space_id FK
+- governance_policy_revision_id nullable
+- description
+- inheritance_rules_json
+
+## canon_space_mounts
+- id PK
+- project_id FK
+- canon_space_id FK
+- mount_mode: PINNED_READ | TRACK_APPROVED | BRANCH_FOR_PROJECT | AUTHOR_SHARED
+- pinned_baseline_manifest_id nullable FK canon_baseline_manifests
+- local_branch_space_id nullable FK canon_spaces
+- authority_policy_revision_id nullable
+- state: ACTIVE | STALE | ACCESS_REVOKED | ARCHIVED
+- row_version
+
+## canon_promotion_requests
+- id PK FK entity_registry
+- source_revision_id FK revision_registry
+- target_canon_space_id FK
+- proposed_by_actor_id FK
+- impact_snapshot_hash
+- state: PROPOSED | UNDER_REVIEW | APPROVED | REJECTED | STALE
+- approved_revision_id nullable FK revision_registry
+
+Shareable canonical entities gain:
+- canon_space_id nullable FK canon_spaces
+- project_id nullable FK projects
+
+At least one ownership scope must be present.
+A project-local branch is a separate CanonSpace, not an invisible mutable copy.
+
+# 76. Person credits and casting overlap
+
+## person_credit_identities
+- id PK FK entity_registry
+- person_id FK people
+- credit_name
+- locale nullable
+- valid_from_utc_us nullable
+- valid_to_utc_us nullable
+- privacy_class
+- rights_record_id nullable
+- lifecycle_state
+
+## casting_overlap_policies
+- id PK
+- role_type
+- exclusivity_mode: EXCLUSIVE | ALLOW_MULTI | ALLOW_MULTI_WITH_REVIEW | CUSTOM
+- scope_dimensions_json
+- policy_revision
+
+## casting_conflicts
+- id PK
+- character_id FK
+- production_node_id FK
+- narrative_context_id nullable
+- scene_id nullable
+- shot_id nullable
+- role_type
+- conflicting_binding_ids_json
+- state: OPEN | RESOLVED | WAIVED
+- resolution_json nullable
+
+Release credit items pin `person_credit_identity_id` or equivalent immutable credit snapshot.
+
+# 77. Documentary source lineage and corrections
+
+## source_lineage_groups
+- id PK FK entity_registry
+- project_id FK
+- group_type: ORIGIN_CLUSTER | SYNDICATION_CLUSTER | COMMON_INFORMANT | DATASET_LINEAGE | CUSTOM
+- description
+- row_version
+
+## source_lineage_edges
+- id PK
+- from_source_record_id FK
+- to_source_record_id FK
+- relation_type: COPIED_FROM | SYNDICATED_FROM | QUOTES | DERIVED_FROM | COMMON_ORIGIN | CORRECTS | RETRACTS | SUPERSEDES | CUSTOM
+- evidence_json
+- observed_at_utc_us nullable
+
+## source_independence_memberships
+- source_record_id FK
+- lineage_group_id FK
+- independence_weight nullable
+- notes
+PK(source_record_id,lineage_group_id)
+
+Extend `fact_claim_evidence`:
+- independence_group_id nullable FK source_lineage_groups
+- observed_at_utc_us nullable
+- effective_from_utc_us nullable
+- effective_to_utc_us nullable
+- correction_state: CURRENT | CORRECTED | RETRACTED | SUPERSEDED
+
+## fact_claim_temporal_scopes
+- id PK
+- fact_claim_id FK
+- effective_from_utc_us nullable
+- effective_to_utc_us nullable
+- geography_scope_json nullable
+- context_scope_json nullable
+- verification_state
+
+# 78. Shared-canon dependency retention
+
+## canon_space_dependency_refs
+- id PK
+- canon_space_id FK
+- revision_id FK revision_registry
+- dependent_type: PROJECT_BASELINE | PRODUCTION_BASELINE | RELEASE | RIGHTS | AUDIT | ARCHIVE
+- dependent_id
+- retention_required BOOL
+- created_at_utc_us
+
+Purge/archival cannot remove the last recoverable revision while a required dependency ref exists.
