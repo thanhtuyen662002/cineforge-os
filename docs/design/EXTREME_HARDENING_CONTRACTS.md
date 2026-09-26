@@ -2262,3 +2262,119 @@ A secure-delete statement must distinguish:
 - crypto-erasure.
 
 If shared bytes remain required elsewhere, CineForge does not falsely claim physical destruction.
+
+
+# CQ. Encrypted workspace and dedup scope
+
+Security profile declares encryption/dedup domain.
+
+Examples:
+- STANDARD_OS_USER + STUDIO_DEDUP
+- ENCRYPTED_PROJECT + PROJECT_DEDUP
+- ENCRYPTED_STUDIO + STUDIO_DEDUP
+- HIGH_ISOLATION + NO_CROSS_SCOPE_DEDUP
+
+Rules:
+- cross-scope plaintext equality is not leaked by API/UI;
+- deterministic encryption is not used across isolation domains merely to improve dedup;
+- crypto-erasure guarantee is defined relative to the encryption/dedup domain;
+- physical shared bytes cannot invalidate a promised per-project crypto-erasure guarantee.
+
+# CR. Sensitive derived-data inheritance
+
+Every derived artifact inherits a sensitivity/storage policy from lineage unless a deterministic classifier proves a lower sensitivity class.
+
+Includes:
+- proxy/thumbnail/waveform;
+- OCR/transcript;
+- embeddings;
+- FTS/vector indexes;
+- cache;
+- temp;
+- preview;
+- debug capture.
+
+Encrypted workspace policy defines whether each class is encrypted, memory-only, excluded, or permitted plaintext.
+Deletion/revocation traverses these lineage classes.
+
+# CS. Resumable encryption key rotation
+
+Encrypted objects record key ID/version.
+
+Rotation journal:
+- source key;
+- target key;
+- object set/snapshot;
+- per-object state;
+- backup/wrapped-key migration state;
+- verification result.
+
+Old key retirement requires proof:
+- required objects migrated/verified;
+- required backups decryptable/recoverable;
+- no ACTIVE object depends only on old key;
+- forward trust/key journal persisted.
+
+Crash resumes from journal; mixed key versions are valid only while rotation state knows them.
+
+# CT. Trust freshness and rollback-resistant revocation
+
+Security-sensitive package/signing decisions include trust-freshness.
+
+Local history is insufficient after:
+- full system snapshot rollback;
+- long offline interval;
+- known revocation-event gap.
+
+Policy may require fresh online/external trust evidence before:
+- updater/package activation;
+- release signing;
+- privileged connector activation.
+
+State:
+- FRESH
+- STALE
+- UNKNOWN
+- BLOCKED
+
+An old valid signature plus stale revocation knowledge is not silently treated as FRESH.
+
+# CU. Review evidence coverage
+
+HIGH-risk review record binds:
+- exact diff/base/head;
+- critical paths inspected;
+- generated/binary/minified files classified;
+- ignored/generated files + reason;
+- test/workflow/security evidence digests.
+
+Generated summary is never the sole reviewed representation.
+
+Oversized/noisy diffs may trigger REQUEST_SPLIT or specialized semantic tooling rather than silent truncation.
+
+# CV. Final-artifact provenance and SBOM
+
+Release package attestation binds:
+- final artifact digest;
+- merged/release source commit;
+- exact package/runtime dependency graph included in artifact;
+- SBOM digest;
+- toolchain/container/runtime identity;
+- signing event.
+
+If packaging injects components after source-level SBOM generation, reconcile/regenerate before release.
+
+# CW. Development execution isolation
+
+Agent/reviewer runtime executing repository-controlled code uses least-privilege isolation.
+
+Untrusted/task code does not ambiently receive:
+- browser profile/cookies;
+- signing/update keys;
+- production API credentials;
+- unrelated local filesystem;
+- unrestricted network where unnecessary.
+
+Credentials are scoped and injected only into explicitly trusted steps.
+
+Source code prose cannot change sandbox policy.
