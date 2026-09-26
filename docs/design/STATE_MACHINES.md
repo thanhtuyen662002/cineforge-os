@@ -2500,3 +2500,44 @@ Abnormal:
 - QUARANTINED
 
 Queue/job identifiers are invalid outside the epoch in which they were issued unless connector explicitly proves continuity.
+
+
+
+# 75. Client synchronization lifecycle
+
+CONNECTING
+→ HANDSHAKING
+→ CURRENT
+
+Mismatch branches:
+- HANDSHAKING → RESET_REQUIRED
+- HANDSHAKING → RECOVERY_DIVERGENT
+- CURRENT → SUPERSEDED after deployment/recovery generation change
+
+RESET_REQUIRED:
+→ INVALIDATING_CACHE
+→ RELOADING_PROJECTIONS
+→ CURRENT
+
+RECOVERY_DIVERGENT:
+→ CLASSIFYING_PENDING_WORK
+→ PRESERVING_DRAFTS
+→ RECONCILING_SIDE_EFFECTS
+→ RELOADING_PROJECTIONS
+→ CURRENT
+
+Side-effectful pending commands never auto-transition from RECOVERY_DIVERGENT to EXECUTING.
+
+# 76. Event stream cursor lifecycle
+
+VALID
+→ ADVANCING
+→ VALID
+
+Terminal/reset:
+- TOO_OLD
+- EPOCH_MISMATCH
+- STREAM_SUPERSEDED
+- RESET_REQUIRED
+
+A numeric sequence by itself is never enough to determine validity after restore/redeployment.
