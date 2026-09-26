@@ -2619,3 +2619,103 @@ Loop storytelling uses explicit LOOP_NEXT/non-ancestry edges rather than corrupt
 ## X92 — Shared canon lifecycle/purge safety (P1)
 Pinned revisions remain recoverable while any production/release/rights/audit dependency requires them.
 Archiving a CanonSpace does not invalidate historical production baselines.
+
+
+# 17. Third-wave parser/OS/identity attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 221 | XML-based project/interchange file uses XXE to read local files | **GAP/P0/P1** | XML parsers must disable external entities/DTD/network |
+| 222 | SVG contains script/external image reference and is previewed in WebView | **GAP/P0** | vector image preview can cross rendering trust boundary |
+| 223 | Malicious font exploits renderer or phones home through remote font reference | **GAP/P1** | fonts are executable-like parser inputs and need sandbox/localization |
+| 224 | ASS/SSA subtitle embeds unexpected font/attachment/path behavior | **GAP/P1** | subtitle/attachment parser needs same hostile-input policy |
+| 225 | EXIF/XMP/ICC metadata is huge/corrupt and crashes parser | PARTIAL | generic parser budgets exist; metadata-specific limits should be explicit |
+| 226 | Windows path references \\attacker\share causing NTLM credential leak | **GAP/P0/P1** | UNC/network path access must be denied/mediated by default |
+| 227 | Filename uses bidi override to visually spoof extension | **GAP/P1 UX/security** | display and validation must use canonical path/type, not rendered filename |
+| 228 | Unicode homoglyph makes two character/assets look identical in UI | **GAP/P2** | identity must never derive from display name; UI can warn on confusing names |
+| 229 | User-supplied regex/search pattern causes catastrophic backtracking | **GAP/P1 DoS** | search/filter parsers need bounded engines/time |
+| 230 | FTS query/pathological wildcard consumes CPU/locks DB | **GAP/P1 DoS** | query complexity/time/result budgets |
+| 231 | Machine sleeps during slot lease / Core ownership TTL | **GAP/P1** | monotonic elapsed time and resume reconciliation required |
+| 232 | System clock jumps forward and expires all leases/jobs | PARTIAL | server/Core time authority exists; local TTL implementation must avoid wall-clock alone |
+| 233 | System clock jumps backward and UUIDv7 order regresses | PARTIAL | seq must be authoritative; ID generation collision behavior needs explicit monotonic fallback |
+| 234 | RNG/entropy failure produces duplicate session/capability tokens | **GAP/P0 unlikely** | security tokens require cryptographic RNG and collision rejection |
+| 235 | Log line contains ANSI/control chars that spoof severity/path/user | **GAP/P1** | structured logs must escape control chars and not parse text as fields |
+| 236 | Imported filename/message forges UI notification text | **GAP/P1 UX** | notification templates must separate trusted message key from untrusted args |
+| 237 | Clipboard paste contains hidden Unicode/control characters changing command meaning | **GAP/P1** | command input must preserve/show normalized suspicious controls |
+| 238 | WebSocket/local HTTP endpoint exposed on 0.0.0.0 by config mistake | **GAP/P0** | local service bind policy/ACL must be explicit |
+| 239 | CORS/Origin bypass lets malicious browser page call local Core API | **GAP/P0** | local RPC/web endpoints need strict origin/capability/session auth |
+| 240 | Browser-assisted connector downloads an HTML file named .mp4 | CONTAINED/PARTIAL | decode verification helps; MIME/sniff mismatch should quarantine |
+| 241 | Antivirus/EDR delays file open long enough to trigger repeated retries and duplicate copy | PARTIAL | retry/backoff exists generically; file-operation idempotency needs implementation tests |
+| 242 | Reboot occurs during encryption key rotation | PARTIAL | resumable rotation exists; recovery checkpoint test required |
+| 243 | Reboot occurs during storage-root move after switch marker but before cleanup | PARTIAL | migration journal/switch atomicity must be chaos-tested |
+| 244 | OS user profile is renamed/migrated; secure path/DPAPI identity assumptions break | **GAP/P2** | local security profile needs identity migration/revalidation |
+| 245 | Device clock is wildly wrong; TLS cert/provider calls fail, scheduler interprets provider down | **GAP/P2** | time-health should distinguish local clock failure from provider outage |
+| 246 | Notification flood hides one critical Needs You item | **GAP/P2 UX** | aggregation/rate limit/priority preservation required |
+| 247 | Malicious project import contains millions of tiny JSON entities rather than big media | **GAP/P1** | entity/count/schema complexity budgets, not only byte budgets |
+| 248 | Deeply nested JSON/YAML exhausts parser stack/memory | **GAP/P1** | nesting/depth/token-count limits |
+| 249 | CSV/Excel exported by CineForge contains formula injection when opened elsewhere | **GAP/P1** | spreadsheet export must escape dangerous formula prefixes where data is untrusted |
+| 250 | Exported filename begins with reserved DOS device name / trailing dots/spaces | CONTAINED/PARTIAL | Windows sanitization exists; test matrix needs reserved-device corpus |
+
+# 18. New findings from third wave
+
+## X39 — Structured document/parser hardening (P0/P1)
+XML/SVG/subtitle/font/metadata parsers inherit the hostile-input model:
+- disable XML external entities/DTD/network by default;
+- sanitize/rasterize SVG when privileged rendering is unnecessary;
+- font/subtitle parsing in sandboxed worker;
+- bound metadata size/nesting/attachment count;
+- no external resource resolution from document/vector/font metadata unless explicitly authorized.
+
+## X40 — UNC/credential-leak prevention (P0/P1)
+Windows path validation must treat UNC/network/device namespaces as network egress, not “just a path”.
+No implicit opening of `\\host\share` from imported metadata, playlist or user-controlled filename.
+
+## X41 — Unicode/control-character security (P1)
+Internal identity uses IDs/canonical bytes, never display names.
+UI/logs:
+- normalize according to defined policy;
+- escape/control-display bidi/control characters;
+- warn on visually confusable high-impact names where useful;
+- preserve original text separately when creative fidelity requires it.
+
+## X42 — Query/parser computational budgets (P1)
+Search/regex/FTS/JSON/YAML inputs get:
+- length/depth/token/operator limits;
+- execution timeout/cancellation;
+- result count/page limits;
+- non-backtracking/safe regex engine or restricted syntax for untrusted expressions.
+
+## X43 — Suspend/resume temporal reconciliation (P1)
+Sleep/hibernate/resume invalidates assumptions based on elapsed lease/heartbeat time.
+On resume:
+- Core/scheduler re-read current authority/leases;
+- workers do not instantly treat every expired heartbeat as dead;
+- external jobs/providers are reconciled;
+- monotonic clock is used for local duration where possible.
+
+## X44 — Security token/ID generation (P0/P1)
+Capability/session/nonce/idempotency security tokens require cryptographic RNG and collision rejection.
+UUID/event IDs are identifiers, not authoritative event ordering; DB/event sequence remains canonical.
+
+## X45 — Local service bind/origin policy (P0)
+Local HTTP/WebSocket/RPC endpoints:
+- bind only approved loopback/named-pipe scope by default;
+- reject unexpected Origin/Host;
+- require authenticated scoped session/capability tokens;
+- never expose privileged Core API on all interfaces by accidental config.
+
+## X46 — Structured log/notification injection (P1)
+Untrusted strings are args/data.
+Severity, action, path and message type are structured trusted fields.
+Escape terminal/UI control characters and never allow an imported string to forge a privileged notification/action.
+
+## X47 — Entity-count/depth bombs (P1)
+Intake budgets include:
+- entity/file count;
+- recursive/nesting depth;
+- parser token count;
+- relationship edge count;
+not only compressed/uncompressed bytes.
+
+## X48 — Spreadsheet formula injection (P1)
+CSV/XLSX handoff/export containing untrusted strings must prevent formula execution where the target format/app interprets prefixes such as `=`, `+`, `-`, `@` as formulas, unless the value is intentionally authored as a formula under trusted export policy.
