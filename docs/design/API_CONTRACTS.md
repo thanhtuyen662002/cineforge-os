@@ -2926,3 +2926,114 @@ Plan evaluates:
 - target project policy.
 
 Raw asset ID/handle copy is not cross-project authorization.
+
+
+
+# 86. Performance/working-set query contract
+
+Large collections are cursor-paginated and bounded.
+
+Queries:
+- query.project.working_set
+- query.library.assets_page
+- query.timeline.window
+- query.activity.page
+- query.history.page
+- query.writer_pressure
+- query.projection.health
+
+No ordinary UI query is allowed to implicitly return the complete project graph/history/library.
+
+# 87. Writer-pressure API
+
+Core exposes human-safe and advanced writer health.
+
+Internal admission:
+- INTERACTIVE_CANONICAL commands retain latency priority;
+- background metadata/telemetry can coalesce/defer;
+- oversized imports/invalidation use chunk commands/transactions.
+
+A delayed background persistence does not cause UI to falsely show canonical save as durable.
+
+# 88. Projection rebuild API
+
+Commands:
+- StartProjectionRebuild
+- PauseProjectionRebuild
+- ResumeProjectionRebuild
+- PromoteProjectionGeneration
+- RetireProjectionGeneration
+
+Rebuild records cursor/checkpoint and can resume.
+Verified previous generation remains queryable where policy permits.
+
+# 89. Derived-work demand API
+
+Queries:
+- query.derived_work.pending
+- query.derived_work.current_demand
+
+Commands:
+- RequestDerivedWork
+- PromoteDerivedWorkDemand
+- CancelDerivedWork
+- PauseBackgroundDerivation
+
+Visible/active workspace demand outranks speculative background precompute.
+
+# 90. Scheduler fairness API
+
+Queries:
+- query.scheduler.fairness
+- query.scheduler.project_debt
+- query.scheduler.starvation
+
+Planner/scheduler uses project weights, priority aging and interactive reserve.
+Priority does not imply permanent starvation of lower classes.
+
+# 91. Backup RPO/RTO API
+
+Queries:
+- query.backup.policy_health
+- query.backup.restore_estimate
+- query.backup.last_restore_measurement
+
+Backup health reports:
+- latest recoverable point;
+- durability/failure domain;
+- estimated/observed restore time;
+- verification state.
+
+“Backup exists” is not equivalent to meeting RPO/RTO.
+
+# 92. Maintenance admission API
+
+Commands:
+- PlanMaintenance
+- AdmitMaintenance
+- PauseMaintenance
+- ResumeMaintenance
+
+Admission evaluates:
+- temp disk;
+- IO/CPU/GPU/network bundle;
+- currently active foreground work;
+- physical resource group contention;
+- battery/thermal policy.
+
+# 93. Large-fanout invalidation API
+
+Root change commits an invalidation generation/fence quickly.
+Background propagation materializes descendants in chunks.
+
+Queries expose:
+- root fence;
+- propagation progress;
+- conservative stale state.
+
+No UI/API may report a descendant as current merely because its materialized stale row has not yet been written.
+
+# 94. Incremental release-readiness API
+
+Release readiness query uses an event-maintained projection for responsiveness.
+Final release command performs authoritative current gate revalidation independent from cached projection.
