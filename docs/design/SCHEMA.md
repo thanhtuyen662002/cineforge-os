@@ -3964,3 +3964,172 @@ PK(editor_adapter_version_id, feature_code)
 - audio_profile_id nullable
 - review_state
 - release_gate_state
+
+
+
+# 99. Collaboration authorization epochs and sessions
+
+## project_memberships
+- id PK
+- project_id FK
+- actor_id FK
+- membership_state: INVITED | ACTIVE | SUSPENDED | REVOKED | LEFT
+- role_set_hash
+- authorization_epoch
+- valid_from_utc_us
+- valid_to_utc_us nullable
+- row_version
+
+## actor_sessions
+- id PK
+- actor_id FK
+- device_or_client_id
+- issued_at_utc_us
+- expires_at_utc_us
+- session_state: ACTIVE | REAUTH_REQUIRED | REVOKED | EXPIRED
+- studio_authorization_epoch
+- last_verified_at_utc_us
+
+## scoped_capability_tokens
+- id PK
+- actor_session_id FK
+- project_id nullable FK
+- purpose
+- subject_type nullable
+- subject_id nullable
+- subject_revision_id nullable
+- authorization_epoch
+- token_hash
+- expires_at_utc_us
+- state: ACTIVE | REVOKED | EXPIRED
+
+## event_subscriptions
+- id PK
+- actor_session_id FK
+- project_id nullable FK
+- scope_manifest_hash
+- authorization_epoch
+- state: ACTIVE | REVOKED | EXPIRED
+- last_event_seq
+- last_authorized_at_utc_us
+
+# 100. Collaborative working copies and edit policies
+
+## domain_merge_policies
+- id PK
+- domain_type
+- merge_mode: EXCLUSIVE_LEASE | OPTIMISTIC_REVISION | OP_LOG_MERGE | STRUCTURED_TEXT_MERGE | BRANCH_ONLY
+- auto_merge_allowed BOOL
+- conflict_policy_json
+- policy_revision
+
+## collaborative_working_copies
+- id PK
+- project_id FK
+- entity_id FK entity_registry
+- owner_actor_id FK
+- owner_session_id FK actor_sessions
+- base_revision_id nullable FK revision_registry
+- branch_revision_id nullable FK revision_registry
+- lease_id nullable
+- state: OPEN | OFFLINE | STALE | CONFLICT | MERGE_READY | MERGED | ABANDONED
+- row_version
+- last_sync_at_utc_us nullable
+
+## collaboration_conflicts
+- id PK
+- working_copy_id FK
+- conflict_type
+- local_value_json
+- canonical_value_json
+- causal_context_json
+- state: OPEN | RESOLVED_LOCAL | RESOLVED_CANONICAL | MANUAL_MERGE | ABANDONED
+- resolved_by_actor_id nullable
+
+## collaborative_operations
+- id PK
+- working_copy_id FK
+- op_seq
+- actor_id FK
+- session_id FK
+- op_type
+- payload_json
+- causation_operation_id nullable
+- compensates_operation_id nullable
+- created_at_utc_us
+UNIQUE(working_copy_id, op_seq)
+
+# 101. Scoped derived data
+
+## derived_data_scopes
+- id PK
+- derived_kind: SEARCH_INDEX | VECTOR_INDEX | THUMBNAIL | PROXY | EVALUATION_CACHE | OTHER
+- project_id nullable
+- studio_id nullable
+- tenant_scope_id nullable
+- privacy_scope_hash
+- data_use_scope_hash
+- authorization_floor_epoch nullable
+- generation_id
+- state
+
+Derived cache/index objects bind this scope ID.
+
+# 102. Delegation and impersonation
+
+## authority_delegations
+- id PK
+- principal_actor_id FK
+- delegate_actor_id FK
+- scope_type
+- scope_id nullable
+- permission_manifest_hash
+- valid_from_utc_us
+- valid_to_utc_us nullable
+- state: ACTIVE | REVOKED | EXPIRED
+- granted_by_actor_id FK
+
+## impersonation_sessions
+- id PK
+- principal_actor_id FK
+- effective_actor_id FK
+- support_or_admin_actor_id FK
+- reason
+- scope_manifest_hash
+- started_at_utc_us
+- ended_at_utc_us nullable
+- state
+
+Commands/audit may record principal_actor_id + effective_actor_id + delegation/impersonation reference.
+
+# 103. Collaboration annotations
+
+## annotations
+- id PK FK entity_registry
+- project_id FK
+- subject_entity_id FK entity_registry
+- subject_revision_id nullable FK revision_registry
+- actor_id FK
+- annotation_type
+- range_or_region_json nullable
+- text
+- lifecycle_state: ACTIVE | RESOLVED | ARCHIVED
+- created_at_utc_us
+- row_version
+
+Authoritative legal/business decisions do not rely solely on mutable/deletable annotations.
+
+# 104. Cross-project asset reuse records
+
+## cross_project_reuse_records
+- id PK
+- source_project_id FK
+- target_project_id FK
+- source_asset_revision_id FK
+- target_asset_id nullable FK
+- reuse_mode: COPY | MANAGED_REFERENCE | IMPORT_DERIVATIVE
+- rights_snapshot_hash
+- privacy_snapshot_hash
+- provenance_snapshot_hash
+- approved_by_actor_id nullable
+- created_at_utc_us
