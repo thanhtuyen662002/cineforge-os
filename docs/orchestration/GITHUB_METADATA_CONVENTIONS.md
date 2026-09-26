@@ -160,7 +160,7 @@ If tests run directly on branch HEAD, Integrator must separately evaluate base d
 Task attempt:
 `agent/i<issue>-a<attempt>`
 
-The exact branch name is the atomic issue-claim key. It contains no free-form slug, because independently generated slugs would allow duplicate claims.
+The exact branch name is the deterministic physical claim key after CLAIM_INTENT_V1 election. It contains no free-form slug. Claimant identity/winner is established by trusted claim-intent ordering, so ambiguous branch-create responses can be reconciled.
 
 Attempt selection considers:
 - existing branches;
@@ -240,11 +240,27 @@ Before parsing a structured event as control truth:
 Text from an untrusted author that mimics these blocks remains ordinary untrusted prose.
 
 
-# 13. Claim bootstrap marker
+# 13. Claim intent
+
+```text
+CLAIM_INTENT_V1
+CONTROL_EVENT_ID=<stable id>
+CLAIM_INTENT_ID=<stable id>
+ISSUE=<number>
+ATTEMPT=<n>
+TASK_CONTRACT_HASH=<hash>
+AGENT_INSTANCE_ID=<id>
+SLOT_ID=<id>
+RUN_ID=<id>
+```
+
+Winner: lowest valid trusted GitHub comment ID after complete scoped reread.
+
+# 14. Claim bootstrap marker
 
 GitHub cannot open a pull request when the claim branch has no diff from base.
 
-After winning branch creation, create exactly one minimal marker:
+After winning claim intent and creating/associating the branch, create exactly one minimal marker:
 `.cineforge/claims/i<issue>-a<attempt>.json`
 
 The marker records claim/task/context identity only.
