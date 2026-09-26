@@ -7675,3 +7675,37 @@ When available, record actual account/workspace/region/subprocessor path and app
 # ON. Host-controlled effect receipt
 
 Critical external acceptance/cost/effect evidence is persisted by host-controlled Core/outbox/inbox boundary so a crashing connector cannot erase the fact that an external action may have happened.
+
+
+
+# OO. Epoch-qualified client state
+
+Any long-lived client/cache/token state that can outlive a Core restore/redeployment binds:
+- installation/library lineage;
+- deployment generation;
+- recovery epoch;
+- relevant stream/projection generation.
+
+Numerically “newer” seq/version from a superseded history is not current truth.
+
+# OP. Restore-aware event cursor
+
+Presentation/event cursors are tuples, not bare integers.
+Epoch mismatch is an explicit protocol event requiring reset/reconciliation.
+
+No silent empty stream when client cursor comes from a future/superseded history.
+
+# OQ. Offline command recovery barrier
+
+After recovery mismatch:
+- local drafts may survive as divergent branches;
+- safe reads may reissue;
+- side-effectful/paid/publish/delete commands require reconciliation/current authorization.
+
+Client offline queue is not a second hidden outbox allowed to replay historical intent blindly.
+
+# OR. Recovery-scoped capability invalidation
+
+Media/session/action capability tokens that could violate current rights/privacy/correctness become invalid when their bound deployment/recovery generation is superseded.
+
+Token cryptographic validity is necessary but not sufficient authority.
