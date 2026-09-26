@@ -2719,3 +2719,96 @@ not only compressed/uncompressed bytes.
 
 ## X48 — Spreadsheet formula injection (P1)
 CSV/XLSX handoff/export containing untrusted strings must prevent formula execution where the target format/app interprets prefixes such as `=`, `+`, `-`, `@` as formulas, unless the value is intentionally authored as a formula under trusted export policy.
+
+
+# 19. Numeric, temporal and accounting-domain attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 251 | Media timebase denominator = 0 | **GAP/P0/P1** | structurally valid integers can make rational arithmetic undefined |
+| 252 | Frame rate = 0/1 or absurd 1,000,000 fps | **GAP/P1** | technically parseable but physically nonsensical; domain bounds needed |
+| 253 | Duration numerator overflows 64-bit during multiply/rescale | **GAP/P1** | checked arithmetic required |
+| 254 | PTS/DTS is negative/huge and overflows timeline conversion | **GAP/P1** | parser-normalized bounds and safe rescale needed |
+| 255 | NaN/Infinity appears in transform/gain/color metadata | **GAP/P1** | JSON number handling plus downstream native libs may misbehave |
+| 256 | Audio sample count × channels × bytes-per-sample overflows allocation size | **GAP/P0/P1** | checked size arithmetic before allocation |
+| 257 | Image width × height × channels overflows 32-bit allocator | **GAP/P0/P1** | decoded-memory budget must use checked wide arithmetic |
+| 258 | User enters 999999999999% speed/scale/gain | **GAP/P1** | UI validation alone insufficient; Core domain constraints required |
+| 259 | Timeline clip source_out < source_in after malformed import | **GAP/P1** | relational constraints/validation needed |
+| 260 | Subtitle end < start or overlaps with impossible negative duration | **GAP/P1** | invalid temporal intervals must be rejected/normalized explicitly |
+| 261 | Rational values compare equal but are not normalized, causing cache/identity divergence | **GAP/P2** | canonical rational representation needed |
+| 262 | Cost amount overflows integer minor units | **GAP/P1** | checked money arithmetic |
+| 263 | Budget is USD but provider charge arrives in EUR | **GAP/P1** | currency identity/conversion snapshot required |
+| 264 | FX rate changes between estimate and actual billing | **GAP/P1** | estimate/actual exchange-rate provenance must be separate |
+| 265 | Provider returns negative usage/refund | **GAP/P2** | ledger must support signed adjustments without corrupting reservation accounting |
+| 266 | Floating-point rounding makes budget threshold inconsistently pass/fail | **GAP/P1** | money should not use binary float |
+| 267 | Credits provider changes unit semantics/version | **GAP/P1** | credit unit/version identity required |
+| 268 | Timeline start timecode wraps 24h/drop-frame edge unexpectedly | **GAP/P2 media** | SMPTE/timecode profile semantics explicit |
+| 269 | 29.97 drop-frame incorrectly treated as 30fps counting | **GAP/P1 media** | timecode != frame rate; separate representation |
+| 270 | Audio sample rate metadata is 0 or absurdly high | **GAP/P1** | physical-domain bounds |
+| 271 | Channel count = 65535 causes allocation/external tool crash | **GAP/P1** | bounded channel layouts |
+| 272 | Color matrix/transfer enum is unknown but silently defaults | **GAP/P1 quality** | UNKNOWN must remain explicit, not guessed |
+| 273 | Pixel aspect denominator = 0 | **GAP/P1** | same rational invariant applies |
+| 274 | Transform matrix contains singular/NaN values | **GAP/P1** | math-domain validation before renderer/tool dispatch |
+| 275 | Nested retime operations accumulate rounding drift across edits | **GAP/P1** | canonical rational/source-time mapping required |
+| 276 | Integer story_order_key insertion runs out of gaps after many edits | **GAP/P2** | order-key scheme/rebalancing contract needed |
+| 277 | Locale parser interprets “1,5” as 15 or 1.5 inconsistently | **GAP/P1 UX/data** | localized input parsing must emit locale-neutral canonical values |
+| 278 | Date-only rights expiry interpreted at local midnight vs UTC | **GAP/P1 legal** | rights effective time semantics/timezone must be explicit |
+| 279 | DST transition duplicates/skips scheduled human deadline | **GAP/P2** | wall-clock schedule needs timezone ID + occurrence identity |
+| 280 | Timezone rules change after project archive | **GAP/P2 audit** | preserve zone identifier + resolved timestamp where audit requires exact occurrence |
+
+# 20. Numeric/temporal findings
+
+## X49 — Checked numeric domain arithmetic (P0/P1)
+All media/time/resource size math uses checked wide arithmetic.
+Reject/contain:
+- denominator 0;
+- overflow/underflow;
+- NaN/Infinity;
+- impossible negative sizes/durations;
+- allocations whose computed size exceeds policy.
+
+Do not trust parser/library casts.
+
+## X50 — Canonical rational/time representation (P1)
+Rationals:
+- denominator > 0;
+- reduced to canonical gcd form where identity/comparison matters;
+- checked rescale;
+- explicit rounding mode at conversion boundaries.
+
+Frame rate, timebase and timecode are distinct concepts.
+
+## X51 — Money/credit ledger semantics (P1)
+Money:
+- integer/decimal fixed-point, never binary float;
+- explicit ISO currency;
+- checked arithmetic;
+- exchange-rate snapshot/provenance when conversion is needed.
+
+Credits:
+- provider + unit/version identity;
+- signed adjustments/refunds allowed through append-only ledger;
+- estimates and actuals remain distinct.
+
+## X52 — Domain bounds are Core invariants (P1)
+Core validates physically/semantically plausible ranges for:
+- frame/sample rates;
+- image dimensions;
+- channel layouts;
+- gain/speed/scale;
+- interval ordering;
+- transform/color metadata.
+
+UI validation is convenience only.
+
+## X53 — Rights/time semantics (P1)
+Legal validity timestamps define:
+- timezone/UTC semantics;
+- inclusive/exclusive boundary;
+- date-only interpretation;
+- source timezone where relevant.
+
+Release gate evaluates a concrete instant, not a vague localized date string.
+
+## X54 — Stable ordering/rebalancing (P2)
+Editable ordered lists use order keys with deterministic rebalance that preserves logical identity/history and does not force renumbering as a semantic change.
