@@ -1077,3 +1077,43 @@ Promotion plan returns:
 - stale/conflict status.
 
 Promotion never directly overwrites an approved base revision.
+
+
+# 47. Storage root validation API
+
+Before accepting a Core database location:
+- `storage.validate_core_db_location(path_handle)`
+
+Returns:
+- filesystem/profile classification;
+- WAL/locking support status;
+- sync/network/removable warning/block;
+- free space;
+- path normalization result;
+- reason when unsupported.
+
+General asset roots use:
+- `storage.validate_root(path_handle, root_type)`
+
+The first-run “where to store data” UI may choose separate sensible defaults for:
+- active Core DB;
+- media/object library;
+- models/cache;
+- backups/exports.
+
+# 48. Web automation permission API
+
+Connection detail/query exposes effective automation permission:
+- ALLOWED
+- ASSISTED_ONLY
+- MANUAL_ONLY
+- UNKNOWN
+- BLOCKED
+
+Before browser automation:
+1. bind current ProviderTermsSnapshot/policy;
+2. resolve effective permission;
+3. refuse silent automated execution when UNKNOWN/BLOCKED;
+4. downgrade to assisted/manual only when policy permits and user intent remains satisfied.
+
+A connector health result of READY does not imply automation permission.
