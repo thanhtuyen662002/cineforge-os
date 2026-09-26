@@ -5411,3 +5411,141 @@ A delete/purge command distinguishes:
 - purge complete to declared policy scope.
 
 UI never reports the strongest deletion wording before the relevant barrier is satisfied.
+
+
+# 27. Eighth-wave multi-user/offline collaboration attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 431 | Editor A goes offline, Editor B changes/approves canon, A reconnects and pushes old edit | **GAP/P1** | optimistic version reject is safe but user needs semantic branch/rebase workflow |
+| 432 | Two editors trim same timeline clip concurrently and both operations are individually valid | **GAP/P1** | automatic field merge may produce invalid editorial intent |
+| 433 | Editor A deletes clip while B adjusts audio linked to it | **GAP/P1** | delete/edit conflict needs explicit semantic conflict object |
+| 434 | User role is revoked while an offline client has queued edits | **GAP/P0/P1** | offline operation revalidates current authority on sync |
+| 435 | User account is disabled while long-running jobs created by that actor remain queued | **GAP/P1 governance** | policy needed for queued work ownership after actor disablement |
+| 436 | Reviewer opens review, permission is revoked, then reviewer submits from stale UI | PARTIAL/GAP | exact revision check exists; authority must revalidate at submit |
+| 437 | Producer removes publish permission while publication is prepared offline | CONTAINED by irreversible-phase reauth if implemented |
+| 438 | Two users both acquire “manual control” while network partition hides each other | **GAP/P1** | exclusive locks require authoritative Core; offline mode cannot grant new exclusive lock |
+| 439 | Offline client edits a project after it was archived/purged online | **GAP/P1** | terminal/high-authority state dominates stale offline writes |
+| 440 | Offline edit resurrects entity deleted under privacy purge | **GAP/P0/P1** | purge tombstone/forward journal must reject resurrection |
+| 441 | Offline client changes rights field based on old terms/consent | **GAP/P0/P1** | rights/security fields not offline-mergeable by generic sync |
+| 442 | Text CRDT merges two screenplay lines syntactically but changes dialogue meaning | **GAP/P2 creative** | CRDT convergence is not semantic correctness |
+| 443 | Canon costume interval edits merge into overlapping contradictory intervals | **GAP/P1** | temporal semantic invariant validation after merge |
+| 444 | Scene is split/renumbered while another user edits shots referencing old scene | **GAP/P1** | stable IDs help; semantic rebase needs dependency impact |
+| 445 | Two users approve different candidates for same canonical slot | **GAP/P1** | approval race needs compare-and-set canonical promotion |
+| 446 | One user marks CreativeException while another auto-repair is already running | PARTIAL | late result stale; repair dispatch must revalidate exception before next mutation |
+| 447 | Comment/review thread is edited/deleted and another user relies on it as requirement | **GAP/P2** | comments are collaboration data, not authoritative task/canon state |
+| 448 | Presence says user left but their edit session is still active | **GAP/P2** | presence is advisory, not lease authority |
+| 449 | Client clock is 3 hours wrong; offline edits sort before earlier server edits | **GAP/P1** | server sequence/base revision orders sync, not client wall clock |
+| 450 | Offline queue grows to 100k edit ops over weeks | **GAP/P1** | queue retention/compaction/expiry and rebase boundary needed |
+| 451 | Client reconnects after schema/app version changed and replays old operation format | **GAP/P1** | operation schema compatibility/migration required |
+| 452 | One collaborator has old plugin producing extension fields newer Core no longer accepts | CONTAINED by API/schema version if sync uses same gate |
+| 453 | User edits same project from two machines under same account | **GAP/P1** | actor identity != device/session identity; conflict/lease audit needs device/session |
+| 454 | Lost laptop remains offline with decrypted project then account is revoked | **RESIDUAL/P1 security** | revocation cannot recall offline bytes; encryption/key/session TTL can limit future access |
+| 455 | Offline client exports/publishes using stale local approval while disconnected | **GAP/P0** | irreversible external actions require online/current authority; offline publish should be prohibited |
+| 456 | Team member copies project package and continues outside collaboration controls | RESIDUAL/P2 | local possession cannot be fully recalled; rights/watermark/encryption/profile can reduce |
+| 457 | User A assigns task to B, B completes offline, A reassigns to C meanwhile | **GAP/P2 workflow** | assignment is advisory until current-state submit/reconcile |
+| 458 | Two users rename same character differently; display-name merge hides identity conflict | **GAP/P2** | ID stable but conflict must be visible rather than last-write-wins silently |
+| 459 | Text/comment mentions trigger notifications to user who lost project access | **GAP/P1 privacy** | notification recipient authorization rechecked at delivery |
+| 460 | Collaboration sync transmits confidential diffs to cloud despite project LOCAL_ONLY | **GAP/P0/P1** | collaboration transport itself is an egress capability governed by privacy closure |
+
+# 28. Collaboration findings
+
+## X101 — Offline edits are branches, not delayed writes (P1)
+Offline work is represented as a local working branch/session with:
+- base revision/version;
+- operation schema version;
+- actor + device/session identity;
+- local operation sequence;
+- scope.
+
+On reconnect it is **rebased/merged through normal commands**, not blindly replayed against latest canonical state.
+
+## X102 — Domain-specific merge classes (P1)
+Do not apply one CRDT/LWW strategy to all domains.
+
+Classify:
+- CRDT/merge-friendly: comments, presence, some plain collaborative text;
+- operation-rebase: timeline edits where disjoint;
+- compare-and-set/exclusive: canonical promotion, approvals, rights, publish settings;
+- manual semantic conflict: overlapping canon intervals, same-clip edits, destructive edit/delete collisions.
+
+Syntactic convergence is not semantic correctness.
+
+## X103 — Collaboration conflict entity (P1)
+A first-class conflict stores:
+- base revision;
+- local branch/ops;
+- current canonical revision;
+- conflicting entities/fields/time ranges;
+- invariant violations;
+- suggested resolutions;
+- resolution actor/command.
+
+Do not discard one side silently.
+
+## X104 — Current-authority revalidation on sync (P0/P1)
+Queued/offline operations revalidate:
+- actor/account enabled;
+- role/permission revision;
+- project membership;
+- privacy/rights/security state;
+- archive/purge terminal state.
+
+Old authorization is evidence of past intent, not current authority.
+
+## X105 — Terminal/tombstone dominance (P0/P1)
+States such as:
+- privacy PURGED/tombstoned;
+- rights REVOKED where non-resurrectable;
+- project TRASHED/PURGED;
+- sealed archive;
+- account disabled
+
+cannot be reversed by stale offline operations.
+Restoration/resurrection requires an explicit authorized command under current policy.
+
+## X106 — Exclusive lock only from authoritative Core (P1)
+Offline clients cannot mint a new exclusive/manual/canonical lock.
+
+They may continue a previously granted lease only within policy TTL/offline allowance, and any canonical commit still revalidates current ownership.
+
+## X107 — Actor vs device/session identity (P1)
+Collaboration audit binds:
+- actor/user;
+- device installation;
+- app session;
+- command/edit session.
+
+Same user on two devices can legitimately conflict and must not be collapsed into one “same actor so safe” stream.
+
+## X108 — Offline operation bounds/compaction (P1)
+Offline queues have:
+- max age/count/bytes;
+- checkpoint/compaction;
+- schema migration path;
+- point beyond which full rebase/import-as-branch is required.
+
+No infinite blind replay.
+
+## X109 — Offline irreversible-action prohibition (P0)
+Publish, external delete, high-cost dispatch, credential/rights changes and comparable irreversible actions require fresh online/current authority and external-state checks.
+
+Offline UI may prepare a plan/draft, not execute the irreversible phase.
+
+## X110 — Collaboration transport is egress (P0/P1)
+If collaboration/sync uses network/cloud, it is a Capability with:
+- privacy/data-egress policy;
+- encryption;
+- account/tenant identity;
+- retention;
+- rights constraints.
+
+LOCAL_ONLY project cannot silently sync content through cloud collaboration.
+
+## X111 — Notification recipient reauthorization (P1)
+Mentions/review/task notifications revalidate recipient project access/privacy at delivery.
+A stale mention cannot leak project names/content after access removal.
+
+## X112 — Canonical promotion CAS (P1)
+Approving/selecting a canonical candidate is compare-and-set against the exact current canonical slot/revision.
+Two simultaneous approvals cannot both become canonical; loser receives a conflict/review state.
