@@ -7947,3 +7947,144 @@ Privacy/rights routing evaluates actual declared egress chain, not only connecto
 Sensitive request/response fields are redacted before generic logs/traces.
 
 External effect/cost receipt needed for recovery is written through host-controlled durable evidence, so connector crash cannot erase knowledge that a charge/action may have occurred.
+
+
+# 39. Device theft / at-rest privacy / encryption adversarial wave
+
+This wave uses `DATA-xx`.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| DATA-01 | Laptop is stolen while powered off; project DB/media are plaintext | **GAP/P0/P1 privacy** | credential secure-store alone does not protect creative data at rest |
+| DATA-02 | External backup drive is lost/stolen | **GAP/P1** | backup durability and backup confidentiality are separate |
+| DATA-03 | DB is encrypted but thumbnails/proxies/waveforms remain plaintext | **GAP/P1** | derived assets can reveal sensitive content |
+| DATA-04 | Originals are protected but FTS/vector index leaks script/content semantics | **GAP/P1** | indexes/embeddings are sensitive derivatives |
+| DATA-05 | Project encryption excludes logs/diagnostic snapshots containing dialogue/paths | **GAP/P1** | protection scope must include sensitive observability classes |
+| DATA-06 | Temporary render/cache file is plaintext during processing and machine is stolen/crashes | **GAP/P1** | high-sensitivity profile needs protected temp policy or honest residual risk |
+| DATA-07 | Pagefile/hiberfile contains decrypted frames/keys | RESIDUAL | app cannot guarantee physical secrecy from OS paging/hibernation |
+| DATA-08 | Same Windows machine has another local user/admin who can read library root | PARTIAL | ACL exists; full admin compromise is outside app guarantee |
+| DATA-09 | Backup is encrypted but encryption key is stored on same backup drive | **GAP/P0/P1** | key separation/recovery design required |
+| DATA-10 | Recovery key is lost; backup becomes permanently unrecoverable | **GAP/P1 availability** | confidentiality/recoverability tradeoff must be explicit |
+| DATA-11 | Recovery key is copied into project notes/email and leaks | **GAP/P1 UX/security** | key display/export needs guarded one-time recovery workflow |
+| DATA-12 | Machine migration restores encrypted project but OS secure-store wrapping key is unavailable | **GAP/P1** | project data key recovery differs from provider credential reauth |
+| DATA-13 | Key rotation is interrupted halfway through TB-scale library | **GAP/P1** | envelope-key/versioned rotation must be resumable |
+| DATA-14 | App downgrade does not understand new encryption envelope version | **GAP/P1** | crypto format version participates in app/schema compatibility |
+| DATA-15 | One global data key compromise exposes every project | **GAP/P1** | key hierarchy/scope should limit blast radius |
+| DATA-16 | Per-project encryption breaks content-addressed dedupe and storage explodes | **DESIGN TRADEOFF** | privacy scope and dedupe scope must be explicit |
+| DATA-17 | Convergent/deterministic encryption preserves dedupe but leaks equality across projects | **GAP/P1 privacy** | dedupe privacy tradeoff cannot be hidden |
+| DATA-18 | User A can infer User B owns same confidential asset by hash/equality behavior | **GAP/P1 multi-tenant** | cross-tenant dedupe/equality leakage unsafe by default |
+| DATA-19 | Project deleted but deduped shared object remains due another project; user expects physical erase | PARTIAL | honest deletion exists; per-project crypto-erasure can improve semantics |
+| DATA-20 | Crypto-erasure destroys project key but shared/global derived index still contains content | **GAP/P1** | key/destruction graph must include derivatives/index/cache |
+| DATA-21 | Ransomware running as user encrypts live library and mounted writable backup | PARTIAL | immutable/offline backup tier exists; at-rest encryption does not stop ransomware |
+| DATA-22 | Ransomware deletes/wraps local project data keys too | **GAP/P1 availability** | independent recovery key/offline backup key path needed |
+| DATA-23 | Full-disk encryption is enabled but machine is stolen while unlocked/sleeping | RESIDUAL | FDE threat model differs powered-off vs active session |
+| DATA-24 | User assumes “Local only” means Windows/EDR/cloud backup never sees media | RESIDUAL/P1 honesty | product must define what CineForge controls vs OS/admin/EDR |
+| DATA-25 | Antivirus/thumbnail shell extension reads decrypted exported/temp files | RESIDUAL/P2 | high-security mode may reduce exposure but cannot control kernel/admin software |
+| DATA-26 | Encrypted object file is corrupted; AEAD check fails after years | **GAP/P1** | integrity/authentication failure needs mirror/backup repair path |
+| DATA-27 | Key metadata corrupts while encrypted media bytes remain intact | **GAP/P0 availability** | key manifest is critical backup object with redundancy/verification |
+| DATA-28 | Backup manifest references key version not included in recovery material | **GAP/P0/P1** | backup verification must test decryptability, not just ciphertext hashes |
+| DATA-29 | User exports portable project and assumes it is encrypted because source library is encrypted | **GAP/P1 UX** | export protection is independent and explicit |
+| DATA-30 | Handoff package to editor includes sensitive sources unencrypted on removable drive | **GAP/P1** | handoff confidentiality profile/options needed |
+| DATA-31 | Shared team project encrypts to one user's Windows credential, blocking others | **GAP/P1 future collaboration** | data keys must not be directly owned by one local credential in team mode |
+| DATA-32 | User revokes one team member but that member already exported/decrypted media | RESIDUAL | cryptographic revoke cannot erase previously disclosed plaintext |
+| DATA-33 | Encrypted cache is cleared but key remains in memory for long-lived worker | **GAP/P2/P1** | key/material lifetime minimization and worker boundary needed |
+| DATA-34 | Crash dump captures data encryption key | **GAP/P1** | sensitive-process dump policy and memory handling |
+| DATA-35 | Provider/browser upload staging decrypts entire original to common temp path | **GAP/P1** | per-job protected staging + short lifetime |
+| DATA-36 | User copies CAS object file directly and mistakes ciphertext for usable backup | **GAP/P2 UX** | library internals are not portable backup; backup manifest/key evidence required |
+| DATA-37 | OS filesystem snapshot/VSS retains deleted plaintext historical temp file | RESIDUAL/P1 | physical deletion guarantees must remain honest |
+| DATA-38 | High-security encryption causes video preview/decode latency that makes product unusable | **DESIGN TRADEOFF** | protection profiles must be benchmarked, not globally forced blindly |
+| DATA-39 | Hardware failure destroys TPM/FDE key and there is no recovery material | RESIDUAL/ops | CineForge can validate backup recoverability but cannot replace OS FDE recovery policy |
+| DATA-40 | Key revocation/rotation event is restored from old backup and old compromised key becomes trusted | **GAP/P0/P1** | forward crypto/trust revocation journal must dominate restored historical key state |
+
+# 40. At-rest/privacy findings
+
+## X181 — Data-protection profiles (P0/P1)
+CineForge distinguishes at least:
+- STANDARD_LOCAL: relies on OS/user ACL + optional OS full-disk protection;
+- PROTECTED_LIBRARY: CineForge encrypts selected DB/object/derived data at rest;
+- HIGH_SENSITIVITY: stronger temp/cache/index/log protection and tighter process isolation.
+
+UI never implies a stronger profile than actually configured.
+
+## X182 — Protection scope includes derivatives (P1)
+Sensitive protection classification propagates to:
+- DB/project metadata;
+- originals;
+- canonical media;
+- proxies/thumbnails/waveforms;
+- subtitles/transcripts;
+- FTS/vector indexes/embeddings;
+- temp/staging;
+- logs/diagnostics where content-bearing;
+- backups/portable exports according to target policy.
+
+Protecting originals only is insufficient.
+
+## X183 — Envelope key hierarchy and blast-radius control (P1)
+Data encryption uses versioned envelope keys with explicit scope:
+Studio/Library → Project/Data-class → Object where needed.
+
+OS secure store may wrap local key-encryption keys, but project recovery is not identical to provider credential storage.
+
+Compromise/rotation should not require re-encrypting every TB object when key wrapping can rotate safely.
+
+## X184 — Recovery material/decryptability evidence (P0/P1)
+A backup is VERIFIED only when policy proves:
+- ciphertext/object integrity;
+- required key metadata/wrapped data keys are present;
+- recovery material is available by the configured method;
+- a restore/decrypt sample or drill succeeds.
+
+Ciphertext backup without usable keys is not recoverable.
+
+## X185 — Encryption/recovery key lifecycle (P1)
+Key states include:
+- ACTIVE
+- ROTATING
+- RETIRED_DECRYPT_ONLY
+- REVOKED_COMPROMISED
+- DESTROYED
+
+Rotation is journaled/resumable.
+Restore cannot reactivate a compromised/revoked key against forward security policy.
+
+## X186 — Dedupe/privacy boundary (P1)
+Dedupe scope is explicit:
+- within project;
+- within studio/library;
+- cross-tenant prohibited by default.
+
+Encryption mode must not silently leak cross-scope content equality to preserve dedupe.
+High-sensitivity mode may accept reduced dedupe efficiency.
+
+## X187 — Crypto-erasure graph (P1)
+If crypto-erasure is offered, key destruction impact includes all data encrypted under that key:
+- canonical objects;
+- derivatives;
+- indexes;
+- temp snapshots/backups according to policy.
+
+Shared/deduped data and external/plaintext copies prevent a false “fully erased” claim.
+
+## X188 — Encrypted export/handoff is independent policy (P1)
+Source-library encryption does not imply exported deliverable/handoff/portable archive encryption.
+Export UI/policy explicitly selects confidentiality profile and communicates compatibility tradeoffs.
+
+## X189 — Sensitive staging/key lifetime (P1)
+Decrypted staging is:
+- per-job;
+- scoped;
+- shortest practical lifetime;
+- not shared/common temp;
+- cleaned/quarantined on crash recovery.
+
+Key/plaintext buffer lifetime is minimized, with honest acknowledgement that OS/GPU/pagefile/administrator-level remanence cannot be fully controlled.
+
+## X190 — Forward crypto revocation after restore (P0/P1)
+Recovery reconciles historical key state with current forward:
+- compromised-key revocations;
+- minimum crypto format;
+- trust roots;
+- recovery policy.
+
+Old backup cannot resurrect a key that current security policy considers compromised.
