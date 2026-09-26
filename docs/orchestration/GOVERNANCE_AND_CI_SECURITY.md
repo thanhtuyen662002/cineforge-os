@@ -288,7 +288,7 @@ Documentation contradiction is a correctness failure, not cosmetic lint.
 
 
 
-# 18. Autonomous source-dependency governance
+# 19. Autonomous source-dependency governance
 
 Adding/upgrading executable dependencies is not an ordinary invisible implementation detail.
 
@@ -308,7 +308,7 @@ Required evidence by risk:
 
 Unexpected registry/source changes or unreviewed executable install scripts fail closed for privileged/release paths.
 
-# 19. Critical invariant-test protection
+# 20. Critical invariant-test protection
 
 Maintain a registry of tests guarding architecture/security/data-integrity invariants.
 
@@ -320,7 +320,7 @@ Governance CI flags:
 
 The PR must explain the invariant change and update authoritative architecture/risk docs when appropriate.
 
-# 20. Task graph cycle validation
+# 21. Task graph cycle validation
 
 Planner metadata tooling validates hard dependencies as a DAG.
 
@@ -329,7 +329,7 @@ A cycle:
 - is surfaced to Flow Governor;
 - cannot be “worked around” by assigning an arbitrary first worker.
 
-# 21. Control-plane trust-root change
+# 22. Control-plane trust-root change
 
 Changes to `TRUSTED_CONTROL_POLICY.md` use the stricter of:
 - policy currently on protected/base main;
@@ -339,7 +339,7 @@ A PR cannot add its own reviewer/trusted actor and then use that newly added aut
 
 
 
-# 22. Bootstrap verifier ceremony
+# 23. Bootstrap verifier ceremony
 
 The first trusted CI/check/parser cannot prove itself recursively.
 
@@ -354,7 +354,7 @@ During BOOTSTRAP_ENABLEMENT:
 
 Subsequent verifier changes use normal HIGH-risk governance flow.
 
-# 23. Repository protection rollout
+# 24. Repository protection rollout
 
 Rulesets/branch protection are deployed in phases:
 1. readiness/observe-only assessment;
@@ -367,7 +367,7 @@ Rulesets/branch protection are deployed in phases:
 
 Protection availability failure is an incident; agents must not weaken rules blindly to restore throughput.
 
-# 24. Required-check migration
+# 25. Required-check migration
 
 Required-check/workflow identity changes use two-phase migration:
 - introduce and prove new check alongside old;
@@ -377,7 +377,7 @@ Required-check/workflow identity changes use two-phase migration:
 
 Never remove/rename the sole required check before repository rules migrate.
 
-# 25. Assurance unavailable state
+# 26. Assurance unavailable state
 
 If required review assurance exceeds currently available trusted runtime/credential capacity:
 - state is `ASSURANCE_UNAVAILABLE`;
