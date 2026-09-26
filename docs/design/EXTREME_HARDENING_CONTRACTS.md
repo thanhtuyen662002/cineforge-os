@@ -5350,3 +5350,199 @@ Similarity is evidence only, never canonical identity.
 273. localized duration collision;
 274. twin/look-alike policy vs accidental duplicate hero;
 275. time-loop simultaneous state variants.
+
+
+# JJ. Observability as governed egress
+
+Observability surfaces:
+- logs;
+- traces;
+- metrics;
+- crash diagnostics;
+- diagnostic bundles;
+- remote health probes;
+- telemetry exporters
+
+are subject to normal privacy/egress policy.
+
+Each observability record/payload carries where applicable:
+- project/studio scope;
+- sensitivity class;
+- telemetry policy revision;
+- producer identity;
+- retention class;
+- export eligibility.
+
+LOCAL_ONLY/project-restricted data is not exported merely because the subsystem is diagnostics.
+
+# JK. Telemetry producer trust and freshness
+
+Telemetry sample fields:
+- producer_component_id;
+- worker/runtime identity;
+- deployment_instance/recovery_epoch;
+- control/capacity epoch where relevant;
+- source_class:
+  LOCAL_OBSERVED | PROVIDER_CLAIMED | DERIVED | SYNTHETIC_PROBE;
+- sampled_at;
+- freshness_deadline;
+- schema version.
+
+Scheduler/Flow Governor:
+- prefer local measured resource state over provider/self-claimed state where appropriate;
+- reject stale samples;
+- do not infer healthy from absence of new errors;
+- do not let one untrusted worker redefine global capacity.
+
+# JL. Metrics label/cardinality discipline
+
+Metric instruments have fixed approved label schemas.
+
+Forbidden by default as metric labels:
+- free-form filename/path;
+- prompt/content;
+- raw error string;
+- arbitrary URL;
+- user-supplied string;
+- per-job/entity IDs where cardinality is unbounded.
+
+High-cardinality correlation belongs in scoped structured logs/traces, not bounded metric dimensions.
+
+Cardinality budget exhaustion degrades metric detail instead of crashing/allocating without bound.
+
+# JM. Bounded non-blocking telemetry pipeline
+
+Telemetry pipeline uses:
+- bounded in-memory queue;
+- bounded optional disk spool;
+- priority classes;
+- drop/sample policy;
+- exponential backoff/jitter;
+- disk/network quota;
+- exporter circuit breaker.
+
+It must not:
+- hold canonical DB writer transaction;
+- hold resource/merge/command lock;
+- block media worker completion indefinitely;
+- grow spool without bound.
+
+Exporter failure is visible health degradation but not equivalent to canonical task failure unless an explicitly mandatory audit/export policy says so.
+
+# JN. Durable audit/security channel
+
+Audit/control/security events are distinct from ordinary operational logs.
+
+Required audit evidence:
+- not sampled;
+- not discarded under ordinary log quota;
+- append/durable according to command transaction rules;
+- included in integrity checkpoint/audit;
+- preservation-hold aware.
+
+Logs may contain a reference to audit/event ID.
+Reconstructing canonical state from best-effort log files is prohibited.
+
+# JO. Trace/correlation context isolation
+
+External trace/correlation inputs are attributed untrusted metadata.
+
+On ingress:
+- sanitize traceparent/baggage;
+- enforce length/count limits;
+- never map external baggage to actor/project/permission scope;
+- create a CineForge internal trace identity;
+- store external IDs under provider/source namespace.
+
+Internal trace context crossing project boundaries requires explicit Core-generated scope propagation.
+
+# JP. Health probe effect and quota policy
+
+Health probes declare effect class:
+- READ_ONLY_LOCAL
+- READ_ONLY_EXTERNAL
+- PAID_EXTERNAL
+- MUTATING_EXTERNAL
+- AUTH_INTERACTIVE
+
+Probe also declares:
+- data sensitivity;
+- account/workspace;
+- expected quota/rate cost;
+- safe synthetic fixture;
+- cadence/backoff.
+
+Default continuous health uses non-sensitive synthetic/read-only mechanisms.
+Paid/mutating/auth-interactive checks are not silently run as frequent background probes.
+
+# JQ. Telemetry policy invalidation
+
+Exporter/worker binds telemetry privacy/egress policy revision.
+
+When policy becomes stricter:
+1. stop newly disallowed export;
+2. invalidate worker/exporter policy cache;
+3. re-evaluate queued/spooled payloads;
+4. drop/quarantine noncompliant pending payloads;
+5. record the policy transition without leaking payload contents.
+
+Policy loosening does not automatically export historical quarantined payloads without explicit eligibility rule.
+
+# JR. Telemetry redaction boundary
+
+Redaction happens before generic logging/export formatting where possible.
+
+Sensitive classes include:
+- credentials/tokens/cookies;
+- signed URLs/query secrets;
+- private endpoint details;
+- raw prompts/script/media text when policy restricts;
+- absolute user paths/usernames;
+- provider raw response fields marked sensitive.
+
+Pseudonymized/hash values remain personal/sensitive if dictionary re-identification is plausible.
+
+# JS. Monotonic observability timing
+
+Use:
+- monotonic clock for local elapsed duration;
+- sample generation/reset ID for counters;
+- event sequence for canonical ordering;
+- wall-clock only for display/external correlation.
+
+Counter reset/restart must not be interpreted as negative work/throughput without generation context.
+
+# JT. Progress evidence
+
+Worker heartbeat and semantic progress are separate.
+
+Progress evidence may include:
+- new verified bytes/frames/samples;
+- attempt phase transition;
+- provider job status transition;
+- output/checkpoint creation;
+- completed subtask/item count.
+
+A live heartbeat with no semantic progress beyond task-specific threshold moves to ALIVE_STALLED and triggers diagnosis rather than infinite lease extension.
+
+# JU. Observability required tests
+
+296. trace contains bearer token/signed URL;
+297. LOCAL_ONLY project with external telemetry collector configured;
+298. user filename as metric label cardinality attack;
+299. provider/worker fake capacity sample;
+300. monitor process dies while last sample is HEALTHY;
+301. exporter offline spool bound and recovery burst;
+302. external telemetry env inherited by child worker;
+303. external trace baggage attempts project-scope injection;
+304. sampled operational log loss while durable audit survives;
+305. preservation hold prevents required audit deletion;
+306. telemetry policy tightening invalidates pending spool;
+307. paid/mutating health probe classification;
+308. synthetic health fixture contains no project media;
+309. monotonic duration survives wall-clock jump;
+310. metric counter reset/generation;
+311. duplicate telemetry delivery does not double-count authoritative cost;
+312. stale Capacity epoch metrics rejected;
+313. fake heartbeat with no semantic progress;
+314. raw provider error redacted before general log sink.
