@@ -315,3 +315,41 @@ Security/release-sensitive workflows:
 - record artifact digest/producer/source workflow identity before privileged consumption.
 
 A release/signing job never assumes a downloaded CI artifact is trusted merely because its filename matches.
+
+
+
+# 18. Autonomous dependency changes
+
+Dependency additions/upgrades are a supply-chain change.
+
+CI/review should detect:
+- lockfile/source dependency delta;
+- new registries/sources;
+- scripts/native binaries;
+- license changes;
+- vulnerability/provenance issues.
+
+High-risk dependency source/publisher/script changes require security review.
+
+# 19. Critical invariant test inventory
+
+Maintain an identifiable set of critical invariant tests/policies.
+
+CI fails or requires explicit high-risk review when a PR:
+- deletes them;
+- skips/disables them;
+- changes expected failure semantics;
+- materially reduces their exercised surface
+
+without corresponding approved architecture/policy change.
+
+# 20. Callback and network test classes
+
+Security CI should include tests for:
+- forged callback;
+- replayed callback;
+- localhost/private redirect;
+- DNS/address revalidation;
+- archive traversal/bomb;
+- parser network-protocol denial;
+- output path sandbox escape.
