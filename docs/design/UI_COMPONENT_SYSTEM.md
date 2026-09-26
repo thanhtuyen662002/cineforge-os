@@ -1709,3 +1709,38 @@ Options:
 - inspect affected current shots.
 
 No “update all history” default.
+
+
+
+# 72. Numeric/domain validation UX
+
+Normal users see domain language:
+- “Tốc độ khung hình của file này không hợp lệ.”
+- “Khoảng thời gian bắt đầu/kết thúc bị lỗi.”
+- “Thông số media quá lớn để xử lý an toàn.”
+- “Đơn vị tiền tệ của chi phí này khác với ngân sách dự án.”
+
+Advanced details may expose raw timebase/value/overflow evidence.
+
+Never silently clamp malformed canonical media values without recording the normalization decision.
+
+# 73. Timecode/locale entry UX
+
+Localized numeric entry may accept familiar locale input, but confirmation displays the normalized canonical interpretation for high-impact settings.
+
+Timecode controls explicitly distinguish:
+- frame rate;
+- drop-frame/non-drop-frame;
+- project start timecode.
+
+Rights/date controls show timezone/boundary meaning when it can affect release eligibility.
+
+# 74. Spreadsheet export safety UX
+
+Normally invisible.
+
+If a user explicitly intends a formula-bearing spreadsheet, export settings distinguish:
+- Text dữ liệu
+- Công thức được tin cậy
+
+Imported/untrusted project text defaults to literal cells.
