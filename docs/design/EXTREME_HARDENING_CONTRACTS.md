@@ -4568,3 +4568,207 @@ If a different master/dependency generation is built, prior readiness/approval d
 191. platform post-transcode broken subtitle/audio;
 192. old music/lip-sync/audio cache after timing/context change;
 193. final master digest built from different timeline than release readiness.
+
+# HS. CI artifact chain-of-custody
+
+A CI/release artifact is identified by more than name/path.
+
+Promotion evidence binds:
+- source repository identity;
+- immutable source commit SHA;
+- workflow path + workflow revision;
+- run ID;
+- job ID;
+- matrix dimensions;
+- runner trust class;
+- producer GitHub App/workload identity;
+- artifact digest;
+- attestation/signature identity where required.
+
+Privileged jobs:
+- do not select artifacts only by human-readable name;
+- do not execute arbitrary artifacts produced by untrusted PR runs;
+- verify provenance before promotion/signing/publication.
+
+# HT. CI permission/OIDC capability profile
+
+Every workflow/job has an explicit capability profile.
+
+Classes:
+- SOURCE_READ
+- CHECKS_WRITE
+- CONTENTS_WRITE
+- PR_WRITE
+- PACKAGES_WRITE
+- RELEASE_WRITE
+- ENVIRONMENT_ACCESS
+- OIDC_ID_TOKEN
+- SIGNING_ACCESS
+- DEPLOYMENT_ACCESS
+
+Default:
+- ordinary build/test: repository read and minimal check reporting only;
+- untrusted/fork PR: no privileged secret/OIDC/write capabilities;
+- release/sign jobs: narrowly scoped protected ref/event/environment.
+
+Governance CI validates effective workflow permissions and flags broad implicit defaults.
+
+# HU. Hermetic release closure
+
+Release build resolves and records exact immutable:
+- repository commit;
+- submodule/LFS/object inputs;
+- dependency lock/integrity;
+- toolchain/compiler/runtime;
+- bundled native sidecars;
+- codegen inputs;
+- environment certification fingerprint.
+
+Security-critical release build does not fetch mutable “latest” tooling or executable dependencies during build unless the download itself is digest-pinned and policy-authorized.
+
+# HV. Privileged workflow trigger validation
+
+Privileged triggers such as:
+- workflow_run;
+- repository_dispatch;
+- manual dispatch;
+- schedule;
+- release events
+
+validate:
+- actor/event trust;
+- source repository/ref/SHA;
+- payload schema;
+- source workflow trust;
+- artifact provenance;
+- target environment/channel.
+
+A privileged follow-up workflow does not execute source-controlled scripts/artifacts from an untrusted PR merely because the follow-up YAML is trusted.
+
+# HW. Installer/updater elevation boundary
+
+Elevated installer/updater process:
+- runs verified absolute-path binaries/helpers only;
+- uses protected private staging;
+- validates helper/package digests before elevation and again as needed before execution;
+- applies safe DLL/library search configuration;
+- does not inherit arbitrary user CWD, PATH or plugin/module search state;
+- revalidates final target handle/path/volume against junction/reparse TOCTOU;
+- avoids executable helpers in low-privilege writable shared temp paths.
+
+Elevation is a security boundary, not a convenience implementation detail.
+
+# HX. Versioned immutable installation and atomic activation
+
+Installed app/runtime versions live in versioned immutable directories.
+
+Update:
+1. download;
+2. verify signature/digest;
+3. stage complete new version;
+4. run compatibility/preflight;
+5. drain active owner/processes;
+6. health check staged version where possible;
+7. atomically switch active-version pointer/launcher state;
+8. start/reconcile;
+9. only later garbage-collect superseded versions under protection rules.
+
+Never mix partial files from old and new versions in one active directory.
+
+# HY. Signed update anti-rollback and channel identity
+
+Update manifest binds:
+- product ID;
+- update schema version;
+- channel;
+- release/version;
+- release security epoch;
+- OS/platform/architecture;
+- artifact digest/size;
+- signer key ID;
+- minimum compatible app/schema;
+- minimum allowed security epoch where policy requires;
+- freshness/expiry/timestamp evidence.
+
+Clients pin allowed channel policy.
+A validly signed older vulnerable manifest is not automatically accepted.
+
+Emergency downgrade requires a separately authorized signed recovery policy with explicit impact.
+
+# HZ. Atomic release publication identity
+
+Release registry key:
+`product + channel + platform + architecture + semantic/build version`.
+
+Publication acquires a release lease/atomic registry operation.
+
+If the key already exists:
+- same digest + compatible metadata => idempotent;
+- different digest => CRITICAL_RELEASE_IDENTITY_CONFLICT.
+
+Never overwrite two distinct binaries under one canonical release identity.
+
+# IA. Installer/package ownership graph
+
+Installed component records:
+- package/component identity;
+- installation owner(s);
+- version;
+- path/root;
+- protection/reference leases;
+- projects/runtimes that require it;
+- uninstall eligibility.
+
+Uninstall/remove is graph-aware and cannot delete a component still required by another active installation/runtime/project.
+
+# IB. Canonical release identity manifest
+
+One immutable release manifest drives all user/build/release surfaces:
+- product version;
+- build number/security epoch;
+- source commit;
+- package/app version;
+- installer filename;
+- binary metadata version;
+- updater manifest version;
+- SBOM/provenance IDs;
+- artifact digests;
+- channel/platform/arch.
+
+CI verifies generated surfaces agree with the canonical manifest.
+
+A version mismatch is a release-blocking identity defect.
+
+# IC. Release evidence retention
+
+Release-critical evidence retention policy covers:
+- workflow/run provenance;
+- artifact digests/attestations;
+- SBOM;
+- signing/timestamp evidence;
+- release manifest;
+- required test summary;
+- environment/toolchain fingerprint.
+
+Retention outlives ordinary ephemeral PR artifacts sufficiently for incident response and long-term release verification.
+
+# ID. Required CI/CD and installer tests
+
+158. third-party action immutable-pin enforcement on privileged workflow;
+159. OIDC accidentally enabled on ordinary PR job;
+160. untrusted workflow_run artifact consumption attempt;
+161. same-name artifact from wrong run/matrix dimension;
+162. artifact byte mutation before signing;
+163. wrapper/installer content mutation after inner executable signing;
+164. signed old update replay against Stable client;
+165. Beta→Stable manifest/channel confusion;
+166. branch movement after release SHA selection;
+167. elevated installer DLL/PATH/CWD hijack attempt;
+168. junction swap of privileged install target;
+169. AV quarantine during staged update before activation;
+170. rollback after schema/config/service partial update;
+171. duplicate release-version publication with different digest;
+172. signing/timestamp outage cannot silently publish unsigned Stable release;
+173. renewed signing key dual-trust transition;
+174. release built from contaminated persistent runner;
+175. release artifact evidence after ordinary CI artifact expiry.
