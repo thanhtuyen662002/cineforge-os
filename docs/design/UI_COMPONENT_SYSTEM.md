@@ -2354,3 +2354,83 @@ When external signed metadata conflicts with internal lineage:
 - offer review/reconciliation.
 
 Media remains usable as candidate unless another policy blocks it.
+
+
+
+# 61. Structured document import preview
+
+Document import distinguishes:
+- File ingested
+- Text/structure parsed
+- Meaning mapped into project
+- Mapping accepted
+
+These are separate milestones.
+
+## SemanticCoveragePanel
+Shows human language such as:
+- “Đã đọc: nội dung hiển thị, bảng, ghi chú”
+- “Chưa đọc được đầy đủ: biểu đồ và Pivot”
+- “Có 2 sheet ẩn”
+- “File có macro/đối tượng nhúng — CineForge không chạy chúng”
+- “Giá trị công thức có thể đã cũ”
+- “Một số đoạn OCR chưa chắc chắn”
+
+Do not show one generic green “Imported” badge when semantic coverage is partial.
+
+# 62. Spreadsheet mapping workspace
+
+For Excel/CSV:
+- sheet/table/range navigator;
+- visible vs hidden state;
+- merged-cell visualization;
+- original cell coordinates;
+- formula vs cached value;
+- external link warning;
+- date-system/locale/encoding interpretation;
+- field mapping preview.
+
+Critical mapping can be confirmed per table/range instead of flattening the entire workbook.
+
+# 63. PDF/DOCX/PPTX review workspace
+
+Preview can expose:
+- page/slide;
+- extracted text region;
+- comments/notes/footnotes;
+- track changes/current revision view;
+- speaker notes;
+- attachments/embedded objects inventory;
+- form/signature status;
+- OCR confidence overlays.
+
+Unsupported channels are listed explicitly.
+
+# 64. Protected/encrypted document UX
+
+Use:
+- “File cần mật khẩu”
+- “File được bảo vệ”
+- “Không thể xác minh chữ ký”
+- “File bị lỗi”
+
+as distinct states.
+
+Password entry is scoped to the current import operation and clearly not stored unless a future explicit secure policy says otherwise.
+
+# 65. Document active-content warning
+
+Macros/OLE/DDE/PDF actions/external data refresh are never executed in preview/import.
+
+UI message:
+“CineForge phát hiện nội dung có thể chạy hoặc tải dữ liệu bên ngoài. Nội dung này đã bị vô hiệu hóa; bạn vẫn có thể xem dữ liệu an toàn mà CineForge đọc được.”
+
+# 66. Structured import confidence
+
+When OCR/layout/semantic parse is uncertain:
+- highlight affected range/page/field;
+- show original beside parsed result;
+- allow accept/correct;
+- do not force user to review high-confidence regions one by one.
+
+The goal is targeted human judgment, not making the user manually reconstruct the document.
