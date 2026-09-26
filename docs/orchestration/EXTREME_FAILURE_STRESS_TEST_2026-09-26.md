@@ -5712,3 +5712,205 @@ Borrowed work:
 - is marked preemptible/reclaimable;
 - cannot occupy the deadline buffer with non-preemptible tasks;
 - is drained before reserved deadline.
+
+
+# 31. Tenth-wave architecture-complexity and governance-paralysis attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 501 | New coding agent must read 20+ huge docs and misses one critical invariant | **GAP/P0/P1 delivery** | more documentation can reduce effective comprehension |
+| 502 | Same concept is defined in FINAL_ARCHITECTURE, SCHEMA, API, STATE and EXTREME_HARDENING with subtle divergence | **GAP/P1 correctness** | multi-owner duplication can become contradictory source of truth |
+| 503 | `EXTREME_HARDENING_CONTRACTS.md` grows into a giant monolith nobody can review end-to-end | **GAP/P1 process** | hardening itself becomes context bottleneck |
+| 504 | Every small feature triggers architecture/security/rights/storage/recovery review | **GAP/P1 throughput** | risk-proportional gating must avoid universal heavyweight process |
+| 505 | P0/P1 labels proliferate until almost every task becomes HIGH risk | **GAP/P1 governance** | severity inflation destroys prioritization |
+| 506 | CI tries to run hundreds of adversarial tests on every PR | **GAP/P1 throughput** | risk-based test selection + nightly/contract suites required |
+| 507 | Agent spends scheduled run reading docs and scanning GitHub, makes no code progress | **GAP/P1 automation efficiency** | context digest/snapshot and incremental reading must be bounded |
+| 508 | Planner decomposes architecture into hundreds of tiny Tasks; overhead exceeds coding | **GAP/P1** | minimum task granularity/transaction cost must be considered |
+| 509 | Planner creates tasks too coarse to avoid overhead; merge conflicts/serial dependencies return | CONTAINED/PARTIAL | adaptive task size policy needed |
+| 510 | Baseline lock requires independent review/CI before CI/reviewer infrastructure exists | **GAP/P0 bootstrap deadlock** | bootstrap exception/ceremony must be explicit and narrow |
+| 511 | Required RUNTIME_INDEPENDENT review unavailable with one Work chat | **GAP/P1 availability** | assurance-unavailable state exists but project may deadlock permanently |
+| 512 | To unblock deadlock, user/agent weakens governance ad hoc | **GAP/P0 process** | bootstrap/recovery authority must be explicit, not improvised |
+| 513 | One HIGH-risk governance PR changes 12 files and is impossible to review confidently | **GAP/P1** | governance PRs need bounded scope and generated consistency evidence |
+| 514 | Docs evolve faster than implementation; agents code future contracts irrelevant to current Slice | **GAP/P1 delivery** | current-slice applicability manifest needed |
+| 515 | Schema catalog contains hundreds of future tables; agent implements unused abstractions | PARTIAL | slice-driven migration rule exists, but runtime task context should filter target |
+| 516 | All “future-proof” abstractions make first 3–5 minute film impossible to ship | **GAP/P1 product** | vertical-slice budget and anti-overengineering gate needed |
+| 517 | Multiple abstractions solve hypothetical multi-user/distributed cases before single-user V1 | **GAP/P1 scope** | capability maturity levels should separate V1 required vs future contract |
+| 518 | Agent cannot tell which controls are mandatory now vs design reserve | **GAP/P1** | requirement maturity/status field needed |
+| 519 | Red-team finding is fixed in one doc but not propagated everywhere | PARTIAL | cross-layer matrix checks exist but manual upkeep won't scale |
+| 520 | Auto-generated cross-doc lint itself becomes another untrusted source of truth | **GAP/P2** | generated indexes are derived, never authoritative |
+| 521 | Section numbering/anchors change and AGENTS references silently break | **GAP/P2** | stable contract IDs better than prose section numbers |
+| 522 | Same invariant gets three names across docs, agents treat them as different controls | **GAP/P1** | stable glossary/control IDs required |
+| 523 | 15 agents all open architecture docs every run, API/token cost explodes | PARTIAL | context tiers exist; compiled context pack could reduce |
+| 524 | Context digest is stale but agent trusts it over changed authoritative doc | **GAP/P1** | digest binds base SHA and invalidates on referenced changes |
+| 525 | Planner/Flow spends more time updating metadata/metrics than unblocking | PARTIAL | status-minimization exists; automation tooling should derive metrics |
+| 526 | Issue/PR templates become so large that agents copy stale fields blindly | **GAP/P2** | machine metadata should be generated/validated, not hand-maintained |
+| 527 | Every failure creates a new state enum/table instead of reusing generic mechanism | **GAP/P1 architecture entropy** | explicit admission test for new domain primitive needed |
+| 528 | Generic mechanism is overused to avoid new primitive and becomes semantically meaningless | **GAP/P1 opposite entropy** | architecture decision criteria needed for when specialization is warranted |
+| 529 | “Conceptual saturation” is claimed too early because new findings map to old categories | **GAP/P1 epistemic** | category mapping does not prove mitigation sufficiency |
+| 530 | Red-team never validates controls executable; prose accumulates false confidence | **GAP/P0/P1** | control maturity must distinguish DESIGNED vs IMPLEMENTED vs TESTED vs PROVEN |
+| 531 | Tests all mock failures but real Windows/GitHub/provider semantics differ | **GAP/P1** | empirical test levels and real-environment drills required |
+| 532 | Negative tests become brittle, agents disable them to ship | **GAP/P1** | invariant tests need ownership, triage and maintainability budget |
+| 533 | Security-hardening blocks local-first simple user with endless warnings | **GAP/P1 UX** | risk controls should be silent/default-safe where possible |
+| 534 | User cannot understand why action is blocked because 8 policies contribute | **GAP/P1 UX** | decision explanation needs causal policy chain, not generic denial |
+| 535 | Every provider/tool needs full adapter certification before experimentation | **GAP/P1 product velocity** | trust tiers: sandbox/experimental vs production-certified |
+| 536 | Experimental connector contaminates production project state | **GAP/P1** | experimental outputs remain isolated/candidate until promoted |
+| 537 | One design doc change invalidates hundreds of open tasks unnecessarily | **GAP/P1 flow** | material-impact detection vs blanket invalidation |
+| 538 | Architecture docs are authoritative but no machine-readable contract schema exists | **GAP/P1** | selected invariants/contracts need machine-readable registry |
+| 539 | Machine-readable registry duplicates prose and drifts too | **GAP/P1** | registry should generate/validate derived prose indexes, not duplicate semantics |
+| 540 | Project spends months building governance before making one film | **GAP/P0 product failure** | explicit governance budget + vertical-slice deadline needed |
+
+# 32. Complexity-control findings
+
+## X126 — Control maturity levels (P0/P1 delivery)
+Every major control/invariant has maturity:
+- DESIGNED
+- SPECIFIED
+- IMPLEMENTED
+- AUTOMATED_TESTED
+- CHAOS_TESTED
+- PRODUCTION_PROVEN
+
+Docs must never imply a DESIGNED control already protects the running product.
+
+## X127 — Requirement applicability/maturity (P1)
+Each contract/control is classified:
+- V1_FOUNDATION — required before first usable vertical slice;
+- V1_BEFORE_RELEASE — required before real release/distribution;
+- SCALE_HARDENING — required before 10–15 autonomous slots/large workloads;
+- FUTURE_MULTIUSER — design reserve until feature activated;
+- OPTIONAL_HIGH_SECURITY — profile-dependent.
+
+This prevents “future-safe” design from blocking V1 implementation while preserving compatibility.
+
+## X128 — Architecture control registry (P1)
+Create one machine-readable registry of stable control IDs:
+- control_id;
+- title;
+- owner document/section;
+- risk class;
+- applicability;
+- maturity;
+- verification evidence;
+- dependent features.
+
+Other docs reference control IDs instead of redefining semantics.
+
+The registry indexes authoritative prose; it does not replace it.
+
+## X129 — Context pack by task/risk/slice (P1)
+Agents receive a compiled context pack bound to:
+- main/base SHA;
+- task contract hash;
+- current implementation slice;
+- touched domains;
+- applicable control IDs.
+
+Pack lists omitted docs/controls and why.
+Changed referenced files invalidate pack.
+
+No agent needs to reread the entire corpus every run.
+
+## X130 — Vertical-slice anti-overengineering gate (P0/P1)
+Before implementing an abstraction/control, ask:
+1. Is it V1_FOUNDATION or needed by the current slice?
+2. Does it prevent a P0/P1 failure reachable in current slice?
+3. Can a smaller compatible boundary defer implementation safely?
+
+If no, keep it as design reserve rather than code now.
+
+First film remains a product milestone, not an endlessly postponed consequence of architecture.
+
+## X131 — Bootstrap governance escape hatch (P0)
+Before trusted CI/reviewer infrastructure exists, use a narrow explicit BOOTSTRAP_GOVERNANCE state:
+- owner/external trusted review;
+- exact diff/manual evidence;
+- no privilege relaxation;
+- fixed allowed bootstrap file/task classes;
+- ends permanently once baseline CI/review capability is enabled.
+
+Do not weaken normal governance merely because bootstrap cannot satisfy itself.
+
+## X132 — Risk severity calibration (P1)
+P0/P1 assignment requires explicit:
+- realistic preconditions;
+- impact;
+- detectability;
+- containment;
+- current exposure stage.
+
+Track “design severity” separately from “current implementation exposure”.
+Not every hypothetical future multi-user failure blocks single-user V1.
+
+## X133 — Risk-proportional CI matrix (P1)
+Controls map to test suites by:
+- touched domains;
+- risk class;
+- control IDs;
+- implementation slice.
+
+Fast PR gate remains bounded.
+Broader chaos/full suites run when semantically required, nightly or release.
+
+## X134 — Stable control IDs/glossary (P1)
+Core invariants use stable identifiers (e.g. `CF-CTRL-RECOVERY-EPOCH`) and canonical terminology.
+
+Renaming headings does not change control identity.
+
+## X135 — New-primitive admission test (P1)
+Before adding a new table/state/control primitive:
+- prove existing primitive cannot express semantics without abuse;
+- identify owner;
+- identify lifecycle;
+- identify implementation slice;
+- identify deletion/versioning/test consequences.
+
+Conversely, do not force unrelated semantics into one generic abstraction solely to reduce table count.
+
+## X136 — Experimental vs certified capability tiers (P1)
+Connector/runtime/tool capability tiers:
+- EXPERIMENTAL_SANDBOX;
+- PROJECT_ALLOWED;
+- PRODUCTION_CERTIFIED;
+- RELEASE_APPROVED.
+
+Experimental output may be inspected/compared but cannot silently become release-critical canonical state.
+
+## X137 — Causal policy explanation (P1 UX)
+When an action is blocked, Core returns an ordered causal chain:
+- blocking control/policy ID;
+- subject/input causing restriction;
+- whether override exists;
+- authority needed;
+- safe next action.
+
+UI does not dump eight raw policies.
+
+## X138 — Material context invalidation (P1)
+A doc/config change invalidates an active task/context pack only when relevant:
+- referenced control changed;
+- touched domain contract changed;
+- trust/governance floor changed;
+- dependency contract changed.
+
+Unrelated wording/edit does not trigger fleet-wide restart.
+
+## X139 — Governance/architecture budget (P0 product)
+Planner tracks engineering WIP split:
+- product vertical slice;
+- control-plane/governance;
+- hardening;
+- tests/reliability.
+
+A defined policy prevents unlimited hardening work from starving the first end-to-end film unless an unresolved current P0 blocks it.
+
+## X140 — Prose-to-evidence rule (P0/P1)
+No control is considered effective merely because a document says it exists.
+
+Each control registry entry eventually links:
+- implementation module;
+- tests;
+- CI evidence;
+- chaos/drill evidence where required;
+- current maturity.
+
+Unknown evidence means NOT_YET_PROVEN.
