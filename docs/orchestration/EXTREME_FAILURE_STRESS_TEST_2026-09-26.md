@@ -7197,3 +7197,208 @@ Before committing structured document content into Story/Canon/Production truth,
 - parser/version.
 
 “Import successful” means bytes were ingested; it does not mean every semantic object was understood.
+
+
+# 31. Film-production continuity / audio / edit adversarial wave
+
+This wave uses `FILM-xx`.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| FILM-01 | Shot is horizontally mirrored; face matcher passes but scar/prop handedness/text are wrong | **GAP/P1 continuity** | identity QC needs asymmetric landmark/semantic orientation evidence |
+| FILM-02 | Character changes dominant hand between shots while object identity remains correct | **GAP/P1** | handedness/orientation state needs explicit continuity dimension where relevant |
+| FILM-03 | Prop logo/text is mirrored and OCR is still “similar enough” | **GAP/P1** | text orientation/content must be separate from visual similarity |
+| FILM-04 | Camera crosses 180-degree line; characters swap screen direction and scene becomes confusing | **GAP/P1 film grammar** | spatial/screen-direction continuity not reducible to object presence |
+| FILM-05 | Eyelines are individually plausible but point to impossible relative positions | PARTIAL | eyeline QC exists; scene spatial graph needs stronger relation check |
+| FILM-06 | Long take hides character behind object, reappearance drifts face/costume | **GAP/P1** | long-shot temporal identity needs segment/keyframe evidence, not first/last only |
+| FILM-07 | Crowd generator duplicates hero face on background extras | **GAP/P1** | hero-identity exclusion from nonhero population required |
+| FILM-08 | Two similar secondary characters are merged by identity model | **GAP/P1** | pairwise distinctiveness constraints needed, not only match-to-self |
+| FILM-09 | Character injury/dirt/wetness changes mid-shot without narrative event | PARTIAL | state intervals exist; intra-shot temporal state transition needs explicit support |
+| FILM-10 | Costume is correct color but physically impossible continuity (buttoned→open→buttoned) | **GAP/P2/P1** | garment state details may need shot-specific continuity facts |
+| FILM-11 | Prop is in right character's hand but rotated/assembled incorrectly across cut | **GAP/P2/P1** | orientation/configuration can be continuity state |
+| FILM-12 | Reflection/mirror shows missing or contradictory character/prop | PARTIAL | reflection considered generically; reflected-scene semantic relation needs QC |
+| FILM-13 | Text/signage in environment changes between shots | **GAP/P1** | environment text/sign identity is first-class when story-relevant |
+| FILM-14 | Establishing shot geography cannot explain later doorway/room transition | **GAP/P1 spatial continuity** | environment topology/portal relations need scene spatial graph |
+| FILM-15 | Generated camera focal length/FOV changes enough to alter face geometry between cuts | **GAP/P2/P1** | lens/FOV intent and metadata should inform continuity/QC |
+| FILM-16 | Rolling-shutter / lens-distortion mismatch breaks VFX tracking | **GAP/P2** | camera calibration metadata absent in generated/hybrid handoff |
+| FILM-17 | Optical-flow retime invents fingers/faces between good source frames | **GAP/P1** | retime/interpolation creates new visual content requiring QC |
+| FILM-18 | Speed ramp shifts dialogue/music/subtitles but only video clip retime is updated | PARTIAL | timing dependency exists; retime transform must propagate exact mapping |
+| FILM-19 | Frame interpolation changes cadence and lipsync by subframes | **GAP/P1** | presentation-time map must bind audio/lipsync evaluation |
+| FILM-20 | Long timeline rational timing is correct but target NLE rounds differently | PARTIAL | conform metadata exists; target-adapter roundtrip tolerance should be certified |
+| FILM-21 | Two characters talk over each other; one flat dialogue line model loses overlap | **GAP/P1** | conversation needs overlapping utterance intervals/events |
+| FILM-22 | Character interruption timing changes emotional performance but dub aligns only text boundaries | **GAP/P1** | performance context needs turn-taking/interruption cues |
+| FILM-23 | Diarization assigns overlapping voice to wrong speaker and voice QC then “fixes” wrong character | **GAP/P1** | diarization is evidence, speaker binding requires stronger context/authority |
+| FILM-24 | Same character switches language; voice identity is preserved but prosody/age impression drifts | **GAP/P1** | multilingual voice identity needs language-specific certified bindings/performance envelope |
+| FILM-25 | Translation is semantically good but cannot fit lip movement without unnatural speech rate | **GAP/P1** | dubbing needs duration/viseme/performance constraints and alternate translation candidates |
+| FILM-26 | Nonverbal gasp/laugh is assigned to wrong character because no dialogue text exists | PARTIAL | AudioCue can bind character; review/QC must cover nonverbal speaker identity |
+| FILM-27 | Background crowd speech contains recognizable hero voice by model leakage | **GAP/P1** | protected voice identity should be excluded from generic crowd synthesis |
+| FILM-28 | Room tone changes abruptly between reverse shots | PARTIAL | AcousticSpace exists; continuity gate should compare selected room-tone/mix state |
+| FILM-29 | Dialogue sounds correct solo but phase-cancels/comb-filters when mixed with production audio | **GAP/P1** | phase/coherence and ADR blend checks needed |
+| FILM-30 | Master meets integrated loudness but true peak clips after AAC encode | PARTIAL | true peak exists; deliverable codec encode needs post-encode loudness/peak QC |
+| FILM-31 | Stereo mix collapses badly to mono on target device/platform | **GAP/P2/P1** | mono compatibility target profile check |
+| FILM-32 | Audio device/sample clock drift creates 200ms sync error over 60 minutes | **GAP/P1** | long-form source clock drift/conform mapping needed |
+| FILM-33 | Music cue hit points drift after edit but cue state remains APPROVED | PARTIAL | timing dependency exists; exact spotting range invalidation must be tested |
+| FILM-34 | Music generator changes leitmotif interval subtly across episodes | **GAP/P2** | motif identity needs musical-structure evidence, not only audio embedding |
+| FILM-35 | Subtitle reading speed is impossible despite timing technically valid | **GAP/P1 accessibility** | CPS/line-length/reading policy per locale needed |
+| FILM-36 | Subtitle covers burned-in story text or face on vertical crop | **GAP/P1** | safe-area/occlusion-aware subtitle placement required |
+| FILM-37 | RTL/bidi subtitle punctuation/order breaks after renderer/export | **GAP/P1 localization** | locale/script shaping/render verification needed |
+| FILM-38 | Font lacks required Vietnamese/Arabic/CJK glyphs on final render machine | PARTIAL | font coverage known; font embedding/substitution policy needed |
+| FILM-39 | Subtitle export format cannot represent styling/ruby/positioning and silently drops it | **GAP/P1** | target subtitle capability adapter must report lossy conversion |
+| FILM-40 | Audio description overlaps important dialogue after edit | **GAP/P1 accessibility** | accessibility track conflict rules required |
+| FILM-41 | Generic EDL/XML handoff drops speed ramp/effect/compound clip but UI says “editable” | **GAP/P1** | handoff feature capability matrix + lossy report |
+| FILM-42 | CapCut format changes and native-project adapter writes unsupported schema | **GAP/P1** | target-editor adapters need version certification; no blanket “CapCut editable project” promise |
+| FILM-43 | NLE relink finds wrong same-named media from another project | PARTIAL | stable media UUID exists; adapter must emit/use it where target permits |
+| FILM-44 | NLE proxy is edited, then returned master is linked as if original-quality source | **GAP/P1** | proxy/original lineage and quality role must survive round-trip |
+| FILM-45 | External editor flattens color/VFX but CineForge later assumes layer editability | CONTAINED | FLATTENED lineage exists |
+| FILM-46 | External editor changes FPS/timecode start and return import silently conforms | **GAP/P1** | handoff-return preflight compares media/timeline contract |
+| FILM-47 | Vertical/social reframing cuts important prop/character because framing QC used landscape master only | **GAP/P1** | alternate-aspect deliverables require independent framing/safe-area review |
+| FILM-48 | Platform transcode changes color gamma/levels after upload | PARTIAL | post-publish output QC exists; color-target comparison should be explicit |
+| FILM-49 | Platform normalizes audio differently and dialogue becomes too quiet | **GAP/P2/P1** | target loudness/transcode profile and post-publish audio check |
+| FILM-50 | Final master has correct streams but wrong language/default track flags | **GAP/P1 deliverable** | stream metadata/default/forced-language flags need release validation |
+
+# 32. Film-production findings
+
+## X125 — Asymmetric visual continuity (P1)
+For identity/story-critical subjects, QC can include asymmetric facts:
+- scars/markings;
+- left/right accessories;
+- dominant hand;
+- logo/text orientation;
+- prop orientation/configuration.
+
+Horizontal mirror is not a harmless transform when asymmetric semantics matter.
+
+## X126 — Scene spatial/topology graph (P1)
+Scene/environment state can represent:
+- relative character positions;
+- screen direction;
+- eyeline target;
+- portals/doors;
+- navigable room topology;
+- establishing geography.
+
+Film-grammar QC reasons over these relations rather than only object presence.
+
+## X127 — Long-take temporal identity sampling (P1)
+Identity/continuity evidence for long shots uses:
+- segment/keyframe coverage;
+- pre/post occlusion checks;
+- costume/prop/state continuity;
+- temporal drift detection.
+
+First/last-frame identity is insufficient.
+
+## X128 — Identity distinctiveness / protected-identity exclusion (P1)
+Multi-character/crowd generation supports:
+- minimum pairwise distinctiveness for named characters;
+- exclusion constraints preventing hero face/voice leakage into extras/crowd;
+- explicit ambiguity state when two identities cannot be reliably separated.
+
+## X129 — Camera/lens calibration metadata for hybrid work (P2/P1)
+Where hybrid/VFX/conform requires it, capture/generation metadata may include:
+- focal length/FOV;
+- sensor/crop;
+- lens distortion;
+- rolling-shutter assumption;
+- camera transform.
+
+UNKNOWN is valid when model/provider cannot supply reliable calibration.
+
+## X130 — Retime/interpolation as content generation (P1)
+Optical-flow/frame-interpolation/speed processing that synthesizes visual frames is not treated as a harmless timeline transform.
+
+It creates a derived artifact with:
+- method/version;
+- exact time mapping;
+- visual QC;
+- updated lipsync/subtitle/music dependencies.
+
+## X131 — Overlapping conversation/performance timing (P1)
+Conversation model supports utterance intervals that overlap, interruptions and nonverbal vocalizations.
+Speaker identity is explicit; diarization is evidence, not authority.
+
+## X132 — Multilingual voice/dubbing performance envelope (P1)
+Voice identity may have language-specific certified bindings and performance ranges.
+Dubbing planning considers:
+- semantic translation;
+- target duration;
+- phoneme/viseme compatibility;
+- pace/intelligibility;
+- character age/emotion/timbre consistency.
+
+## X133 — Audio mix delivery validation (P1)
+Target profile may require:
+- integrated/short-term loudness;
+- true peak after final codec;
+- channel layout;
+- phase/mono compatibility;
+- dialogue intelligibility;
+- sync drift;
+- default/language flags.
+
+Pre-encode PCM validation alone is insufficient.
+
+## X134 — Subtitle/accessibility target profile (P1)
+Localization delivery validates:
+- CPS/reading speed;
+- line count/length;
+- safe area/occlusion;
+- glyph/font coverage;
+- bidi/script shaping;
+- target format capability;
+- lossy styling/positioning conversion.
+
+Audio-description conflicts with dialogue are also timing dependencies.
+
+## X135 — Editor handoff capability matrix (P1)
+Each target editor/version adapter declares support level per feature:
+- CUT
+- RETIME
+- TRANSITION
+- MULTICAM/NEST
+- CAPTION
+- AUDIO_STEM
+- COLOR
+- VFX
+- SPEED_RAMP
+- MARKER
+- METADATA
+
+Values:
+- NATIVE
+- APPROXIMATED
+- FLATTENED
+- UNSUPPORTED
+
+Handoff UI reports loss before export.
+
+## X136 — Target-editor adapter certification (P1)
+“CapCut/Premiere/Resolve/FCP editable” is versioned capability, not product marketing promise.
+Adapter is certified against target versions and round-trip fixtures.
+Unknown/new target version may downgrade to generic media/interchange handoff.
+
+## X137 — Return-from-NLE contract comparison (P1)
+External edit return checks:
+- media profile;
+- FPS/timebase/start TC;
+- duration;
+- media UUID/reel/conform map;
+- proxy/original role;
+- flattening/loss;
+- audio/subtitle language metadata.
+
+Material contract changes require explicit reconcile, not silent conform.
+
+## X138 — Alternate-deliverable framing review (P1)
+Each materially different aspect/crop/reframe deliverable has independent framing/safe-area/text/subtitle review.
+A landscape master approval does not automatically approve vertical/social crop.
+
+## X139 — Post-platform audiovisual verification (P1/P2)
+Where platform retrieval/inspection is possible, publication verification compares:
+- final bytes/transcode identity;
+- color/gamma;
+- frame/audio sync;
+- loudness/peak;
+- subtitle/audio track presence/default flags.
+
+Platform differences are recorded as external transform evidence.
