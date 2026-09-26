@@ -5217,3 +5217,197 @@ Offline installation explicitly defines revocation freshness:
 - optional “cannot verify newest revocation” warning/block by security profile.
 
 Offline mode must not claim equivalent freshness to online verification when it is not.
+
+
+# 25. Seventh-wave data-residue, isolation and long-run privacy attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 381 | Project is purged but thumbnails/proxies remain in shared cache | **GAP/P1 privacy** | logical purge must traverse derived/cache closure |
+| 382 | Project is purged but semantic/vector index still contains text embeddings | **GAP/P0/P1 privacy** | indexes are derived stores and need purge/rebuild fences |
+| 383 | Character voice consent is revoked but training/golden/failure datasets retain clips | **GAP/P0/P1 rights/privacy** | learning retention must be rights-linked and revocation-aware |
+| 384 | Deleted project prompts remain in debug logs/metrics traces | **GAP/P1 privacy** | observability retention/redaction is a separate data plane |
+| 385 | Windows notification on lock screen exposes secret project/character name | **GAP/P1 privacy** | notification privacy mode/redacted lock-screen content needed |
+| 386 | Crash telemetry sends file paths/project names before user notices | **GAP/P1 privacy** | telemetry schemas/consent must be data-minimized before emission |
+| 387 | Local LLM/worker reuses conversation/session KV state from Project A in Project B | **GAP/P0/P1 cross-project** | model/session state requires project/job isolation/reset |
+| 388 | Embedding index namespace collision retrieves Project B document into Project A RAG | **GAP/P0/P1** | vector index key must bind studio/project/rights scope |
+| 389 | Global semantic cache reuses output from confidential Project A in Project B | PARTIAL/GAP | semantic cache completeness exists; privacy/project scope must be mandatory dependency |
+| 390 | Model prompt cache is provider-side and survives local project deletion | **GAP/P1 disclosure/rights** | provider retention is external side effect and cannot be represented as local deletion |
+| 391 | Browser profile backup captures cookies/session tokens | **GAP/P0/P1** | backups should exclude or separately protect ephemeral credentials/browser state |
+| 392 | Diagnostic bundle excludes media bytes but includes thumbnails/waveforms/text snippets | **GAP/P1** | derived previews can be equally sensitive |
+| 393 | Search index shows deleted filename after purge due stale projection | **GAP/P1 privacy** | privacy purge requires projection/index purge acknowledgment before declaring complete |
+| 394 | Analytics dashboard aggregates enough rare metadata to identify confidential project | **GAP/P2 privacy** | metrics cardinality/data minimization policy needed |
+| 395 | “Anonymous” failure dataset retains unique prompt/asset hashes enabling linkage | **GAP/P1** | pseudonymous identifiers are still linkable; export/training policy must classify |
+| 396 | Project clone inherits learning/memory references to source project | **GAP/P1 cross-project** | clone scope must explicitly exclude source-private memory/training refs |
+| 397 | Template created from project accidentally includes client-specific names/metadata | **GAP/P1** | template extraction needs privacy scrub and explicit inclusion manifest |
+| 398 | Project archive includes hidden trash/rejected candidates user did not expect | **GAP/P1 privacy/storage** | archive export scope must be explicit, not “all rows reachable” |
+| 399 | Rights/retention hold prevents deletion but UI says project was deleted | PARTIAL | tombstone/hold exists; user-visible held-residue state should be explicit |
+| 400 | User requests purge while backup retention policy keeps copies | **GAP/P1 honesty** | purge outcome must enumerate retained backup/external copies |
+| 401 | Learning dataset copy exists on another local volume after source rights revoked | **GAP/P1** | derivative/training lineage must propagate revocation across storage roots |
+| 402 | Model fine-tuned on revoked clip cannot practically “unlearn” one example | **GAP/P0/P1 governance** | trained model must be treated as derivative with revocation/remediation policy, not simple asset delete |
+| 403 | Generated embedding of personal/confidential text is treated as harmless metadata | **GAP/P1 privacy** | embeddings can encode sensitive information and need same scope/retention class |
+| 404 | Search index backup restores deleted embeddings after purge | **GAP/P1** | restore must reconcile privacy tombstones/forward deletion journal |
+| 405 | Cache rebuild regenerates a thumbnail for an asset under legal hold restriction prohibiting processing | **GAP/P1 rights** | rebuildability must revalidate processing rights, not only possession |
+| 406 | “Safe cleanup” deletes only durable copy because rebuild recipe depends on expired cloud capability | PARTIAL | recipe dependency checks exist; current capability/rights check must happen at execution |
+| 407 | Shared model/runtime cache path contains provider API response with prompt data | **GAP/P1** | model/runtime cache and project-content cache must be separated/classified |
+| 408 | Temporary render frames survive crash and are found by another project worker | **GAP/P1 cross-project** | per-job temp roots + startup reconciliation/secure cleanup policy |
+| 409 | Worker stdout/stderr contains prompt/image path and is retained indefinitely | **GAP/P1** | raw logs need retention/redaction/classification, not infinite debugging by default |
+| 410 | Browser download history/autofill leaks confidential project names | **GAP/P1** | dedicated isolated profiles + browser-data retention cleanup |
+| 411 | OS Recent Files/Jump List records exported confidential file | **GAP/P2** | privacy profile may disable/suppress shell recent-document registration |
+| 412 | OS thumbnail cache stores preview of sensitive exported video/image | **RESIDUAL/P2** | app can reduce exposure but OS cache/admin remains outside absolute guarantee |
+| 413 | User opens a sensitive external asset with default viewer; it enters OS/cloud “recent” sync | RESIDUAL/P2 | explicit external-open warning/high-security policy |
+| 414 | Two local Core instances start due launcher race and both think they own writer | **GAP/P0** | process ownership needs OS-level exclusive instance/mutex + DB ownership epoch |
+| 415 | Old Core remains alive after updater starts new Core | **GAP/P0/P1** | activation must confirm old writer stopped before new writer starts |
+| 416 | Core crashes while holding OS mutex; stale metadata makes new Core refuse forever | PARTIAL | OS mutex releases, ownership metadata needs reconcile rather than hard block |
+| 417 | Network/sync tool copies active DB to another machine and second Core opens it | CONTAINED if DB-root rule followed | copied DB must obtain new deployment identity/recovery process |
+| 418 | Two Windows user sessions launch CineForge against same library root | **GAP/P1** | library ownership/user-sharing mode must define writer authority |
+| 419 | Remote desktop disconnect leaves Core/render alive; second session assumes no active work | **GAP/P2** | activity/ownership is Core state, not UI-session presence |
+| 420 | User signs out Windows while background Core still has secrets/jobs | **GAP/P1** | OS session-end policy must drain/persist/lock secrets appropriately |
+| 421 | Windows Fast User Switching exposes GPU/browser shared resource contention | **GAP/P2** | host resource identity includes OS session/user security context |
+| 422 | Project is archived read-only but background cache/index maintenance still mutates it | **GAP/P1 integrity** | archive read-only policy should include derived mutations or use separate derived store |
+| 423 | Read-only archive opens with newer app that silently migrates its data | **GAP/P1 archive integrity** | view-only compatibility must not mutate archived canonical package |
+| 424 | Archive verification needs a missing decoder and app “upgrades” file in place | **GAP/P1** | migration/import creates new working copy, never mutates sealed archive bytes |
+| 425 | Legal hold applies after backup created; retention manager later purges that backup | **GAP/P1 legal** | holds must project to backup/archive retention decisions |
+| 426 | Purge tombstone itself is removed, then old backup can resurrect data unnoticed | **GAP/P0/P1 privacy** | forward deletion/revocation journal needs protected retention horizon |
+| 427 | User disables telemetry now, queued telemetry batch still uploads later | **GAP/P1 privacy** | consent generation epoch + dispatch-time reauthorization |
+| 428 | User changes privacy from cloud allowed to local-only while cloud jobs queued | PARTIAL/GAP | policy future-only rule exists generally; queued external dispatch needs privacy revalidation at irreversible phase |
+| 429 | Provider already received input before privacy policy changed; UI implies data was “pulled back” | **GAP/P1 honesty** | external exposure ledger must remain visible |
+| 430 | Project-level “local only” asset is referenced by cross-project shared character set with cloud permission | **GAP/P0/P1 confused scope** | effective privacy is intersection/most-restrictive over dependency closure |
+
+# 26. Data-residue/isolation findings
+
+## X87 — Privacy purge closure (P0/P1)
+Logical purge is complete only after required derived stores acknowledge deletion/revocation:
+- thumbnail/proxy/cache;
+- search/FTS/vector index;
+- waveforms/transcripts;
+- learning/failure/golden datasets;
+- temp/staging;
+- diagnostics/log references according to retention;
+- portable archives/backups according to policy/hold.
+
+Purge result explicitly lists retained copies that cannot/should not be removed.
+
+## X88 — Forward deletion/revocation journal (P0/P1)
+Restoring an older backup must not silently resurrect later-deleted/revoked content.
+
+Maintain a protected forward journal of:
+- privacy purge tombstones;
+- rights revocations;
+- credential/key revocations;
+- security policy floor.
+
+Restore/recovery applies forward journal before making recovered content active.
+
+## X89 — Embedding/vector privacy class (P1)
+Embeddings and semantic indexes are sensitive derivatives, not anonymous metadata.
+
+They bind:
+- project/studio scope;
+- source revision;
+- privacy/rights class;
+- model/version;
+- retention/purge lineage.
+
+Cross-project retrieval is impossible without explicit authorized shared scope.
+
+## X90 — Model/session isolation (P0/P1)
+Local/remote inference sessions are not reused across project/privacy boundaries unless the runtime contract proves isolation/reset.
+
+On job/project boundary:
+- clear conversation/context/KV/session state;
+- use project-scoped cache namespace;
+- isolate untrusted custom runtime process when needed.
+
+## X91 — Learning derivative governance (P0/P1)
+Training/fine-tuning datasets and trained model checkpoints are derivatives with lineage/rights.
+
+Revocation may require:
+- removing example from future training;
+- quarantining/retraining affected model;
+- documenting practical inability to selectively unlearn;
+- blocking release/use where rights policy requires.
+
+Do not pretend deleting the source clip removes information already learned by a model.
+
+## X92 — Observability privacy plane (P1)
+Logs, traces, metrics, crash reports and diagnostics have separate:
+- schema;
+- allowed data classes;
+- redaction before emission;
+- retention;
+- project/privacy scope;
+- purge behavior.
+
+Raw prompts/media paths are not default telemetry.
+
+## X93 — Notification/lock-screen privacy (P1)
+Native notifications use privacy modes:
+- FULL_CONTENT;
+- REDACT_ON_LOCK_SCREEN;
+- GENERIC_ONLY.
+
+Sensitive project names/filenames/decision details are omitted when profile requires.
+
+## X94 — Backup/browser-secret separation (P0/P1)
+Project backup does not silently include live browser cookies/tokens/credential material.
+
+Ephemeral authentication state is:
+- excluded by default; or
+- encrypted/exported under a separately explicit secure credential-backup mechanism.
+
+Restore normally yields REAUTH_REQUIRED.
+
+## X95 — Single Core/library writer ownership (P0)
+Each writable library has:
+- deployment/library identity;
+- OS-user/session ownership policy;
+- OS-level exclusive writer primitive;
+- Core ownership epoch.
+
+New Core cannot become writer until old writer is conclusively gone/drained.
+Two UI sessions may connect to one Core; they do not each start writers.
+
+## X96 — Archive immutability boundary (P1)
+Sealed/read-only archive bytes are never migrated in place merely to view them.
+New decoder/compatibility work:
+- reads in compatibility mode; or
+- imports/copies into a new working project/version.
+
+Derived preview/index generation must not mutate sealed canonical archive content.
+
+## X97 — Consent/privacy generation epoch (P1)
+Telemetry/cloud/browser/provider dispatch binds current privacy/consent generation.
+Queued emission/dispatch revalidates immediately before external transmission.
+
+Turning telemetry/cloud permission off invalidates queued-but-unsent work where policy requires.
+
+## X98 — External exposure ledger (P1)
+Once data is sent externally, local policy changes cannot erase history.
+
+Record:
+- what class of data;
+- provider/account;
+- time/job;
+- governing policy/terms snapshot;
+- known retention/takedown state.
+
+UI must not imply “local only now” means previously transmitted data was recalled.
+
+## X99 — Most-restrictive dependency privacy (P0/P1)
+Effective egress/privacy for a command is computed over the full dependency/input closure.
+
+If any required input is LOCAL_ONLY or provider-restricted, a broader project/connection setting cannot silently weaken it.
+
+Explicit declassification/reclassification, when policy permits, is a separate high-impact command.
+
+## X100 — Data-residue completion barrier (P1)
+A delete/purge command distinguishes:
+- logical tombstone accepted;
+- canonical references removed;
+- derived/index/cache cleanup pending;
+- backup/legal-hold copies retained;
+- external copies unresolved;
+- purge complete to declared policy scope.
+
+UI never reports the strongest deletion wording before the relevant barrier is satisfied.
