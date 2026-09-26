@@ -1241,3 +1241,133 @@ Never mutate historical cost rows to “make total right”.
 Every job/attempt gets unique private staging/temp namespace with ACL.
 Recovery uses manifest/hash, never filename coincidence.
 Sensitive media should not be intentionally registered with unmanaged OS thumbnail/index caches.
+
+
+# 21. Fifth-wave: control-interaction and lifecycle attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 301 | Backup restore resurrects an old protection lease and blocks GC forever | **GAP/P1** | leases restored from past epoch must not remain authoritative |
+| 302 | Restore resurrects old idempotency record; same user action after restore returns stale pre-restore result | **GAP/P1** | idempotency scope needs recovery epoch/semantic policy |
+| 303 | Restore loses a local-only command executed after backup; UI shows older canonical state while derived cache still has newer data | PARTIAL | recovery projection fencing exists; cache must bind epoch |
+| 304 | Crypto key rotation is interrupted halfway; half objects use old wrap, half new | **GAP/P1** | key rotation needs resumable journal and dual-read transition |
+| 305 | Key revocation occurs while export/release is reading encrypted object | PARTIAL | protection lease exists; key state should be pinned/revalidated |
+| 306 | Crypto-erasure deletes live key but immutable backup contains wrapped historical key | **GAP/P1 privacy** | deletion policy must track backup/key-wrap retention |
+| 307 | Same plaintext exists in Project A/B with separate key scopes; global logical hash leaks existence | PARTIAL | oracle prohibition salvaged; internal access controls need explicit no cross-scope lookup |
+| 308 | Project clone copies derived cache/index entries referencing original project privacy scope | **GAP/P1** | clone must rebuild/rebind derived data, not inherit cache authority |
+| 309 | Project clone copies idempotency/command correlation state | **GAP/P1** | runtime execution history must not clone |
+| 310 | Project clone shares budget reservation/usage ledger | **GAP/P1 financial** | budget policy may copy; live ledger/reservations must not |
+| 311 | User revokes consent; Failure Lake/Golden Dataset still contains derived sample | **GAP/P0/P1 rights** | revocation lineage must reach evaluation/learning datasets |
+| 312 | Revoked sample already influenced promoted heuristic/model | **PARTIAL/irreducible** | need training admission policy + model/dataset lineage + deprecation/retrain decision |
+| 313 | A training run starts under allowed consent, consent revoked halfway | **GAP/P1** | long training needs execution-time consent revalidation and dataset snapshot |
+| 314 | Golden set contains private Project A sample and benchmark is run by Project B worker | **GAP/P1 privacy** | benchmark datasets need scope/permission isolation |
+| 315 | Search/vector index rebuild after deletion briefly swaps old index back due crash | **GAP/P1** | index generation activation needs fencing/atomic switch |
+| 316 | GC sees object rebuildable; package/license is removed milliseconds after check | **GAP/P1 TOCTOU** | GC must hold protection leases on rebuild dependencies through delete commit |
+| 317 | Package removal sees no active job; job dispatch starts immediately after check | **GAP/P1** | package removal/drain needs admission fence, not point-in-time check |
+| 318 | Undo history references asset; retention compactor drops undo op before user-visible checkpoint | **GAP/P2/P1 UX** | compaction must preserve advertised undo horizon/checkpoint semantics |
+| 319 | Timeline compaction succeeds but crash occurs before old ops become reclaimable marker | PARTIAL | compaction needs atomic activation + delayed GC |
+| 320 | Variant branch is archived; shared candidate asset later deleted by active branch cleanup | **GAP/P1** | branch/variant reachability must participate in protection graph |
+| 321 | Release build pins package but updater drains/removes runtime after build before signing reproducibility check | **GAP/P1** | release pipeline needs protection lease through sign/attest |
+| 322 | Browser profile cookie encryption key rotates while browser process still holds old profile | **GAP/P1** | browser profile rotation needs drain/session epoch |
+| 323 | Credential key rotation leaves worker with cached old secret bytes in memory | **GAP/P1** | secret leases/TTL + process restart/zeroization policy where practical |
+| 324 | Log redaction rules update but old logs still contain newly classified secret pattern | **GAP/P1** | retroactive sensitive-log discovery/purge policy needed for severe classes |
+| 325 | Diagnostic bundle created before privacy reclassification is still shareable | **GAP/P1** | artifact authorization must revalidate at access/share time |
+| 326 | User deletes project while backup job is midway; backup captures tombstoned content | **GAP/P1** | backup protection vs deletion needs policy ordering and explicit retention reason |
+| 327 | Immutable backup conflicts with legally required deletion | **GAP/P1 legal/ops** | retention/tombstone/key-scope strategy required; “immutable” is not absolute forever |
+| 328 | Restore from old backup resurrects content deleted for privacy/legal reason after backup | **GAP/P0/P1** | deletion/revocation journal outside backup checkpoint must replay forward after restore |
+| 329 | Rights revocation occurs during release upload after final local gate | PARTIAL | execution-time revalidation needed before irreversible upload phase; cannot undo sent bytes |
+| 330 | Publish completes while takedown command races on another worker | **GAP/P1** | publication aggregate needs serialized/fenced external action state |
+| 331 | Provider sends usage charge after monthly budget period is closed | **GAP/P2/P1 accounting** | late adjustment must land in immutable ledger without rewriting historical period truth |
+| 332 | FX source changes/corrects rate after reservation | PARTIAL | adjustment ledger needed; policy must define booking vs estimate rate |
+| 333 | One failed connector floods millions of identical errors and fills disk | **GAP/P1** | log/error rate limit, dedup/sampling and disk quota needed |
+| 334 | High-cardinality metrics use asset/job IDs as labels and exhaust telemetry backend/memory | **GAP/P2/P1** | observability cardinality budget needed |
+| 335 | Integrity auditor scans entire 100M-asset library and starves production | **GAP/P1 throughput** | audits need incremental/budgeted scheduling and priority |
+| 336 | Background hash scrub saturates SSD while editor needs realtime playback | **GAP/P1 UX** | maintenance I/O budget/preemption needed |
+| 337 | Backup upload saturates network and browser/API jobs time out, triggering retry storm | **GAP/P1** | global network bandwidth admission/priority needed |
+| 338 | Offline/immutable backup target fills; backup silently falls back to local writable storage | **GAP/P0/P1** | durability downgrade cannot be silent |
+| 339 | Model/license revocation makes old release unreproducible, but provenance descriptor still exists | CONTAINED as archival truth | reproducibility can degrade honestly; release bytes remain archived |
+| 340 | Archive restore needs obsolete codec/tool unavailable on current OS | PARTIAL | retain open intermediates + compatibility mode; may need isolated legacy runtime |
+| 341 | User expects archive “forever” but encryption key recovery material expires/lost | **GAP/P1** | archive key escrow/decryptability drills needed |
+| 342 | Learned routing policy optimizes cost and starves rare high-quality strategy | PARTIAL | systemic monitors exist; exploration floor/policy needed |
+| 343 | Failure Lake is dominated by one noisy project and biases global learning | **GAP/P1** | sampling/weighting by project/domain required |
+| 344 | User opts project out of learning after examples already promoted to global heuristic | **GAP/P1** | learning lineage + scope withdrawal/deprecation path needed |
+| 345 | Benchmark/golden labels are edited after promotion; old promotion looks as if evaluated on new labels | **GAP/P1 audit** | dataset/label revisions must be immutable and promotion pins exact snapshot |
+| 346 | Human reviewer identity deleted/deactivated; old approvals become unverifiable | **GAP/P2/P1 audit** | durable actor identity tombstone preserves historical provenance |
+| 347 | Local Windows username changes; ACL validation thinks old user is unauthorized | **GAP/P2** | bind stable OS SID/security identity, not display username |
+| 348 | External drive volume serial cloned/spoofed | **GAP/P2** | volume identity should use multiple attributes and content manifest, not one serial |
+| 349 | Backup/restore across filesystems changes case/Unicode semantics | **GAP/P2/P1** | restore preflight needs target FS capability/normalization collision scan |
+| 350 | Project path moved into a location with shorter max path/file-size limits | **GAP/P2** | storage migration validates target capabilities against existing corpus |
+
+# 22. Fifth-wave findings
+
+## X63 — Recovery-epoch invalidates ephemeral control state (P1)
+After restore, historical:
+- leases;
+- reservations;
+- media/RPC session tokens;
+- browser session leases;
+- idempotency entries whose semantics are epoch-bound
+must be revalidated or fenced by recovery epoch.
+
+## X64 — Deletion/revocation forward journal across restore (P0/P1)
+Privacy/legal deletion and rights revocation need a durable forward journal/checkpoint that is replayed after restoring an older backup, so restore cannot resurrect content into active/searchable state.
+
+## X65 — Key rotation/deletion/backup lifecycle (P1)
+Key rotation is resumable and journaled.
+Backup/key-wrap retention participates in deletion policy.
+Archive has decryptability drills/key recovery policy.
+
+## X66 — Clone separates creative data from execution history (P1)
+Project clone may copy/rebind approved creative assets by policy, but does not copy:
+- idempotency records;
+- command/outbox/inbox history;
+- active reservations;
+- usage ledger;
+- credentials/browser sessions;
+- derived cache authorization state.
+
+## X67 — Learning/evaluation lineage and withdrawal (P0/P1)
+Failure/Golden/benchmark/training artifacts pin:
+- source revision;
+- project/privacy scope;
+- rights/consent/training permission;
+- dataset snapshot revision.
+Revocation/opt-out taints future use and can trigger heuristic/model deprecation/retrain decision.
+Certain data is forbidden from training up front because exact unlearning cannot be guaranteed.
+
+## X68 — Atomic generation activation for indexes/projections (P1)
+Search/vector/projection rebuild writes a new immutable generation, verifies it, then atomically activates a generation pointer.
+Old generation remains non-authoritative and is retired later.
+
+## X69 — Protection lease covers dependencies, not only output (P1)
+GC/export/release/package removal holds protection/admission fences over all resources whose concurrent removal would invalidate the proof.
+
+## X70 — Publication external-action serialization (P1)
+Publish/takedown/replace actions for one external publication aggregate are serialized/fenced and revalidate rights/privacy immediately before each irreversible external phase.
+
+## X71 — Observability/resource self-protection (P1)
+Logs/metrics/audits/scrubs/backups are workloads with quotas/priorities:
+- log dedup/rate/sample + disk cap;
+- metric label cardinality budget;
+- incremental integrity audit;
+- maintenance I/O/network admission/preemption.
+
+## X72 — No silent durability downgrade (P0/P1)
+If configured backup class OFFLINE/IMMUTABLE/SEPARATE_FAILURE_DOMAIN is unavailable/full, backup fails/degrades visibly and requires policy/user decision; it never silently falls back to weaker local storage.
+
+## X73 — Learning diversity/fairness controls (P1)
+Global learning/routing uses project/domain sampling caps/weights and minimum exploration/diversity policy so one noisy project/provider does not dominate.
+
+## X74 — Immutable evaluation dataset snapshots (P1)
+Promotion binds exact immutable golden/benchmark dataset+label revision. Later label edits create new dataset revision, never rewrite promotion history.
+
+## X75 — Stable historical actor identity (P2/P1)
+Actors can become disabled/tombstoned but historical reviews/approvals retain immutable actor identity/provenance.
+
+## X76 — Storage migration filesystem-compatibility preflight (P1/P2)
+Before move/restore:
+- Unicode/case collision scan;
+- max file size/path;
+- sparse/reflink/atomic semantics where required;
+- free space;
+- volume identity/manifests.
