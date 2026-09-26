@@ -243,16 +243,16 @@ Waiting is a PR state, not a worker occupation.
 # 8. Claim and lease model
 
 Claim branch name:
-`agent/i<issue>-a<attempt>-<slug>`
+`agent/i<issue>-a<attempt>`
 
-All workers attempting the same task must derive the same next attempt branch name.
+All workers attempting the same task must use the exact same next-attempt branch name. No descriptive/free-form slug is permitted in the lock key.
 
 Creating the branch is the atomic claim race:
 - first successful creation wins;
 - losers immediately select another ready issue;
 - no duplicate implementation.
 
-Winner immediately opens a Draft PR with lease metadata.
+Winner creates the minimal machine claim-marker commit required for a non-empty branch, then immediately opens a Draft PR with lease metadata before substantive work.
 
 A Draft PR remains the authoritative claim until:
 - merged;
@@ -492,6 +492,7 @@ The system succeeds when:
 
 The operating model additionally requires:
 - `docs/orchestration/CONTROL_PLANE_TRUST_AND_CONCURRENCY.md`
+- `docs/orchestration/TRUSTED_CONTROL_POLICY.md`
 - trusted-author filtering for public GitHub input;
 - slot-run leases for scheduled overlap;
 - leased/failover control roles;
