@@ -1310,3 +1310,116 @@ Update/package verification binds:
 - revocation/validity state.
 
 A cryptographically valid signature from a revoked/untrusted key does not pass.
+
+
+# 61. URL/network fetch safety API
+
+Queries:
+- `query.network_fetch_policy`
+- `query.network_fetch_attempt`
+
+Internal:
+- `network.validate_uri`
+- `network.resolve_and_validate_destination`
+- `network.follow_redirect_with_revalidation`
+
+Validation is repeated at connect time and for each redirect.
+A public hostname resolving to private/link-local/loopback may be blocked by policy.
+
+# 62. Callback authentication API
+
+Connector ingress contract must provide:
+- authentication method;
+- verified transport/source identity;
+- signature verification result;
+- replay-window result;
+- expected connection/external job binding.
+
+Unauthenticated/failed callbacks are rejected or quarantined before trusted inbox processing.
+
+# 63. CAS integrity API
+
+Queries:
+- `query.storage.integrity`
+- `query.storage.scrub_history`
+
+Commands:
+- StartStorageScrub
+- RepairStorageObjectFromMirror
+- QuarantineCorruptObject
+
+No API returns a writable direct path to immutable CAS bytes for an external editor/tool.
+
+# 64. Dependency governance API
+
+Queries:
+- `query.dependencies.source_changes`
+- `query.dependencies.sbom`
+- `query.dependencies.license_security`
+
+Commands:
+- ProposeSourceDependencyChange
+- ApproveSourceDependencyChange
+- RejectSourceDependencyChange
+
+A code-writing agent adding an executable dependency routes through this policy before merge readiness.
+
+# 65. Protected invariant test API
+
+CI/governance exposes:
+- protected suites touched/removed/weakened;
+- expected protected-test inventory from trusted base;
+- current PR inventory.
+
+A change to a protected suite generates governance review requirements automatically.
+
+# 66. External-source stable ingest/relink API
+
+`imports.prepare_stable_source`:
+- opens/copies selected source into private staging;
+- records actual parsed-byte hash;
+- rejects path swap/reparse escape according to policy.
+
+`imports.relink_external_source` compares cryptographic identity where required.
+
+# 67. Integrity audit API
+
+Queries:
+- `query.integrity.summary`
+- `query.integrity.findings`
+
+Commands:
+- RunIntegrityAudit
+- RepairIntegrityFinding
+- WaiveIntegrityFinding
+
+Repair is explicit/audited and cannot silently rewrite protected history.
+
+# 68. Worker restart circuit-breaker API
+
+Internal:
+- `workers.record_crash`
+- `workers.schedule_restart`
+- `workers.quarantine`
+- `workers.clear_quarantine`
+
+Restart budget/backoff is policy-controlled.
+
+# 69. Account/workspace identity verification API
+
+Connection health/test returns identity verification separately from auth.
+
+Commands:
+- VerifyConnectionIdentity
+- AcceptConnectionWorkspaceChange
+
+A connection in MISMATCH/CHANGED cannot silently receive autonomous work requiring a pinned workspace.
+
+# 70. Bulk action snapshot API
+
+Before destructive/high-impact bulk command:
+- `bulk.plan(scope/query)` creates `bulk_action_snapshot`;
+- UI/agent confirms that exact snapshot;
+- `bulk.execute(snapshot_id)` revalidates entity revisions before mutation.
+
+New items that match the live filter later are excluded.
