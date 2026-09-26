@@ -2082,3 +2082,111 @@ System diagnostics:
 - `security.verify_local_acl`
 
 Verifies DB/media/runtime/browser/IPC access profile against expected OS-user deployment mode.
+
+
+
+# 74. Core instance fencing API
+
+Internal startup:
+- `core.acquire_instance_ownership`
+- `core.renew_instance_ownership`
+- `core.release_instance_ownership`
+- `core.verify_fencing_token`
+
+A canonical write/outbox dispatch from a stale Core epoch fails with `STALE_CORE_INSTANCE`.
+
+On sleep/resume or suspected duplicate Core:
+- perform ownership reconciliation before new mutation.
+
+# 75. Database integrity API
+
+- `database.run_integrity_check(type, scope)`
+- `query.database.integrity_status`
+
+Critical corruption response:
+- enter SAFE_MODE;
+- stop new external dispatch/canonical writes;
+- preserve diagnostic evidence;
+- offer verified recovery path.
+
+# 76. Egress authorization API
+
+Before connector execution:
+1. build `egress_manifest`;
+2. run `egress.authorize(manifest_id)`;
+3. only ALLOWED manifest can be handed to connector.
+
+Queries:
+- `query.egress.manifest(job_attempt_id)`
+- `query.egress.history(project_id)`
+
+Central authorization is not implemented inside provider adapters.
+
+# 77. Context completeness API
+
+Context compiler returns:
+- included segments;
+- omitted segments;
+- REQUIRED constraint validation results.
+
+`context.validate_required_constraints(compile_session_id)` must pass before dispatch.
+
+MISSING/CONFLICT is blocking according to task policy; token pressure cannot override it.
+
+# 78. Credential version API
+
+- `connections.rotate_credential`
+- `connections.revoke_credential`
+- `query.connections.credential_bindings`
+
+A job attempt references one credential binding version.
+Retry after binding/account change requires orchestration replan/reconciliation.
+
+# 79. Migration readiness API
+
+- `update.plan_migration`
+- `update.get_migration_run`
+- `update.resume_migration`
+- `update.abort_to_recovery`
+
+Plan includes:
+- schema steps;
+- backfill;
+- projection rebuild;
+- expected storage usage;
+- integrity/health checks;
+- binary compatibility.
+
+COMPLETE is returned only after every required phase succeeds.
+
+# 80. Package retention API
+
+- `packages.get_retention_references(package_id)`
+- `packages.plan_removal(package_id)`
+
+Removal plan distinguishes:
+- executable bytes can be deleted;
+- provenance descriptor must remain;
+- active job/session blocks removal;
+- recipe/audit history depends on descriptor/license/signature.
+
+# 81. Publication destination API
+
+- `publications.verify_destination(destination_id)`
+- `publications.plan(release_manifest_id, destination_id)`
+
+Plan returns exact:
+- provider;
+- account;
+- tenant/workspace;
+- channel/page/project identity.
+
+Execute rejects changed/unverified destination snapshot.
+
+# 82. Release stream validation API
+
+`release.inspect_streams(asset_revision_id, release_policy)`
+
+Returns every stream/attachment.
+Unexpected/forbidden streams are explicit findings.
+Release cannot infer safety from the primary video/audio preview alone.
