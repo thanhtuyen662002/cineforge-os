@@ -2062,3 +2062,151 @@ The command/event references:
 - query/source snapshot metadata.
 
 Execution streams the pinned manifest and revalidates per-item revision policy.
+
+
+
+# 51. URL intake, browser navigation and SSRF boundary
+
+Universal Intake URL support and browser connectors are network security boundaries.
+
+Default-deny rules:
+- allow only explicitly supported schemes;
+- deny `file:`, device/custom protocols and arbitrary local-path navigation unless a dedicated trusted feature requires them;
+- resolve and classify destination at connect time;
+- revalidate every redirect;
+- block localhost, loopback, link-local, RFC1918/private ranges and platform metadata endpoints unless an explicit trusted connector policy grants access;
+- do not forward credentials/cookies/auth headers across origins unless connector policy explicitly allows it;
+- bound response size, redirect count, DNS resolution time and total transfer duration.
+
+DNS rebinding is handled by checking the actual connected address, not only the hostname before resolution.
+
+# 52. External callback authenticity
+
+Idempotency protects against duplicates; it does not prove who sent the event.
+
+Every provider callback/webhook ingress must have a connector-specific authenticity policy:
+- signature or shared-secret verification when supported;
+- provider/source identity;
+- timestamp/replay window where supported;
+- raw-body hash;
+- event/correlation ID dedupe;
+- recovery epoch compatibility.
+
+Unauthenticated callbacks never enter canonical `external_inbox_events` as trusted provider facts. They are rejected or quarantined as security evidence.
+
+# 53. Content-addressed storage immutability
+
+Canonical CAS bytes are immutable by construction.
+
+Rules:
+- canonical objects are not exposed through writable hardlinks;
+- editable handoff/export/staging uses copies or proven copy-on-write semantics;
+- registration verifies the final stored object hash after write/rename;
+- external files are copied/opened into stable private staging before security/parser work when TOCTOU matters;
+- symlink/junction/reparse/hardlink semantics must not allow external mutation of canonical objects.
+
+# 54. Autonomous dependency supply-chain governance
+
+A coding agent may not treat “add package” as an ordinary invisible implementation detail when executable dependencies change.
+
+Dependency additions/upgrades require evidence appropriate to risk:
+- exact registry/source and version/commit;
+- lockfile;
+- package integrity/provenance when available;
+- license/commercial compatibility;
+- vulnerability/advisory check;
+- install/build/postinstall script implications;
+- transitive/native binary implications;
+- SBOM inclusion for releasable artifacts.
+
+Typosquatting and dependency-confusion risk are part of review.
+
+# 55. Critical invariant-test protection
+
+Tests that encode security, storage, rights, command/idempotency, recovery or orchestration invariants are governance-sensitive assets.
+
+A feature PR may update them when semantics legitimately change, but:
+- deletion/weakening must be explicit in diff/review;
+- required invariant-test classes cannot silently disappear and still satisfy CI;
+- CI/review compares expected invariant inventory/coverage against baseline;
+- a PR cannot make itself green merely by removing the test that caught the violation.
+
+# 56. Local user isolation
+
+Default CineForge roots and local IPC are scoped to the current OS user.
+
+Requirements:
+- user-private filesystem ACLs for DB/secrets/session metadata by default;
+- no world/every-user writable IPC endpoint;
+- secure local token/session material is per user;
+- shared media roots are explicit and do not imply shared credential/control-plane access.
+
+# 57. External source stability and TOCTOU
+
+For linked/external assets, metadata fingerprint is only a fast-change hint.
+
+When identity matters:
+- validate canonical path/volume/file identity;
+- open/copy into trusted staging through a stable handle where platform permits;
+- compute cryptographic digest before approval/use as pinned production input;
+- detect replacement even when size/mtime are unchanged.
+
+# 58. Rebuildability includes legal and package availability
+
+A derived object is “rebuildable” only if its recipe dependencies are currently acceptable:
+- inputs available;
+- tool/model/package version available or substitutable by policy;
+- required rights/licenses permit regeneration;
+- connection/provider capability still exists;
+- privacy policy permits the execution route.
+
+Package/model removal and storage GC share this dependency graph.
+
+# 59. Canonical/event integrity audit
+
+Because V1 stores canonical relational state plus append-only audit/events, Core periodically verifies invariants such as:
+- aggregate/revision version monotonicity;
+- entity/revision registry consistency;
+- command→event/outbox transaction expectations;
+- orphan/missing outbox records;
+- impossible canonical transitions;
+- audit references to nonexistent entities/revisions.
+
+Detected mismatch enters integrity-recovery state; automatic “repair” must not invent missing historical facts.
+
+# 60. Worker crash-loop circuit breaker
+
+Worker restart policy is bounded.
+
+Repeated crashes within a policy window cause:
+`UNHEALTHY → BACKING_OFF → QUARANTINED`
+
+The scheduler stops assigning new work until:
+- automatic repair/health test succeeds; or
+- operator/agent resolves the cause.
+
+Restart storms must not consume all system capacity or repeatedly corrupt the same workload.
+
+# 61. Browser account/workspace identity
+
+For services where account/workspace/tenant matters, connection identity includes expected remote identity.
+
+Authentication success alone is insufficient.
+
+Health/dispatch may verify:
+- account identifier;
+- organization/workspace/project;
+- region or environment where relevant.
+
+A re-login that lands in a different account/workspace enters `IDENTITY_MISMATCH` and blocks autonomous mutation until resolved.
+
+# 62. Bulk command snapshot semantics
+
+Bulk commands never mean “whatever currently matches this filter at execution time” unless explicitly designed that way.
+
+At confirmation/plan time, bind:
+- exact entity/revision IDs; or
+- immutable/materialized query snapshot hash.
+
+New items arriving after confirmation are excluded.
+Items whose revisions changed are stale/revalidated according to command policy.
