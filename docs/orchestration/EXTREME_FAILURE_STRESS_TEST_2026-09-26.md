@@ -7546,3 +7546,210 @@ It is not a raw pointer copy.
 ## X150 — Multi-user actor identity boundary (P1)
 Future team/server mode requires authenticated application actor/session identity.
 Shared OS account alone is insufficient for review/legal/audit attribution.
+
+
+# 35. Scale / performance / very-large-project adversarial wave
+
+This wave uses `PERF-xx`.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| PERF-01 | 15 workers emit progress every second into canonical SQLite writer queue | **GAP/P1** | high-frequency telemetry must not compete with canonical mutation path |
+| PERF-02 | 1,000 active jobs each heartbeat/write status frequently | **GAP/P1** | coalescing/ephemeral telemetry path needed |
+| PERF-03 | Single writer queue grows to thousands while UI waits on one small save | **GAP/P1 UX/liveness** | priority classes/latency budget needed |
+| PERF-04 | One huge transaction inserts 100k import rows and blocks interactive commands | **GAP/P1** | bounded chunk transactions/commit checkpoints required |
+| PERF-05 | Event log grows to tens of millions and startup replays/scans too much | **GAP/P1** | projection checkpoints/snapshot cadence and bounded recovery needed |
+| PERF-06 | Projection is marked stale and rebuild from genesis takes hours | **GAP/P1 recovery** | incremental/checkpointed projection rebuild |
+| PERF-07 | Integrity audit scans entire event/storage graph on every startup | **GAP/P1** | incremental ranges + background budget |
+| PERF-08 | CAS stores millions of objects in one directory/fanout level | **GAP/P1 Windows** | deterministic directory sharding/object-pack strategy needed |
+| PERF-09 | Millions of tiny proxy/thumb files bloat NTFS MFT and AV scanning | **GAP/P1** | cache packing/sharding/retention strategy useful |
+| PERF-10 | GC enumerates every file to find candidates | **GAP/P1** | DB-indexed incremental GC with cursor/generation |
+| PERF-11 | Orphan reconciliation hashes entire media library after every crash | **GAP/P1** | reconcile known staging/journal first, scrub incrementally |
+| PERF-12 | Content hash scrub reads TBs while editor playback stutters | **GAP/P1** | I/O budget, pause/preemption and maintenance QoS |
+| PERF-13 | Backup duration exceeds backup cadence; multiple backups overlap | **GAP/P1** | one active backup per scope + coalescing/schedule policy |
+| PERF-14 | Full backup of 20TB project is impractical daily | **GAP/P1** | incremental/content-addressed backup manifests needed |
+| PERF-15 | Backup succeeds but restore would take 3 days; user thinks disaster recovery is “ready” | **GAP/P1 ops** | RPO/RTO/recovery-time evidence needs first-class health |
+| PERF-16 | Restore verifies every byte before user can view any project metadata | **GAP/P2/P1 UX** | staged metadata-first/read-only recovery path useful |
+| PERF-17 | Project open eagerly loads every asset/revision/event into memory | **GAP/P1** | paged/lazy projections and working-set design |
+| PERF-18 | Library UI renders 100k AssetCards at once | **GAP/P1 UI** | virtualization/pagination mandatory |
+| PERF-19 | Timeline with 50k clips renders every waveform/thumbnail at all zoom levels | **GAP/P1 UI/media** | multiresolution/paged timeline rendering |
+| PERF-20 | Waveform generation decodes 500 hours of audio immediately after import | **GAP/P1** | on-demand/prioritized derived asset generation |
+| PERF-21 | Thumbnail/proxy generation fanout saturates GPU/CPU before user can edit first scene | **GAP/P1** | foreground-first demand scheduling |
+| PERF-22 | Search/vector index rebuild doubles disk temporarily and fills volume | **GAP/P1** | rebuild storage reservation + staged activation |
+| PERF-23 | FTS/vector index rebuild blocks queries until complete | PARTIAL | generation swap exists; old index should remain serving |
+| PERF-24 | SQLite indexes become bloated; VACUUM requires more free disk than available | PARTIAL | maintenance reservation exists; bloat metrics/threshold useful |
+| PERF-25 | ANALYZE/statistics stale and query plan degrades 100× | **GAP/P2/P1** | DB health needs query-latency/statistics maintenance |
+| PERF-26 | One job stores megabytes of raw provider logs in SQLite | **GAP/P1** | large logs/blobs belong outside canonical DB with retention |
+| PERF-27 | One project creates 100k queued draft generations and starves another urgent project | **GAP/P1** | project/priority fairness and queue quotas needed |
+| PERF-28 | High-priority project continuously arrives and lower project never runs | **GAP/P1 starvation** | weighted fairness/aging |
+| PERF-29 | One long GPU render holds device 3 hours; 30 short interactive previews wait | **GAP/P1 UX** | nonpreemptible vs preemptible resource classes/scheduling |
+| PERF-30 | Scheduler preempts process that cannot safely resume and loses 2h work | **GAP/P1** | capability declares preemption/checkpoint semantics |
+| PERF-31 | Thousands of tiny jobs incur process startup/IPC overhead larger than work | **GAP/P2** | batching/worker reuse within trust boundaries |
+| PERF-32 | Reusable worker improves performance but accumulates memory leaks/state contamination | PARTIAL | restart/quarantine exists; max-job/lifetime recycle policy needed |
+| PERF-33 | Writer batching improves throughput but delays durable save indicator | **GAP/P1 UX** | durability acknowledgement semantics must stay explicit |
+| PERF-34 | Batch commit fails one item and caller assumes all partial items persisted | **GAP/P1** | atomic batch vs per-item result semantics explicit |
+| PERF-35 | DB and 4K media on same HDD cause writer latency spikes during playback | **GAP/P2/P1** | storage topology/IO contention profile should influence scheduler |
+| PERF-36 | Cache/temp root on slow/full disk stalls Core DB even though DB disk is healthy | **GAP/P1** | pressure modeled per volume/root, not one global free-space number |
+| PERF-37 | Model download shares network with cloud upload and starves active provider job | **GAP/P2** | network bandwidth QoS/admission |
+| PERF-38 | Cloud/browser job polling across thousands of jobs hits provider/API rate limit | **GAP/P1** | adaptive polling/webhook preference/batched status checks |
+| PERF-39 | Connection health checks themselves consume paid calls/rate quota | **GAP/P1** | health probe cost/effect budget already conceptually noted; scheduler enforcement needed |
+| PERF-40 | Reconciliation after outage polls every external job simultaneously | **GAP/P1 thundering herd** | jittered/backoff staged reconciliation |
+| PERF-41 | Event/notification fanout to many UI subscribers duplicates expensive projections | **GAP/P2** | shared projection/cache + scoped event summaries |
+| PERF-42 | UI repeatedly refetches same 100MB timeline model after each small event | **GAP/P1 UX** | incremental query/event patches + cursor |
+| PERF-43 | Semantic search embeds every imported frame instead of useful assets | **GAP/P1 cost/storage** | indexing eligibility/sampling policy |
+| PERF-44 | Hundreds of versions of same rejected media never age out | PARTIAL | retention exists; lifecycle tiering/working-set budgets needed |
+| PERF-45 | Archive opens by hydrating all cold media from remote before showing metadata | **GAP/P1 UX** | metadata-first cold archive and selective hydration |
+| PERF-46 | Cold archive depends on removed codec/runtime just to inspect metadata | CONTAINED/PARTIAL | read-only compatibility exists; preserve normalized metadata/previews |
+| PERF-47 | Content-addressed dedupe saves disk but every project delete triggers huge dependency traversal | **GAP/P1** | refcount/reachability indexes + deferred GC |
+| PERF-48 | Refcount is fast but corruption makes it unsafe to delete shared object | **GAP/P1 integrity** | refcount is optimization, graph/audit remains authority |
+| PERF-49 | Database file grows forever from append-oriented history despite archive | **GAP/P1** | retention/partition/archive policy for noncanonical telemetry and cold history |
+| PERF-50 | Full audit/history must remain, but hot DB query performance degrades | **GAP/P1** | hot/cold history tiering with immutable archive manifest |
+| PERF-51 | 50k decision/notification records make Needs You query slow | **GAP/P2** | partial indexes/materialized projection/archival |
+| PERF-52 | One malformed huge scene graph causes dependency invalidation BFS over millions edges | **GAP/P1** | traversal budgets, incremental invalidation queue, cycle safeguards |
+| PERF-53 | Canon change fanout marks 100k descendants stale in one blocking transaction | **GAP/P1** | asynchronous chunked invalidation with immediate root fence |
+| PERF-54 | Chunked invalidation means some descendants temporarily look current | **GAP/P1 correctness** | invalidation generation/root fence must make them conservatively stale during propagation |
+| PERF-55 | Release readiness recomputes entire project graph on every UI refresh | **GAP/P1** | incremental release-gate projection |
+| PERF-56 | Autosave every keystroke writes giant JSON working copy | **GAP/P1** | debounced/delta working-copy persistence + bounded recovery |
+| PERF-57 | Very large script text makes full working-copy rewrite slow | **GAP/P2/P1** | chunk/blob/delta strategy for large editable docs |
+| PERF-58 | SQLite database corruption recovery copies multi-TB media unnecessarily | **GAP/P1** | DB metadata recovery separate from immutable object-store verification/hydration |
+| PERF-59 | Multiple projects run background indexing when machine is on battery | **GAP/P2 UX** | power/thermal-aware background policy |
+| PERF-60 | User sees “100% CPU/GPU” and assumes app hung although useful background work runs | **GAP/P2 UX** | Activity/Resource view should explain background work and allow pause |
+
+# 36. Scale/performance findings
+
+## X151 — Canonical-vs-telemetry write separation (P1)
+High-frequency:
+- progress;
+- heartbeats;
+- resource samples;
+- verbose logs
+
+must not flood the same durability path as interactive canonical commands.
+
+Use coalesced/ephemeral/append-batched telemetry with bounded persistence.
+Canonical state changes remain strongly durable.
+
+## X152 — Writer latency classes and bounded transactions (P1)
+Single-writer queue supports classes such as:
+- INTERACTIVE_CANONICAL
+- CONTROL/RECONCILIATION
+- BACKGROUND_METADATA
+- MAINTENANCE/TELEMETRY
+
+Large import/invalidation work is chunked.
+No transaction grows unbounded or performs external waits.
+
+Interactive save latency is an SLO/health metric.
+
+## X153 — Projection checkpoint and incremental rebuild policy (P1)
+Large projections store checkpoint/event cursor/generation.
+Rebuild resumes incrementally and can serve previous verified generation where safe.
+
+Startup does not replay all history by default.
+
+## X154 — Object-store scaling strategy (P1)
+Content-addressed storage defines scalable path fanout/packing policy for large object counts.
+Cache/tiny derived objects may use pack/container structures when beneficial.
+
+Filesystem enumeration is not the primary object index.
+
+## X155 — Incremental GC/reconciliation (P1)
+GC/orphan/hash scrub operate:
+- from DB/journal candidate indexes;
+- with cursor/generation;
+- chunked I/O budget;
+- pause/resume.
+
+Full-filesystem scan is an explicit repair mode, not normal startup.
+
+## X156 — Backup RPO/RTO and incremental manifests (P1)
+Backup policy reports:
+- recovery point objective;
+- estimated/observed restore time;
+- durability/failure domain;
+- last verified restore;
+- incremental/base manifest relationship.
+
+A recent backup is not necessarily adequate disaster recovery if restore time is unacceptable.
+
+## X157 — Large-project lazy working set (P1)
+UI/Core APIs are paginated/lazy by design.
+Opening a project loads:
+- summary/current context;
+- relevant scene/timeline window;
+- active Needs You/jobs
+
+not the entire project graph/library/history.
+
+Large lists/timeline canvases use virtualization.
+
+## X158 — Derived-media demand scheduler (P1)
+Thumbnail/waveform/proxy/embedding generation is demand/prioritized:
+- visible/active work first;
+- background precompute within resource budget;
+- skip low-value derived work under pressure.
+
+Import completion does not mean all derived assets must be generated.
+
+## X159 — Project/resource fairness (P1)
+Scheduler includes:
+- project/queue weights;
+- priority aging;
+- interactive latency class;
+- per-project WIP/queue quotas;
+- nonpreemptible/preemptible capability declaration.
+
+One huge project cannot permanently starve another.
+
+## X160 — Resource-aware maintenance and topology (P1)
+Scheduler understands roots/volumes and shared bottlenecks:
+- DB disk;
+- media disk;
+- cache/temp disk;
+- backup target;
+- network uplink;
+- GPU.
+
+Heavy operations sharing one physical bottleneck are coordinated even if logically different resources.
+
+## X161 — Adaptive external polling/reconciliation (P1)
+External job status uses:
+- webhook/event when trustworthy;
+- adaptive polling;
+- backoff/jitter;
+- provider batch query when available;
+- rate/quota budget.
+
+Outage recovery does not create a thundering herd.
+
+## X162 — Hot/cold history tiering (P1)
+Canonical audit/history is preserved, but operationally hot DB can archive cold history/telemetry into immutable indexed manifests according to policy.
+
+Cold history remains inspectable without keeping every payload in the hottest tables.
+
+## X163 — Asynchronous dependency invalidation with generation fence (P1)
+Large fanout invalidation:
+1. atomically records root change/new invalidation generation;
+2. affected subtree is conservatively treated stale by generation comparison;
+3. descendants are materialized stale in chunks;
+4. UI/projections update incrementally.
+
+Correctness does not wait for one enormous graph transaction.
+
+## X164 — Incremental release-readiness projections (P1)
+Release readiness is maintained from domain events/dependency changes, not recomputed from the entire project graph on every query.
+
+Final release still performs authoritative gate revalidation.
+
+## X165 — Working-copy persistence scaling (P1)
+Autosave uses debounced/chunked/delta persistence appropriate to content type.
+“Saved” means the current recoverable edit checkpoint is durable, not that every keystroke generated a full immutable revision.
+
+## X166 — Background power/thermal policy (P2/P1)
+Nonurgent indexing/proxy/hash/backup workloads respond to:
+- battery/power mode;
+- thermal pressure;
+- user focus/playback;
+- explicit user policy.
+
+Correctness work remains distinct from optional precompute.
