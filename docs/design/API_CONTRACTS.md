@@ -2434,3 +2434,65 @@ Challenge result:
 - retryable generation state: YES | NO | UNKNOWN.
 
 UNKNOWN never authorizes a replacement paid generation.
+
+
+
+# 88. Evaluator/QC API
+
+Queries:
+- `query.qc.evaluator_profile`
+- `query.qc.evidence`
+- `query.qc.coverage`
+- `query.qc.aggregate`
+- `query.qc.cache_status`
+
+Commands/internal:
+- RunEvaluation
+- RunAggregateEvaluation
+- InvalidateEvaluationEvidence
+- RequestHumanReview
+- QuarantineBenchmarkExample
+
+`RunEvaluation` requires:
+- exact subject/representation;
+- evaluator profile;
+- rubric/calibration;
+- coverage profile;
+- policy/reference manifest.
+
+# 89. OOD/abstention contract
+
+Evaluation output includes:
+- claim type;
+- result;
+- confidence if meaningful;
+- OOD/domain assessment;
+- limitations;
+- coverage;
+- evidence independence.
+
+Client cannot convert UNKNOWN/OUT_OF_DOMAIN to PASS by local defaulting.
+
+# 90. Golden/benchmark API
+
+Queries:
+- `query.learning.benchmark_integrity`
+- `query.learning.benchmark_rights`
+- `query.learning.holdout_status`
+
+Promotion commands reject benchmark sets with:
+- corrupt example;
+- rights/privacy block;
+- stale integrity manifest;
+- insufficient required holdout/shadow evidence.
+
+# 91. Post-QC mutation API
+
+Any artifact-transforming command reports whether it invalidates:
+- technical QC;
+- identity QC;
+- audio QC;
+- subtitle QC;
+- human review.
+
+Release readiness queries final artifact lineage and currently valid evidence only.
