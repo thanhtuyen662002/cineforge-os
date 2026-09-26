@@ -1659,3 +1659,262 @@ Decision records include:
 - evidence.
 
 A waiver never erases the original finding/audit history.
+
+
+# BG. Cross-store external dispatch protocol
+
+Project DB and Installation Side-Effect Ledger are separate durability domains and do not share one transaction.
+
+Dispatch uses a stable `dispatch_fence_id` and this recoverable sequence:
+
+1. Project DB commits command/outbox intent with `dispatch_fence_id`.
+2. Dispatcher idempotently PREPARES the same fence in the installation ledger.
+3. Network/external side effect is forbidden until ledger state is PREPARED.
+4. External receipt/acceptance/unknown outcome is written to installation ledger.
+5. Project DB reconciles from ledger.
+6. Crash/restart compares both stores and resumes from the last proven state.
+
+Required states:
+- INTENT_COMMITTED
+- LEDGER_PREPARED
+- DISPATCHING
+- ACCEPTED_EXTERNAL
+- ACCEPTANCE_UNKNOWN
+- RECONCILED
+- COMPENSATED
+- ABANDONED_SAFE
+
+Rules:
+- project intent without ledger row recreates same fence idempotently;
+- PREPARED ledger row without provider receipt is not assumed dispatched;
+- unknown acceptance never blindly retries beyond exposure/idempotency policy;
+- project restore never erases the installation ledger record.
+
+# BH. Recovery scope
+
+Recovery fencing has explicit scope:
+- INSTALLATION
+- STUDIO
+- PROJECT
+- CONNECTION
+- PUBLICATION_DESTINATION
+
+Restoring Project A blocks only affected scopes unless a shared invariant requires a wider freeze.
+
+Recovery scope graph records shared dependencies, e.g.:
+- one connection/account shared by Project A and B;
+- one signing root shared by all projects;
+- one corrupted object store root shared by studio.
+
+The smallest safe blocking scope wins; never default to either “freeze nothing” or “freeze the whole installation”.
+
+# BI. Atomic resource-bundle reservation
+
+Jobs may require multiple constrained resources.
+
+Reservation request is a bundle:
+- GPU/VRAM
+- CPU/RAM
+- disk space / I/O
+- browser profile
+- specialized worker/runtime
+
+Acquire:
+- atomically where scheduler/storage implementation supports it; otherwise
+- in one canonical global resource-order with rollback of earlier reservations if a later acquisition fails.
+
+Never hold resource A while indefinitely waiting for B under a different acquisition order.
+
+Each bundle has:
+- bundle_id
+- fencing epoch
+- priority
+- preemptibility
+- expiry/renewal policy
+- physical-release confirmation state
+
+Lease expiry does not imply physical release for non-preemptible processes.
+
+# BJ. Resource fairness and priority inversion
+
+Scheduler tracks:
+- per-project active WIP;
+- fair-share/weight;
+- critical-path priority;
+- reserved capacity;
+- starvation age;
+- non-preemptible occupancy.
+
+Policy may support:
+- priority inheritance;
+- draining low-priority queues;
+- preemption only for resources/tasks proven safely preemptible;
+- reserved emergency/release capacity.
+
+A low-priority long job cannot monopolize all capacity indefinitely, but the scheduler must not “preempt” a non-preemptible GPU process by merely expiring its lease.
+
+# BK. Maintenance compatibility matrix
+
+Maintenance operations are classified:
+- BACKUP
+- RESTORE
+- RECOVERY_RECONCILIATION
+- SCHEMA_MIGRATION
+- APP_UPDATE
+- CONNECTOR_UPDATE
+- GC
+- INTEGRITY_AUDIT
+- INTEGRITY_REPAIR
+- LIBRARY_MOVE
+- KEY_ROTATION
+
+A matrix defines ALLOW | SNAPSHOT_SAFE | DRAIN_REQUIRED | MUTUALLY_EXCLUSIVE.
+
+Mandatory examples:
+- RESTORE / RECOVERY_RECONCILIATION × APP_UPDATE = MUTUALLY_EXCLUSIVE
+- SCHEMA_MIGRATION × BACKUP = allowed only at defined migration-safe checkpoint/snapshot
+- GC × RESTORE_SWITCH = MUTUALLY_EXCLUSIVE
+- INTEGRITY_AUDIT × GC = SNAPSHOT_SAFE only when both bind same stable object/revision snapshot
+- KEY_ROTATION × SIGNING = DRAIN_REQUIRED or key-version pinned
+
+A Maintenance Coordinator issues a maintenance lease/fence before operation.
+
+# BL. Just-in-time irreversible gate
+
+Immediately before an irreversible/externally durable action, revalidate:
+- rights;
+- privacy/egress;
+- signing trust;
+- provider account/workspace/destination identity;
+- release manifest/content digest;
+- cost/exposure;
+- current policy revision;
+- recovery/external-reality state.
+
+Planning approval is not a permanent ticket.
+
+The final gate emits a fresh `irreversible_gate_snapshot_hash` bound to the actual dispatch/sign/publish attempt.
+
+# BM. Manual-lock release semantics
+
+Releasing a human/manual lock only removes the prohibition against future automation.
+
+It does not promote an old AI candidate.
+
+A candidate generated against:
+- older revision;
+- older manual-lock epoch;
+- older timeline/canon state
+
+remains CANDIDATE_ONLY until a new explicit promote/apply command passes current impact/policy checks.
+
+# BN. Defense-in-depth worker sandbox
+
+Application-level URL/protocol checks are reinforced at process/OS boundary where practical.
+
+Worker sandbox defines:
+- allowed input roots;
+- allowed output root;
+- network deny/allow destinations;
+- process spawning policy;
+- environment/credential exposure;
+- device/GPU access;
+- temp quota.
+
+Media parsers must not treat UNC/network paths as trusted local files merely because protocol syntax is file-like.
+
+# BO. Authoritative control-context binding
+
+Critical control decisions read policy/architecture/task contracts from an explicit Git commit/ref.
+
+A worker may use local cache for speed only when it proves:
+- cached blob SHA matches expected Git ref content;
+- local checkout is clean for those files or ignored;
+- no uncommitted local governance edit participates in the decision.
+
+High-risk merge/review evidence records context commit/ref.
+
+# BP. High-risk review depth
+
+HIGH-risk review requires evidence of direct inspection of:
+- actual diff;
+- named critical files;
+- relevant workflow/test changes;
+- risk/invariant impact.
+
+A generated PR summary is supporting material only.
+
+Review record can include:
+- inspected_paths
+- diff_hash
+- risk_items_checked
+- tests/workflows inspected
+- unresolved assumptions
+
+For security-critical changes, review policy may require model/runtime diversity in addition to different agent runtime identity.
+
+# BQ. Continuous Epic integration acceptance
+
+Epic integration is not postponed until all child tasks are closed.
+
+After relevant child merges:
+- run/refresh vertical integration evidence;
+- update Epic integration state;
+- create unblock/regression Task immediately on failure;
+- re-evaluate downstream Task readiness.
+
+Epic states include:
+- INTEGRATING_HEALTHY
+- INTEGRATING_DEGRADED
+- BLOCKED_INTEGRATION
+- ACCEPTANCE_READY
+
+Local green PRs do not outweigh broken integrated behavior.
+
+# BR. Performance/resource regression budgets
+
+Critical flows declare measurable budgets, e.g.:
+- startup time;
+- UI interaction latency;
+- Core command p95/p99;
+- DB writer latency/WAL growth;
+- peak memory;
+- import throughput;
+- render/normalize throughput;
+- CI fast-gate duration.
+
+Regression policy distinguishes:
+- expected feature cost;
+- environmental noise;
+- real budget violation.
+
+A feature can be correctness-green but not done if it destroys an agreed critical performance budget.
+
+# BS. Recovery ambiguity workflow
+
+Recovery unresolved items are grouped/ranked by:
+- irreversible side-effect risk;
+- duplicate charge/publication risk;
+- monetary exposure;
+- privacy/rights impact;
+- downstream blockers;
+- confidence.
+
+Safe batch decisions are allowed only for homogeneous evidence classes.
+Unknown/high-risk items remain individually reviewable.
+
+Recovery UI must not overwhelm the user with raw callback/ledger rows.
+
+# BT. Backup freshness / RPO
+
+Backup policy defines Recovery Point Objective per durability class.
+
+Health combines:
+- integrity;
+- authenticity;
+- decryptability;
+- failure-domain independence;
+- restore verification;
+- freshness against required RPO.
+
+An old immutable backup may be trustworthy but still unhealthy for the current RPO.
