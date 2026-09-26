@@ -4940,3 +4940,198 @@ Scheduler:
 192. concurrent model residency requests cannot overcommit VRAM;
 193. unload/crash reservation reconciliation;
 194. privacy-sensitive job uses isolated untrusted-plugin process.
+
+
+# IO. Worker process-tree ownership
+
+A job attempt owns an OS process tree, not just a root PID.
+
+Worker process identity records:
+- attempt ID;
+- worker/runtime trust profile;
+- root process identity;
+- process-tree/container identity;
+- Core/session/recovery epoch;
+- resource reservation/fencing token.
+
+On Windows, prefer Job Object or an equivalent process-tree containment primitive where compatible.
+
+Required semantics:
+- root assigned to containment before untrusted work;
+- child/grandchild processes remain in owned tree;
+- breakaway denied unless trusted profile explicitly requires and justifies it;
+- process resource usage can be attributed to attempt;
+- app/worker shutdown closes or kills the owned tree.
+
+An attempt cannot report CLEANLY_STOPPED solely because the root PID exited.
+
+# IP. Deny-by-default process inheritance
+
+Launcher constructs a minimal inheritance set.
+
+Default non-inheritable:
+- Core DB/file handles;
+- secure credential handles/tokens;
+- unrelated pipes/events/mutexes;
+- browser/session handles;
+- project/library directory handles;
+- signing/update handles;
+- network listener handles.
+
+Environment is allowlisted/minimized.
+Worker child processes inherit only worker-scoped environment/handles.
+
+# IQ. Worker OS authority profiles
+
+Profiles:
+- TRUSTED_MEDIA_TOOL
+- MANAGED_MODEL_RUNTIME
+- UNTRUSTED_PLUGIN
+- BROWSER_AUTOMATION
+- PRIVILEGED_INSTALLER
+
+Each profile defines:
+- filesystem read/write roots;
+- network policy;
+- device/capture access;
+- desktop/clipboard interaction;
+- process-spawn/shell capability;
+- elevation/service/persistence capability;
+- credential visibility;
+- Core RPC capability;
+- native-plugin allowance.
+
+UNTRUSTED_PLUGIN defaults:
+- no elevation/admin;
+- no service/task/startup persistence;
+- no arbitrary shell/browser open;
+- no browser-profile/credential roots;
+- no writable canonical project/library root;
+- staged inputs + attempt-local writable outputs only;
+- network/device/desktop denied unless capability explicitly grants.
+
+# IR. Pre-execution containment order
+
+Containment is established before executable code starts.
+
+Launch order:
+1. create private attempt roots with final ACL;
+2. allocate process-tree/container identity;
+3. build sanitized environment;
+4. configure filesystem/network/device policy;
+5. open only required inheritable handles;
+6. spawn suspended/pre-contained where platform mechanism requires;
+7. attach/verify containment;
+8. begin executable work.
+
+“Launch first, sandbox afterward” is not acceptable for untrusted code.
+
+# IS. Cancellation escalation and verification
+
+Process stop state:
+
+```text
+RUNNING
+→ CANCEL_REQUESTED
+→ GRACEFUL_STOP_WAIT
+→ TERMINATE_REQUESTED
+→ KILL_TREE
+→ VERIFY_GONE
+→ STOPPED_CONFIRMED
+```
+
+Failure:
+- PROCESS_TREE_UNRESOLVED
+- RESOURCE_RELEASE_UNCONFIRMED
+- QUARANTINED_RUNTIME
+
+Rules:
+- each phase has bounded timeout;
+- final state requires process-tree disappearance or explicit unresolved quarantine;
+- GPU/browser/profile/resource reservations are not released optimistically when physical ownership is uncertain;
+- partial outputs remain staging/unverified.
+
+# IT. Per-attempt filesystem namespace
+
+Each attempt receives:
+- immutable/staged input root;
+- writable output staging root;
+- private temp/cache root where practical;
+- explicit scratch quota;
+- cleanup/recovery identity.
+
+No two attempts share one writable temp root unless the tool's certified semantics require it and policy provides serialization.
+
+Finalization:
+- resolve final handles;
+- reject reparse/hardlink escape;
+- verify ACL/ownership;
+- hash/decode;
+- move/copy into managed immutable storage.
+
+# IU. Child I/O and log backpressure
+
+Worker stdout/stderr/control channels use:
+- bounded buffers;
+- continuous asynchronous draining;
+- per-attempt byte/rate quota;
+- structured truncation/sampling;
+- log disk quota;
+- backpressure-safe protocol.
+
+A worker that exceeds output policy may be throttled, truncated, terminated or quarantined according to profile.
+Unbounded stdout must not deadlock parent or fill system disk.
+
+# IV. Spawn/shell capability separation
+
+Direct process execution and shell execution are distinct capabilities.
+
+Typed CLI contract:
+- executable path is verified/absolute;
+- argv is typed;
+- shell expansion disabled by default.
+
+Invoking:
+- cmd.exe;
+- powershell;
+- shell=True;
+- system browser/open;
+- arbitrary interpreter eval
+
+requires an explicit higher-risk capability and policy.
+
+A plugin cannot obtain shell authority merely because its parent worker can launch one certified executable.
+
+# IW. Residual native-code containment boundary
+
+Application-level same-user process isolation reduces accidental/malicious reach but is not a perfect security boundary against arbitrary hostile native code.
+
+High-security deployment may require:
+- separate low-privilege OS account;
+- restricted token/AppContainer-like isolation;
+- container/VM;
+- no untrusted native plugins;
+- stricter network/device policy.
+
+Security documentation must distinguish these stronger modes from normal worker isolation.
+
+# IX. Required process isolation tests
+
+213. parent exits while grandchild remains alive;
+214. breakaway-from-container attempt;
+215. shell spawn from ordinary CLI capability;
+216. inherited privileged file/credential handle probe;
+217. environment secret/module-search inheritance probe;
+218. stdout/stderr pipe flood/deadlock;
+219. log disk quota exhaustion attempt;
+220. network socket before executable start policy activation;
+221. browser/system URL launch from untrusted plugin;
+222. startup/service/scheduled-task persistence attempt;
+223. arbitrary device/capture access from untrusted plugin;
+224. project/library/browser-profile filesystem probe;
+225. cancellation escalation with hung native call;
+226. GPU context/resource-release verification after kill;
+227. per-attempt temp/output collision;
+228. reparse/ACL sabotage before output finalization;
+229. child survives Core/UI shutdown;
+230. direct privileged Core RPC attempt from untrusted worker.
