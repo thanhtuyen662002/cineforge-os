@@ -3662,3 +3662,91 @@ Promotion/rollback references bundle ID rather than only a model/router version 
 - replacement_golden_example_id nullable
 - opened_at_utc_us
 - resolved_at_utc_us nullable
+
+
+
+# 88. Structured document parse domain
+
+## document_parse_revisions
+- id PK FK revision_registry
+- source_asset_revision_id FK asset_revisions
+- parser_family
+- parser_version
+- parse_profile_version
+- source_digest_algorithm
+- source_digest
+- source_encoding nullable
+- source_locale nullable
+- source_date_system nullable
+- semantic_coverage_manifest_hash
+- parse_confidence_summary_json
+- layout_model_version nullable
+- ocr_model_version nullable
+- state: PARSED | PARTIAL | AMBIGUOUS | PASSWORD_REQUIRED | UNSUPPORTED | QUARANTINED
+- created_at_utc_us
+
+## document_semantic_channels
+- id PK
+- document_parse_revision_id FK
+- channel_type: VISIBLE_TEXT | HIDDEN_CONTENT | TABLE | MERGED_RANGE | FORMULA | COMMENT | NOTE | FOOTNOTE | HEADER_FOOTER | SPEAKER_NOTES | DEFINED_NAME | CHART | PIVOT | ATTACHMENT | EMBEDDED_OBJECT | TRACK_CHANGES | FORM | DIGITAL_SIGNATURE | LAYOUT_ORDER | OTHER
+- coverage_state: COVERED | PARTIAL | UNSUPPORTED | UNKNOWN | QUARANTINED
+- item_count nullable
+- ambiguity_count nullable
+- evidence_json nullable
+
+## spreadsheet_cells
+- id PK
+- document_parse_revision_id FK
+- sheet_identity
+- row_index
+- column_index
+- cell_address
+- merge_range nullable
+- hidden_row BOOL
+- hidden_column BOOL
+- formula_expression nullable
+- cached_value_json nullable
+- calculation_freshness: CURRENT | STALE | UNKNOWN | NOT_APPLICABLE
+- external_dependency_state: NONE | PRESENT | BLOCKED | UNKNOWN
+- style_semantics_json nullable
+- normalized_value_json nullable
+
+## spreadsheet_named_ranges
+- id PK
+- document_parse_revision_id FK
+- name
+- sheet_identity nullable
+- range_expression
+- hidden BOOL
+
+## document_text_regions
+- id PK
+- document_parse_revision_id FK
+- page_or_slide_index nullable
+- region_json nullable
+- reading_order_index nullable
+- text
+- confidence nullable
+- source_type: NATIVE_TEXT | OCR | NOTE | COMMENT | FORM_FIELD | OTHER
+- ambiguity_flags_json nullable
+
+## document_active_content_inventory
+- id PK
+- document_parse_revision_id FK
+- active_type: VBA | MACRO | OLE | DDE | EXTERNAL_LINK | DATA_CONNECTION | POWER_QUERY | PDF_JAVASCRIPT | PDF_LAUNCH | EMBEDDED_EXECUTABLE | REMOTE_RESOURCE | OTHER
+- state: INERT | QUARANTINED | BLOCKED | INVENTORIED
+- source_location
+- external_target nullable
+- evidence_json nullable
+
+## document_signature_evidence
+- id PK
+- source_asset_revision_id FK
+- signature_type
+- signer_identity nullable
+- verification_state
+- signed_byte_range_hash
+- verification_evidence_json
+- verified_at_utc_us nullable
+
+A structured parse derived from signed bytes does not itself inherit the original signature.
