@@ -1984,3 +1984,54 @@ Publication detail may show:
 - Platform không hỗ trợ xác nhận tự động
 
 Do not claim “Có thể hoàn tác” merely because CineForge has a takedown button.
+
+
+
+# 61. Release provenance UI
+
+Advanced Release detail shows:
+- exact source commit;
+- build workflow/run;
+- artifact digest;
+- SBOM/compliance status;
+- signing key/publisher;
+- installer/update manifest version.
+
+Normal user sees concise:
+`Bản phát hành đã được xác minh`
+or
+`Bản phát hành chưa đủ bằng chứng để ký/phát hành`.
+
+# 62. Update security UX
+
+Update card distinguishes:
+- Có bản cập nhật hợp lệ
+- Bản cập nhật bị thu hồi
+- Bản thấp hơn mức an toàn tối thiểu
+- Không xác minh được thông tin thu hồi mới nhất
+- Gói cập nhật không khớp bản đang cài
+
+Never collapse all failures into “Update failed”.
+
+# 63. Installer/uninstall impact preview
+
+Before uninstall/repair:
+- app components to remove/replace;
+- shared runtime/components retained;
+- user projects/media explicitly preserved;
+- settings/security policy preserved or migrated;
+- reboot/admin requirement.
+
+The UI must never suggest that uninstalling CineForge deletes project media by default.
+
+# 64. Offline installer warning
+
+When revocation freshness is stale:
+`Chữ ký hợp lệ, nhưng máy này không thể kiểm tra thông tin thu hồi mới nhất.`
+
+Policy may:
+- continue;
+- require network;
+- block.
+
+Do not label this as equivalent to fully current online verification.
