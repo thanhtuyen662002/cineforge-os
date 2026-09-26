@@ -6081,3 +6081,190 @@ Repeated profile corruption/auth anomalies:
 - create clean profile;
 - require reauth as needed;
 - do not copy corrupt cookies/site state wholesale into replacement profile.
+
+
+# 35. Twelfth-wave adversarial ML/QC/evaluator attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 581 | Adversarial image perturbation makes face-identity evaluator report high similarity for wrong face | **GAP/P1** | high score is evidence, not truth; adversarial robustness/disagreement needed |
+| 582 | Lookalike character produces embedding collision and passes identity QC | **GAP/P1** | identity requires multiple evidence types/temporal/context checks |
+| 583 | Voice embedding accepts another speaker with similar timbre | **GAP/P1** | voice identity cannot rely on one embedding threshold |
+| 584 | Adversarial/ultrasonic audio changes ASR/voice score without audible difference | **GAP/P1** | robust preprocessing/multi-view audio evidence needed |
+| 585 | Hidden text/QR/watermark in image tells VLM evaluator “PASS” | **GAP/P0/P1** | evaluator input content is untrusted; visual prompt injection can alter model judgment |
+| 586 | Steganographic/reference pattern triggers a backdoored local evaluator/model | **GAP/P0/P1** | package trust + adversarial benchmark needed |
+| 587 | Local model package is correctly signed but publisher intentionally/backdoor-poisons weights | **GAP/P1 supply-chain** | signature proves origin, not behavior |
+| 588 | Golden set is auto-curated from production and poisoned by repeated bad outputs | **GAP/P1 learning** | golden data needs controlled provenance/manual governance |
+| 589 | Compromised/malicious reviewer intentionally labels defects PASS, contaminating learning | **GAP/P1** | reviewer reliability/anomaly and promotion gates needed |
+| 590 | Human preference data is dominated by one project/style and router overfits globally | PARTIAL | diversity controls exist; domain weighting/calibration needs explicit evidence |
+| 591 | Generator and evaluator are same model family and share blind spot | CONTAINED/PARTIAL | correlation warning exists; minimum independent evidence for high-risk QC useful |
+| 592 | Evaluator confidence is high on out-of-distribution animation style it has never seen | **GAP/P1** | OOD/calibration state must allow abstention |
+| 593 | Evaluator version upgrade changes score scale but threshold stays old | **GAP/P1** | threshold/profile version binds evaluator version/calibration |
+| 594 | Cached PASS result is reused after evaluator/QC policy changes | **GAP/P1** | evidence cache key must include evaluator+policy+representation dependencies |
+| 595 | Proxy 720p hides single-frame hand defect present only in 4K master | PARTIAL | representation-specific review exists; final-master QC must sample/full-scan appropriately |
+| 596 | Temporal QC samples every 10th frame and misses a one-frame corruption | **GAP/P1** | sampling policy needs random/event/adaptive/full validation for critical defects |
+| 597 | Audio QC on downsampled waveform misses inter-sample clipping | **GAP/P1** | final-master technical QC needs correct mastering representation |
+| 598 | Lip-sync metric is gamed by low-motion mouth that scores well but looks dead | **GAP/P2 creative** | metric cannot substitute perceptual/human review |
+| 599 | Identity evaluator rewards frozen/static face and rejects expressive acting | **GAP/P2 creative** | performance identity/taste separate from biometric consistency |
+| 600 | OCR/subtitle evaluator uses wrong language and reports nonsense as valid | **GAP/P1** | evaluator domain/language binding required |
+| 601 | ASR transcript passes words but speaker attribution is swapped between two characters | **GAP/P1** | speaker binding + diarization/voice identity cross-check |
+| 602 | Audio and video individually PASS but sync drifts 200ms by final scene | **GAP/P1** | cross-modal/long-duration cumulative sync QC required |
+| 603 | Color QC passes individual shots but scene-level grade continuity oscillates | **GAP/P1** | sequence/scene aggregate QC needed, not shot-only |
+| 604 | Continuity evaluator sees same prop but wrong possession/knowledge state and misses narrative error | PARTIAL | story state exists; evaluator coverage/UNKNOWN must be explicit |
+| 605 | VLM hallucinates that required prop is present when it is absent | **GAP/P1** | model claim needs evidence/cross-sensor/manual escalation |
+| 606 | Object detector finds prop because poster/photo contains image of prop, not real scene object | **GAP/P1** | semantic spatial/context evidence needed |
+| 607 | Face detector identifies background poster/person as main character | **GAP/P1** | shot-role/track/context association required |
+| 608 | Evaluator is unavailable; pipeline substitutes weaker one but still reports PASS | CONTAINED if UNKNOWN preserved | fallback evaluator must not silently inherit assurance level |
+| 609 | Two weak evaluators agree due same dataset bias and system treats consensus as certainty | **GAP/P1** | evidence independence/correlation metadata needed |
+| 610 | QC model is prompt-injected through subtitles burned into video | **GAP/P0/P1** | visible text is untrusted content; evaluator system/control channel isolation |
+| 611 | Generated audio contains spoken instruction targeting transcription/evaluator agent | **GAP/P0/P1** | transcript content remains data, not agent instruction |
+| 612 | Benchmark set becomes known to tuned router/model and is overfit | **GAP/P1** | hidden holdout/rotation and anti-benchmark-overfit governance |
+| 613 | Provider optimizes specifically for public VBench-like metrics while human quality regresses | PARTIAL | Goodhart already known; multi-metric/human validation |
+| 614 | Golden-set media becomes corrupted but labels remain, causing false benchmark shifts | **GAP/P1** | golden examples need hash/integrity verification |
+| 615 | Golden-set rights expire/revoke, but benchmark/training still uses it | **GAP/P1 rights** | rights apply to benchmark/training use too |
+| 616 | Evaluator model package updates silently under same version alias | **GAP/P1** | exact digest/semantic fingerprint required |
+| 617 | GPU backend/precision change alters evaluator scores near threshold | **GAP/P1** | evaluator environment/backend provenance and threshold calibration |
+| 618 | Random seed causes QC disagreement across repeated runs | **GAP/P2** | deterministic profile where possible, repeatability/variance evidence |
+| 619 | Human reviewer sees AI score first and anchors to it | CONTAINED/PARTIAL | blind review modes exist; risk-based hiding of scores useful |
+| 620 | Reviewer only sees flagged frames and misses unflagged creative failure | **GAP/P2** | review sampling must include random/unflagged material |
+| 621 | Automatic repair optimizes detector score and progressively worsens film aesthetics | PARTIAL | repair convergence exists; global quality debt/human guard needed |
+| 622 | Repair loop learns to crop/hide problematic hands instead of fixing them | **GAP/P2 Goodhart** | repair strategy diversity + semantic intent constraints |
+| 623 | Adversarial frame is inserted only after QC but before final mux/package | **GAP/P0/P1 integrity** | QC verdict binds exact final artifact digest; post-QC mutation invalidates it |
+| 624 | Release mux/transcode changes frame/audio enough to invalidate prior QC | **GAP/P1** | final delivered bytes require technical/QC verification at correct stage |
+| 625 | Platform transcode introduces defect not in uploaded master | PARTIAL | platform-output verification when observable |
+| 626 | QC policy changes while a review session is open | PARTIAL | review dependency hash; policy revision must be included |
+| 627 | Evaluator result arrives late after subject was repaired/replaced | CONTAINED if stale | evidence binds subject revision |
+| 628 | Malicious connector fabricates “QC passed” metadata with no evaluator evidence | **GAP/P0/P1** | QC evidence must be generated/verified by trusted evaluator service, not provider claim |
+| 629 | Human reviewer account compromised approves everything rapidly | **GAP/P1** | anomalous review velocity/assurance may trigger second review for high-risk release |
+| 630 | One reviewer trains personal preference model that silently becomes studio-wide policy | **GAP/P1 governance** | preference scope/promotion explicitly controlled |
+
+# 36. ML/QC hardening findings
+
+## X155 — Evaluator evidence independence and provenance (P1)
+Each evaluation records:
+- evaluator/model/package exact identity/digest;
+- environment/backend/precision;
+- calibration/threshold profile;
+- input representation/revision hash;
+- policy revision;
+- evidence type;
+- independence/correlation class relative to other evidence.
+
+Agreement between correlated evaluators is not counted as independent confirmation.
+
+## X156 — OOD/calibration/abstention (P1)
+Evaluator profile defines supported domain:
+- media type;
+- style/domain;
+- language;
+- resolution/frame/audio conditions.
+
+If input is outside calibrated domain or confidence is unreliable:
+- result = OUT_OF_DOMAIN/UNKNOWN;
+- cannot silently PASS.
+
+## X157 — Visual/audio prompt-injection isolation (P0/P1)
+Text/speech/metadata discovered **inside** evaluated media is untrusted observation.
+Evaluator instruction channel is separate and immutable for the evaluation job.
+
+OCR/ASR content cannot issue tool commands, change rubric or force PASS.
+
+## X158 — Multi-evidence identity QC (P1)
+Character/voice identity for important outputs may combine:
+- face/voice embeddings;
+- track consistency;
+- semantic role/context;
+- reference geometry/features;
+- temporal evidence;
+- human review.
+
+No one threshold is an identity oracle.
+
+## X159 — QC cache dependency completeness (P1)
+Cached evaluation key includes:
+- exact subject bytes/revision;
+- representation/proxy/master identity;
+- evaluator digest/version;
+- environment/backend where material;
+- calibration/threshold;
+- QC policy;
+- relevant canon/reference revisions.
+
+Any dependency change invalidates reuse.
+
+## X160 — Critical-defect sampling policy (P1)
+QC declares coverage mode:
+- FULL_SCAN;
+- DETERMINISTIC_SAMPLE;
+- RANDOM_SAMPLE;
+- EVENT_TRIGGERED;
+- ADAPTIVE.
+
+Critical release checks use full or defensible adaptive/event coverage where a one-frame/sample defect matters.
+Sampling evidence is recorded so “not observed” is not confused with “absent”.
+
+## X161 — Cross-modal and aggregate QC (P1)
+QC operates at multiple scopes:
+- frame/sample;
+- shot;
+- scene/sequence;
+- full timeline/master;
+- cross-modal audio/video/subtitle.
+
+Local PASS cannot prove long-duration sync/continuity/color/story consistency.
+
+## X162 — Golden/benchmark integrity and rights (P1)
+Golden/benchmark examples:
+- immutable hash;
+- provenance;
+- labels/reviewer evidence;
+- rights/privacy/training/benchmark permission;
+- corruption check;
+- domain tags.
+
+Revoked/corrupt examples are quarantined and benchmark baselines recomputed transparently.
+
+## X163 — Hidden holdout / anti-overfit benchmark governance (P1)
+Promotion uses:
+- visible dev benchmark;
+- hidden/rotating holdout where practical;
+- cross-domain validation;
+- shadow production;
+- human review.
+
+Repeated tuning against the same public golden set cannot be sole promotion gate.
+
+## X164 — Trusted evaluator service boundary (P0/P1)
+A provider/connector cannot self-assert authoritative QC PASS.
+
+Trusted evaluation result must originate from:
+- configured evaluator service/worker identity;
+- exact evidence record;
+- authorized rubric/policy.
+
+Provider “quality score” is advisory evidence only unless explicitly certified.
+
+## X165 — Post-QC mutation fence (P0/P1)
+Approval/QC binds exact artifact digest/representation.
+
+Any mux/transcode/edit/package mutation after QC:
+- produces a new artifact revision/digest;
+- invalidates byte-dependent QC;
+- runs required final-stage verification before release.
+
+## X166 — Review anti-anchoring / random audit (P1/P2)
+For domains vulnerable to score anchoring:
+- blind review may hide AI score until human verdict;
+- random unflagged samples are included;
+- high-speed/anomalous review patterns may trigger audit/second review for high-risk release.
+
+## X167 — Preference model scope/promotion (P1)
+Personal reviewer/director preference models remain scoped:
+- actor/team/project/studio.
+
+Promotion to broader scope follows explicit benchmark/review governance.
+No local taste adaptation silently becomes studio truth.
+
+## X168 — Repair anti-Goodhart constraints (P2 but important)
+Repair optimization includes semantic/creative constraints and global-quality checks.
+Repeated score improvement with worsening crop/performance/composition triggers repair-strategy change/human review rather than infinite detector gaming.
