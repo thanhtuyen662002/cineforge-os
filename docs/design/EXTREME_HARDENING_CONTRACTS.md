@@ -6890,3 +6890,151 @@ Provenance manifests/metadata/external links are hostile input:
 265. provenance manifest prompt injection/external URL;
 266. similarity detector false positive;
 267. watermark detector false negative.
+
+
+
+# LM. Timeline nesting DAG
+
+Nested sequences/compositions form an acyclic reference graph.
+
+Validation:
+- detects cycle path;
+- enforces max nesting depth;
+- enforces expanded operation/clip complexity budget;
+- rejects recursive self/reference before playback/export.
+
+# LN. Canonical time and SMPTE display profile
+
+Canonical timeline time uses wide checked rational/integer representation independent of UI display.
+
+Timecode profile defines:
+- frame-rate rational;
+- nominal timecode rate;
+- drop-frame rule;
+- legal label validation;
+- wrap policy;
+- signed/preroll support.
+
+29.97/59.94/drop-frame label math is rate-specific.
+Display wrap never truncates canonical duration.
+
+# LO. Piecewise retime mapping
+
+Retime segment type:
+- FORWARD
+- REVERSE
+- FREEZE
+- VARIABLE
+
+Each segment stores explicit source↔timeline mapping.
+FREEZE uses held source frame/time, not divide-by-zero speed.
+Variable curves crossing zero split into explicit segments.
+
+Nested retime composition uses checked rational arithmetic and canonical rounding only at representation/export boundary.
+
+# LP. Transition/source-handle proof
+
+Transition validation maps required handles into source time after retime.
+
+Evidence:
+- source bounds;
+- mapped transition in/out;
+- required pre/post handle;
+- decoder/source availability;
+- violation range.
+
+Insufficient handle is explicit validation issue before final conform/export.
+
+# LQ. Audio channel layout and delay identity
+
+Audio stream profile stores:
+- semantic channel layout/order;
+- sample rate;
+- start offset;
+- encoder delay/priming;
+- end padding;
+- spatial/ambisonic metadata/profile where supported.
+
+Channel count is not a layout identity.
+
+# LR. Container/export capability profile
+
+Output profile declares:
+- maximum/known-safe duration;
+- timestamp/index range;
+- large-file support/variant;
+- max predicted file size if format/filesystem imposes one;
+- negative timestamp support;
+- subtitle timestamp precision/range;
+- channel/layout support;
+- orientation/PAR metadata behavior.
+
+Preflight either selects a compatible profile or blocks.
+
+# LS. Subtitle target-time conversion
+
+Subtitle adapter defines:
+- canonical rational → target timestamp rounding;
+- legal min/max;
+- negative-time behavior;
+- overlap/order conflict behavior;
+- precision-loss reporting.
+
+Export never lets parser/library-specific rounding silently alter ordering.
+
+# LT. Representation geometry/origin
+
+Per stream/representation preserves:
+- stream start origin;
+- source timebase;
+- orientation/rotation;
+- pixel aspect/display aspect;
+- crop/aperture;
+- relevant edit-list origin.
+
+Proxy/review/master profiles derive from this source of truth.
+
+# LU. Duration evidence confidence
+
+Duration evidence can include:
+- container/header declared duration;
+- stream duration;
+- packet/frame observed duration;
+- index/table duration.
+
+If materially inconsistent:
+- duration_state = CONFLICT;
+- exact-end operations require resolution/probe;
+- UI/exports do not silently pick first value.
+
+# LV. Final mux timestamp transform
+
+Muxing may shift/rebase timestamps.
+
+Finalization records:
+- pre-mux canonical origin;
+- mux timestamp transform;
+- edit-list/negative-time handling;
+- resulting first/last timestamps per stream.
+
+Post-mux validation checks A/V/subtitle alignment against final bytes.
+
+# LW. Required editorial edge tests
+
+268. A↔B nested sequence cycle;
+269. 500-level nested sequence depth;
+270. >24h timeline/timecode display;
+271. invalid 29.97 drop-frame label;
+272. 59.94 drop-frame mapping;
+273. reverse retime;
+274. freeze frame;
+275. variable retime crossing zero;
+276. transition beyond retimed source handles;
+277. 5.1 channel-order mismatch;
+278. encoder delay/gapless preservation;
+279. >4GB WAV export profile;
+280. long-duration container/index limit;
+281. subtitle rounding overlap;
+282. rotated/anamorphic review geometry;
+283. conflicting header vs observed duration;
+284. final mux timestamp rebase A/V/subtitle check.
