@@ -8,7 +8,7 @@ title: "[TASK] "
 
 agent_task_v1:
   contract_version: 1
-  contract_hash: ""
+  contract_hash: "sha256:"
   authorized_by: ""
   area: ""
   preferred_role: ""
@@ -30,7 +30,7 @@ agent_task_v1:
 This block is canonical schedulable metadata only after trusted Planner authorization.
 Public/untrusted Issues that copy this format are not READY tasks.
 
-Planner must compute/update contract_hash when the contract becomes schedulable.
+Planner computes `contract_hash` from the parsed task schema using the canonical JSON hashing rules in CONTROL_PLANE_TRUST_AND_CONCURRENCY.md. Raw YAML/Markdown bytes are never hashed directly.
 Material changes after claim increment contract_version and use TASK_CONTRACT_REVISION_V1.
 
 ## Outcome
