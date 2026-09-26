@@ -1986,3 +1986,85 @@ Exposure record:
 - UNRESOLVED
 
 Local purge never deletes historical exposure truth merely to show a cleaner status.
+
+
+
+# 74. Collaboration branch lifecycle
+
+```text
+ACTIVE_ONLINE
+→ OFFLINE
+→ RECONNECTING
+→ REBASE_ANALYSIS
+→ READY_TO_MERGE
+→ MERGING
+→ MERGED
+```
+
+Alternate:
+- REBASE_ANALYSIS → CONFLICT
+- CONFLICT → RESOLVING → READY_TO_MERGE
+- any nonterminal → ABANDONED
+- unsupported/too-old queue → IMPORT_AS_BRANCH_REQUIRED
+
+# 75. Collaboration conflict lifecycle
+
+- OPEN
+- RESOLVING
+- RESOLVED
+- DISMISSED
+- OBSOLETE
+
+A conflict becomes OBSOLETE if canonical state changed so much that the proposed resolution no longer applies.
+
+# 76. Actor/device authority state
+
+Actor:
+- ACTIVE
+- SUSPENDED
+- DISABLED
+- REMOVED
+
+Device:
+- ACTIVE
+- REVOKED
+- LOST
+- RETIRED
+
+Current state is checked at sync/irreversible action; historical authority does not survive revocation.
+
+# 77. Collaboration lock lifecycle
+
+- REQUESTED
+- ACTIVE
+- OFFLINE_GRACE
+- EXPIRED
+- REVOKED
+- RELEASED
+
+OFFLINE_GRACE cannot mint new privileged/canonical authority; final canonical merge still revalidates with Core.
+
+# 78. Canonical promotion race
+
+```text
+PROPOSED
+→ CAS_CHECK
+→ APPLIED
+```
+
+or:
+- CAS_CHECK → CONFLICT
+- CAS_CHECK → AUTHORITY_REVOKED
+- CAS_CHECK → STALE_CANDIDATE
+
+Exactly one concurrent promotion may apply for a given expected current revision.
+
+# 79. Offline action class
+
+Action policy:
+- OFFLINE_ALLOWED_DRAFT
+- OFFLINE_ALLOWED_CANDIDATE
+- ONLINE_REQUIRED
+- ONLINE_IRREVERSIBLE
+
+Rights/security/publish/credential/high-cost final actions are ONLINE_REQUIRED/ONLINE_IRREVERSIBLE.
