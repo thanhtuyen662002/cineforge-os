@@ -1302,3 +1302,23 @@ Release readiness can surface:
 `Điều khoản của một dịch vụ đã thay đổi kể từ khi nội dung được tạo. Cần xem lại trước khi phát hành.`
 
 Do not force ordinary users to read provider legal text during every generation; only surface it when policy/rights requires action.
+
+
+# 51. Creative Variant UI
+
+VariantCompareBoard supports:
+- create A/B direction from an explicit base revision;
+- label candidates in human language;
+- side-by-side/blind comparison where useful;
+- compare exact revision/dependency context;
+- show downstream impact before promotion;
+- promote one candidate without deleting alternatives;
+- archive losing variants later.
+
+Common entry points:
+- Character: Tạo biến thể
+- Scene/Shot: Thử hướng khác
+- Timeline: Tạo nhánh dựng
+- Style/Audio: Tạo phương án
+
+The UI must always show which revision is the base and which candidate, so experimentation cannot silently replace Canon.
