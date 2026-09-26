@@ -3928,3 +3928,81 @@ Project clone/import cannot accidentally collide with an old operation merely be
 ## X72 — Restore configuration reconciliation (P1)
 Disaster restore may recover old convenience configuration, but current forward security/trust/revocation policy wins.
 Proxy/trust/credential/provider configuration is reconciled before external dispatch resumes.
+
+
+# 23. Sixth-wave long-term cryptography/package/semantic-drift attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 331 | Workspace encryption uses one long-lived master key for DB, media, backups and diagnostics | **GAP/P1 blast radius** | key hierarchy/separation needed |
+| 332 | Password-derived key uses weak/default KDF or parameters age poorly | **GAP/P1** | KDF algorithm/parameter versioning required |
+| 333 | User loses local recovery key; encrypted backup exists but is unrecoverable | **GAP/P1 ops** | recoverability must be verified, not assumed |
+| 334 | Key rotation starts, half objects use old key, crash occurs | **GAP/P1** | per-object key generation + resumable rotation manifest |
+| 335 | Backup encryption key is stored only on same machine as encrypted backup | **GAP/P1** | independent recovery-key/wrapping policy needed |
+| 336 | Old revoked key still decrypts archived copy from a cloned machine | **RESIDUAL/P1** | revocation cannot erase copied key; distinguish cryptographic access from logical authorization |
+| 337 | Package dependency graph contains A→B→A cycle | **GAP/P1** | provisioning solver must reject cycles or defined bootstrap cycles |
+| 338 | Two packages require incompatible versions of same runtime | **GAP/P1** | dependency solver/environment isolation needed |
+| 339 | Package upgrade is semver-compatible but breaks connector semantic behavior | PARTIAL | certification exists; semantic compatibility must override version labels |
+| 340 | Optional dependency silently becomes required at runtime | **GAP/P1** | health/certification must exercise actual capability dependency closure |
+| 341 | Shared Python/node environment lets one connector upgrade dependency used by another | **GAP/P1** | package/runtime environment isolation needed |
+| 342 | Package uninstall succeeds while archived project still needs it for reproducibility | PARTIAL | pins/rebuild deps exist; archive dependency manifests must count |
+| 343 | Vietnamese decimal 1,5 is parsed as 15 or invalid in config/import | **GAP/P1 correctness** | localized presentation must not alter canonical numeric parsing |
+| 344 | Date 01/02/2026 is interpreted differently by locale | **GAP/P1** | external/import date parsing requires explicit locale/schema |
+| 345 | Case-insensitive/case-sensitive comparison differs across DB/filesystem/search | **GAP/P1** | canonical identifier equality must not depend on host collation |
+| 346 | Unicode NFC/NFD forms create visually identical but byte-different labels/paths | PARTIAL | normalization policy exists for display; equality scopes need definition |
+| 347 | Locale-specific case-folding changes identifier matching | **GAP/P2** | machine identifiers require locale-independent comparison |
+| 348 | Provider keeps model name unchanged but silently changes behavior/output policy | **GAP/P1** | observed semantic fingerprint/certification drift detection needed |
+| 349 | Same seed/model/version produces different result after backend update | **RESIDUAL/P1 reproducibility** | cloud generation must declare reproducibility class |
+| 350 | Local model package same version is rebuilt with different bytes | **GAP/P1 supply-chain** | package identity must include digest, not version string only |
+| 351 | Provider truncates prompts differently after service update | PARTIAL | semantic certification exists; drift should invalidate certification |
+| 352 | Provider silently adds safety rewrite that removes character trait | **GAP/P1 creative consistency** | semantic drift evidence needs QC/review signal |
+| 353 | Generated media contains invisible watermark/tracking metadata | **GAP/P1 privacy/release** | metadata/watermark inspection policy required |
+| 354 | Watermark removal would violate provider terms/provenance requirement | **GAP/P1 rights** | release policy must distinguish removable metadata vs required provenance |
+| 355 | Content Credentials/provenance is stripped by export unintentionally | **GAP/P1 provenance** | preservation policy required per deliverable |
+| 356 | Export re-encodes and invalidates provenance signature | **GAP/P1** | provenance must bind final bytes |
+| 357 | Search index built with embedding model v1 mixes silently with v2 vectors | **GAP/P1 retrieval integrity** | index generation/model segregation required |
+| 358 | Embedding model upgrade changes ranking/cross-project memory behavior | PARTIAL | generation exists; promotion/rebuild policy needed |
+| 359 | Old projection/index schema deleted before archive restore needs it | **GAP/P1 archive** | archive read must not depend on current derived index |
+| 360 | Event/audit archive compaction drops information needed by future migration | **GAP/P1** | compaction must preserve semantic contract |
+| 361 | Event schema v1 cannot be decoded by app v10 after decoder removed | **GAP/P1 lifecycle** | historical decoder/migration strategy required |
+| 362 | Archived project references provider capability profile format no longer understood | **GAP/P1** | archive needs self-describing snapshot/adapter |
+| 363 | New machine/backend causes Auto strategy to produce materially different style | PARTIAL | portability/reproducibility warning required |
+| 364 | Hardware change invalidates benchmark/router data but it stays trusted | **GAP/P1** | benchmark validity binds environment fingerprint |
+| 365 | Clock/timezone/locale differs on new machine and release metadata changes | **GAP/P2** | export locale/time semantics must be pinned |
+| 366 | Archived encrypted project survives but KDF implementation is removed | **GAP/P1** | long-term crypto compatibility policy required |
+| 367 | Package registry disappears; lockfile has version but no immutable artifact mirror | **GAP/P1 reproducibility** | retention/mirror policy for critical artifacts |
+| 368 | Vendor revokes old model download required to rebuild approved derivative | PARTIAL | archival retention strategy needed |
+| 369 | Future archive contains unknown mandatory semantic field | **GAP/P1** | reject mutation or open read-only |
+| 370 | Older CineForge ignores unknown rights restriction field | **GAP/P0/P1** | mandatory rights/privacy fields fail closed |
+
+# 24. Sixth-wave findings
+
+## X73 — Encryption key hierarchy and recoverability (P1)
+Separate root/recovery wrapping keys, workspace/project data keys, backup wrapping keys and secret-store keys where applicable. Records bind key ID/generation/algorithm. Rotation is resumable/per-object. Backup health includes evidence that required recovery material exists. Password-derived keys use versioned approved KDF parameters.
+
+## X74 — Package/runtime dependency solver and environment isolation (P1)
+Provisioning computes dependency closure and rejects cycles/incompatible runtime constraints/source ambiguity. Connectors/runtimes use isolated environments where dependency mutation could affect another capability. Semantic certification, not semver alone, decides compatibility.
+
+## X75 — Canonical locale-independent machine representation (P1)
+Machine/API/storage formats use locale-independent decimal syntax, explicit schema-declared date/time, locale-independent identifier comparison and defined Unicode normalization where equality is intended. UI/import adapters parse localized forms only with explicit locale/schema.
+
+## X76 — Provider/model semantic fingerprint and reproducibility class (P1)
+Capability certification stores provider/model identity, package/model digest when local, request mapping/context limits and representative benchmark behavior. Material drift invalidates certification. Generation records reproducibility class: EXACT_LOCAL, VERSION_PINNED_BEST_EFFORT, CLOUD_BEST_EFFORT, or NON_REPRODUCIBLE.
+
+## X77 — Watermark/provenance metadata policy (P1)
+Classify visible/invisible watermark, tracking/private metadata, provider attribution/provenance marker and signed content credentials. Release policy decides PRESERVE/STRIP/REWRITE/BLOCK according to rights/privacy/terms. Final-byte provenance is recorded after export/signing.
+
+## X78 — Derived index generation isolation (P1)
+Search/vector/embedding indexes are partitioned by index schema, embedding/model version/digest, authorization/privacy version and source revision generation. Do not mix incompatible vector generations without a validated bridge.
+
+## X79 — Long-term event/archive decoder retention (P1)
+Canonical event/archive formats are versioned long-lived contracts. Retain historical decoders/migrations or normalize at archive time to a durable self-describing representation. Unknown mandatory rights/privacy/archive fields fail closed.
+
+## X80 — Environment-bound benchmark validity (P1)
+Benchmark/router evidence records hardware, driver/runtime, package/model digest and relevant OS/backend. Environment changes mark evidence STALE.
+
+## X81 — Reproducibility artifact retention policy (P1)
+For critical release/archive workflows, policy may retain exact local model/package artifact, lockfile, connector/runtime package, workflow definition and critical fonts/LUT/profiles subject to license/storage rules. Version string alone is not reproducibility.
+
+## X82 — Future-version archive fail-closed semantics (P0/P1)
+Archive fields classify OPTIONAL_ADVISORY, OPTIONAL_INERT, MANDATORY_SEMANTIC and MANDATORY_RIGHTS_PRIVACY. Older readers that cannot understand mandatory fields refuse mutation/release and may only open safe read-only views.
