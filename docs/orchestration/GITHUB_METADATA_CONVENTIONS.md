@@ -64,7 +64,7 @@ Claim existence:
 Live PR owner/state:
 1. latest valid AGENT_TAKEOVER event;
 2. latest valid AGENT_STATE event after that takeover;
-3. immutable initial claim record in PR body.
+3. initial claim record in PR body, revalidated against trusted live facts.
 
 Verification:
 1. evidence matching current required verification tuple;
@@ -78,8 +78,13 @@ Capacity Plan:
 
 Task Issue contains one canonical `agent_task_v1` block.
 
-Planner edits that block when scheduling metadata changes.
-Narrative sections explain intent/acceptance but must not contradict the block.
+Planner may update the block before claim. Once claimed, material changes must:
+- increment contract_version;
+- update contract_hash;
+- append TASK_CONTRACT_REVISION_V1;
+- be acknowledged/revalidated by active owner/reviewer.
+
+Narrative sections explain intent/acceptance but must not contradict the current contract.
 
 # 4. Structured PR state event
 
@@ -169,7 +174,7 @@ A merged Claim PR is not a reason to create a new attempt unless the Issue expli
 
 - AGENT_INSTANCE_ID: stable logical worker identity, e.g. `cineforge-S03`.
 - RUN_ID: unique invocation/execution id.
-- SLOT_ID: capacity slot, e.g. `S03` or `WORK`.
+- SLOT_ID: capacity slot, e.g. `S03` or unique `WORK-<id>`.
 
 A scheduled slot should not invent a new AGENT_INSTANCE_ID each run.
 A single runtime must not mint a second identity to self-approve.
