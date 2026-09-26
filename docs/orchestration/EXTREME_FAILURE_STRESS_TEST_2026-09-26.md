@@ -3139,3 +3139,145 @@ Removing/adding Studio Owner/Admin/security authority is itself irreversible/hig
 ## X81 — Actor identity immutability (P0 audit)
 Actor IDs are never recycled.
 Deletion becomes tombstone/anonymization according to policy, while historical audit references remain unambiguous.
+
+
+# 27. Rights, provenance and learning-pipeline attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 371 | Rights evidence attachment is deleted/tampered after approval | **GAP/P1** | legal decision should bind immutable evidence digest/snapshot |
+| 372 | License URL content changes in place without version | PARTIAL | license snapshot exists; release must use captured evidence not current URL |
+| 373 | Attribution-required asset reaches final master but credits export omits attribution | **GAP/P1** | attribution obligation needs deliverable/release gate |
+| 374 | Consent allows internal generation but not commercial publish | CONTAINED | rights dimensions separate |
+| 375 | Consent revoked after voice embedding/model adaptation created | **GAP/P1 privacy/legal** | derived identity features/training artifacts need revocation propagation |
+| 376 | User deletes voice sample but derived embedding remains searchable | **GAP/P1 privacy** | derived sensitive data inheritance/deletion lifecycle |
+| 377 | Face/voice embeddings are backed up after source deletion request | **GAP/P1 privacy** | backup restore must reapply forward deletion journal to derived sensitive data |
+| 378 | Learning dataset includes asset with UNKNOWN training permission | **GAP/P1** | UNKNOWN must block dataset eligibility |
+| 379 | Dataset record loses original rights snapshot after asset revision superseded | **GAP/P1** | dataset snapshot must pin legal/provenance evidence |
+| 380 | Same source/derivative appears in training and golden benchmark | **GAP/P1 ML validity** | lineage-aware leakage detection required |
+| 381 | Near-duplicate frames from same video split across train/eval | **GAP/P1 ML validity** | content/lineage similarity grouping |
+| 382 | Benchmark examples become known to optimizer/router through repeated tuning | **GAP/P1** | benchmark overfit control/holdout rotation |
+| 383 | User feedback is malicious/data-poisoning | **GAP/P1** | raw feedback cannot become trusted training label directly |
+| 384 | One client/project dominates learning data and biases global router | PARTIAL | mix-shift monitors; contribution caps/stratification useful |
+| 385 | Rights revoked from training example after model/router promotion | **GAP/P1** | promoted component lineage must support taint/retrain/depromotion decision |
+| 386 | Provider terms forbid using outputs to train local model but asset marked reusable | **GAP/P1** | training eligibility must include provider terms snapshot |
+| 387 | Dataset export leaks private project filenames/paths/prompts | **GAP/P1 privacy** | training export metadata allowlist/redaction |
+| 388 | Evaluation logs preserve sensitive rejected content forever | **GAP/P2 privacy** | retention class and redaction for evidence/logs |
+| 389 | Human reviewer labels a character identity incorrectly; golden example becomes wrong truth | PARTIAL | human authority not infallible; multi-review/quality confidence for golden promotion |
+| 390 | Evaluator and golden set both derived from same model assumptions | PARTIAL | diversity/correlated evaluator risk; provenance should make dependency visible |
+| 391 | “Delete my data” request cannot prove which promoted models used it | **GAP/P1** | dataset→experiment→component lineage required |
+| 392 | Model cannot practically unlearn one example | **GAP/P1 policy** | system must distinguish deletion of stored data vs trained-weight remediation limits |
+| 393 | Learning job continues after training permission revoked mid-run | **GAP/P1** | execution-time permission fence for dataset/training job |
+| 394 | Dataset snapshot contains external URL that later points to different bytes | **GAP/P1** | dataset must pin local immutable content identity |
+| 395 | Golden set item becomes rights-blocked, benchmark score still used | **GAP/P1** | benchmark suite validity changes when member eligibility changes |
+| 396 | Promotion happened under old benchmark policy, then severe flaw is found | CONTAINED/PARTIAL | rollback exists; promotion validity should support retroactive taint |
+| 397 | Evaluation result references proxy while golden expectation refers master | **GAP/P1** | representation equivalence must be explicit |
+| 398 | Dataset dedup merges legally distinct copies with different training permissions | **GAP/P1** | physical byte equality != legal eligibility identity |
+| 399 | Anonymization removes names but face/voice still identifies person | **GAP/P1 privacy** | biometric/identity-derived features need separate sensitivity class |
+| 400 | Debug model prompt contains raw private screenplay and is sent to telemetry | **GAP/P0/P1 privacy** | training/telemetry egress manifest + redaction must include prompts/context |
+
+# 28. Rights/learning findings
+
+## X82 — Immutable rights evidence binding (P1)
+Approval/release/dataset eligibility records pin:
+- rights record revision;
+- consent revision;
+- license/provider-terms snapshot;
+- evidence asset/storage digest.
+
+External mutable URLs are references only, not the legal evidence source of truth.
+
+## X83 — Attribution obligation graph (P1)
+Rights obligations can create deliverable requirements:
+- required attribution text;
+- placement/context;
+- language/territory;
+- credit scope.
+
+Release gate checks that required credits/metadata are present in the selected deliverable manifest.
+
+## X84 — Sensitive-derived-data inheritance (P1)
+Face/voice embeddings, fingerprints, identity features and learned representations inherit sensitivity/rights/deletion policy from source subjects.
+
+Deleting raw sample alone does not satisfy deletion if derived sensitive artifacts remain under CineForge control.
+
+## X85 — Dataset eligibility gate (P1)
+Training dataset membership requires explicit ALLOWED permission across:
+- asset rights;
+- consent;
+- provider terms;
+- project privacy/data-use policy.
+
+UNKNOWN is not ALLOWED.
+
+Eligibility is snapshotted and revalidated for long-running jobs/promotion.
+
+## X86 — Lineage-aware train/eval leakage prevention (P1)
+Split logic groups:
+- exact hashes;
+- asset lineage/derivatives;
+- temporal frames/clips from same source;
+- configured near-duplicate similarity clusters.
+
+Group cannot straddle train and protected evaluation holdout when policy forbids leakage.
+
+## X87 — Golden/benchmark governance (P1)
+Golden examples require stronger curation:
+- provenance;
+- reviewer authority;
+- optional multi-review for critical examples;
+- representation identity;
+- rights eligibility;
+- holdout exposure tracking.
+
+Repeated tuning against the same set is monitored; rotate/maintain sealed holdouts.
+
+## X88 — Feedback poisoning boundary (P1)
+Raw production/user feedback enters an untrusted/low-confidence pool.
+It requires curation/validation before becoming:
+- golden truth;
+- training label;
+- promotion gate.
+
+One user/project cannot directly steer global production behavior.
+
+## X89 — Learning lineage and revocation response (P1)
+Maintain:
+source asset/revision → dataset snapshot → training/evaluation run → promoted component/version.
+
+On rights/privacy revocation:
+- remove future dataset eligibility;
+- stop active training;
+- taint affected experiments/components;
+- apply policy: continue, de-promote, retrain, or escalate depending on legal/technical feasibility.
+
+Do not falsely claim guaranteed machine unlearning when weights cannot selectively forget.
+
+## X90 — Dataset/export privacy manifest (P1)
+Training/evaluation exports use metadata allowlist and privacy/egress manifest.
+Strip unnecessary:
+- names;
+- paths;
+- usernames;
+- project IDs;
+- raw prompts/context;
+- provider credentials/endpoints.
+
+Sensitive evidence retention has explicit TTL/class.
+
+## X91 — Physical dedup != legal learning identity (P1)
+Identical bytes may have different:
+- consent;
+- license;
+- project privacy;
+- training permission.
+
+Dataset membership binds the legal/rights identity, not only content hash.
+
+## X92 — Representation-aware evaluation lineage (P1)
+Evaluation records pin exact representation:
+- source/master/proxy;
+- transform chain;
+- resolution/audio profile.
+
+A result on a proxy cannot silently satisfy a master-quality benchmark unless policy declares equivalence.
