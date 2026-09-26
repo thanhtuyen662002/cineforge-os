@@ -2,8 +2,15 @@
 
 > **Status:** AUTHORITATIVE DEVELOPMENT OPERATING MODEL  
 > Applies to: Work chats, scheduled agents, coding agents, reviewers, planners, CI/integration agents and future autonomous workers.  
-> Source of truth for live development: **GitHub Issues + Draft/Open PRs + exact-head CI + merge history**.  
+> Source of truth for live development: **GitHub Issues + Draft/Open PRs + current verification-context CI/review + merge history**.  
 > Do not use chat memory as durable project state.
+
+
+Authoritative supporting protocols:
+- `docs/orchestration/FLOW_METRICS_AND_RECONCILIATION.md`
+- `docs/orchestration/CONTEXT_LOADING_PROTOCOL.md`
+- `docs/orchestration/GOVERNANCE_AND_CI_SECURITY.md`
+- `docs/orchestration/GITHUB_OUTAGE_AND_PARTIAL_FAILURE.md`
 
 # 1. Goal
 
@@ -45,10 +52,10 @@ A Draft PR created immediately after task claim and before substantial implement
 The Claim PR is the distributed lease.
 
 ### CI
-Evidence for the exact PR head, never a generic recent run.
+Evidence must bind the PR HEAD plus the relevant BASE/merge context; a generic recent green run is never enough.
 
 ### Review record
-An independent agent review tied to the exact PR head.
+An independent agent review tied to the reviewed HEAD plus relevant BASE/merge context.
 
 ### Merge
 Completion of the implementation task, not merely “code written”.
@@ -114,12 +121,12 @@ Responsibilities:
 - rebalance role/slot allocation.
 
 ## Integrator
-Owns exact-head merge correctness.
+Owns verification-context merge correctness.
 
 Responsibilities:
 - verify dependencies;
 - verify independent review;
-- verify exact-head CI;
+- verify current HEAD + BASE/merge-context CI evidence;
 - update/rebase branch if needed;
 - resolve integration conflicts;
 - merge safe PRs;
@@ -221,7 +228,7 @@ independent review
   ↓
 MERGE_READY
   ↓
-Integrator exact-head gate
+Integrator verification-context gate
   ↓
 MERGED
   ↓
@@ -257,7 +264,7 @@ A Draft PR remains the authoritative claim until:
 Liveness evidence can include:
 - new commits;
 - PR update;
-- active exact-head CI;
+- active required CI for the current verification context;
 - structured progress/park comment;
 - review response;
 - Flow Governor takeover record.
@@ -315,7 +322,7 @@ Reviewer verifies:
 - migration/backward compatibility;
 - tests;
 - security/rights implications;
-- exact PR head.
+- reviewed HEAD and BASE/merge context.
 
 Review should not block the reviewer from taking other work after submitting verdict.
 
@@ -328,7 +335,7 @@ High-risk changes may require two logical review capabilities:
 Merge only when:
 - task dependencies are satisfied;
 - PR head is current enough for policy;
-- required exact-head checks passed;
+- required checks passed for the current verification tuple;
 - independent review gates passed;
 - no unresolved blocking thread;
 - migration/release/security gate passed where applicable;
@@ -460,7 +467,7 @@ Planner must:
 1. Merged main branch.
 2. Authoritative architecture/design docs on main.
 3. GitHub Issues/Epics.
-4. Open/Draft PRs + exact-head CI.
+4. Open/Draft PRs + current verification-context CI/review.
 5. Review/merge records.
 6. Chat/scheduled task context.
 
