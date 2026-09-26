@@ -2370,3 +2370,68 @@ Exploration never bypasses project privacy/rights/budget constraints.
 While UNDER_REVIEW:
 - benchmark policy decides whether the example is excluded, down-weighted or blocks promotion;
 - prior results referencing it are marked potentially stale, not silently trusted.
+
+
+
+# 66. Project membership lifecycle
+
+INVITED
+→ ACTIVE
+→ SUSPENDED
+→ ACTIVE
+→ REVOKED
+
+Alternate:
+- ACTIVE → LEFT
+- INVITED → EXPIRED
+
+Each authority-changing transition increments authorization_epoch.
+
+Historical actions retain former membership evidence but future authority uses current epoch.
+
+# 67. Collaborative working copy lifecycle
+
+OPEN
+→ OFFLINE
+→ OPEN
+
+From OPEN/OFFLINE:
+- STALE
+- CONFLICT
+- MERGE_READY
+- ABANDONED
+
+MERGE_READY → MERGED
+
+A stale/offline working copy cannot jump directly to canonical merged state without base/conflict validation.
+
+# 68. Event subscription authorization lifecycle
+
+ACTIVE
+→ REAUTH_REQUIRED
+→ ACTIVE
+
+Terminal:
+- REVOKED
+- EXPIRED
+
+Authorization epoch change affecting scope moves relevant subscription out of ACTIVE until revalidated.
+
+# 69. Delegation lifecycle
+
+ACTIVE
+→ REVOKED
+or
+ACTIVE → EXPIRED
+
+A queued command using a delegation revalidates it before an irreversible/external phase.
+
+# 70. Annotation staleness projection
+
+Annotation itself remains historical, but projection can be:
+- CURRENT
+- STALE_SUBJECT_REVISION
+- ORPHANED_RANGE
+- RESOLVED
+
+Annotations never silently migrate to a newer revision when their original range/meaning cannot be mapped confidently.
