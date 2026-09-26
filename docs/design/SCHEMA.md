@@ -2065,3 +2065,37 @@ After multi-role red-team, a new implementation should first attempt to map to t
 - deliverable/release.
 
 If a new problem cannot be expressed without abusing one of those domains, create an architecture decision before adding an ad-hoc field/table.
+
+
+# 37. Creative variant / branch domain
+
+Revision parentage allows branching, but user-facing A/B experimentation needs an explicit comparison/promote domain.
+
+## variant_groups
+- id PK FK entity_registry
+- project_id FK
+- subject_entity_id FK entity_registry
+- base_revision_id FK revision_registry
+- variant_type: CHARACTER | SCENE | SHOT | TIMELINE | STYLE | AUDIO | OTHER
+- title
+- state: OPEN | COMPARING | RESOLVED | ARCHIVED
+- promoted_revision_id nullable FK revision_registry
+- created_by_actor_id
+- created_at_utc_us
+- row_version
+
+## variant_candidates
+- id PK
+- variant_group_id FK
+- revision_id FK revision_registry
+- label
+- candidate_state: ACTIVE | REJECTED | PROMOTED | ARCHIVED
+- created_at_utc_us
+UNIQUE(variant_group_id, revision_id)
+
+Rules:
+- creating a variant never mutates the base revision;
+- multiple candidates may share the same base parent;
+- only one candidate may be PROMOTED per resolved group;
+- promotion is an explicit command and may create downstream staleness/impact;
+- losing candidates remain inspectable unless retention policy explicitly archives/purges their rebuildable artifacts.
