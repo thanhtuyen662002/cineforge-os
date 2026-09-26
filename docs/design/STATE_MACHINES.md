@@ -1385,3 +1385,85 @@ Undo horizon is explicit and cannot drop dependencies still reachable by retaine
 - STALE
 
 Any release-manifest input change invalidates PASS.
+
+
+
+# 61. Network fetch lifecycle
+
+- PLANNED
+- RESOLVING
+- POLICY_CHECK
+- CONNECTING
+- REDIRECT_REVALIDATION
+- DOWNLOADING
+- VERIFYING
+- COMPLETE
+
+Block/failure:
+- PRIVATE_ADDRESS_BLOCKED
+- SCHEME_BLOCKED
+- REDIRECT_BLOCKED
+- SIZE_LIMIT
+- TIMEOUT
+- AUTH_ORIGIN_BLOCKED
+- FAILED
+
+# 62. Callback authenticity state
+
+- UNVERIFIED
+- VERIFIED
+- FAILED
+- REPLAY_REJECTED
+- QUARANTINED
+
+Canonical provider processing starts only from VERIFIED, except connectors whose explicit policy declares authenticated callback impossible and uses a safer pull/reconcile model.
+
+# 63. Worker crash circuit
+
+```text
+READY/BUSY
+→ CRASHED
+→ BACKING_OFF
+→ STARTING
+→ HEALTH_CHECK
+→ READY
+```
+
+Repeated failure:
+`BACKING_OFF/HEALTH_CHECK → QUARANTINED`
+
+QUARANTINED never self-loops into immediate restart forever.
+
+# 64. Remote identity state
+
+- UNKNOWN
+- VERIFIED
+- MISMATCH
+- UNAVAILABLE
+
+MISMATCH blocks autonomous external mutation where remote identity is policy-pinned.
+
+# 65. Integrity audit lifecycle
+
+- PLANNED
+- RUNNING
+- FINDINGS_READY
+- CLEAN
+- REPAIR_PLANNED
+- REPAIRING
+- RECHECK
+- RESOLVED
+- BLOCKED
+
+A finding cannot disappear solely because a repair was attempted; recheck must verify the invariant.
+
+# 66. Bulk snapshot state
+
+- MATERIALIZING
+- READY
+- STALE
+- EXECUTING
+- COMPLETE
+- CANCELLED
+
+Revision changes can make individual scope items stale without adding new items to the confirmed set.
