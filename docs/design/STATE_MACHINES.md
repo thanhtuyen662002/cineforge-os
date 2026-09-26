@@ -2306,3 +2306,67 @@ Uploaded bytes and public derivative are independent.
 - OBSOLETE
 
 Waiver records scope; it does not delete conflicting evidence.
+
+
+
+# 61. Learning feedback eligibility lifecycle
+
+UNTRUSTED_FEEDBACK
+→ CURATION_REQUIRED
+→ ELIGIBLE
+
+Alternate:
+- CURATION_REQUIRED → INELIGIBLE
+- any nonterminal → TAINTED
+- ELIGIBLE → TAINTED on rights/privacy/label/benchmark invalidation
+
+TAINTED feedback never silently remains positive evidence in a later benchmark/promotion.
+
+# 62. Benchmark/holdout integrity state
+
+- CLEAN
+- SUSPECTED_LEAKAGE
+- OVEREXPOSED
+- TAINTED
+- RETIRED
+
+A sealed holdout exceeding configured exposure or leaking into candidate optimization becomes ineligible for authoritative promotion until replaced/revalidated.
+
+# 63. Promotion evidence validity
+
+Independent axis:
+- VALID
+- STALE
+- TAINTED
+- REVOKED
+- UNKNOWN
+
+Promotion state PROMOTED does not erase evidence validity changes.
+If mandatory evidence later becomes TAINTED/REVOKED:
+- policy may trigger REVIEW_REQUIRED, DEPROMOTION_PENDING or immediate rollback for critical components.
+
+# 64. Router exploration lifecycle
+
+- PLANNED
+- POLICY_CHECKED
+- SHADOW
+- LIMITED_TRAFFIC
+- EVALUATING
+- ACCEPTED
+- REJECTED
+- PAUSED
+- CANCELLED
+
+Exploration never bypasses project privacy/rights/budget constraints.
+
+# 65. Golden-example dispute lifecycle
+
+- OPEN
+- UNDER_REVIEW
+- CONFIRMED
+- REVISED
+- RETIRED
+
+While UNDER_REVIEW:
+- benchmark policy decides whether the example is excluded, down-weighted or blocks promotion;
+- prior results referencing it are marked potentially stale, not silently trusted.
