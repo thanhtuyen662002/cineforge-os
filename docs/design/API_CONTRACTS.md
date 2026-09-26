@@ -1628,3 +1628,105 @@ Advanced/background:
 
 Canonical/high-value objects can be periodically rehashed.
 If a valid mirror exists, repair creates/updates location evidence without changing logical asset identity.
+
+
+
+# 70. Execution-time gate API
+
+Before high-impact phase:
+- `gates.revalidate_execution_phase`
+
+Input binds:
+- command/job/batch;
+- exact phase/item;
+- expected recovery epoch;
+- expected revision/manual-lock context;
+- expected rights/authority context;
+- expected package/resource/cost state.
+
+Output:
+- ALLOW
+- PAUSE_NEEDS_DECISION
+- BLOCK
+- STALE_REPLAN_REQUIRED
+
+# 71. Protection lease API
+
+Internal:
+- `protection.acquire`
+- `protection.renew`
+- `protection.release`
+- `protection.list_blockers`
+
+GC/package removal/export/backup use these leases for immutable dependencies.
+
+# 72. Migration recovery API
+
+Advanced/internal:
+- `migrations.current_run`
+- `migrations.resume`
+- `migrations.verify_step`
+- `migrations.enter_safe_mode`
+
+A migration step marked AMBIGUOUS cannot be blindly re-executed.
+
+# 73. Integrity incident API
+
+- `integrity.get_incident`
+- `integrity.freeze_scope`
+- `integrity.plan_incident_repair`
+- `integrity.recheck_incident`
+- `integrity.resolve_incident`
+
+Normal command execution checks whether its scope is frozen.
+
+# 74. Event/projection archive API
+
+Internal/advanced:
+- `events.create_archive_range`
+- `events.verify_archive_range`
+- `projections.create_snapshot`
+- `projections.rebuild_from_checkpoint`
+
+A rebuild selects nearest compatible verified checkpoint rather than replaying event 0 by default.
+
+# 75. Time-health API
+
+`query.system.time_health`
+
+Security-sensitive operations may require:
+- normal/revalidated time state;
+- trusted server/provider time comparison.
+
+Large drift returns a human/system action rather than silently invalidating or accepting every expiry.
+
+# 76. Hermetic build/release API contract
+
+Release pipeline records:
+- clean workspace proof;
+- exact source commit/tree;
+- workflow/runner identity;
+- dependency/toolchain manifests;
+- artifact digest.
+
+Signing accepts only an artifact whose attestation satisfies release policy.
+
+# 77. Canonical resolution for search-driven commands
+
+Bulk/single mutation from search results must call canonical resolver:
+- resolve entity existence;
+- resolve current revision;
+- resolve rights/permission;
+- materialize scope snapshot.
+
+The search document/vector payload itself is never command authority.
+
+# 78. Directory preflight API
+
+`imports.scan_directory_incremental` supports:
+- pause/cancel;
+- bounded enumeration;
+- partial summary;
+- explicit “continue deeper/larger scan” where user/policy permits.
+
+No giant folder requires one monolithic blocking enumeration before UI feedback.
