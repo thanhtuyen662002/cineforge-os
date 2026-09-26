@@ -52,7 +52,10 @@ HEAD_SHA
 BASE_SHA or MERGE_BASE_SHA
 optional SYNTHETIC_MERGE_SHA
 WORKFLOW/CHECK_ID
-WORKFLOW_REVISION when relevant
+CHECK_PRODUCER_APP/IDENTITY
+WORKFLOW_PATH
+WORKFLOW_REVISION
+RUNNER_TRUST_CLASS
 ATTEMPT
 RESULT
 ```
@@ -163,3 +166,57 @@ Response:
 - redirect builders;
 - fix CI architecture;
 - no user babysitting.
+
+
+# 14. Verification producer provenance
+
+A green status name is insufficient.
+
+Required checks must validate:
+- expected GitHub App/check-suite producer identity;
+- expected workflow path;
+- workflow revision/source;
+- runner trust class;
+- exact verification tuple.
+
+A status/check from an unexpected producer with the same human-readable name does not satisfy the gate.
+
+When repository-native rules support binding a required check to an expected App/integration, use that facility.
+
+# 15. Governance workflow non-self-approval
+
+A PR modifying:
+- `.github/workflows/**`;
+- CI bootstrap;
+- required-check logic;
+- governance/security verification scripts
+
+must not be approved solely by the modified workflow code under test.
+
+Its mandatory governance gate must run from:
+- protected base-branch workflow logic that the PR cannot change for its own approval; or
+- a separately trusted external verifier/App.
+
+The PR may additionally test its proposed workflow, but that result is not the only approval evidence.
+
+# 16. Release artifact provenance
+
+PR verification and release artifact production are separate concerns.
+
+For release/signing:
+- build from the merged/release commit; or
+- prove artifact content digest is reproducibly identical to an attested pre-merge build;
+- bind artifact digest, source commit, toolchain/package lock and signing event in the release manifest.
+
+Do not publish an artifact merely because a pre-squash PR HEAD built successfully if the final merged commit identity/content context differs.
+
+# 17. Merge lease final check
+
+Immediately before the merge API mutation, Integrator revalidates:
+- current unexpired Integrator/merge lease;
+- current main/base SHA;
+- expected PR HEAD;
+- task contract hash;
+- required CI/review evidence.
+
+A lease that expired before this final check does not authorize the merge.
