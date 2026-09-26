@@ -2210,3 +2210,143 @@ At confirmation/plan time, bind:
 
 New items arriving after confirmation are excluded.
 Items whose revisions changed are stale/revalidated according to command policy.
+
+
+
+# 63. Execution-time revalidation for long/high-impact work
+
+Plan-time authorization is not sufficient when reality can change during execution.
+
+Before each irreversible/high-impact phase/item, revalidate the relevant current facts:
+- rights/consent;
+- actor authority where policy requires continued authority;
+- current recovery epoch;
+- current manual ownership/revision fence;
+- package/runtime identity;
+- resource reservation;
+- budget/unreconciled exposure;
+- connection/account/workspace identity.
+
+If revalidation fails:
+- pause/stop before the unsafe phase;
+- preserve already-completed evidence;
+- do not pretend prior external effects were undone.
+
+# 64. Protection leases for concurrent retention/removal
+
+Operations that require an object/package/runtime to remain available acquire temporary protection leases.
+
+Examples:
+- backup;
+- restore;
+- export/release build;
+- active job;
+- integrity scrub/repair;
+- rebuild recipe verification.
+
+GC/package removal/uninstall cannot finalize while an unexpired valid protection lease exists.
+
+Protection lease is scoped to immutable identity, not path alone.
+
+# 65. Time-source discipline
+
+Different time meanings use different clocks.
+
+Use:
+- monotonic elapsed time for local duration/backoff/lease-renew timing where possible;
+- GitHub/provider/Core authoritative server time for cross-agent lease event ordering;
+- trusted wall time for certificate/license/absolute expiry.
+
+Detect large wall-clock jumps.
+
+Security-sensitive validity checks encountering implausible time drift enter DEGRADED/NEEDS_REVALIDATION rather than silently trusting local clock.
+
+UUIDv7 timestamps and ordinary event timestamps are not authoritative ordering primitives.
+
+# 66. Crash-resumable migrations
+
+Every nontrivial migration defines:
+- precondition;
+- idempotent step/checkpoint;
+- durable completion marker;
+- postcondition;
+- compatibility/rollback state.
+
+After crash/reboot:
+- resume from last verified step;
+- never blindly replay an ambiguous destructive step;
+- enter SAFE_MODE/RECOVERY_REQUIRED if postcondition cannot prove state.
+
+# 67. Integrity incident containment
+
+Severe canonical/audit/event inconsistency creates an integrity incident.
+
+Containment may freeze:
+- one aggregate;
+- one project;
+- one subsystem;
+- whole canonical mutation plane,
+
+according to severity.
+
+Allowed during freeze:
+- read/diagnostic;
+- evidence capture;
+- verified backup;
+- typed repair/reconciliation.
+
+Normal writes resume only after recheck passes or an explicit authority-approved degraded policy applies.
+
+# 68. Event/projection scale and bounded rebuild
+
+Event/audit history is durable, but runtime must not require replay from event 0 forever.
+
+Use:
+- aggregate snapshots;
+- projection checkpoints;
+- versioned compatible snapshot formats;
+- verified archival of older event ranges;
+- rebuild from nearest compatible checkpoint;
+- integrity links between archived ranges/checkpoints.
+
+Archival never removes evidence required by rights/audit/forensics policy.
+
+# 69. Hermetic CI/release execution
+
+Security-critical CI and release/signing use clean declared inputs.
+
+Required:
+- clean checkout/worktree/container/VM;
+- no untracked residue from earlier PR;
+- pinned toolchain/dependency inputs;
+- verified package/runtime hashes;
+- trusted cache policy or clean rebuild;
+- artifact attestation to source/config/toolchain.
+
+Release signing never consumes arbitrary artifact found in a persistent workspace.
+
+# 70. Search is navigation, never mutation authority
+
+Search/vector/index results may be stale.
+
+Any command/bulk operation:
+1. resolves canonical entity/revision IDs;
+2. revalidates current permissions/rights/state;
+3. materializes exact scope snapshot;
+4. only then mutates.
+
+Deleted/revoked/stale search hits cannot regain authority by appearing in search.
+
+# 71. Large-directory intake budget
+
+Folder intake is incremental and bounded before fanout.
+
+Limits:
+- maximum enumerated files per phase;
+- nesting depth;
+- enumeration wall/CPU budget;
+- metadata-read budget;
+- cancel/pause checkpoints;
+- deferred/lazy deeper enumeration where appropriate.
+
+Proxy/hash/semantic generation starts under separate fanout budgets, not during uncontrolled traversal.
