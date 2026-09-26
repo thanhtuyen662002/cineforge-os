@@ -201,3 +201,18 @@ Mọi schema/event/manifest public phải versioned.
 
 
 - `docs/design/EXTREME_HARDENING_CONTRACTS.md`
+
+
+
+## Control registry and implementation applicability
+
+Agents must consult `docs/design/CONTROL_REGISTRY.yaml` for stable control IDs, applicability and maturity.
+
+Rules:
+- never claim a SPECIFIED control is implemented/proven;
+- do not implement FUTURE_MULTIUSER/OPTIONAL_HIGH_SECURITY machinery during an unrelated V1 slice merely because it exists in the design;
+- current task context should be compiled from applicable control IDs rather than rereading/implementing the complete corpus;
+- authoritative owner documents still win over the registry if the registry is stale;
+- any registry/owner mismatch is a correctness finding.
+
+The comprehensive design is a compatibility boundary, not permission for big-bang implementation.
