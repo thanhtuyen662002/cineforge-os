@@ -1209,7 +1209,7 @@ Only MATCHED, or explicitly policy-approved UNKNOWN where provider cannot expose
 - QUARANTINED
 
 
-# 69. Core ownership lifecycle
+# STATE-CORE-OWNERSHIP-01. Core ownership lifecycle
 
 ```text
 UNOWNED
@@ -1229,7 +1229,7 @@ Rules:
 - second Core cannot self-promote while ownership is ambiguous;
 - stale owner recovery requires evidence and a new ownership epoch/session nonce.
 
-# 70. IPC session lifecycle
+# STATE-IPC-SESSION-01. IPC session lifecycle
 
 - CREATED
 - AUTHENTICATING
@@ -1245,7 +1245,7 @@ Queued commands from INVALIDATED session require replay classification:
 - IDEMPOTENT_COMMAND_REVALIDATE
 - DISCARD_REPLAN
 
-# 71. Package anti-rollback state
+# STATE-PACKAGE-TRUST-01. Package anti-rollback state
 
 Package candidate:
 - DISCOVERED
@@ -1263,7 +1263,7 @@ Failure/blocked:
 
 A valid historical signature does not bypass VERSION_POLICY_VALID.
 
-# 72. High-impact decision freshness
+# STATE-DECISION-FRESHNESS-01. High-impact decision freshness
 
 Decision/impact snapshot:
 - CURRENT
@@ -1476,7 +1476,7 @@ Transcript correctness alone does not imply CONSISTENT meaning.
 
 
 
-# 61. Storage scrub state
+# STATE-STORAGE-SCRUB-01. Storage scrub state
 
 Scrub run:
 - PLANNED
@@ -1495,7 +1495,7 @@ Per protected object:
 - REPAIRED
 - QUARANTINED
 
-# 62. GC object crash-recovery state
+# STATE-GC-RECOVERY-01. GC object crash-recovery state
 
 ```text
 LIVE
@@ -1507,7 +1507,7 @@ LIVE
 
 Any interrupted nonterminal state may enter `RECONCILIATION_REQUIRED`.
 
-# 63. Environment certification freshness
+# STATE-ENV-CERT-01. Environment certification freshness
 
 - CURRENT
 - DRIFT_DETECTED
@@ -1518,7 +1518,7 @@ Any interrupted nonterminal state may enter `RECONCILIATION_REQUIRED`.
 
 Material GPU/driver/runtime drift does not silently retain “certified” state.
 
-# 64. Release master durability
+# STATE-RELEASE-DURABILITY-01. Release master durability
 
 - MASTER_WRITING
 - MASTER_VERIFIED
@@ -1536,7 +1536,7 @@ Publication requires RELEASE_ACTIVATED.
 
 
 
-# 65. Deployment activation lifecycle
+# STATE-DEPLOYMENT-01. Deployment activation lifecycle
 
 ```text
 UNBOUND
@@ -1558,7 +1558,7 @@ Old deployment:
 
 A RETIRED deployment cannot dispatch new external work if current control can detect its state.
 
-# 66. Fork/reconciliation state
+# STATE-FORK-01. Fork/reconciliation state
 
 - DETECTED_POSSIBLE_CLONE
 - AWAITING_INTENT
@@ -1571,7 +1571,7 @@ A RETIRED deployment cannot dispatch new external work if current control can de
 - ACTIVE
 - BLOCKED
 
-# 67. Deployment-bound job state
+# STATE-DEPLOYMENT-JOB-01. Deployment-bound job state
 
 If deployment binding changes before dispatch:
 - `STALE_DEPLOYMENT`
