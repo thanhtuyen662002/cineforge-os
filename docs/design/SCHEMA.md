@@ -2956,3 +2956,183 @@ UNIQUE(library_lineage_id, backup_generation_id)
 - completed_at_utc_us nullable
 
 No direct database-merge record exists because direct DB merge is unsupported.
+
+
+
+# 64. Privacy purge coordination
+
+## purge_requests
+- id PK
+- project_id nullable
+- subject_type
+- subject_id
+- requested_by_actor_id
+- policy_scope
+- state
+- requested_at_utc_us
+- completed_at_utc_us nullable
+- retained_copy_summary_json nullable
+
+## purge_targets
+- purge_request_id FK
+- target_kind: CANONICAL | OBJECT | PROXY | THUMBNAIL | WAVEFORM | SEARCH_INDEX | VECTOR_INDEX | CACHE | TEMP | LEARNING | OBSERVABILITY | BACKUP | ARCHIVE | EXTERNAL
+- target_id
+- required_action
+- state
+- retention_or_hold_reason nullable
+- evidence_json nullable
+PK(purge_request_id,target_kind,target_id)
+
+## forward_revocation_journal
+- seq INTEGER PRIMARY KEY AUTOINCREMENT
+- event_type: PRIVACY_PURGE | RIGHTS_REVOKE | CREDENTIAL_REVOKE | SIGNING_KEY_REVOKE | MIN_VERSION_FLOOR | TRUST_POLICY_FLOOR
+- subject_type
+- subject_id
+- effective_at_utc_us
+- payload_hash
+- payload_json
+- checkpoint_hash nullable
+
+# 65. Semantic index scope
+
+## semantic_index_entries
+- id PK
+- index_family
+- studio_id
+- project_id nullable
+- shared_scope_id nullable
+- source_entity_id FK
+- source_revision_id nullable FK
+- model_id
+- model_version
+- privacy_class
+- rights_class
+- embedding_object_id
+- generation_epoch
+- state: ACTIVE | STALE | PURGE_PENDING | PURGED
+
+Queries must bind one authorized scope descriptor.
+
+# 66. Inference session isolation
+
+## inference_sessions
+- id PK
+- worker_id FK
+- project_id nullable
+- privacy_scope_hash
+- isolation_class: STATELESS | RESETTABLE | PROCESS_ISOLATED | PROVIDER_MANAGED_UNKNOWN
+- cache_namespace
+- state: ACTIVE | RESETTING | RESET | TAINTED | CLOSED
+- started_at_utc_us
+- last_reset_at_utc_us nullable
+
+# 67. Learning derivative lineage
+
+## learning_derivatives
+- id PK FK entity_registry
+- derivative_type: DATASET | ADAPTER | FINETUNE | CHECKPOINT | ROUTER_PROFILE
+- parent_model_id nullable
+- rights_state
+- privacy_state
+- training_manifest_hash
+- state: ACTIVE | QUARANTINED | RETRAIN_REQUIRED | BLOCKED | RETIRED
+
+## learning_derivative_sources
+- derivative_id FK
+- source_entity_id FK
+- source_revision_id nullable FK
+- source_rights_record_id nullable
+PK(derivative_id,source_entity_id,source_revision_id)
+
+# 68. Observability privacy records
+
+## observability_policies
+- id PK
+- policy_version
+- allowed_data_classes_json
+- retention_json
+- lock_screen_notification_mode
+- crash_reporting_mode
+- telemetry_mode
+
+## observability_records
+- id PK
+- record_type
+- project_id nullable
+- privacy_class
+- retention_until_utc_us nullable
+- redaction_state
+- payload_ref
+- created_at_utc_us
+
+# 69. External exposure ledger
+
+## external_exposures
+- id PK
+- project_id FK
+- command_id nullable
+- job_attempt_id nullable
+- provider_connection_id nullable
+- provider_account_id nullable
+- data_class
+- input_manifest_hash
+- policy_generation
+- provider_terms_snapshot_id nullable
+- exposed_at_utc_us
+- known_retention_state
+- takedown_state nullable
+- evidence_json
+
+# 70. Privacy/consent generations
+
+## privacy_generations
+- id PK
+- studio_id
+- project_id nullable
+- generation_no
+- privacy_policy_revision_id
+- telemetry_allowed
+- cloud_allowed
+- created_at_utc_us
+UNIQUE(studio_id,project_id,generation_no)
+
+Queued outbound action stores expected privacy_generation_id.
+
+# 71. Core/library writer ownership
+
+## library_ownership
+- library_id PK
+- deployment_id
+- os_user_identity
+- core_epoch
+- process_instance_id
+- acquired_at_utc_us
+- last_heartbeat_at_utc_us
+- state: OWNED | DRAINING | STALE | RECOVERING | RELEASED
+
+Only the process holding the OS-level exclusive primitive may move state into OWNED.
+
+# 72. Archive seals
+
+## archive_seals
+- archive_id PK
+- archive_manifest_hash
+- object_set_hash
+- schema/profile_version
+- created_at_utc_us
+- seal_state: SEALED | VERIFICATION_FAILED | SUPERSEDED
+- verification_evidence_json
+
+Derived previews/indexes for archive use separate cache/project space and do not modify the sealed package.
+
+# 73. Temp/cache scope
+
+## scoped_temp_roots
+- id PK
+- project_id nullable
+- job_attempt_id nullable
+- owner_worker_id nullable
+- privacy_scope_hash
+- path
+- state: ACTIVE | ORPHANED | CLEANUP_PENDING | QUARANTINED | CLEANED
+- created_at_utc_us
