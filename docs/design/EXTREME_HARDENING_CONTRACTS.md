@@ -6312,3 +6312,220 @@ Completed/blocked/history remains queryable outside the hot queue.
 222. delayed charges after cancellation;
 223. 100k-job project active-horizon behavior;
 224. borrowed maintenance capacity deadline reclaim.
+
+
+
+# JV. Hardened browser automation profile
+
+Production browser profile requirements:
+- dedicated user-data directory;
+- user-scoped filesystem ACL;
+- no arbitrary browser extensions;
+- password manager/autofill/site notifications disabled by default;
+- controlled crash/tab restore behavior;
+- pinned browser/CDP version during active jobs;
+- explicit profile health/certification revision.
+
+Browser/profile update is a package lifecycle event, not invisible ambient OS behavior.
+
+# JW. Browser site-state isolation classes
+
+Connector declares browser state-sharing class:
+- JOB_ISOLATED
+- PROJECT_ISOLATED
+- ACCOUNT_SHARED_SAFE
+- UNKNOWN
+
+State includes:
+- cookies;
+- localStorage;
+- IndexedDB;
+- service workers;
+- site permissions;
+- provider conversation/session identifiers.
+
+Strict privacy policy rejects UNKNOWN cross-project reuse.
+
+# JX. Private browser-control endpoint
+
+CDP/remote automation endpoint:
+- loopback/private IPC only;
+- unpredictable ephemeral endpoint/token;
+- process/session epoch-bound;
+- user-scoped ACL/firewall;
+- never logged in plaintext;
+- closed when browser worker exits.
+
+Client validates it controls the expected browser process/profile.
+
+# JY. OAuth/auth redirect session
+
+Browser auth session binds:
+- connector;
+- account expectation;
+- state;
+- nonce;
+- PKCE verifier/challenge where supported;
+- redirect URI;
+- loopback listener ownership;
+- expiry.
+
+Callback without matching live auth session is rejected.
+
+Post-exchange authentication is not READY until provider account/workspace identity is verified.
+
+# JZ. Canonical browser origin policy
+
+Connector registers:
+- canonical production origins;
+- canonical auth origins;
+- allowed redirect transitions;
+- TLS/certificate policy;
+- allowed schemes.
+
+Privileged auth/automation compares parsed origin identity, not page title/favicon/rendered URL.
+
+Certificate error, captive portal, unexpected punycode/homograph or origin mismatch blocks privileged action.
+
+# KA. Typed browser action plan
+
+Browser automation executes typed actions:
+- NAVIGATE_ALLOWED_ORIGIN
+- UPLOAD_STAGED_FILE
+- SUBMIT_GENERATION
+- POLL_RESULT
+- DOWNLOAD_RESULT
+- ACCOUNT_IDENTITY_CHECK
+- HUMAN_TAKEOVER_CHECKPOINT
+- other connector-declared actions.
+
+Page/DOM text is untrusted observation and cannot create a new privileged action or widen file/network scope.
+
+# KB. Exact upload/download scoping
+
+Upload:
+- receives exact staged file handles;
+- no arbitrary directory enumeration;
+- no parent/sibling project visibility.
+
+Download:
+- lands in per-job staging;
+- never auto-executes;
+- records origin/tab/session/action;
+- MIME/decode validates content;
+- blob/data URL requires page/session/job association evidence.
+
+# KC. Semantic DOM action contract
+
+Each production DOM action defines:
+- expected origin;
+- page/semantic fingerprint;
+- expected control role;
+- effect class;
+- preconditions;
+- postconditions;
+- evidence.
+
+Destructive/account actions require stronger semantic confirmation.
+CSS/XPath selector is an implementation detail, not authority.
+
+# KD. Browser runtime/profile draining
+
+Browser/profile version change:
+`READY → DRAINING → UPDATING → TESTING → CANARY → READY`
+
+Active jobs keep pinned runtime/profile version or reconcile explicitly.
+
+New version must pass:
+- login/account identity;
+- upload;
+- harmless canary;
+- generation/result observation where economically safe;
+- download/materialization;
+- DOM semantic checks.
+
+# KE. Human takeover resume fence
+
+Before automation resumes after human takeover:
+- current origin/page fingerprint;
+- provider account/workspace;
+- job identity;
+- expected workflow checkpoint;
+- current downloads/session state;
+- connector/browser version
+
+must match.
+
+Mismatch => NEEDS_RECONCILIATION, not blind resume.
+
+# KF. Browser challenge classification
+
+Browser states distinguish:
+- LOGIN_REQUIRED
+- MFA_REQUIRED
+- CAPTCHA_REQUIRED
+- CONSENT_REQUIRED
+- PERMISSION_REQUIRED
+- ACCOUNT_MISMATCH
+- GENERATION_RUNNING
+- GENERATION_FAILED
+- RESULT_READY
+
+Auth challenge is never treated as proof generation failed/retry-safe.
+
+# KG. Browser diagnostic data class
+
+Browser screenshots/DOM/network traces/download metadata are sensitive diagnostic artifacts.
+
+They bind:
+- project/job;
+- privacy class;
+- retention;
+- redaction state;
+- support-export inclusion policy.
+
+Default diagnostics minimize full-page screenshots/network bodies.
+
+# KH. Browser health freshness
+
+Connection health includes independent freshness:
+- browser runtime/profile;
+- DOM/semantic canary;
+- auth/session;
+- account/workspace;
+- automation permission/terms;
+- download/materialization.
+
+Stale health cannot be treated as current production authorization indefinitely.
+
+# KI. Browser profile quarantine/recovery
+
+Repeated profile corruption/anomalous identity/session behavior:
+`READY → DEGRADED → QUARANTINED`
+
+Recovery:
+- preserve minimal forensic evidence;
+- create clean profile;
+- do not clone corrupted site state wholesale;
+- require reauth where appropriate;
+- recertify connector.
+
+# KJ. Required browser connector tests
+
+225. extension injection/update attempt;
+226. service-worker behavior drift;
+227. cross-project localStorage/session reuse;
+228. exposed CDP endpoint;
+229. OAuth redirect-port squatting;
+230. bad state/nonce callback;
+231. homograph/captive-portal login;
+232. page prompt attempts wider upload;
+233. unexpected popup origin;
+234. executable download;
+235. blob download association;
+236. browser update mid-job;
+237. wrong-account workspace after login;
+238. destructive DOM selector drift;
+239. human takeover resumes wrong page;
+240. CAPTCHA/MFA appears after submission;
+241. browser profile corruption recovery.
