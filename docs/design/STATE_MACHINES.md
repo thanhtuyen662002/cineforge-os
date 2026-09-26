@@ -1533,3 +1533,48 @@ Failures:
 - RECONCILIATION_REQUIRED
 
 Publication requires RELEASE_ACTIVATED.
+
+
+
+# 65. Deployment activation lifecycle
+
+```text
+UNBOUND
+→ VERIFYING
+→ ACTIVE
+```
+
+Mismatch/clone:
+- VERIFYING → READ_ONLY_RECONCILIATION
+
+Transitions from reconciliation:
+- MOVE_REPLACEMENT_PENDING → ACTIVE
+- RESTORE_RECONCILING → ACTIVE
+- FORK_INITIALIZING → ACTIVE_NEW_NAMESPACE
+- ABORTED
+
+Old deployment:
+- ACTIVE → RETIRING → RETIRED
+
+A RETIRED deployment cannot dispatch new external work if current control can detect its state.
+
+# 66. Fork/reconciliation state
+
+- DETECTED_POSSIBLE_CLONE
+- AWAITING_INTENT
+- MOVE_PLANNED
+- RESTORE_PLANNED
+- FORK_PLANNED
+- REKEYING
+- REAUTHORIZING
+- RECONCILING_EXTERNAL
+- ACTIVE
+- BLOCKED
+
+# 67. Deployment-bound job state
+
+If deployment binding changes before dispatch:
+- `STALE_DEPLOYMENT`
+- replan/rebind required.
+
+Already accepted external jobs enter normal recovery/external reconciliation rather than being pretended cancelled.
