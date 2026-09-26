@@ -386,3 +386,13 @@ If required review assurance exceeds currently available trusted runtime/credent
 - use explicit owner/external reviewer or valid bootstrap/disaster mechanism.
 
 Throughput pressure is not evidence that a lower assurance level is safe.
+
+
+# 19. Agent instruction surfaces are governance hotspots
+
+The registry/policy in `AGENT_INSTRUCTION_SURFACE_POLICY.md` is a governance asset.
+
+CI/governance scans for recognized agent-instruction file patterns, including nested/runtime-specific variants.
+Unregistered additions do not become authoritative and are reviewed as potential prompt/control-plane injection.
+
+Changes to the instruction hierarchy cannot weaken their own approval gate.
