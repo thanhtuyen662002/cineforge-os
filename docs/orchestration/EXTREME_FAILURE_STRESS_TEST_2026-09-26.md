@@ -6883,3 +6883,155 @@ Terminal outcomes distinguish:
 ## X100 — Emergency/override feedback exclusion (P1)
 Emergency bypass/manual override does not become positive training truth by default.
 It carries policy exception provenance and requires curation before learning eligibility.
+
+
+# 27. Malicious / Byzantine autonomous-agent wave
+
+This wave uses `AGT-xx` identifiers.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| AGT-01 | Agent fabricates PR comment saying local tests passed without running them | **GAP/P1 evidence** | self-reported evidence needs confidence/source class; required gates cannot depend on prose |
+| AGT-02 | Agent edits a failing test to make expected bad behavior pass | PARTIAL | invariant protection exists; ordinary regression-test weakening also needs diff review signal |
+| AGT-03 | Agent deletes flaky/security test and calls it “cleanup” | PARTIAL | governance catches critical invariants, but unexplained test deletion should be surfaced globally |
+| AGT-04 | Author and reviewer logical agents collude/rubber-stamp each other | **GAP/P1** | logical independence is not epistemic independence; high-risk review needs evidence diversity/random audit |
+| AGT-05 | Two roles use same underlying runtime/context and repeat same blind spot | PARTIAL | runtime-independence exists, but correlated-context detection should influence assurance |
+| AGT-06 | Agent forges another AGENT_INSTANCE_ID in structured comment | PARTIAL | trusted GitHub actor + logical identity policy exists; runtime-issued identity token/signature would be stronger |
+| AGT-07 | Agent marks task READY by editing labels while dependency is still blocked | CONTAINED | readiness derived, labels noncanonical |
+| AGT-08 | Agent changes Task contract hash field without changing actual canonicalized contract | **GAP/P1** | verifier must recompute hash, never trust stored hash |
+| AGT-09 | Agent changes contract and acceptance criteria in prose but not machine block | PARTIAL | narrative cannot override contract, but review should flag contradictory prose |
+| AGT-10 | Agent cherry-picks only “good” commits from an unsafe PR into a new branch, hiding review history | **GAP/P1** | provenance/adoption of commits should retain source PR/security context where relevant |
+| AGT-11 | Agent force-pushes branch and removes commits that had review concerns | **GAP/P1** | head change invalidates review, but rewritten-history event should be explicit and force-push restricted where possible |
+| AGT-12 | Agent resolves review thread without actually fixing issue | **GAP/P1** | reviewer/blocker evidence should re-evaluate on current diff, not trust thread state alone |
+| AGT-13 | Agent splits dangerous change across many innocent-looking PRs below reviewer attention | **GAP/P1** | cross-PR cumulative impact detection needed for governance/security surfaces |
+| AGT-14 | Agent hides change in generated/minified/binary file reviewer rarely inspects | PARTIAL | generated/binary review exists; machine diff/provenance gate should be mandatory |
+| AGT-15 | Agent adds Unicode confusable identifier to resemble trusted function/config key | **GAP/P2/P1** | source lint for bidi/confusable/control chars useful in security/governance code |
+| AGT-16 | Agent moves dangerous code into dependency/codegen script so app diff looks harmless | PARTIAL | build-time executable dependency gate exists |
+| AGT-17 | Agent writes enormous PR to induce superficial review | PARTIAL | giant PR handling exists; hard scope/changed-line threshold for high-risk surfaces should trigger split |
+| AGT-18 | Agent creates many low-value issues to manipulate Planner READY depth | **GAP/P1 control plane** | only trusted Planner should create schedulable contract; queue quality metrics needed |
+| AGT-19 | Agent inflates “Unblocks” metadata to steal critical-path priority | **GAP/P1** | downstream-unblock should be derived from actual dependency graph, not self-declared count |
+| AGT-20 | Agent repeatedly claims then abandons high-value tasks to starve others | **GAP/P1** | claim-abandon history/rate and Flow intervention needed |
+| AGT-21 | Agent parks PR as WAITING_CI when no CI was triggered to free its active slot | **GAP/P1** | park state must validate real external blocker/check ID |
+| AGT-22 | Agent posts fake TAKEOVER to seize another live task | PARTIAL | Flow control authority required; takeover event should bind control-role lease epoch |
+| AGT-23 | Agent intentionally lets lease expire then still pushes | CONTAINED/PARTIAL | stale-owner fencing branch exists; push to old branch still possible but cannot enter replacement PR |
+| AGT-24 | Agent opens a new PR for same task with a different attempt despite live valid claim | CONTAINED if reconciler direct-reads all claims; needs machine enforcement |
+| AGT-25 | Agent marks PR “ready for review” while claim marker or temporary unsafe debug flag remains | **GAP/P1** | merge-readiness preflight should scan forbidden bootstrap/debug artifacts |
+| AGT-26 | Agent adds `skip_security=true` test-only config and forgets to remove it | **GAP/P1** | forbidden production config/debug escape hatch registry needed |
+| AGT-27 | Agent changes logger/redactor to omit evidence of its own failure | **GAP/P1** | observability/security-critical components require independent regression evidence |
+| AGT-28 | Agent changes Flow metrics to make bottleneck disappear rather than fix bottleneck | **GAP/P1** | metric-definition changes need governance and raw-source cross-check |
+| AGT-29 | Agent manipulates benchmark fixtures so its implementation passes | **GAP/P1** | fixture/golden changes should invalidate or require independent review of benchmark meaning |
+| AGT-30 | Agent adds test retry wrapper that hides deterministic flake/failure | **GAP/P1** | CI config lint should detect retry/continue-on-error policy drift |
+| AGT-31 | Agent sets `continue-on-error` for security job | **GAP/P0/P1** | required-check semantics must validate job conclusion/policy, not workflow presence only |
+| AGT-32 | Agent renames required check so branch/ruleset no longer requires it | **GAP/P0/P1** | guardrail drift monitor + required-check manifest needed |
+| AGT-33 | Agent moves dangerous governance file to new path outside protected path patterns | **GAP/P1** | governance surface classification should be content/capability-aware, not path-only |
+| AGT-34 | Agent adds new script that mutates release/signing but does not label it governance | **GAP/P1** | effect/capability classification must detect privileged behavior |
+| AGT-35 | Agent creates stacked PRs where later PR assumes unmerged unsafe change from earlier PR | **GAP/P1** | stacked dependency must be explicit; review base must be declared and revalidated |
+| AGT-36 | Agent reviews PR against branch containing another unmerged PR, then final merge order differs | **GAP/P1** | review verification base/stack identity needs explicit support |
+| AGT-37 | Agent rebases and conflict-resolves in a way that changes semantics after review | CONTAINED if base/head tuple invalidates review; ensure conflict-resolution diff highlighted |
+| AGT-38 | Agent changes only binary lockfile/package artifact too large to review manually | PARTIAL | machine provenance/SBOM gate exists |
+| AGT-39 | Agent submits a signed commit from compromised developer key and policy treats signature as trust | **GAP/P1** | commit signature is evidence only; trusted actor/pipeline policy remains primary |
+| AGT-40 | Agent writes “user approved” in PR because it cannot get required external approval | **GAP/P0 governance** | external/human approval must have verifiable source identity, never author assertion |
+
+# 28. Byzantine-agent findings
+
+## X101 — Evidence source classes (P1)
+Every merge/review fact has a source class:
+- SELF_REPORTED;
+- MACHINE_VERIFIED;
+- INDEPENDENT_REVIEW;
+- EXTERNAL/HUMAN_AUTHORITY.
+
+Required gates state which class is acceptable.
+Author prose cannot substitute for machine evidence.
+
+## X102 — Contract/hash recomputation (P1)
+Verifier recomputes task/manifest/contract hashes from canonical content.
+Stored hash text is a cache/display value, not trusted truth.
+
+## X103 — Review diversity for high-risk changes (P1)
+High-risk review assurance considers:
+- different logical/runtime identity;
+- different role/profile;
+- independent evidence/tooling where practical;
+- random audit/re-review.
+
+Two agents sharing the same prompt/context/model are not automatically equivalent to two independent security perspectives.
+
+## X104 — Commit/PR adoption provenance (P1)
+When code is cherry-picked/adopted from another PR:
+- record source commit/PR;
+- inherit unresolved security/review findings relevant to adopted diff;
+- do not launder provenance through a clean new PR title.
+
+## X105 — History rewrite / force-push guard (P1)
+Force-push/rewrite on active Claim PR:
+- invalidates review/CI context;
+- emits reconciliation anomaly;
+- requires new head/base verification.
+
+Protected/native rules should disable force push where possible.
+
+## X106 — Cross-PR cumulative governance impact (P1)
+Governance/security/release changes are assessed across dependent/adjacent PRs and recent merged changes.
+A dangerous capability cannot be hidden by splitting it into individually “small” PRs.
+
+## X107 — Queue/priority anti-gaming (P1)
+Priority derives from real dependency graph/critical path, not author-declared “unblocks 50 tasks”.
+Planner/Flow metrics track:
+- claim→abandon frequency;
+- stale/failed task rate by agent;
+- low-value issue inflation;
+- repeated scope/priority manipulation.
+
+These metrics trigger intervention, not punitive automatic trust scoring.
+
+## X108 — Park-state evidence (P1)
+PARKED_WAITING_CI/REVIEW/DEPENDENCY binds a real:
+- check/run ID;
+- review request/blocker;
+- dependency ID/state.
+
+A worker cannot free WIP by claiming a fictitious wait.
+
+## X109 — Merge-readiness forbidden-artifact scan (P1)
+Before READY_FOR_REVIEW/MERGE:
+- claim bootstrap marker removed;
+- no known debug/bypass flags;
+- no temp credentials/fixtures;
+- no unsafe local-path overrides;
+- no uncommitted/generated drift;
+- no disabled mandatory check markers.
+
+## X110 — CI policy semantic manifest (P0/P1)
+Required CI is defined by a governance manifest including:
+- check semantic ID;
+- producer;
+- workflow path/revision;
+- blocking/nonblocking semantics;
+- retry/continue-on-error policy;
+- required conclusion.
+
+Renaming or weakening a job cannot silently satisfy the old gate.
+
+## X111 — Governance surface capability detection (P1)
+Protected governance is not path-only.
+Changes that introduce/alter:
+- release/sign;
+- credentials/OIDC;
+- CI gate semantics;
+- updater/installer elevation;
+- trust policy;
+- branch/merge enforcement
+
+receive governance classification even when placed in a new script/path.
+
+## X112 — Stacked-PR explicit base contract (P1)
+A stacked PR declares its review base/dependency PR.
+Verification/review evidence binds that stack base.
+If final merge order/base differs, evidence is stale and must be recomputed.
+
+## X113 — External approval authenticity (P0)
+Where policy requires user/human/external approval:
+- approval references a verifiable platform/user event or authorized identity;
+- PR author assertion “user approved” is invalid;
+- approval scope/action/version are explicit.
