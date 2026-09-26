@@ -7402,3 +7402,147 @@ Where platform retrieval/inspection is possible, publication verification compar
 - subtitle/audio track presence/default flags.
 
 Platform differences are recorded as external transform evidence.
+
+
+# 33. Collaboration / multi-user adversarial wave
+
+This wave uses `COL-xx`.
+
+| ID | Attack | Verdict | Why |
+|---|---|---|---|
+| COL-01 | Two users edit same script paragraph concurrently and last-write-wins deletes one change | **GAP/P1** | revision conflict needs branch/merge semantics |
+| COL-02 | Two editors move same timeline clip differently while one is offline | **GAP/P1** | timeline ops need explicit stale/merge/conflict behavior |
+| COL-03 | Offline user reconnects with draft based on revision 20 while canonical is revision 45 | PARTIAL | optimistic concurrency exists; user-safe stale draft branch/merge needs explicit contract |
+| COL-04 | User role is revoked while they keep an open app session | **GAP/P0/P1** | authorization epoch/session invalidation required |
+| COL-05 | User keeps short-lived media URL/token issued before permission revoke | **GAP/P1** | token must bind auth epoch/expiry and sensitive revoke policy |
+| COL-06 | Reviewer is removed from project after opening review but submits approval later | **GAP/P1** | review submit reauthorizes current role/authority |
+| COL-07 | Producer is downgraded from publish permission after release request queued | PARTIAL | irreversible-phase reauth exists; user/session membership revision should bind |
+| COL-08 | User A search query returns cached semantic result from Project B | **GAP/P0/P1** | search/vector cache keys/scopes must include tenant/project/auth scope |
+| COL-09 | Thumbnail/proxy cache for Project B is addressed by bare asset ID guessed by A | **GAP/P0/P1** | opaque handles already scoped; derived caches must inherit scope too |
+| COL-10 | WebSocket/event subscription continues delivering project events after membership revoke | **GAP/P0/P1** | subscription authorization must be revalidated/terminated |
+| COL-11 | Notification from Project B is routed to user A due stale actor-project mapping | **GAP/P1 privacy** | notification delivery binds current authorization/scope |
+| COL-12 | User removed from project still has browser profile/session bound to project connection | **GAP/P1** | connection/project binding/session leases need authorization revoke propagation |
+| COL-13 | User A exports support bundle containing B's shared cache/index metadata | **GAP/P1 privacy** | diagnostic bundle scope closure must include tenant/project authorization |
+| COL-14 | Two users approve different candidate revisions nearly simultaneously | **GAP/P1** | approval aggregate needs concurrency/fencing; one canonical selection decision |
+| COL-15 | Director approves while editor replaces underlying representation milliseconds earlier | CONTAINED/PARTIAL | dependency hash helps; approval must also bind auth/current canonical pointer |
+| COL-16 | User comments/annotations on old revision appear attached to new revision | **GAP/P2/P1** | annotations bind exact subject revision/range and stale projection |
+| COL-17 | User deletes comment containing legal decision, audit/history loses rationale | **GAP/P1 audit** | ordinary collaboration comments vs authoritative decision rationale need separation |
+| COL-18 | User invites another person to one project but global search/index grants studio-wide data | **GAP/P0/P1** | membership scope closure and index partitioning required |
+| COL-19 | Shared model/connection credentials expose account-wide usage to project-only user | **GAP/P1** | connection detail permissions separate use-capability from credential/account metadata visibility |
+| COL-20 | Service account/automation owns assets/reviews but is disabled later | **GAP/P1** | actor deactivation affects future authority, not historical provenance |
+| COL-21 | Admin impersonates user for support; actions appear as user's own | **GAP/P1 audit** | impersonation/delegation requires dual actor identity in audit |
+| COL-22 | Human delegates review to assistant agent; audit records only agent identity | **GAP/P1** | delegation chain/principal-on-behalf-of needed |
+| COL-23 | User opens project on two devices and both acquire same edit lease | **GAP/P1** | edit lease keyed by actor+session/device, server/Core fencing |
+| COL-24 | Device sleeps holding timeline lease and blocks team all day | **GAP/P1** | lease TTL + graceful reconnect + stale-session branch needed |
+| COL-25 | Lease expires while user is actively editing offline; another user edits canonical | **GAP/P1** | returning work becomes branch/conflict, never overwrites canonical |
+| COL-26 | CRDT/OT is introduced later and automatically merges semantically incompatible film edits | **GAP/P1 design boundary** | not every domain is safely auto-mergeable |
+| COL-27 | Script text can merge automatically but canon replacement cannot | **GAP/P1** | per-domain merge policy required |
+| COL-28 | Undo by user A reverses user B's later operation because history is global | **GAP/P1** | collaborative undo is compensation of own op/current causal state, not global stack |
+| COL-29 | User accepts AI candidate while another user marks source rights revoked | PARTIAL | rights dominates; approval command revalidates current rights |
+| COL-30 | Membership invite email/link is forwarded to unintended person | **GAP/P1 security** | invite token scope/expiry/single-use/account binding needed in future team mode |
+| COL-31 | Removed user's local offline copy continues to contain media | **RESIDUAL/P1** | revocation cannot erase bytes already legitimately downloaded; policy/UI must be honest |
+| COL-32 | Team uses shared Windows account, actor identity cannot be attributed reliably | **GAP/P1 audit** | multi-user mode requires authenticated app-level actor identity, not OS account alone |
+| COL-33 | User switches project but old inspector/media token remains active in UI | **GAP/P1** | context switch invalidates project-scoped capability tokens/cache requests |
+| COL-34 | Cross-project clipboard drag copies asset without rights/provenance scope transfer check | **GAP/P1** | cross-project asset reuse is explicit command with rights/privacy analysis |
+| COL-35 | Project clone copies members/permissions unexpectedly | **GAP/P1** | clone semantics exclude membership/credentials by default |
+| COL-36 | Archive restores old membership list and re-grants former user | **GAP/P0/P1** | current forward identity/security policy wins over archived membership |
+| COL-37 | Project export contains ACL/member names unintentionally | **GAP/P2 privacy** | portable package privacy schema separates creative content from collaboration metadata |
+| COL-38 | Search index rebuild occurs after revoke but old index generation still queryable by cached client | PARTIAL | security-sensitive generation fencing exists; auth epoch must bind query token |
+| COL-39 | User's preference model influences team/global suggestions after leaving organization | **GAP/P1 privacy** | learning scope/member revocation propagation required |
+| COL-40 | Multi-tenant server accidentally reuses idempotency key namespace across tenants | PARTIAL | scoped idempotency exists; tenant/library identity must be mandatory |
+
+# 34. Collaboration findings
+
+## X140 — Authorization/membership epoch (P0/P1)
+Project/studio membership and permissions have a monotonic authorization revision/epoch.
+
+Privileged sessions/tokens/subscriptions record the epoch they were issued under.
+Sensitive operations revalidate current authorization at execution/submit time.
+
+Role revocation can:
+- invalidate future commands;
+- terminate event subscriptions;
+- invalidate or shorten media capability tokens;
+- revoke connection/project leases.
+
+Historical audit keeps the former actor/role context without granting new authority.
+
+## X141 — Scoped derived cache/search isolation (P0/P1)
+Search/vector/thumbnail/proxy/evaluation caches include:
+- tenant/studio/project privacy scope;
+- exact source revision;
+- authorization/data-use class where material.
+
+A cache hit cannot widen visibility beyond the requesting actor/session scope.
+
+## X142 — Collaborative edit strategy by domain (P1)
+Not every domain uses the same merge algorithm.
+
+Possible policies:
+- text/notes: structured merge/CRDT where semantically safe;
+- timeline: operation log + conflict detection;
+- canon/rights/release/approval: exclusive or optimistic revision command, no automatic semantic merge;
+- binary/media: branch/variant.
+
+Domain declares merge policy explicitly.
+
+## X143 — Stale/offline work becomes a branch, not overwrite (P1)
+Offline work returning after lease/base staleness:
+- preserves user's draft;
+- creates branch/working-copy revision;
+- computes conflicts/impact;
+- never overwrites canonical via last-write-wins.
+
+## X144 — Collaborative undo/causality (P1)
+Undo in shared state identifies the actor's operation and current causal descendants.
+It creates compensating operations when safe rather than rewinding global history over another user's later changes.
+
+## X145 — Review/approval concurrent selection fence (P1)
+Canonical candidate/approval selection is an aggregate command with expected revision/fencing.
+Simultaneous incompatible approvals cannot both become canonical.
+
+## X146 — Delegation/impersonation audit (P1)
+Audit distinguishes:
+- principal actor;
+- effective actor/agent;
+- delegated_by / on_behalf_of;
+- impersonation/support session;
+- authority source.
+
+Support impersonation never rewrites history as if the user personally performed the action.
+
+## X147 — Collaboration metadata vs creative package separation (P1/P2)
+Project clone/archive/export explicitly decides whether to include:
+- members;
+- roles;
+- comments;
+- notifications;
+- review assignments;
+- preference/personal metadata.
+
+Default portable creative export excludes unnecessary collaboration identities/secrets.
+
+## X148 — Forward security policy after restore (P0/P1)
+Restore/archive import cannot resurrect:
+- removed members;
+- revoked credentials;
+- revoked invites;
+- current security restrictions
+
+merely because historical backup contained them.
+Forward identity/security journal/policy is reconciled before access resumes.
+
+## X149 — Cross-project reuse command (P1)
+Drag/copy/reference of asset between projects is an explicit cross-scope operation.
+It re-evaluates:
+- rights;
+- privacy/data egress;
+- dependency/provenance;
+- storage/link strategy;
+- learning scope.
+
+It is not a raw pointer copy.
+
+## X150 — Multi-user actor identity boundary (P1)
+Future team/server mode requires authenticated application actor/session identity.
+Shared OS account alone is insufficient for review/legal/audit attribution.
