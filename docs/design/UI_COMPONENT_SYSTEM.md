@@ -1521,3 +1521,63 @@ When write/package failure evidence points to Windows security tooling:
 - show affected path/component without exposing secrets;
 - offer retry after user/security policy resolution;
 - avoid destructive “repair storage” as the default action.
+
+
+
+
+# 73. Shared connection incident UX
+
+When many tasks are blocked by the same login/account problem, show one incident:
+
+`Google Flow cần đăng nhập lại · 127 tác vụ đang chờ`
+
+Actions:
+- Đăng nhập lại
+- Tạm dừng kết nối
+- Xem tác vụ bị ảnh hưởng
+
+Do not create 127 identical MFA notifications.
+
+# 74. Long maintenance UX
+
+Migration/index rebuild/library move shows real phases/checkpoints:
+- Đang chuẩn bị
+- Đang sao lưu checkpoint
+- Đang xử lý …
+- Đang kiểm tra
+- Hoàn tất
+
+If safely resumable:
+`Bạn có thể đóng giao diện; CineForge sẽ tiếp tục/khôi phục từ checkpoint.`
+
+If force-close is dangerous, explain why without fake percentage.
+
+# 75. Worker stalled UX
+
+Normal user sees:
+`Tác vụ này chưa có tiến triển trong thời gian bất thường. CineForge đang kiểm tra và sẽ thử khôi phục an toàn.`
+
+Advanced:
+- heartbeat;
+- last semantic checkpoint;
+- worker/resource state.
+
+Do not call a heartbeat-only worker “healthy”.
+
+# 76. Observability/storage debt UX
+
+Logs/audit normally stay hidden.
+Only when action is useful:
+`Dữ liệu chẩn đoán đang chiếm nhiều dung lượng. CineForge đã tự giới hạn log tạm thời; dữ liệu kiểm toán quan trọng vẫn được giữ.`
+
+Storage cleanup must distinguish:
+- disposable debug logs;
+- retained audit/security evidence.
+
+# 77. Rebuild/index UX
+
+Users continue using the old verified index/projection while a new generation builds when safe.
+
+Do not expose partial rebuild results as if canonical.
+If rebuild is required for correctness, relevant query features show:
+`Đang xây lại chỉ mục an toàn — kết quả mới chưa được dùng.`
