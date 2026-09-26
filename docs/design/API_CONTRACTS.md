@@ -2070,3 +2070,92 @@ Returns independently:
 - last checked time.
 
 A publication can be DELIVERED while compensation readiness is DEGRADED.
+
+
+
+# 61. Release artifact provenance API
+
+Queries:
+- `query.release.build_provenance`
+- `query.release.artifact_attestations`
+- `query.release.sbom_status`
+- `query.release.signing_readiness`
+
+Commands:
+- CreateReleaseBuildPlan
+- FreezeReleaseManifest
+- RequestSigningAuthorization
+- SignReleaseArtifact
+- CreateUpdateManifest
+- PublishReleaseArtifacts
+
+`RequestSigningAuthorization` requires:
+- immutable release manifest ID;
+- exact artifact digest;
+- source commit/tree;
+- build workflow/run/attempt identity;
+- producer/runner trust evidence;
+- required CI/security gates;
+- signing key purpose.
+
+Signing service must not accept arbitrary raw bytes without approved manifest context.
+
+# 62. Installer/update plan API
+
+Queries:
+- `query.update.current_floor`
+- `query.update.available`
+- `query.update.preflight`
+- `query.installer.ownership`
+- `query.installer.recovery_state`
+
+Commands:
+- StageUpdate
+- VerifyUpdatePackage
+- ActivateUpdate
+- CompensateInstall
+- RepairInstallation
+- UninstallOwnedComponents
+- RaiseMinimumAllowedVersion
+
+Preflight returns:
+- app/schema compatibility;
+- updater/bootstrapper compatibility;
+- package digest/signature;
+- anti-rollback floor;
+- required disk/temp headroom;
+- reboot requirement;
+- active jobs/packages that must drain.
+
+# 63. Artifact provenance resolution
+
+Privileged artifact selection accepts immutable artifact identity only:
+- source repository/workflow;
+- run ID/attempt;
+- source commit;
+- artifact ID;
+- digest.
+
+API rejects “give me artifact named Release-x64” as sufficient authority.
+
+# 64. Offline verification API
+
+`update.verify_offline_package` returns separately:
+- signature validity;
+- key trust state;
+- known revocation state;
+- revocation freshness;
+- version-floor result;
+- package digest result.
+
+UI/policy decides whether stale revocation knowledge is acceptable for the active security profile.
+
+# 65. Release trigger authorization
+
+Before a privileged release command:
+- validate source commit is in allowed release lineage;
+- validate triggering actor/automation authority;
+- validate expected GitHub Environment/rules/check producer identity where used;
+- validate release policy revision.
+
+Missing expected protection returns ASSURANCE_UNAVAILABLE/POLICY_BLOCKED, not success.
