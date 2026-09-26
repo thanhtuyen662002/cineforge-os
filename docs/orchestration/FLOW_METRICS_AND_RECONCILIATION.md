@@ -228,3 +228,18 @@ Track:
 - INTEGRITY_INCIDENT_COUNT
 
 Repeated full replay from event 0 is a scaling defect, not expected steady state.
+
+
+# 15. Context throughput metrics
+
+Track where available:
+- CONTEXT_ITEMS_REQUIRED
+- CONTEXT_ITEMS_LOADED
+- CONTEXT_BYTES_FETCHED
+- CONTEXT_LOAD_TIME
+- CONTEXT_CACHE_HIT
+- CONTEXT_MANDATORY_MISS
+- CONTEXT_EXPANSION_COUNT
+
+Repeated high context-load share is a decomposition/documentation bottleneck.
+Flow Governor may create a docs-contract split/index task rather than letting every worker repeatedly load oversized owner files.
