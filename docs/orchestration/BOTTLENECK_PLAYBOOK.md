@@ -189,3 +189,42 @@ Every control cycle asks:
 - Is CI or review slower than coding?
 - Are we creating too much WIP?
 - Is main green?
+
+
+# 7. DEPENDENCY_CYCLE
+
+Signal:
+- hard-dependency graph contains a cycle;
+- no member can become READY without another member in the same cycle.
+
+Actions:
+1. mark the cycle as a planning defect;
+2. do not “pick one anyway” as READY;
+3. identify whether edges are falsely hard;
+4. split/merge contract tasks to break the cycle;
+5. if an architecture contract genuinely requires simultaneous change, create one cohesive HOTSPOT/integration task rather than cyclic Issues;
+6. re-run DAG validation before scheduling.
+
+Planner must validate the hard-dependency graph before publishing READY work.
+
+# 8. RESTART_STORM
+
+Signal:
+- worker/runtime repeatedly crashes and restarts within budget window.
+
+Actions:
+- stop new dispatch to affected worker;
+- enter backoff/quarantine;
+- redirect safe work;
+- create root-cause task;
+- do not let automatic restart become the throughput bottleneck.
+
+# 9. SUPPLY_CHAIN_BLOCKER
+
+Signal:
+- required new package/model/connector has UNKNOWN/BLOCKED provenance, security or license state.
+
+Actions:
+- create/review dependency-governance task;
+- seek safer existing capability/implementation if appropriate;
+- do not bypass the gate merely to keep a builder busy.
