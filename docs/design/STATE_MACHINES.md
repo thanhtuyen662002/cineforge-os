@@ -1276,3 +1276,81 @@ Execution:
 - STALE_NONMATERIAL → policy may refresh/revalidate
 - STALE_MATERIAL → REPLAN_REQUIRED
 - OBSOLETE → cannot execute
+
+
+
+
+# 73. Connection/account circuit breaker
+
+- CLOSED
+- DEGRADED
+- AUTH_REQUIRED
+- MFA_REQUIRED
+- CAPTCHA_REQUIRED
+- OPEN_COOLDOWN
+- SUSPENDED
+- VERIFYING_RECOVERY
+
+Rules:
+- OPEN_COOLDOWN/SUSPENDED accept no automated login retry;
+- one shared incident blocks queued work for the affected account/workspace;
+- recovery requires verified auth + expected account/workspace identity.
+
+# 74. Worker progress health
+
+Independent from process heartbeat:
+- PROGRESSING
+- SLOW_BUT_PROGRESSING
+- STALLED
+- UNKNOWN
+
+Combined worker health projects heartbeat + progress + crash-loop state.
+A live PID/heartbeat cannot hide semantic STALLED state indefinitely.
+
+# 75. Projection/index generation lifecycle
+
+```text
+PLANNED
+→ BUILDING
+→ VERIFYING
+→ ACTIVATABLE
+→ ACTIVE
+```
+
+Alternate:
+- FAILED
+- STALE
+- SUPERSEDED
+
+Only one verified ACTIVE generation serves canonical queries.
+Old ACTIVE generation remains until atomic switch.
+
+# 76. Maintenance operation lifecycle
+
+- PREFLIGHT
+- RESERVING_RESOURCES
+- READY
+- RUNNING
+- PAUSED_SAFE
+- RESUMING
+- VERIFYING
+- COMPLETE
+
+Failures:
+- INSUFFICIENT_HEADROOM
+- BLOCKED_BY_MAINTENANCE
+- RECOVERY_REQUIRED
+- ROLLBACK_REQUIRED
+
+Long maintenance records durable checkpoint/progress evidence.
+
+# 77. Operational evidence pressure
+
+Operational-data state:
+- NORMAL
+- ROTATING
+- DEGRADED_SAMPLING
+- EMERGENCY_MINIMAL
+- RECOVERING
+
+Security/audit retention priority is preserved while low-value debug telemetry may be sampled/dropped under pressure.
