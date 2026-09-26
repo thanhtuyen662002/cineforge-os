@@ -762,3 +762,137 @@ Directory intake has bounded:
 - metadata read budget;
 - incremental pause/cancel;
 before expensive hash/proxy fanout begins.
+
+
+# 19. Fourth-wave privacy, key-lifecycle and cross-project attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 251 | Laptop SSD is stolen; filesystem ACL no longer protects offline media/DB | **GAP/P1 privacy** | ACL is access control, not encryption-at-rest |
+| 252 | Backup drive is stolen | **GAP/P1** | backup durability class exists, encryption/key policy not explicit |
+| 253 | User enables project encryption then loses the only key | **GAP/P1 availability** | encryption without key-recovery policy can become self-inflicted data loss |
+| 254 | Encryption key is stored beside encrypted backup | **GAP/P1** | destroys meaningful theft protection |
+| 255 | Key rotation starts while 500GB archive is partially re-encrypted | **GAP/P1** | needs versioned key IDs and resumable rewrap/re-encryption |
+| 256 | Old revoked encryption key still decrypts cached/temp/proxy files | **GAP/P1** | all derived/temp storage must inherit encryption scope or be purged |
+| 257 | Crash dump/pagefile/thumbnail cache exposes decrypted frames | **GAP/P1 OS/privacy** | app encryption alone cannot cover every OS leakage path; policy/diagnostics must be explicit |
+| 258 | Project clone copies rights/consent but new production purpose is different | **GAP/P1 legal** | clone must distinguish reusable identity vs rights/purpose-specific approvals |
+| 259 | Project clone inherits browser/API connection permissions and can egress confidential assets | **GAP/P1 privacy** | clone should not blindly inherit execution permissions/credentials |
+| 260 | Project clone deduplicates same CAS bytes but source project later requests purge | **PARTIAL** | graph refs protect bytes; privacy/retention semantics across projects need explicit policy |
+| 261 | User exports diagnostic bundle; file paths reveal Windows username/client name | **GAP/P2 privacy** | redaction must cover metadata/path identity, not only secrets/media bytes |
+| 262 | Clipboard contains password/API key copied by user; CineForge “clipboard import” captures it accidentally | **GAP/P1 UX/privacy** | clipboard ingestion should be explicit/purpose-scoped and not background-monitored |
+| 263 | Browser takeover leaves credentials in form/autofill and screenshot diagnostics capture them | **GAP/P1** | browser diagnostic capture needs sensitive-field/redaction policy |
+| 264 | Failure Lake stores rejected confidential shot forever for learning | **GAP/P1** | learning retention must inherit project privacy/training permission/retention |
+| 265 | Global embedding index contains confidential character face after source deletion | CONTAINED if derived-data revocation fully implemented |
+| 266 | Embedding model migration copies revoked vectors into new index before revocation filter | **GAP/P1** | migration pipeline must enforce current privacy/rights scope before reindex |
+| 267 | Golden example was legal for evaluation but not for training/fine-tuning | PARTIAL | permissions exist; purpose-specific data-use scope should be explicit |
+| 268 | Model trained with asset before consent withdrawal; raw asset deleted but weights retain influence | CONTAINED as irreducible/forbid-upfront risk |
+| 269 | Project policy changes LOCAL_ONLY after cloud artifacts already exist | PARTIAL | future egress blocked; historical external exposure must remain visible/compensatable |
+| 270 | User believes “Delete project” guarantees secure erase from SSD | **GAP/P1 UX** | physical secure erase on SSD is generally not guaranteed; wording/policy must be honest |
+| 271 | Encrypted archive opened years later but encryption algorithm/library unsupported | **GAP/P1 archive** | crypto agility + archive decrypt/migration checks needed |
+| 272 | Signing/encryption key IDs collide across restored studios | **GAP/P2** | key identity must include authority/domain, not human-friendly ID alone |
+| 273 | A user with view permission asks AI assistant to export/share asset externally | **GAP/P1 auth** | view/read authority must be distinct from egress/share/export authority |
+| 274 | A user may edit scene but not see actor voice consent details; system leaks legal metadata in UI/API | **GAP/P2 least privilege** | field/domain-level sensitive metadata access needed where relevant |
+| 275 | Support bundle generated under admin role is later opened by lower-privileged user on disk | **GAP/P1** | diagnostic artifact needs sensitivity classification, ACL/encryption/expiry |
+| 276 | Archive package includes credentials/browser cookies “for reproducibility” | CONTAINED if policy followed; should be explicitly prohibited |
+| 277 | A local model/plugin logs prompts to its own file outside CineForge logs | **GAP/P1** | sandbox/log egress policy must cover child-process filesystem/network output |
+| 278 | User switches Windows account; shared media root allows reading other user's unreleased proxies | PARTIAL | default ACL exists; shared-root policy needs per-project privacy warning |
+| 279 | Export to CapCut folder includes hidden metadata/provenance user did not intend to share | **GAP/P2 privacy** | export profile should define metadata stripping/preservation policy |
+| 280 | Subtitle/metadata contains client secret/internal filename and release publishes it | **GAP/P1** | release privacy/content metadata scan needed, not only rights/codec QC |
+
+# 20. Privacy/key findings
+
+## X49 — At-rest encryption policy (P1)
+CineForge needs an explicit encryption policy layer distinct from ACLs.
+
+Potential modes:
+- OS_VOLUME_PROTECTED / rely on BitLocker-equivalent;
+- CINEFORGE_MANAGED_ENCRYPTION for selected DB/media/backups;
+- EXTERNAL_ENCRYPTED_TARGET;
+- UNENCRYPTED_ALLOWED_BY_POLICY.
+
+The product should not claim encryption if it only configured ACLs.
+
+## X50 — Key lifecycle and recoverability (P1)
+Encryption keys require:
+- globally unambiguous authority/key identity;
+- secure OS-backed storage;
+- backup/export policy for recoverable wrapped keys where user chooses;
+- rotation/revocation;
+- resumable rewrap/re-encryption;
+- explicit “lost key means unrecoverable” warning when no recovery escrow exists.
+
+## X51 — Project clone security/rights semantics (P1)
+Clone/duplicate operation explicitly chooses what is inherited:
+- creative assets/canon;
+- rights/consent evidence;
+- project policies;
+- execution connection permissions;
+- budgets;
+- browser sessions/credentials (default: never clone);
+- learning/training scopes.
+
+Rights valid for one purpose/project must not silently become valid for another.
+
+## X52 — Data-use purpose taxonomy (P1)
+Privacy/rights needs purpose-specific permission:
+- production use;
+- evaluation/QC;
+- search/indexing;
+- cross-project retrieval;
+- learning/failure analysis;
+- training/fine-tuning;
+- external sharing/publish.
+
+“training_allowed” boolean is not expressive enough for every derivative use.
+
+## X53 — Diagnostic artifact security (P1)
+Diagnostic bundles are sensitive artifacts:
+- classification;
+- redaction including paths/usernames/URLs;
+- ACL/encryption;
+- expiration/purge;
+- explicit raw-media inclusion;
+- no clipboard/browser-password capture by default.
+
+## X54 — Egress authority separate from read authority (P1)
+An actor allowed to read/view an asset is not automatically allowed to:
+- send to cloud/model;
+- export;
+- publish;
+- share;
+- create diagnostic bundle containing it.
+
+Commands require explicit egress/export/share permission.
+
+## X55 — Secure-delete honesty (P1 UX/security)
+On modern SSD/cloud/provider storage, byte-perfect secure deletion may be impossible to guarantee.
+UI/policy distinguishes:
+- logical deletion;
+- cryptographic erasure where managed encryption/key deletion makes it meaningful;
+- provider deletion request;
+- physical secure erase not guaranteed.
+
+## X56 — Archive crypto agility (P1)
+Long-term archives store:
+- encryption algorithm/version;
+- key wrapping method;
+- decryptability verification timestamp;
+- migration plan before algorithm/library obsolescence.
+
+## X57 — Release privacy scan (P1)
+Final release verifies not only rights/codec/QC but also configured privacy leakage classes:
+- filenames/paths;
+- internal metadata;
+- hidden tracks;
+- embedded comments;
+- sensitive subtitle/text metadata;
+- unintended provenance fields.
+
+## X58 — Child-process privacy containment (P1)
+Local model/tool/plugin workers are constrained in:
+- filesystem write scope;
+- log paths;
+- network;
+- crash dumps/temp files.
+
+A “local” tool cannot quietly create its own persistent prompt history outside managed policy.
