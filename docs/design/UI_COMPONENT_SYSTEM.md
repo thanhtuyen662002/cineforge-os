@@ -1744,3 +1744,33 @@ If a user explicitly intends a formula-bearing spreadsheet, export settings dist
 - Công thức được tin cậy
 
 Imported/untrusted project text defaults to literal cells.
+
+
+
+# 75. Storage integrity UX
+
+Normal users:
+- “CineForge đang kiểm tra độ toàn vẹn của dữ liệu.”
+- “Phát hiện 1 file quan trọng bị lỗi; đã tìm thấy bản sao an toàn để khôi phục.”
+- “Một file gốc bị lỗi và chưa có bản sao an toàn.”
+
+Advanced view may show hashes/storage objects/scrub evidence.
+
+Do not call a redundant copy “backup an toàn” until it has been independently verified.
+
+# 76. Environment drift UX
+
+If a driver/OS/runtime update affects a certified capability:
+`Môi trường máy đã thay đổi. CineForge đang kiểm tra lại khả năng tạo video local trước khi dùng cho shot quan trọng.`
+
+Other unaffected work continues.
+
+# 77. Release durability UX
+
+Release screen distinguishes:
+- Đã render
+- Đã kiểm tra file
+- Đã lưu an toàn
+- Sẵn sàng phát hành
+
+A path existing on disk is never presented as “release ready” by itself.
