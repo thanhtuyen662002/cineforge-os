@@ -1547,3 +1547,52 @@ V1 does not require reconstructing every canonical table solely from event repla
 Derived projections/search/indexes are rebuildable and must never become a second source of truth.
 
 This clarification prevents a dual-authority implementation where some agents treat relational tables as canonical and others treat event replay as canonical.
+
+
+# 37. Windows storage/platform constraints
+
+## Active SQLite database root
+
+CineForge V1 uses SQLite WAL and therefore treats the active database root more strictly than general asset storage.
+
+Default/supported production rule:
+- active SQLite DB/WAL lives on a supported local filesystem/root managed by CineForge;
+- do not silently place the live DB inside SMB/UNC/network shares, cloud-sync folders, removable media or provider-synced folders merely because the user selected them as a general data location;
+- assets, exports and backups may use additional roots according to their own capability/availability policy;
+- backup to remote/cloud is performed from a consistent checkpoint, not by relying on arbitrary live DB file synchronization.
+
+If future versions support remote/network DB placement, it requires an explicit tested storage profile rather than inheriting generic file-path support.
+
+## Windows filesystem behavior
+
+Managed object storage uses hash-derived safe paths.
+
+User-facing export/handoff names must handle:
+- reserved Windows names;
+- invalid path characters;
+- case-insensitive collisions;
+- Unicode normalization;
+- long-path capability;
+- offline/removable volumes.
+
+Filename sanitization must preserve a manifest mapping original logical names to emitted paths.
+
+# 38. Browser/web automation permission state
+
+Technical ability to automate a consumer web product is not sufficient permission.
+
+Each browser/web connection records an automation policy state:
+- ALLOWED
+- ASSISTED_ONLY
+- MANUAL_ONLY
+- UNKNOWN
+- BLOCKED
+
+Routing rules:
+- ALLOWED may use BROWSER_AUTOMATED subject to policy;
+- ASSISTED_ONLY may automate safe navigation but requires human takeover for restricted steps;
+- MANUAL_ONLY uses prepared prompt/reference handoff;
+- UNKNOWN does not silently assume automation is allowed;
+- BLOCKED prevents automated use.
+
+ProviderTermsSnapshot and project policy determine the effective mode.
