@@ -650,3 +650,77 @@ Release pipeline explicitly classifies PDB/source-map/debug bundles and scans th
 Signing/promotion consumes an immutable artifact identity and digest from trusted build attestation.
 
 Never sign or promote by filename, 'latest successful artifact', or mutable directory convention.
+
+
+# 40. Evidence source classes
+
+Merge/review policy distinguishes:
+- SELF_REPORTED
+- MACHINE_VERIFIED
+- INDEPENDENT_REVIEW
+- EXTERNAL_HUMAN_AUTHORITY
+
+Required gates declare acceptable source class.
+PR prose such as “tests passed”, “user approved” or “security reviewed” is not authoritative evidence unless linked to the required verifiable source.
+
+# 41. CI semantic gate manifest
+
+Required checks are defined by stable semantic IDs, not only mutable display names.
+
+Manifest fields:
+- semantic_check_id
+- producer/App identity
+- workflow path/revision policy
+- blocking BOOL
+- accepted trigger/source trust
+- retry/continue-on-error policy
+- required conclusion
+- allowed runner trust class
+
+Governance CI detects:
+- renamed required job;
+- changed blocking semantics;
+- newly added continue-on-error;
+- producer/workflow substitution;
+- deleted required semantic gate.
+
+# 42. Test/invariant weakening review
+
+Changes that:
+- delete tests;
+- reduce assertions;
+- widen retry counts;
+- add skip/ignore;
+- mutate golden/fixture expected output;
+- reduce security/invariant coverage
+
+receive an explicit test-governance diff signal.
+
+For critical invariant tests, weakening requires architecture/security rationale and independent review.
+
+# 43. Governance capability classification
+
+High-risk governance classification is based on effect, not only file path.
+
+A new/renamed script is governance-sensitive when it can alter:
+- CI required-check semantics;
+- release/signing;
+- OIDC/credentials/secrets;
+- updater/installer elevation;
+- branch/merge protection;
+- trust policy;
+- privileged artifact promotion;
+- external deployment/publication.
+
+Moving code to a new directory does not escape the gate.
+
+# 44. External approval authenticity
+
+When policy requires human/external approval, evidence includes:
+- authoritative actor identity/source;
+- action/scope;
+- exact object/version/manifest;
+- timestamp/event ID;
+- approval status/revocation where applicable.
+
+Author assertion in Issue/PR text never substitutes for this evidence.
