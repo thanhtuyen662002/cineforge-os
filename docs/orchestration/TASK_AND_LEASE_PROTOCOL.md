@@ -232,3 +232,25 @@ Planner/Reconciliation:
 - resolves by weakening false hard edges, extracting a contract task, or combining truly atomic work.
 
 Soft/review/integration coordination edges may be cyclic if their semantics allow it, but they never act as READY blockers like hard dependencies.
+
+
+# 17. Write-scope contract
+
+Every schedulable task should define:
+- `allowed_write_paths`;
+- `forbidden_write_classes`.
+
+`likely_touched_paths` remains advisory and helps conflict prediction; it is not authorization.
+
+Diff outside allowed scope:
+- blocks READY_FOR_REVIEW until contract revision or split;
+- cannot be waived by the author alone;
+- escalates risk automatically if protected governance/security/release surfaces are touched.
+
+# 18. Attempt allocation
+
+Next attempt is `max(trusted historical claim attempts)+1`.
+
+Sources include closed/merged PR history and trusted claim events, not merely currently existing branches.
+
+A deleted branch never makes an old attempt number reusable.
