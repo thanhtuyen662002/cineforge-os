@@ -79,3 +79,19 @@ Capacity follows ready parallel work.
 
 Do not create artificial tasks merely to occupy slots.
 Unused capacity is better than merge chaos.
+
+
+# 6. Additional P0 bootstrap requirements from deep audit
+
+Before scaling broad autonomous work:
+- define TRUSTED_CONTROL_GITHUB_ACTORS;
+- create canonical Capacity Plan Issue and exercise append-only CAPACITY_PLAN_V2;
+- exercise SLOT_LEASE_V1 with overlapping simulated runs;
+- exercise Flow/Planner/Integrator control-role failover;
+- exercise manual MERGE_LEASE_V1 or configure authoritative Merge Queue;
+- implement strict parser/validator for task/claim/state/review/control metadata;
+- verify public/fork Issues/PRs cannot become schedulable agent work without trusted adoption;
+- establish CI runner/cache trust boundary;
+- configure repository-native main protection when admin capability is available.
+
+The control plane is not considered security-enforced merely because agents agree to follow Markdown policy.
