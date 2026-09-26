@@ -2061,3 +2061,154 @@ When cause is ambiguous:
 - preserve evidence;
 - enter degraded/recovery state;
 - show security-tool troubleshooting only when evidence supports it.
+
+
+# CD. Log, diagnostic and observability budgets
+
+Operational data classes define:
+- max record size;
+- per-component rolling quota;
+- retention period;
+- redaction profile;
+- aggregation/coalescing key;
+- persistence priority.
+
+During failure storms:
+- repeated equivalent errors aggregate counts/samples;
+- low-value debug records are dropped before emergency disk reserve;
+- security/audit evidence required by policy is preserved according to priority.
+
+Metrics use bounded-cardinality labels. Project/shot/job IDs belong in trace/log correlation, not unbounded metric label dimensions unless explicitly sampled/bounded.
+
+# CE. Audit/event cold archive
+
+Hot event/audit storage may roll immutable segments to archive.
+
+Each segment records:
+- event seq range;
+- schema decoder/version requirements;
+- content hash;
+- previous segment hash/checkpoint link;
+- storage location/durability class;
+- retention/legal policy;
+- verification state.
+
+Projection checkpoints record the exact event/archive boundary they summarize.
+
+Rules:
+- archive is not deletion of authority;
+- required decoders/migration readers remain available/tested;
+- restore verifies segment chain/manifests;
+- retention cannot purge rights/publication/security evidence contrary to policy.
+
+# CF. Projection/index rebuild generation
+
+Derived projection/search/vector rebuild uses:
+`BUILDING_GENERATION → VERIFYING → ACTIVATABLE → ACTIVE`.
+
+Existing ACTIVE generation remains queryable until atomic switch.
+
+New generation carries:
+- source event/checkpoint watermark;
+- deletion/revocation/tombstone watermark;
+- index schema/model version;
+- authorization scope metadata.
+
+Partial generation is never exposed as canonical query truth.
+
+# CG. Maintenance temporary-space reservation
+
+Maintenance Coordinator estimates/reserves:
+- final bytes;
+- temporary amplification;
+- DB/WAL/headroom;
+- IO bandwidth class;
+- expected lock/downtime class.
+
+Operations such as VACUUM, migration, update unpack, index rebuild, package install and library move fail preflight if safe temporary headroom cannot be reserved.
+
+# CH. Account-scoped auth/anti-abuse circuit breaker
+
+Provider account/workspace connection tracks:
+- auth failure streak;
+- MFA/CAPTCHA required state;
+- account suspension/lock signal;
+- retry-after/cooldown;
+- human prompt dedupe key.
+
+When tripped:
+- no new automated login hammering;
+- queued work becomes BLOCKED_CONNECTION/AUTH_REQUIRED;
+- one DecisionRequest represents the shared incident instead of one prompt per job;
+- successful verified reauth resets only after account/workspace identity check.
+
+# CI. Worker semantic-progress watchdog
+
+Worker reports:
+- heartbeat;
+- current attempt/phase;
+- last semantic progress checkpoint;
+- progress evidence.
+
+Health distinguishes:
+- ALIVE_PROGRESSING
+- ALIVE_STALLED
+- UNRESPONSIVE
+- CRASH_LOOP
+- DRAINING
+
+Task-specific stall threshold may trigger diagnostic/cancel/restart/takeover, but no destructive intervention solely from one late heartbeat.
+
+# CJ. In-flight policy/terms postflight
+
+External dispatch binds execution-time privacy/terms/rights snapshots.
+
+On result/materialization and before canonicalization/release:
+- revalidate current policy;
+- preserve immutable evidence of what was already sent under old policy;
+- if current policy now blocks further external use, prevent additional egress;
+- result may be quarantined/restricted rather than automatically canonicalized;
+- never claim prior egress was undone.
+
+# CK. Inbox/outbox storm control
+
+Queues define:
+- per-connection outstanding limit;
+- global pending limit;
+- batch size;
+- concurrency;
+- fairness;
+- max durable payload size;
+- retry/backoff;
+- archival/dead-letter policy.
+
+On reconnection:
+- process bounded batches;
+- prioritize irreversible/recovery/security events appropriately;
+- avoid one giant transaction;
+- maintain backpressure to provider/worker dispatch where possible.
+
+# CL. Long maintenance resumability
+
+Long migration/rebuild/restore operations persist:
+- phase;
+- checkpoint;
+- unit progress;
+- last verified boundary;
+- retry/rollback support;
+- estimated remaining work only when evidence supports it.
+
+Crash resumes from a proven checkpoint or rolls back to a proven boundary.
+A progress UI never fabricates percent from elapsed time alone.
+
+# CM. Durable error-evidence sanitation
+
+Before persisting external/tool error evidence:
+- parse/classify when possible;
+- redact credential/token/cookie/auth headers;
+- bound payload size;
+- mark content/privacy sensitivity;
+- hash/raw-reference according to policy instead of copying entire response;
+- preserve enough evidence for debugging without making logs a secret store.
+
+Raw untrusted error text is data and cannot become control instruction.
