@@ -2068,3 +2068,61 @@ Action policy:
 - ONLINE_IRREVERSIBLE
 
 Rights/security/publish/credential/high-cost final actions are ONLINE_REQUIRED/ONLINE_IRREVERSIBLE.
+
+
+
+# 80. External circuit breaker lifecycle
+
+- CLOSED
+- OPEN
+- COOLDOWN
+- HALF_OPEN
+- RECOVERING
+- CLOSED_VERIFIED
+
+Transitions:
+- CLOSED → OPEN on threshold/policy trigger
+- OPEN → COOLDOWN
+- COOLDOWN → HALF_OPEN when eligible
+- HALF_OPEN → OPEN on failed probe
+- HALF_OPEN → RECOVERING on bounded successful probes
+- RECOVERING → CLOSED_VERIFIED after ramp success
+
+Only coordinator grants HALF_OPEN probe slots.
+
+# 81. Retry budget lifecycle
+
+- ACTIVE
+- WAITING_BACKOFF
+- WAITING_RECONCILIATION
+- EXHAUSTED
+- MANUAL_EXTENSION_REQUIRED
+- RESOLVED
+
+Restart/requeue does not reset attempts_used.
+
+# 82. Maintenance deadline state
+
+- PLANNED
+- BORROWING_CAPACITY
+- RECLAIMING_CAPACITY
+- READY
+- RUNNING
+- COMPLETE
+- AT_RISK
+- MISSED
+- BLOCKED
+
+AT_RISK triggers Flow/System attention before deadline is missed.
+
+# 83. Fallback ramp state
+
+- PRIMARY
+- EVALUATING_FALLBACK
+- CANARY_FALLBACK
+- RAMPING
+- FALLBACK_ACTIVE
+- RECOVERING_PRIMARY
+- PRIMARY_RESTORED
+
+Anti-oscillation cooldown prevents rapid A↔B flip-flop.
