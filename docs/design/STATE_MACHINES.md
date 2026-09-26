@@ -1584,3 +1584,49 @@ No “copy = valid” shortcut.
 - EXPIRED
 - PURGED
 - FAILED
+
+
+
+# 77. Resource admission lifecycle
+
+- PLANNED
+- RESERVING
+- ACTIVE
+- WAITING
+- RELEASING_OPTIONAL
+- RELEASED
+- REJECTED
+- EXPIRED
+
+Partial reservation that cannot progress must be rolled back/released according to admission policy rather than wait indefinitely.
+
+# 78. Context manifest state
+
+- COMPILED
+- VALID
+- STALE
+- INVALID_MANDATORY_OVERFLOW
+- REQUIRES_RECOMPILE
+- SUPERSEDED
+
+Dispatch accepts only VALID after immediate revalidation.
+
+# 79. Adapter semantic certification
+
+- UNKNOWN
+- CERTIFYING
+- CERTIFIED
+- DEGRADED
+- REQUIRES_RECERTIFICATION
+- BLOCKED
+
+# 80. Physical encrypted object state
+
+- STAGING
+- ENCRYPTED
+- CIPHERTEXT_VERIFIED
+- DECRYPT_VERIFIED
+- AVAILABLE
+- KEY_UNAVAILABLE
+- CORRUPT
+- REVOKED
