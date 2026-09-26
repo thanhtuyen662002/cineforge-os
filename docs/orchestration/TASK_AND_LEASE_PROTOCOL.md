@@ -1,5 +1,13 @@
 # CineForge OS — Task, Claim and Lease Protocol
 
+> **v1.1 authoritative clarifications**
+> - Read `GITHUB_METADATA_CONVENTIONS.md` and `FLOW_METRICS_AND_RECONCILIATION.md` with this protocol.
+> - The PR body is the immutable initial claim record; live owner/state is the latest valid structured PR event.
+> - A merged Claim PR prevents re-claim of the same open Issue unless the Issue is explicitly reopened for rework.
+> - Claim attempts must reconcile orphan claim branches before selecting a new attempt.
+> - Only the designated primary Flow Governor/control authority initiates takeover of a stale PR; other agents may flag it.
+> - Review/merge liveness binds to current verification context, not just an old HEAD result.
+
 # 1. Task Issue contract
 
 Every schedulable Task Issue contains:
@@ -29,6 +37,7 @@ L tasks should normally be split before claim unless they are inherently atomic.
 
 A task is READY when:
 - issue is open;
+- no merged Claim PR already completed the Issue unless explicit rework exists;
 - acceptance contract is clear;
 - all Hard dependencies are merged;
 - no external/manual blocker;
@@ -40,14 +49,16 @@ Soft dependencies do not block scheduling.
 # 3. Atomic claim
 
 1. Re-read issue and dependencies.
-2. Search open/closed PRs for prior claim attempts.
-3. Determine next attempt number.
+2. Reconcile merged/open PRs and orphan claim branches for this Issue.
+3. If any Claim PR merged and no explicit rework exists, reconcile/close the Issue instead of claiming.
+4. Search all prior claim attempts/branches and determine next attempt number.
 4. Derive branch:
    `agent/i<issue>-a<attempt>-<slug>`
 5. Create that exact branch from current main.
 6. If branch creation conflicts, another agent won. Do not implement; choose another task.
 7. Immediately open Draft PR.
-8. Only then start substantial code.
+8. Append an initial structured AGENT_STATE_V1 event.
+9. Only then start substantial code.
 
 This branch creation is the claim race lock.
 
@@ -73,8 +84,9 @@ Do not depend on GitHub username to distinguish logical agents; many slots may u
 
 At meaningful boundaries:
 - push code;
-- update PR summary/checklist;
-- post structured progress comment when state changes.
+- append structured progress event when state changes;
+- record observed HEAD_SHA + BASE_SHA, blocker and next action;
+- treat PR-body state summaries as convenience only.
 
 State comments:
 - ACTIVE
@@ -124,7 +136,7 @@ If discovered mid-task:
 
 # 9. Takeover
 
-Flow Governor may take over when:
+The designated primary Flow Governor/control authority may take over when:
 - original worker is stale/unavailable;
 - CI failure is unattended;
 - review changes are unattended;
