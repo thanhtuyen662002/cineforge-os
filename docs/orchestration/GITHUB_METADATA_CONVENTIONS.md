@@ -267,3 +267,23 @@ The marker records claim/task/context identity only.
 It must be removed before READY_FOR_REVIEW.
 
 This bootstrap commit is not substantive implementation and exists solely to make the Draft PR creatable and the orphan branch self-describing.
+
+
+
+# 14. Structured evidence source
+
+AGENT_REVIEW and state events may reference:
+- EVIDENCE_SOURCE_CLASS
+- CHECK_RUN_ID
+- REVIEW_EVENT_ID
+- EXTERNAL_APPROVAL_EVENT_ID
+- STACK_BASE_PR / STACK_BASE_HEAD_SHA
+
+These references are revalidated from GitHub/platform truth.
+
+Structured text is a pointer to evidence, not the evidence itself.
+
+# 15. Recomputed contract hashes
+
+TASK_CONTRACT_HASH and other security-critical hashes are recomputed by trusted parser/verifier from canonical content.
+Never trust a hash merely because an agent wrote the same value into a PR body/comment.
