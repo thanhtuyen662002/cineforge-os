@@ -1581,3 +1581,131 @@ Users continue using the old verified index/projection while a new generation bu
 Do not expose partial rebuild results as if canonical.
 If rebuild is required for correctness, relevant query features show:
 `Đang xây lại chỉ mục an toàn — kết quả mới chưa được dùng.`
+
+
+
+
+# 78. Production tree / Series UX
+
+For series/multi-deliverable projects, Project navigation can show:
+
+```text
+Series
+  Season 1
+    Episode 1
+    Episode 2
+  Season 2
+```
+
+Each node shows:
+- current canon baseline;
+- release state;
+- inherited policies;
+- unresolved impact.
+
+Users do not manage raw revision IDs; they see “Dùng canon đã khóa cho Episode 4”.
+
+# 79. Narrative Context UX
+
+Continuity workspace exposes context only when needed:
+- Mạch chính
+- Hồi tưởng
+- Giấc mơ
+- Giả định
+- Nhánh khác
+- Vòng lặp
+
+Scene shows two concepts separately:
+- xuất hiện ở đâu trong phim;
+- xảy ra khi nào/trong nhánh nào của câu chuyện.
+
+Changing context/chronology previews continuity impact.
+
+# 80. Casting workspace
+
+Character page gains `Diễn viên / Thể hiện`.
+
+Shows by scope:
+- on-camera performer;
+- voice/dub;
+- stunt/body double;
+- mocap;
+- face/reference source;
+- digital representation.
+
+Rights/consent warning attaches to the real performer binding, not the fictional character.
+
+# 81. Live-action Shoot / DIT workspace
+
+Views:
+- Shoot Days
+- Slates/Takes
+- Camera/Audio Rolls
+- Card Ingest
+- Sync
+- Notes
+
+Take card:
+- slate/take;
+- cameras/audio present;
+- checksum/ingest state;
+- director preference;
+- continuity note;
+- sync verification.
+
+Original camera media is visually distinguished from proxy/editorial derivatives.
+
+# 82. Multicam Sync UX
+
+Sync group shows:
+- clips/cameras/recorders;
+- timecode/waveform/manual method;
+- offset/drift;
+- confidence/evidence;
+- conflict markers.
+
+If metadata disagrees:
+`Slate và metadata camera không khớp — cần xác nhận trước khi gắn Take.`
+
+# 83. Documentary Sources workspace
+
+Tabs:
+- Sources
+- Interviews
+- Fact Claims
+- Quotes
+- Rights/Releases
+
+FactClaimCard shows:
+- claim;
+- supporting/contradicting sources;
+- verification state;
+- source snapshot;
+- where used in timeline.
+
+# 84. Documentary quote review
+
+Review player shows:
+- exact used quote;
+- source context before/after;
+- timeline use;
+- transcript;
+- participant/release status.
+
+Reviewer can mark:
+- consistent;
+- potentially misleading;
+- misleading;
+- approved exception with rationale.
+
+# 85. Retcon/shared-canon UX
+
+When updating shared series canon:
+`Thay đổi này ảnh hưởng 3 episode đang sản xuất. 5 episode đã phát hành sẽ giữ canon lịch sử của chúng.`
+
+Options:
+- áp dụng cho future/current production;
+- create explicit retcon note;
+- inspect affected current shots.
+
+No “update all history” default.
