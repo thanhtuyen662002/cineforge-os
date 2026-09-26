@@ -5135,3 +5135,218 @@ Security documentation must distinguish these stronger modes from normal worker 
 228. reparse/ACL sabotage before output finalization;
 229. child survives Core/UI shutdown;
 230. direct privileged Core RPC attempt from untrusted worker.
+
+
+# IY. Depiction instance model
+
+A logical Character is not the same as every visual occurrence of that character.
+
+## depiction_instances
+Conceptual fields:
+- depiction_instance_id
+- logical_character_id
+- shot_revision_id
+- occurrence_type:
+  DIRECT | REFLECTION | PHOTO | SCREEN_MEDIA | CLONE | TIME_BRANCH | BODY_DOUBLE | STUNT | OTHER
+- performer/source identity nullable
+- visual_identity_revision
+- state_variant_ref
+- visible_from_internal_time
+- visible_to_internal_time
+- transform/reflection/nested-media metadata
+- lip_sync_applicability
+- body_performance_applicability
+- identity_qc_profile
+- rights/provenance refs
+
+Multiple depiction instances may reference the same Character simultaneously.
+
+Similarity evidence never creates/merges character identity.
+
+# IZ. Performer/source vs depicted character
+
+Performance provenance separates:
+- logical depicted Character;
+- body performer/body double/stunt source;
+- face source/face replacement source;
+- voice performer/source;
+- motion/mocap performer;
+- transformation/compositing chain.
+
+Continuity/canon generally binds depicted Character.
+Consent/rights/provenance may bind performer/source identities independently.
+
+This supports:
+- one performer playing two characters;
+- body double representing one character;
+- face/voice replacement;
+- synthetic performer sources.
+
+# JA. Intra-shot continuity timeline
+
+A Shot may have temporal continuity structure:
+
+```text
+START_BOUNDARY
+→ state/event/keyframe*
+→ END_BOUNDARY
+```
+
+Temporal continuity state may include:
+- character position/posture/gaze;
+- appearance/disguise/makeup/injury;
+- costume wetness/damage;
+- prop possession/quantity/hand attachment;
+- environment door/light/object state;
+- contact/action phase;
+- relevant story fact transitions.
+
+A single static shot continuity snapshot is only valid for shots whose required state does not change materially inside the shot.
+
+Generation strategy receives:
+- start constraints;
+- required transitions/events;
+- end constraints.
+
+QC can evaluate temporal order rather than only frame-independent presence.
+
+# JB. Cross-shot boundary continuity
+
+Boundary record relates one shot end to another shot start.
+
+Possible relations:
+- MATCH_ACTION
+- SCREEN_DIRECTION
+- GAZE_EYELINE
+- POSITION
+- PROP_ATTACHMENT
+- COSTUME_APPEARANCE
+- ENVIRONMENT_STATE
+- MOTION_VECTOR
+- CUSTOM
+
+Boundary evidence binds exact reviewed representations and temporal positions.
+
+CreativeException can explicitly waive/override a relation.
+
+# JC. Story/internal/presentation/source time separation
+
+CineForge maintains distinct mappings:
+- STORY_TIME / causal order;
+- SHOT_INTERNAL_TIME;
+- PRESENTATION_TIMELINE_TIME;
+- SOURCE_MEDIA_TIME.
+
+Rules:
+- edit reorder changes presentation order, not automatically story chronology;
+- retime changes presentation duration but not necessarily causal event duration;
+- flashback/flashforward has explicit mapping;
+- continuity facts resolve through story/internal time;
+- audio/music/subtitle sync resolves through presentation/source mapping as appropriate.
+
+No subsystem infers story chronology merely from current edit order.
+
+# JD. Narrative truth/viewpoint scopes
+
+Continuity/story facts declare truth/viewpoint scope:
+- OBJECTIVE_CANON
+- CHARACTER_BELIEF
+- DREAM_HALLUCINATION
+- UNRELIABLE_NARRATION
+- ALTERNATE_BRANCH
+- MEMORY_FLASHBACK
+- FLASHFORWARD
+- OTHER_TYPED_SCOPE
+
+A state contradiction across scopes is not automatically a canon conflict.
+
+Promotion from subjective/alternate scope to objective canon requires explicit command/authority.
+
+# JE. Vocal performance occurrence timeline
+
+Voice identity package defines stable identity.
+Actual vocal occurrences are temporal performance events.
+
+Event fields:
+- logical character or ensemble/group identity;
+- exact dialogue/text/span or NONVERBAL event;
+- language segment(s);
+- performance mode:
+  SPEECH | WHISPER | SHOUT | CRY | SING | CHANT | NONVERBAL | OTHER
+- shot/scene/presentation timing;
+- visible/on-screen/off-screen state;
+- lip-sync applicability;
+- selected voice/performance binding;
+- acoustic-space/treatment;
+- source/generated/ADR provenance.
+
+Multiple vocal events may overlap in time.
+
+# JF. Localized/overlapping dialogue collision
+
+Localization/dub validation considers the whole temporal neighborhood, not each line independently.
+
+Detect:
+- overlap with another speaker;
+- collision with action/shot cut;
+- unacceptable duration stretch;
+- lip-sync feasibility;
+- music/SFX masking where policy cares.
+
+Allowed repair strategies may include:
+- rephrase translation;
+- alternate performance;
+- retime within allowed window;
+- edit adjustment;
+- intentional overlap approval.
+
+# JG. Sub-line ADR and vocal-span replacement
+
+ADR replacement may target:
+- whole line;
+- phrase;
+- word;
+- nonverbal span.
+
+Replacement records exact source and target time/text span and crossfade/edit relationship.
+Approval of one replaced span does not silently approve untouched/other replacement spans.
+
+# JH. Identity exclusivity and look-alike policies
+
+Character identity policy may specify:
+- visual exclusivity for hero identity;
+- approved twin/look-alike relations;
+- allowed simultaneous clone/duplicate depictions;
+- reflection/photo/screen exceptions;
+- background similarity warning thresholds.
+
+QC classifies:
+- expected second depiction;
+- approved look-alike/twin;
+- unintended hero duplication;
+- uncertain similarity.
+
+Similarity is evidence only, never canonical identity.
+
+# JI. Required cinematic continuity tests
+
+256. logical Character with simultaneous direct/reflection depictions;
+257. one performer source mapped to two Characters;
+258. body-double depiction with later face replacement;
+259. mask/disguise transition inside shot;
+260. temporal prop handoff/quantity change;
+261. costume wetness/damage transition;
+262. environment door/light state transition;
+263. left/right hand attachment transition;
+264. shot-end/start match-on-action evidence;
+265. screen-direction boundary relation;
+266. story-time vs edit-reordered presentation;
+267. flashback/alternate-branch truth scopes;
+268. offscreen dialogue with no lip-sync requirement;
+269. overlapping speakers + nonverbal events;
+270. multilingual/code-switch vocal event;
+271. singing vs speaking binding;
+272. sub-line ADR;
+273. localized duration collision;
+274. twin/look-alike policy vs accidental duplicate hero;
+275. time-loop simultaneous state variants.
