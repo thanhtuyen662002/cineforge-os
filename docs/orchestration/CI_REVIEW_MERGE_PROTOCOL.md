@@ -52,7 +52,10 @@ HEAD_SHA
 BASE_SHA or MERGE_BASE_SHA
 optional SYNTHETIC_MERGE_SHA
 WORKFLOW/CHECK_ID
-WORKFLOW_REVISION when relevant
+CHECK_PRODUCER_APP/IDENTITY
+WORKFLOW_PATH
+WORKFLOW_REVISION
+RUNNER_TRUST_CLASS
 ATTEMPT
 RESULT
 ```
@@ -163,3 +166,105 @@ Response:
 - redirect builders;
 - fix CI architecture;
 - no user babysitting.
+
+
+# 14. Verification producer provenance
+
+A green status name is insufficient.
+
+Required checks must validate:
+- expected GitHub App/check-suite producer identity;
+- expected workflow path;
+- workflow revision/source;
+- runner trust class;
+- exact verification tuple.
+
+A status/check from an unexpected producer with the same human-readable name does not satisfy the gate.
+
+When repository-native rules support binding a required check to an expected App/integration, use that facility.
+
+# 15. Governance workflow non-self-approval
+
+A PR modifying:
+- `.github/workflows/**`;
+- CI bootstrap;
+- required-check logic;
+- governance/security verification scripts
+
+must not be approved solely by the modified workflow code under test.
+
+Its mandatory governance gate must run from:
+- protected base-branch workflow logic that the PR cannot change for its own approval; or
+- a separately trusted external verifier/App.
+
+The PR may additionally test its proposed workflow, but that result is not the only approval evidence.
+
+# 16. Release artifact provenance
+
+PR verification and release artifact production are separate concerns.
+
+For release/signing:
+- build from the merged/release commit; or
+- prove artifact content digest is reproducibly identical to an attested pre-merge build;
+- bind artifact digest, source commit, toolchain/package lock and signing event in the release manifest.
+
+Do not publish an artifact merely because a pre-squash PR HEAD built successfully if the final merged commit identity/content context differs.
+
+# 17. Merge lease final check
+
+Immediately before the merge API mutation, Integrator revalidates:
+- current unexpired Integrator/merge lease;
+- current main/base SHA;
+- expected PR HEAD;
+- task contract hash;
+- required CI/review evidence.
+
+A lease that expired before this final check does not authorize the merge.
+
+
+
+# 18. Review/evidence source semantics
+
+Review records include:
+- evidence_source_class;
+- reviewer logical/runtime/authenticated identity;
+- exact head/base/stack context;
+- review profile;
+- independent tools/evidence used where applicable.
+
+High-risk review may require evidence diversity, not merely multiple comments.
+
+# 19. Stacked PR verification
+
+A PR based on another unmerged PR declares:
+- stack_base_pr;
+- stack_base_head_sha;
+- expected merge order.
+
+CI/review evidence binds the stack base.
+
+If the dependency PR changes, is rebased, closes or merges with different resulting base:
+- re-evaluate semantic/base drift;
+- rerun required CI/review.
+
+A review performed on a stacked branch cannot be transplanted blindly to a different final base.
+
+# 20. History rewrite and force-push
+
+Any non-fast-forward rewrite of an active Claim PR:
+- invalidates existing HEAD-bound review/CI;
+- creates reconciliation anomaly;
+- requires fresh diff/evidence.
+
+Repository-native protection should disable force-push where possible.
+
+# 21. Merge-readiness machine preflight
+
+Before READY_FOR_MERGE verify:
+- task contract hash recomputed from canonical task content;
+- no claim bootstrap marker remains;
+- no forbidden debug/bypass flags;
+- no tracked-source mutation produced by CI/codegen;
+- no required semantic check weakened;
+- no unresolved test/invariant deletion without approval;
+- external approval evidence valid where required.

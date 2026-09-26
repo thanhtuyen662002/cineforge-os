@@ -1041,3 +1041,1462 @@ Rules:
 - promotion revalidates candidate/base dependencies before impact propagation;
 - resolving a group records the promoted revision;
 - non-promoted candidates remain historical/inspectable according to retention policy.
+
+
+# Extreme hardening extension
+
+For adversarially discovered recovery, fencing, egress, callback, resource, migration, bulk, signing and publication states, use `docs/design/EXTREME_HARDENING_CONTRACTS.md`.
+
+
+
+# 61. Task dependency graph state
+
+Graph health:
+- VALID
+- CYCLIC
+- UNKNOWN
+
+Task projection may include:
+- READY
+- BLOCKED_DEPENDENCY
+- BLOCKED_DEPENDENCY_CYCLE
+
+A cycle is a planning defect; workers do not “pick one task and hope”.
+
+# 62. URL fetch lifecycle
+
+```text
+PROPOSED
+→ PREFLIGHT_VALIDATED
+→ RESOLVING
+→ CONNECT_POLICY_CHECK
+→ FETCHING
+→ RECEIVED
+→ STAGED
+→ VERIFIED
+```
+
+Failure:
+- BLOCKED_SCHEME
+- BLOCKED_PRIVATE_NETWORK
+- REDIRECT_BLOCKED
+- DNS_REBIND_BLOCKED
+- SIZE_LIMIT
+- TYPE_BLOCKED
+- TIMEOUT
+- QUARANTINED
+
+Every redirect/connect hop repeats address policy checks.
+
+# 63. Callback authentication state
+
+- UNVERIFIED
+- VERIFIED
+- FAILED
+- REPLAY_REJECTED
+- UNSUPPORTED_REQUIRES_POLICY
+
+Only VERIFIED or explicit policy-approved unsupported channels may proceed to semantic callback reconciliation.
+
+# 64. Source dependency change lifecycle
+
+- PROPOSED
+- PROVENANCE_CHECK
+- LICENSE_CHECK
+- SECURITY_CHECK
+- BUILD_SCRIPT_CHECK
+- APPROVED
+- APPLIED
+- REJECTED
+- QUARANTINED
+
+# 65. Integrity audit lifecycle
+
+- PLANNED
+- SCANNING
+- FINDINGS_READY
+- RECONCILING
+- CLEAN
+- DEGRADED
+- CRITICAL
+
+CRITICAL may transition Core to SAFE_MODE.
+
+# 66. Connection identity scope
+
+- UNKNOWN
+- VERIFIED
+- CHANGED
+- MISMATCH
+- REAUTH_REQUIRED
+
+Authentication and identity-scope verification are independent axes.
+
+# 67. Bulk operation lifecycle
+
+```text
+PLANNING
+→ SNAPSHOT_MATERIALIZED
+→ IMPACT_ANALYZED
+→ CONFIRMED
+→ EXECUTING
+→ COMPLETE
+```
+
+If snapshot membership/revisions become stale before execution:
+- STALE_SCOPE
+- require replan/reconfirm according to command risk.
+
+New entities matching the original UI filter are not automatically included.
+
+
+
+# 68. External reality state
+
+Installation recovery axis:
+- KNOWN
+- RECONCILING
+- PARTIALLY_KNOWN
+- UNKNOWN_EXTERNAL_REALITY
+- SAFE_TO_DISPATCH
+
+After full disaster restore without non-rollback ledger, state is UNKNOWN_EXTERNAL_REALITY.
+Risky external dispatch remains blocked until provider/manual reconciliation satisfies policy.
+
+# 69. Backup trust state
+
+- UNVERIFIED
+- HASH_VERIFIED
+- AUTHENTICATED
+- AUTH_FAILED
+- ENCRYPTION_WEAK
+- FAILURE_DOMAIN_WEAK
+- RESTORE_VERIFIED
+
+A plain matching checksum does not imply AUTHENTICATED.
+
+# 70. Cache validity state
+
+- VALID
+- TECHNICALLY_STALE
+- RIGHTS_BLOCKED
+- POLICY_BLOCKED
+- PRIVACY_BLOCKED
+- MISSING_DEPENDENCY
+- CORRUPT
+
+A cache hit is usable only if all required validity axes permit it.
+
+# 71. Callback scope state
+
+- AUTH_VERIFIED_SCOPE_MATCHED
+- AUTH_VERIFIED_SCOPE_UNKNOWN
+- AUTH_VERIFIED_SCOPE_MISMATCH
+- AUTH_FAILED
+- REPLAY_REJECTED
+
+Only MATCHED, or explicitly policy-approved UNKNOWN where provider cannot expose scope, may proceed.
+
+# 72. Staging finalization state
+
+- VERIFIED_CONTENT
+- VERIFYING_IDENTITY
+- FINALIZING
+- REGISTERED
+- IDENTITY_CHANGED
+- LINK_ESCAPE
+- CONTENT_CHANGED
+- QUARANTINED
+
+
+# STATE-CORE-OWNERSHIP-01. Core ownership lifecycle
+
+```text
+UNOWNED
+→ ACQUIRING
+→ OWNED
+```
+
+Alternate:
+- ACQUIRING → CONFLICT
+- OWNED → DRAINING → RELEASED
+- OWNED heartbeat/liveness loss → SUSPECT_STALE
+- SUSPECT_STALE → RECOVERING_OWNERSHIP → OWNED
+- SUSPECT_STALE → CONFLICT
+
+Rules:
+- only OWNED epoch may enable canonical mutation;
+- second Core cannot self-promote while ownership is ambiguous;
+- stale owner recovery requires evidence and a new ownership epoch/session nonce.
+
+# STATE-IPC-SESSION-01. IPC session lifecycle
+
+- CREATED
+- AUTHENTICATING
+- BOUND_TO_CORE_EPOCH
+- ACTIVE
+- DRAINING
+- INVALIDATED
+- CLOSED
+
+Any Core ownership epoch change invalidates old mutating IPC sessions.
+Queued commands from INVALIDATED session require replay classification:
+- SAFE_READ_REPLAY
+- IDEMPOTENT_COMMAND_REVALIDATE
+- DISCARD_REPLAN
+
+# STATE-PACKAGE-TRUST-01. Package anti-rollback state
+
+Package candidate:
+- DISCOVERED
+- SIGNATURE_VALID
+- MANIFEST_VALID
+- VERSION_POLICY_VALID
+- ACTIVATABLE
+
+Failure/blocked:
+- REVOKED_KEY
+- CONTENT_HASH_MISMATCH
+- ROLLBACK_BLOCKED
+- INCOMPATIBLE
+- QUARANTINED
+
+A valid historical signature does not bypass VERSION_POLICY_VALID.
+
+# STATE-DECISION-FRESHNESS-01. High-impact decision freshness
+
+Decision/impact snapshot:
+- CURRENT
+- STALE_NONMATERIAL
+- STALE_MATERIAL
+- OBSOLETE
+
+Execution:
+- CURRENT → may execute after normal final guards
+- STALE_NONMATERIAL → policy may refresh/revalidate
+- STALE_MATERIAL → REPLAN_REQUIRED
+- OBSOLETE → cannot execute
+
+
+
+
+# 73. Connection/account circuit breaker
+
+- CLOSED
+- DEGRADED
+- AUTH_REQUIRED
+- MFA_REQUIRED
+- CAPTCHA_REQUIRED
+- OPEN_COOLDOWN
+- SUSPENDED
+- VERIFYING_RECOVERY
+
+Rules:
+- OPEN_COOLDOWN/SUSPENDED accept no automated login retry;
+- one shared incident blocks queued work for the affected account/workspace;
+- recovery requires verified auth + expected account/workspace identity.
+
+# 74. Worker progress health
+
+Independent from process heartbeat:
+- PROGRESSING
+- SLOW_BUT_PROGRESSING
+- STALLED
+- UNKNOWN
+
+Combined worker health projects heartbeat + progress + crash-loop state.
+A live PID/heartbeat cannot hide semantic STALLED state indefinitely.
+
+# 75. Projection/index generation lifecycle
+
+```text
+PLANNED
+→ BUILDING
+→ VERIFYING
+→ ACTIVATABLE
+→ ACTIVE
+```
+
+Alternate:
+- FAILED
+- STALE
+- SUPERSEDED
+
+Only one verified ACTIVE generation serves canonical queries.
+Old ACTIVE generation remains until atomic switch.
+
+# 76. Maintenance operation lifecycle
+
+- PREFLIGHT
+- RESERVING_RESOURCES
+- READY
+- RUNNING
+- PAUSED_SAFE
+- RESUMING
+- VERIFYING
+- COMPLETE
+
+Failures:
+- INSUFFICIENT_HEADROOM
+- BLOCKED_BY_MAINTENANCE
+- RECOVERY_REQUIRED
+- ROLLBACK_REQUIRED
+
+Long maintenance records durable checkpoint/progress evidence.
+
+# 77. Operational evidence pressure
+
+Operational-data state:
+- NORMAL
+- ROTATING
+- DEGRADED_SAMPLING
+- EMERGENCY_MINIMAL
+- RECOVERING
+
+Security/audit retention priority is preserved while low-value debug telemetry may be sampled/dropped under pressure.
+
+
+
+
+# 78. Production node lifecycle
+
+- DRAFT
+- ACTIVE
+- PAUSED
+- RELEASED
+- ARCHIVED
+- CANCELLED
+
+RELEASED nodes retain immutable release/canon baseline references.
+Later shared-canon revisions do not mutate released node history.
+
+# 79. Narrative context lifecycle
+
+- DRAFT
+- ACTIVE
+- LOCKED_FOR_RELEASE
+- SUPERSEDED
+- ARCHIVED
+
+Context edges/forks are explicit.
+A state interval without narrative_context_id cannot be used for nonlinear-continuity-aware production once project migration is complete.
+
+# 80. Casting binding lifecycle
+
+- PROPOSED
+- UNDER_REVIEW
+- APPROVED
+- ACTIVE
+- REVOKED
+- SUPERSEDED
+- STALE_RIGHTS
+
+Rights revocation can move ACTIVE → STALE_RIGHTS/REVOKED without deleting the Character.
+
+# 81. Production representation lifecycle
+
+- DRAFT
+- CANDIDATE
+- APPROVED
+- ACTIVE
+- STALE
+- REVOKED
+- SUPERSEDED
+
+Representation staleness does not imply narrative entity invalidity.
+
+# 82. Live-action take lifecycle
+
+```text
+PLANNED
+→ RECORDED
+→ INGESTING
+→ VERIFIED
+→ AVAILABLE
+```
+
+Editorial preference:
+- UNRATED
+- CIRCLE
+- HOLD
+- REJECT
+
+Preference is orthogonal to technical availability.
+
+# 83. Capture ingest lifecycle
+
+- DISCOVERED
+- ENUMERATING
+- COPYING
+- HASHING
+- VERIFYING
+- VERIFIED
+- PARTIAL
+- FAILED
+- QUARANTINED
+
+Source media is not auto-erased after VERIFIED.
+
+# 84. Sync group lifecycle
+
+- PROPOSED
+- ANALYZING
+- SYNCED
+- VERIFIED
+- CONFLICT
+- REJECTED
+- STALE
+
+Offset/drift changes create a new verified state/evidence, not silent overwrite.
+
+# 85. Documentary fact claim lifecycle
+
+- DRAFT
+- UNVERIFIED
+- CORROBORATING
+- CORROBORATED
+- CONFLICT
+- DISPUTED
+- APPROVED_FOR_USE
+- REJECTED
+- STALE
+
+Evidence/source withdrawal or correction can move approved claim to STALE/CONFLICT according to policy.
+
+# 86. Quote meaning review
+
+- UNREVIEWED
+- CONTEXT_REVIEW
+- CONSISTENT
+- POTENTIALLY_MISLEADING
+- MISLEADING
+- APPROVED_EXCEPTION
+
+Transcript correctness alone does not imply CONSISTENT meaning.
+
+
+
+# STATE-STORAGE-SCRUB-01. Storage scrub state
+
+Scrub run:
+- PLANNED
+- SCANNING
+- FINDINGS_READY
+- REPAIRING
+- VERIFIED
+- DEGRADED
+- FAILED
+
+Per protected object:
+- VERIFIED
+- CORRUPT_REPAIRABLE
+- CORRUPT_UNRECOVERABLE
+- REPAIRING
+- REPAIRED
+- QUARANTINED
+
+# STATE-GC-RECOVERY-01. GC object crash-recovery state
+
+```text
+LIVE
+→ DELETE_INTENT
+→ BYTES_DELETING
+→ BYTES_ABSENT
+→ PURGE_COMMITTED
+```
+
+Any interrupted nonterminal state may enter `RECONCILIATION_REQUIRED`.
+
+# STATE-ENV-CERT-01. Environment certification freshness
+
+- CURRENT
+- DRIFT_DETECTED
+- RECHECK_REQUIRED
+- QUALIFYING
+- CURRENT
+- INVALIDATED
+
+Material GPU/driver/runtime drift does not silently retain “certified” state.
+
+# STATE-RELEASE-DURABILITY-01. Release master durability
+
+- MASTER_WRITING
+- MASTER_VERIFIED
+- MASTER_DURABILITY_CHECK
+- MASTER_DURABLE
+- RELEASE_ACTIVATED
+
+Failures:
+- MASTER_MISSING
+- MASTER_CORRUPT
+- DURABILITY_UNVERIFIED
+- RECONCILIATION_REQUIRED
+
+Publication requires RELEASE_ACTIVATED.
+
+
+
+# STATE-DEPLOYMENT-01. Deployment activation lifecycle
+
+```text
+UNBOUND
+→ VERIFYING
+→ ACTIVE
+```
+
+Mismatch/clone:
+- VERIFYING → READ_ONLY_RECONCILIATION
+
+Transitions from reconciliation:
+- MOVE_REPLACEMENT_PENDING → ACTIVE
+- RESTORE_RECONCILING → ACTIVE
+- FORK_INITIALIZING → ACTIVE_NEW_NAMESPACE
+- ABORTED
+
+Old deployment:
+- ACTIVE → RETIRING → RETIRED
+
+A RETIRED deployment cannot dispatch new external work if current control can detect its state.
+
+# STATE-FORK-01. Fork/reconciliation state
+
+- DETECTED_POSSIBLE_CLONE
+- AWAITING_INTENT
+- MOVE_PLANNED
+- RESTORE_PLANNED
+- FORK_PLANNED
+- REKEYING
+- REAUTHORIZING
+- RECONCILING_EXTERNAL
+- ACTIVE
+- BLOCKED
+
+# STATE-DEPLOYMENT-JOB-01. Deployment-bound job state
+
+If deployment binding changes before dispatch:
+- `STALE_DEPLOYMENT`
+- replan/rebind required.
+
+Already accepted external jobs enter normal recovery/external reconciliation rather than being pretended cancelled.
+
+
+
+# 87. Endpoint trust lifecycle
+
+- DISCOVERED
+- VERIFYING_SERVER
+- VERIFIED
+- STALE_EPOCH
+- IDENTITY_MISMATCH
+- REJECTED
+
+Only VERIFIED endpoint can carry privileged IPC.
+
+# 88. Network route state
+
+- UNKNOWN
+- DIRECT_VERIFIED
+- SYSTEM_PROXY_VERIFIED
+- EXPLICIT_PROXY_VERIFIED
+- ENTERPRISE_MANAGED_VERIFIED
+- CHANGED_REVERIFY_REQUIRED
+- BLOCKED
+
+# 89. Capture session lifecycle
+
+```text
+REQUESTED
+→ PERMISSION_CHECK
+→ DEVICE_BOUND
+→ ACTIVE
+→ STOP_REQUESTED
+→ STOP_CONFIRMED
+```
+
+Abnormal:
+- PERMISSION_DENIED
+- DEVICE_CHANGED
+- DEVICE_LOST
+- STOP_FAILED
+- QUARANTINED_OUTPUT
+
+# 90. Compute isolation state
+
+- STANDARD_READY
+- ISOLATED_STARTING
+- ISOLATED_READY
+- ACTIVE
+- DRAINING
+- CLEANUP
+- CLEAN
+- QUARANTINED
+
+A new sensitive job does not enter ACTIVE until prior isolated context cleanup policy is satisfied.
+
+# 91. Deletion assurance state
+
+- LOGICALLY_REMOVED
+- CRYPTO_ERASURE_CONFIRMED
+- BEST_EFFORT_OVERWRITE
+- PHYSICAL_ERASURE_UNVERIFIED
+- EXTERNAL_RETENTION_UNKNOWN
+
+These are evidence states, not marketing labels.
+
+# 92. Maintenance admission lifecycle
+
+```text
+PLANNED
+→ RESOURCE_ESTIMATED
+→ ADMISSION_CHECK
+→ RESERVED
+→ RUNNING
+→ VERIFYING
+→ COMPLETE
+```
+
+Alternate:
+- BLOCKED_STORAGE_PRESSURE
+- BLOCKED_INCOMPATIBLE_MAINTENANCE
+- PAUSED
+- RECOVERY_REQUIRED
+- FAILED
+
+# 93. Notification action lifecycle
+
+- ISSUED
+- DELIVERED
+- CLICKED
+- REVALIDATING
+- EXECUTED
+- STALE
+- OBSOLETE
+- EXPIRED
+- UNAUTHORIZED
+
+# 94. Suspend/resume lifecycle
+
+System:
+- RUNNING
+- SUSPENDING
+- SUSPENDED
+- RESUMING
+- RECONCILING
+- RUNNING
+
+Scheduler external retry/timeout actions are blocked during RECONCILING.
+
+
+
+# 95. Pricing snapshot state
+
+- CURRENT
+- STALE_WITHIN_CEILING
+- STALE_MATERIAL
+- EXPIRED
+- UNKNOWN
+
+Material/expired price state may require REPLAN before paid dispatch.
+
+# 96. Billing reconciliation state
+
+- RECEIVED
+- IDENTITY_RESOLVED
+- PENDING_ORIGINAL
+- POSTED
+- CORRECTED
+- REFUND_PENDING
+- REFUND_SETTLED
+- DUPLICATE_LINE
+- DISPUTED
+- UNRECONCILED
+
+Transport event ordering does not determine financial event ordering.
+
+# 97. Retention hold lifecycle
+
+- ACTIVE
+- EXPIRED
+- RELEASED
+- REVOKED
+
+Purge eligibility is a separate projection after dependency/rights/backup checks.
+
+# 98. Portable archive lifecycle
+
+```text
+PLANNED
+→ CLOSURE_RESOLVED
+→ MATERIALIZING_EXTERNALS
+→ BUILDING
+→ VERIFYING
+→ SEALED
+```
+
+Alternate:
+- BLOCKED_SECRET_REFERENCE
+- BLOCKED_MISSING_MEDIA
+- BLOCKED_RIGHTS
+- INCOMPATIBLE
+- CORRUPT
+- MIGRATION_REQUIRED
+
+# 99. Historical signature verification state
+
+- VALID_CURRENT
+- VALID_HISTORICAL_POLICY_ACCEPTS
+- VALID_BUT_KEY_LATER_REVOKED
+- TIMESTAMP_EVIDENCE_MISSING
+- INVALID
+- UNKNOWN_TRUST
+
+Policy verdict is explicit; historical evidence is not rewritten.
+
+# 100. Project transfer scope state
+
+- PLANNING
+- CLOSURE_READY
+- NEEDS_DECISION
+- APPROVED
+- EXECUTING
+- COMPLETE
+- STALE_SCOPE
+- BLOCKED_PRIVACY
+- BLOCKED_RIGHTS
+
+# 101. Shared craft-memory eligibility
+
+- PROJECT_LOCAL_ONLY
+- OPT_IN_PENDING
+- ELIGIBLE_SHARED
+- REVOKED
+- PURGE_PENDING
+- PURGED
+
+# 102. Compensation readiness state
+
+Independent axes:
+- TAKEDOWN_READY | TAKEDOWN_UNAVAILABLE | TAKEDOWN_UNKNOWN
+- REPLACE_READY | REPLACE_UNAVAILABLE | REPLACE_UNKNOWN
+- CREDENTIAL_READY | CREDENTIAL_REAUTH_REQUIRED
+- VERIFY_SUPPORTED | VERIFY_UNSUPPORTED | VERIFY_UNKNOWN
+
+
+
+# 61. Release build and signing lifecycle
+
+Release build:
+```text
+PLANNED
+→ SOURCE_FROZEN
+→ BUILDING
+→ ARTIFACT_ATTESTED
+→ COMPLIANCE_VERIFIED
+→ MANIFEST_FROZEN
+→ SIGNING_AUTHORIZED
+→ SIGNED
+→ PUBLISH_READY
+```
+
+Failures:
+- SOURCE_DRIFT
+- ATTESTATION_FAILED
+- SBOM_MISMATCH
+- LICENSE_BLOCKED
+- PRIVACY_SCAN_FAILED
+- SIGNING_BLOCKED
+- REVOKED
+
+Artifact identity is immutable after ARTIFACT_ATTESTED.
+
+# 62. Installer transaction lifecycle
+
+```text
+PLANNED
+→ PREFLIGHT
+→ STAGED
+→ VERIFIED
+→ ELEVATION_AUTHORIZED
+→ INSTALLING
+→ SYSTEM_CHANGES_APPLIED
+→ ACTIVATING
+→ HEALTH_CHECK
+→ ACTIVE
+```
+
+Failure branches:
+- FAILED_PREFLIGHT
+- FAILED_SIGNATURE
+- FAILED_INSTALL
+- PARTIAL_SYSTEM_CHANGES
+- COMPENSATING
+- COMPENSATED
+- RECOVERY_REQUIRED
+
+Uninstall:
+`PREFLIGHT → OWNERSHIP_CHECK → REMOVING_OWNED → VERIFY_USER_DATA → COMPLETE`
+
+User/project/media data is never classified as installer-owned merely because of path proximity.
+
+# 63. Update anti-rollback state
+
+Update candidate:
+- ALLOWED
+- BELOW_MINIMUM_VERSION
+- REVOKED
+- STALE_MANIFEST
+- WRONG_BASE
+- INCOMPATIBLE_SCHEMA
+- UNKNOWN_REVOCATION_FRESHNESS
+
+UNKNOWN_REVOCATION_FRESHNESS never silently becomes ALLOWED under strict profile.
+
+# 64. Signing key/service authorization state
+
+Signing request:
+- REQUESTED
+- MANIFEST_VERIFIED
+- PROVENANCE_VERIFIED
+- POLICY_AUTHORIZED
+- SIGNED
+- REJECTED
+
+Reject if:
+- digest differs;
+- key purpose mismatch;
+- release source unauthorized;
+- gate evidence stale;
+- key revoked/expired.
+
+# 65. Updater/bootstrapper state
+
+- HEALTHY
+- UPDATE_AVAILABLE
+- STAGING_SELF_UPDATE
+- SWITCH_PENDING
+- ACTIVE_NEW
+- ROLLBACK_READY
+- DEGRADED
+- RECOVERY_MODE
+
+Main app failure cannot automatically mark updater HEALTHY if updater verification itself failed.
+
+
+
+# 66. Privacy purge lifecycle
+
+```text
+REQUESTED
+→ TOMBSTONED
+→ CANONICAL_REMOVED
+→ DERIVED_CLEANUP
+→ RETENTION_RECONCILIATION
+→ EXTERNAL_RECONCILIATION
+→ COMPLETE_TO_POLICY_SCOPE
+```
+
+Alternate:
+- BLOCKED_HOLD
+- PARTIAL_EXTERNAL_RESIDUE
+- FAILED_RETRYABLE
+- FAILED_FINAL
+
+The state is not COMPLETE merely because canonical DB rows are gone.
+
+# 67. Semantic index entry lifecycle
+
+- ACTIVE
+- STALE
+- PURGE_PENDING
+- PURGED
+- QUARANTINED
+
+A source rights/privacy change can move ACTIVE directly to STALE/PURGE_PENDING.
+
+# 68. Inference session lifecycle
+
+- CREATED
+- ACTIVE
+- RESET_REQUIRED
+- RESETTING
+- RESET
+- TAINTED
+- CLOSED
+
+A privacy/project scope change requires RESET_REQUIRED unless isolation class is STATELESS or a fresh process/session is used.
+
+TAINTED sessions cannot accept new production work.
+
+# 69. Learning derivative lifecycle
+
+- ACTIVE
+- QUARANTINED
+- RETRAIN_REQUIRED
+- BLOCKED
+- RETIRED
+
+Source revocation may propagate ACTIVE → QUARANTINED/RETRAIN_REQUIRED according to policy.
+
+# 70. Privacy generation lifecycle
+
+Privacy revision:
+- DRAFT
+- ACTIVE
+- SUPERSEDED
+
+Queued outbound operation:
+- AUTHORIZED_AT_PLAN
+- REVALIDATION_REQUIRED
+- AUTHORIZED_TO_SEND
+- BLOCKED_BY_NEW_POLICY
+- SENT
+
+# 71. Library writer ownership lifecycle
+
+- UNOWNED
+- ACQUIRING
+- OWNED
+- DRAINING
+- RELEASED
+- STALE
+- RECOVERING
+
+Only one process may be OWNED for a writable library.
+A second Core remains CLIENT_OR_BLOCKED, never co-writer.
+
+# 72. Archive lifecycle
+
+- BUILDING
+- SEALED
+- VERIFIED
+- READ_ONLY_OPEN
+- IMPORTED_COPY_CREATED
+- VERIFICATION_FAILED
+
+READ_ONLY_OPEN cannot transition into mutable migration of the sealed archive itself.
+
+# 73. External exposure lifecycle
+
+Exposure record:
+- RECORDED
+- PROVIDER_RETENTION_UNKNOWN
+- TAKEDOWN_REQUESTED
+- TAKEDOWN_CONFIRMED
+- RETENTION_EXPIRED
+- UNRESOLVED
+
+Local purge never deletes historical exposure truth merely to show a cleaner status.
+
+
+
+# 74. Collaboration branch lifecycle
+
+```text
+ACTIVE_ONLINE
+→ OFFLINE
+→ RECONNECTING
+→ REBASE_ANALYSIS
+→ READY_TO_MERGE
+→ MERGING
+→ MERGED
+```
+
+Alternate:
+- REBASE_ANALYSIS → CONFLICT
+- CONFLICT → RESOLVING → READY_TO_MERGE
+- any nonterminal → ABANDONED
+- unsupported/too-old queue → IMPORT_AS_BRANCH_REQUIRED
+
+# 75. Collaboration conflict lifecycle
+
+- OPEN
+- RESOLVING
+- RESOLVED
+- DISMISSED
+- OBSOLETE
+
+A conflict becomes OBSOLETE if canonical state changed so much that the proposed resolution no longer applies.
+
+# 76. Actor/device authority state
+
+Actor:
+- ACTIVE
+- SUSPENDED
+- DISABLED
+- REMOVED
+
+Device:
+- ACTIVE
+- REVOKED
+- LOST
+- RETIRED
+
+Current state is checked at sync/irreversible action; historical authority does not survive revocation.
+
+# 77. Collaboration lock lifecycle
+
+- REQUESTED
+- ACTIVE
+- OFFLINE_GRACE
+- EXPIRED
+- REVOKED
+- RELEASED
+
+OFFLINE_GRACE cannot mint new privileged/canonical authority; final canonical merge still revalidates with Core.
+
+# 78. Canonical promotion race
+
+```text
+PROPOSED
+→ CAS_CHECK
+→ APPLIED
+```
+
+or:
+- CAS_CHECK → CONFLICT
+- CAS_CHECK → AUTHORITY_REVOKED
+- CAS_CHECK → STALE_CANDIDATE
+
+Exactly one concurrent promotion may apply for a given expected current revision.
+
+# 79. Offline action class
+
+Action policy:
+- OFFLINE_ALLOWED_DRAFT
+- OFFLINE_ALLOWED_CANDIDATE
+- ONLINE_REQUIRED
+- ONLINE_IRREVERSIBLE
+
+Rights/security/publish/credential/high-cost final actions are ONLINE_REQUIRED/ONLINE_IRREVERSIBLE.
+
+
+
+# 80. External circuit breaker lifecycle
+
+- CLOSED
+- OPEN
+- COOLDOWN
+- HALF_OPEN
+- RECOVERING
+- CLOSED_VERIFIED
+
+Transitions:
+- CLOSED → OPEN on threshold/policy trigger
+- OPEN → COOLDOWN
+- COOLDOWN → HALF_OPEN when eligible
+- HALF_OPEN → OPEN on failed probe
+- HALF_OPEN → RECOVERING on bounded successful probes
+- RECOVERING → CLOSED_VERIFIED after ramp success
+
+Only coordinator grants HALF_OPEN probe slots.
+
+# 81. Retry budget lifecycle
+
+- ACTIVE
+- WAITING_BACKOFF
+- WAITING_RECONCILIATION
+- EXHAUSTED
+- MANUAL_EXTENSION_REQUIRED
+- RESOLVED
+
+Restart/requeue does not reset attempts_used.
+
+# 82. Maintenance deadline state
+
+- PLANNED
+- BORROWING_CAPACITY
+- RECLAIMING_CAPACITY
+- READY
+- RUNNING
+- COMPLETE
+- AT_RISK
+- MISSED
+- BLOCKED
+
+AT_RISK triggers Flow/System attention before deadline is missed.
+
+# 83. Fallback ramp state
+
+- PRIMARY
+- EVALUATING_FALLBACK
+- CANARY_FALLBACK
+- RAMPING
+- FALLBACK_ACTIVE
+- RECOVERING_PRIMARY
+- PRIMARY_RESTORED
+
+Anti-oscillation cooldown prevents rapid A↔B flip-flop.
+
+
+
+# 84. Browser profile lifecycle
+
+- CREATING
+- READY
+- DEGRADED
+- DRAINING
+- UPDATING
+- TESTING
+- CANARY
+- QUARANTINED
+- REAUTH_REQUIRED
+- REMOVED
+
+# 85. Browser auth session lifecycle
+
+```text
+CREATED
+→ NAVIGATING_AUTH
+→ WAITING_PROVIDER
+→ CALLBACK_RECEIVED
+→ TOKEN_OR_SESSION_ESTABLISHED
+→ ACCOUNT_IDENTITY_VERIFY
+→ READY
+```
+
+Failures:
+- STATE_MISMATCH
+- NONCE_MISMATCH
+- REDIRECT_OWNERSHIP_FAILED
+- ORIGIN_MISMATCH
+- ACCOUNT_MISMATCH
+- EXPIRED
+- CANCELLED
+
+# 86. Browser automation execution
+
+- PRECONDITION_CHECK
+- NAVIGATING
+- ACTION_READY
+- EXECUTING
+- POSTCONDITION_VERIFY
+- WAITING_EXTERNAL
+- RESULT_OBSERVED
+- DOWNLOADING
+- ASSOCIATING
+- COMPLETE
+
+Interruptions:
+- AUTH_CHALLENGE
+- HUMAN_TAKEOVER
+- ORIGIN_CHANGED
+- SEMANTIC_FINGERPRINT_CHANGED
+- PROFILE_DEGRADED
+- DOWNLOAD_AMBIGUOUS
+
+# 87. Human takeover state
+
+- REQUESTED
+- HUMAN_ACTIVE
+- RESUME_REQUESTED
+- VERIFYING_CHECKPOINT
+- RESUMED
+- NEEDS_RECONCILIATION
+- CANCELLED
+
+
+
+# 88. Evaluation lifecycle with OOD/coverage
+
+```text
+QUEUED
+→ RUNNING
+→ DOMAIN_CHECK
+→ EVIDENCE_COLLECTING
+→ RESULT_READY
+```
+
+Result:
+- PASS
+- FAIL
+- UNKNOWN
+- OUT_OF_DOMAIN
+- CONFLICT
+
+Operational failures:
+- EVALUATOR_FAILED
+- INPUT_UNAVAILABLE
+- CACHE_INVALIDATED
+- STALE
+
+UNKNOWN/OUT_OF_DOMAIN are terminal evaluation outcomes, not evaluator crashes.
+
+# 89. Benchmark example lifecycle
+
+- ACTIVE
+- INTEGRITY_FAILED
+- RIGHTS_BLOCKED
+- PRIVACY_BLOCKED
+- QUARANTINED
+- RETIRED
+
+Promotion/benchmark run ignores blocked examples only through an explicit new benchmark-set revision; it never silently changes denominator/baseline.
+
+# 90. Evaluation-cache lifecycle
+
+- VALID
+- STALE_SUBJECT
+- STALE_EVALUATOR
+- STALE_POLICY
+- STALE_REFERENCE
+- STALE_COVERAGE
+- INVALIDATED
+
+Only VALID entry can satisfy a requested claim/profile.
+
+# 91. Post-QC artifact state
+
+- QC_CURRENT
+- MUTATED_AFTER_QC
+- REVERIFY_REQUIRED
+- REVERIFIED
+
+Release gate accepts only evidence current for the exact release artifact revision/digest.
+
+
+
+# 92. Provenance evidence lifecycle
+
+Claim:
+- ACTIVE
+- INVALID
+- SUPERSEDED
+- CONFLICT
+
+Package verification:
+- UNVERIFIED
+- SUBJECT_MATCHED
+- SIGNATURE_VALID
+- TRUST_VERIFIED
+- PARTIAL
+- CONFLICT
+- INVALID
+
+No single “VERIFIED” state collapses subject/signature/trust/rights dimensions.
+
+# 93. Embedded provenance preservation
+
+- PRESENT
+- PRESERVED
+- STRIPPED
+- REATTACH_REQUIRED
+- REATTACHED
+- UNKNOWN
+
+A transform may legitimately move PRESERVED → STRIPPED while internal lineage remains intact.
+
+# 94. Publication artifact verification
+
+For each role:
+- UNOBSERVED
+- MATERIALIZED
+- HASH_VERIFIED
+- PLATFORM_CONFIRMED
+- CHANGED_BY_PLATFORM
+- UNKNOWN
+
+Uploaded bytes and public derivative are independent.
+
+# 95. Provenance conflict lifecycle
+
+- OPEN
+- UNDER_REVIEW
+- RESOLVED
+- WAIVED
+- OBSOLETE
+
+Waiver records scope; it does not delete conflicting evidence.
+
+
+
+# 61. Learning feedback eligibility lifecycle
+
+UNTRUSTED_FEEDBACK
+→ CURATION_REQUIRED
+→ ELIGIBLE
+
+Alternate:
+- CURATION_REQUIRED → INELIGIBLE
+- any nonterminal → TAINTED
+- ELIGIBLE → TAINTED on rights/privacy/label/benchmark invalidation
+
+TAINTED feedback never silently remains positive evidence in a later benchmark/promotion.
+
+# 62. Benchmark/holdout integrity state
+
+- CLEAN
+- SUSPECTED_LEAKAGE
+- OVEREXPOSED
+- TAINTED
+- RETIRED
+
+A sealed holdout exceeding configured exposure or leaking into candidate optimization becomes ineligible for authoritative promotion until replaced/revalidated.
+
+# 63. Promotion evidence validity
+
+Independent axis:
+- VALID
+- STALE
+- TAINTED
+- REVOKED
+- UNKNOWN
+
+Promotion state PROMOTED does not erase evidence validity changes.
+If mandatory evidence later becomes TAINTED/REVOKED:
+- policy may trigger REVIEW_REQUIRED, DEPROMOTION_PENDING or immediate rollback for critical components.
+
+# 64. Router exploration lifecycle
+
+- PLANNED
+- POLICY_CHECKED
+- SHADOW
+- LIMITED_TRAFFIC
+- EVALUATING
+- ACCEPTED
+- REJECTED
+- PAUSED
+- CANCELLED
+
+Exploration never bypasses project privacy/rights/budget constraints.
+
+# 65. Golden-example dispute lifecycle
+
+- OPEN
+- UNDER_REVIEW
+- CONFIRMED
+- REVISED
+- RETIRED
+
+While UNDER_REVIEW:
+- benchmark policy decides whether the example is excluded, down-weighted or blocks promotion;
+- prior results referencing it are marked potentially stale, not silently trusted.
+
+
+
+# 66. Project membership lifecycle
+
+INVITED
+→ ACTIVE
+→ SUSPENDED
+→ ACTIVE
+→ REVOKED
+
+Alternate:
+- ACTIVE → LEFT
+- INVITED → EXPIRED
+
+Each authority-changing transition increments authorization_epoch.
+
+Historical actions retain former membership evidence but future authority uses current epoch.
+
+# 67. Collaborative working copy lifecycle
+
+OPEN
+→ OFFLINE
+→ OPEN
+
+From OPEN/OFFLINE:
+- STALE
+- CONFLICT
+- MERGE_READY
+- ABANDONED
+
+MERGE_READY → MERGED
+
+A stale/offline working copy cannot jump directly to canonical merged state without base/conflict validation.
+
+# 68. Event subscription authorization lifecycle
+
+ACTIVE
+→ REAUTH_REQUIRED
+→ ACTIVE
+
+Terminal:
+- REVOKED
+- EXPIRED
+
+Authorization epoch change affecting scope moves relevant subscription out of ACTIVE until revalidated.
+
+# 69. Delegation lifecycle
+
+ACTIVE
+→ REVOKED
+or
+ACTIVE → EXPIRED
+
+A queued command using a delegation revalidates it before an irreversible/external phase.
+
+# 70. Annotation staleness projection
+
+Annotation itself remains historical, but projection can be:
+- CURRENT
+- STALE_SUBJECT_REVISION
+- ORPHANED_RANGE
+- RESOLVED
+
+Annotations never silently migrate to a newer revision when their original range/meaning cannot be mapped confidently.
+
+
+
+# 71. Capability certification lifecycle
+
+UNVERIFIED
+→ TESTING
+→ CERTIFIED
+→ DEGRADED
+→ TESTING
+→ CERTIFIED
+
+Terminal/alternate:
+- EXPIRED
+- REVOKED
+- INCOMPATIBLE
+
+Schema/server/runtime identity change can move CERTIFIED to UNVERIFIED/DEGRADED according to severity.
+
+# 72. Connector semantic action state
+
+VALIDATING_CONTEXT
+→ AUTHORIZED
+→ DISPATCHING
+→ ACCEPTANCE_KNOWN
+→ RESULT_NORMALIZING
+→ VERIFIED
+→ COMPLETE
+
+Uncertain branches:
+- DISPATCHING → ACCEPTANCE_UNKNOWN
+- ACCEPTANCE_UNKNOWN → RECONCILING
+- RECONCILING → ACCEPTED | NOT_ACCEPTED | NEEDS_HUMAN
+- any output → PARTIAL/QUARANTINED when certification says incomplete output cannot be canonical
+
+# 73. Browser guarded-action state
+
+CONTEXT_VERIFY
+→ READY
+→ EXECUTING
+→ EFFECT_CONFIRMED
+→ COMPLETE
+
+Alternate:
+- CONTEXT_VERIFY → BLOCKED_SEMANTIC_DRIFT
+- EXECUTING → UNCERTAIN
+- UNCERTAIN → RECONCILING
+- RECONCILING → EFFECT_CONFIRMED | NOT_EFFECTED | NEEDS_HUMAN
+
+UNCERTAIN never loops directly back to EXECUTING for a non-idempotent action.
+
+# 74. Local service epoch state
+
+STARTING
+→ CERTIFYING
+→ ACTIVE
+→ DRAINING
+→ STOPPED
+
+Abnormal:
+- DEGRADED
+- RESTARTING
+- QUARANTINED
+
+Queue/job identifiers are invalid outside the epoch in which they were issued unless connector explicitly proves continuity.

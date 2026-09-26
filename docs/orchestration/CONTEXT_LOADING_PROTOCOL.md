@@ -128,3 +128,97 @@ Rules:
 - trusted Planner adoption creates a new/authorized Task contract rather than blessing arbitrary external prose wholesale.
 
 Context minimization must never remove the trust check.
+
+
+# 11. Section-addressable context
+
+Task context should reference `path#stable-section-id` when the owner document is large/sectional.
+
+Whole-file references are reserved for contracts that genuinely require the entire document.
+
+A search hit/snippet is navigation evidence, not proof the mandatory section was fully loaded.
+
+# 12. Context Manifest
+
+At claim, materialize the Context Manifest defined in `CONTEXT_MANIFEST_AND_DOC_LINT.md`.
+
+Before substantive mutation:
+- validate all MANDATORY items;
+- bind source commit/digest;
+- block as `BLOCKED_CONTEXT` if a mandatory section is missing/truncated/unavailable.
+
+Review/merge revalidates changed mandatory section digests rather than invalidating a task for unrelated edits elsewhere in a large file.
+
+# 13. High-risk independent context resolution
+
+For HIGH-risk review, reviewer independently computes the expected mandatory owner/risk sections and compares with the author/Task manifest.
+
+Author-provided context is input, not the sole authority.
+
+# 14. Context overhead
+
+Flow may track context bytes/load time/cache hit/mandatory miss.
+
+If context overhead dominates scheduled execution:
+- split Task;
+- narrow context;
+- split oversized owner section;
+- do not respond by silently skipping required context.
+
+
+
+# 11. Control-registry-driven context packs
+
+Task context selection uses `docs/design/CONTROL_REGISTRY.yaml`.
+
+A compiled context pack contains:
+- CONTEXT_PACK_VERSION
+- BASE_SHA
+- TASK_CONTRACT_HASH
+- CURRENT_IMPLEMENTATION_SLICE
+- touched domains/paths
+- applicable control IDs
+- owner document paths + content hashes
+- omitted control categories and reason
+- generated_at
+- invalidation rules
+
+Rules:
+- always include controls marked current-slice required when relevant to the touched domain;
+- include V1_BEFORE_RELEASE controls for release/update/storage/recovery tasks;
+- include SCALE_HARDENING for orchestration/10–15-slot tasks;
+- include FUTURE_MULTIUSER only for collaboration/multi-user work or when a current design boundary must preserve compatibility;
+- include OPTIONAL_HIGH_SECURITY only when the active security profile/task requires it.
+
+A context pack is derived cache, not authority.
+If any referenced owner doc/control changed materially from BASE_SHA, pack is stale.
+
+# 12. Bounded context reading
+
+Agent startup should not reread every architecture/risk document in full on every run.
+
+Use:
+1. AGENTS/control baseline;
+2. task contract;
+3. current context pack;
+4. exact owner sections for applicable control IDs;
+5. changed referenced docs since prior checkpoint.
+
+Broad corpus reread is reserved for:
+- Planner/Architecture review;
+- governance changes;
+- context-pack invalidation with uncertain impact;
+- deep audits.
+
+This reduces token/API cost without weakening authoritative-source precedence.
+
+# 13. Material invalidation
+
+A task is recontextualized only when:
+- applicable control semantics changed;
+- touched domain schema/API/state changed;
+- trust/governance floor changed;
+- dependency contract changed;
+- current implementation slice changed materially.
+
+Unrelated prose/style edits do not force all active agents to restart.

@@ -19,6 +19,7 @@ Control-plane roles phải đọc thêm khi thực hiện control work:
 - `docs/orchestration/BOTTLENECK_PLAYBOOK.md`
 - `docs/orchestration/FLOW_METRICS_AND_RECONCILIATION.md`
 - `docs/orchestration/CONTROL_PLANE_TRUST_AND_CONCURRENCY.md`
+- `docs/orchestration/TRUSTED_CONTROL_POLICY.md`
 - CI/merge work: `docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md`
 - governance/workflow/control-plane changes: `docs/orchestration/GOVERNANCE_AND_CI_SECURITY.md`
 - GitHub partial failure/outage: `docs/orchestration/GITHUB_OUTAGE_AND_PARTIAL_FAILURE.md`
@@ -197,3 +198,21 @@ Mọi schema/event/manifest public phải versioned.
 - Active Task claims bind TASK_CONTRACT_VERSION/HASH and CONTEXT_BASE_SHA.
 - Global WIP/backpressure takes precedence over the simplistic “claim another task” rule when CI/review is saturated.
 - After orchestration baseline lock, governance/control-plane files must change through HIGH-risk PR flow, not direct-main writes.
+
+
+- `docs/design/EXTREME_HARDENING_CONTRACTS.md`
+
+
+
+## Control registry and implementation applicability
+
+Agents must consult `docs/design/CONTROL_REGISTRY.yaml` for stable control IDs, applicability and maturity.
+
+Rules:
+- never claim a SPECIFIED control is implemented/proven;
+- do not implement FUTURE_MULTIUSER/OPTIONAL_HIGH_SECURITY machinery during an unrelated V1 slice merely because it exists in the design;
+- current task context should be compiled from applicable control IDs rather than rereading/implementing the complete corpus;
+- authoritative owner documents still win over the registry if the registry is stale;
+- any registry/owner mismatch is a correctness finding.
+
+The comprehensive design is a compatibility boundary, not permission for big-bang implementation.

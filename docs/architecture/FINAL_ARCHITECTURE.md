@@ -1596,3 +1596,608 @@ Routing rules:
 - BLOCKED prevents automated use.
 
 ProviderTermsSnapshot and project policy determine the effective mode.
+
+
+# 39. Extreme adversarial hardening controls
+
+This section is the architecture-level consolidation of findings from:
+- `docs/orchestration/EXTREME_FAILURE_STRESS_TEST_2026-09-26.md`;
+- `docs/design/EXTREME_HARDENING_CONTRACTS.md`;
+- detailed schema/state/API/UI contracts on the same reviewed branch.
+
+Detailed field/state/API definitions live in the implementation-contract documents; this architecture section owns the cross-cutting invariants.
+
+## 39.1 GitHub/control-plane trust and concurrency
+
+- Public GitHub Issues/PRs/comments are untrusted until adopted/authorized by trusted control policy.
+- Atomic task claim key is exactly `agent/i<issue>-a<attempt>`; no free-form slug is part of the lock key.
+- Because GitHub cannot open a zero-diff PR, a minimal machine claim marker commit is allowed solely to bootstrap the Draft PR and is removed before review-ready.
+- Task contracts are versioned and hashed from canonical parsed JSON, not raw Markdown/YAML bytes.
+- Trusted-control policy is versioned on governed `main`; Capacity Plan cannot expand its own trust root.
+- Stale/unconfirmed worker takeover uses a fenced replacement branch/PR; a comment lease alone is not physical write fencing.
+- Long slot/control leases require renewal/revalidation before new shared mutations.
+- Manual merge uses a serialized merge lease unless an authoritative GitHub Merge Queue replaces it.
+- CI evidence binds exact head/base/merge context **and** trusted check producer/workflow/runner provenance.
+- Governance workflow changes cannot self-approve using only the modified workflow logic.
+- GitHub search is discovery, never proof of absence; correctness-critical reads use direct refs/collections with complete pagination.
+- Capacity/control event streams rotate by epoch before they become an unbounded operational log.
+
+## 39.2 Local Core and persistence safety
+
+- “Single Core writer” is enforced with OS-instance ownership plus persistent Core epoch/fencing; a zombie Core cannot resume writes after a newer Core takes ownership.
+- Monotonic elapsed time is used for local timeout/lease duration where available; wall clock is not authoritative ordering.
+- Sleep/hibernate resume triggers reconciliation before expired timers/jobs/sessions resume.
+- SQLite WAL health includes checkpoint progress, oldest read snapshot age, writer pressure and free-space reserve.
+- Storage pressure can pause large producers or enter read-only safe mode rather than corrupting persistence.
+- SQLite corruption detection uses appropriate integrity checks and transitions to safe recovery; ambiguity is never repaired by guessing/deleting rows.
+- Live SQLite backup uses SQLite-safe backup/snapshot semantics, never naive copy of only the main DB while WAL may contain committed state.
+- Restore creates a new recovery epoch, freezes external dispatch, reconciles restored outbox/inbox/browser/provider/publication reality, then activates the recovered epoch.
+- App rollback is permitted only when executable↔schema compatibility proves it safe; migration completion includes backfill, projections/indexes, integrity and health checks.
+- Canonical/event consistency is periodically audited because V1 is event/audit-backed rather than pure event-sourced.
+
+## 39.3 Storage/import/media hostile-input boundary
+
+- Core database root is a validated supported local storage profile; generic media/backup locations do not implicitly relocate live WAL DB.
+- Canonical CAS bytes must never be exposed through writable hardlinks/aliases to editable handoff/staging paths.
+- Content identity is algorithm-qualified (for example `sha256:<digest>`) to support hash agility.
+- Critical ingest parses a staged stable copy/handle, not a mutable external path susceptible to TOCTOU.
+- External linked canonical sources bind cryptographic content fingerprints; path/size/mtime are not identity.
+- URL intake/browser navigation applies scheme allowlists, private/local/link-local denial by default, redirect/connect-time DNS/IP revalidation and size/time limits.
+- Archive/document/media parsing has recursion, decoded-size/pixel/frame/sample, CPU/RAM/time and network/protocol budgets.
+- Provider/model-generated files re-enter the same hostile-media normalization/quarantine path as imported files.
+- Provider remote URLs/receipts are not durable assets; durable media becomes READY only after local materialization, hash/decode verification and registration.
+- Release validation enumerates every stream/attachment/metadata class; a visually correct preview does not prove a clean release container.
+
+## 39.4 Desktop/IPC/context security
+
+- Desktop WebView is a privileged boundary: strict CSP/sanitization, controlled navigation, remote origins do not retain native bridge privilege.
+- Local IPC/RPC is authenticated, typed, user-scoped and authority-checked; localhost is not considered trusted merely by address.
+- Default local DB/runtime/browser/IPC roots use OS-user scoped access control.
+- Model/plain text that resembles JSON/tool syntax never invokes a tool; only the orchestrator's typed tool channel can request actions.
+- Context Compiler carries provenance/trust/authority/criticality per segment; user/imported/web/model/media text remains data, not control instructions.
+- Mandatory privacy/rights/canon/output constraints are non-droppable; token/context optimization may compress enrichment but cannot remove mandatory constraints.
+- Local models/plugins/tools receive network egress only through explicit capability policy; a valid signature does not imply permission to exfiltrate.
+
+## 39.5 Privacy, rights, credentials and external side effects
+
+- Every external/cloud/browser execution has an immutable egress manifest with exact data scope, provider/account/region, privacy class, rights/terms and purpose.
+- A central policy/rights/privacy authorization gate sits outside provider adapters; adapters cannot reinterpret UNKNOWN/BLOCKED/LOCAL_ONLY as ALLOWED.
+- Provider callbacks/webhooks are authenticated before inbox registration; idempotency is not authentication.
+- Connections may pin provider account/tenant/workspace/region identity; “authenticated” is insufficient if the wrong workspace is active.
+- Job attempts pin credential binding/version and provider identity; credential rotation/re-login does not silently mutate an in-flight attempt.
+- Restored/moved projects with nonportable secure credentials enter REAUTH_REQUIRED rather than silently changing provider.
+- Provider terms, local package/model license and executable trust evidence are versioned/revalidated where legally relevant.
+- Signing/update trust supports key identity, rotation and revocation; a cryptographically valid signature from a revoked key does not pass.
+
+## 39.6 Cost, resource and fanout containment
+
+- Provider cost estimates are not assumed truthful/hard; budgets include maximum unreconciled exposure and unknown-cost policy.
+- Retry after uncertain provider acceptance reconciles first and cannot multiply exposure blindly.
+- GPU/VRAM/CPU/disk/browser-profile scheduling uses reservations/fencing/headroom where applicable; telemetry alone is not a reservation.
+- Large generation fanout supports sample-first/staged dispatch, batch exposure caps and fast cancellation of undispatched work after upstream invalidation.
+- Worker/runtime crash loops use restart budgets, exponential backoff and quarantine.
+
+## 39.7 Human creative authority, bulk actions and release
+
+- Intentional manual/human edits may acquire scope/revision ownership fences; late AI results remain candidates rather than silently overwriting newer human state.
+- Bulk approve/delete/generate actions bind an exact entity/revision snapshot; later filter/list changes do not silently expand scope.
+- Hard scheduling dependency graphs are cycle-checked before tasks become READY.
+- Rebuildability includes technical inputs **and** package/model/provider/license/rights availability; GC/package removal reevaluates it at execution time.
+- Release/package/signing artifacts are tied to merged/release source provenance, not merely a pre-merge PR build.
+- Publication pins the exact provider account/tenant/workspace/channel/page destination and shows it at the irreversible boundary.
+- Backups distinguish copy success from failure-domain independence, offline/immutable protection and restore verification.
+
+## 39.8 Supply-chain and invariant governance
+
+- Autonomous executable dependency changes require provenance/source, lock/integrity, license, vulnerability and install/native-script review according to risk, plus release SBOM.
+- Critical invariant tests are governance assets; deleting/weakening them requires explicit elevated review/equivalence evidence.
+- Package executable versions are retained while active jobs/sessions/recovery need them; lightweight package/license/signature/capability provenance remains after byte removal.
+
+## 39.9 Empirical validation requirement
+
+These controls are design requirements, not claims that implementation has been proven.
+
+Before broad autonomous scale, executable chaos tests must cover at minimum:
+- task claim race and stale-worker takeover;
+- overlapping scheduled slot/control leases;
+- two merge-ready PR serialization;
+- untrusted public Issue/comment injection;
+- Core duplicate-instance/zombie fencing;
+- restore with late callbacks/restored outbox;
+- WAL checkpoint starvation/disk pressure;
+- malicious URL/archive/media/WebView/context injection;
+- callback forgery/replay;
+- resource overcommit and delayed provider billing;
+- migration crash/rollback compatibility;
+- release hidden-stream/destination mismatch;
+- Windows filesystem/storage/ACL edge cases.
+
+
+
+## 39.10 Additional recovered hardening controls
+
+The canonical hardening set also includes these controls salvaged from earlier adversarial iterations:
+
+- **Execution-time revalidation:** long/high-impact work revalidates current rights, authority, recovery epoch, manual fence, package/runtime identity, resource reservation, budget exposure and connection identity before each unsafe/irreversible phase.
+- **Protection leases:** backup/restore/export/release/integrity/rebuild operations pin immutable objects/packages/runtimes against concurrent GC/uninstall.
+- **Bounded event/projection rebuild:** durable event/audit history uses snapshots/checkpoints/archive ranges; no runtime requires replay from event zero forever.
+- **Hermetic security-critical CI/release:** clean declared inputs, trusted caches or clean rebuild, pinned toolchain/package hashes and source/config/toolchain attestation.
+- **Search is navigation only:** search/vector/index results are never direct mutation authority; commands resolve canonical IDs, current rights/state and pinned bulk scope first.
+- **At-rest encryption policy:** ACL and encryption are distinct; sensitive classes may require OS-volume protection, CineForge-managed encryption or verified encrypted targets.
+- **Key lifecycle/crypto agility:** managed keys have stable identities, OS-backed protection, wrapping/recovery, rotation/revocation, algorithm metadata and decryptability verification.
+- **Project duplication policy:** project clones explicitly decide which canon/assets/rights/privacy/budgets/connections/preferences/data-use settings carry over; credentials/browser sessions do not clone by default.
+- **Purpose-specific data-use:** PRODUCTION, QC, SEARCH, CROSS_PROJECT_RETRIEVAL, FAILURE_ANALYSIS, LEARNING, TRAINING, EXTERNAL_PROCESSING, EXPORT and PUBLIC_RELEASE are distinct purposes.
+- **Diagnostic artifact security:** diagnostic bundles are sensitive managed artifacts with ACL/encryption, redaction, recipient/use scope and expiry.
+- **Honest deletion:** distinguish tombstone, policy purge, provider deletion request, cryptographic erasure and physical secure erase; never promise physical SSD/cloud erasure when unverifiable.
+- **Release privacy leakage scan:** validate local paths, internal names, hidden streams, embedded notes/comments, sensitive subtitles/transcripts and private identifiers separately from codec/copyright QC.
+- **Child-process containment:** local tools/plugins/models receive scoped filesystem/temp/log/crash-dump/network/env/clipboard permissions; unmanaged long-term histories are prohibited.
+- **Logical vs physical encrypted identity:** plaintext logical identity is distinct from ciphertext/object identity and key scope; cross-project dedup is policy, not universal.
+- **Envelope encryption:** large objects may use per-object data keys wrapped by policy/root keys; rotation may rewrap rather than rewrite terabytes.
+- **Multi-resource deadlock prevention:** acquire resources in deterministic global order or atomic admission; jobs must not deadlock while holding partial resource sets.
+- **Context dependency fence:** compiled context binds canon/policy/privacy/rights/task/provider semantic-profile revisions and payload hash; stale context is recompiled before dispatch/retry.
+- **Provider semantic-limit certification:** certify observed context/reference limits, ignored parameters, truncation/rewrite behavior and output materialization semantics.
+- **Adapter semantic conformance:** mappings declare NATIVE / APPROXIMATED / UNSUPPORTED / UNKNOWN; critical unsupported semantics cannot silently degrade.
+- **Package/model acquisition ceilings:** exact digest, expected/download/install-expanded bytes, disk reservation, publisher/signature and decompression budget.
+- **Browser observation privacy:** DOM/screenshots/accessibility trees/recordings are separate sensitive inputs; capture minimum scope, redact credentials/MFA and bound retention.
+- **Integrity incident containment:** canonical/audit inconsistency may freeze one aggregate/project/subsystem or whole mutation plane while allowing read/diagnostic/recovery.
+- **Recovery projection fencing:** restore invalidates projections/search/vector/cache newer than the checkpoint; confidential deleted/revoked content cannot remain queryable from stale indexes.
+- **Timeline/undo/variant scale:** compact working histories, checkpoint undo state, pin assets reachable by undo, and enforce candidate/variant retention/WIP.
+- **Large bulk manifests:** large pinned scopes live as immutable hashed manifests and stream during execution rather than unbounded command JSON.
+- **Derived confidential-data lifecycle:** privacy/rights scope propagates to thumbnails, proxies, waveforms, OCR, transcripts, embeddings, search indexes, diagnostics and learning examples.
+- **Local service replay/binding:** local control services bind approved local interfaces, use ACL/session isolation and replay-resistant scoped authentication.
+- **SQLite connection invariants:** required PRAGMAs/checksums are verified; VACUUM/rebuild/migration reserve temporary disk and fail safe on migration checksum drift.
+
+
+
+## 39.11 Authorization/cache/idempotency and documentation integrity
+
+- Derived caches, thumbnails, proxies, search/vector indexes are keyed/scoped by authorization/privacy context as well as source identity; content equality never grants cross-project access.
+- Idempotency keys bind a canonical request hash and namespace; same key with different payload is a conflict.
+- Local media/RPC capability tokens bind user/session, exact representation, purpose/audience, nonce and expiry, and are never logged as ordinary telemetry.
+- Sensitive read paths reauthorize current privacy/rights/revocation before returning stale cache/index content.
+- Connector/parser errors and diagnostics cross a redaction boundary before normal logging/telemetry.
+- Job temp/staging namespaces are per-attempt, private and manifest-verified.
+- Budget reservation is transactionally serialized; usage/correction/refund/credit is an append-only financial ledger.
+- Authoritative architecture/design documentation is machine-linted for duplicate/conflicting contract definitions and broken ownership/cross-references; documentation contradiction is a correctness failure.
+
+
+
+## 39.12 Recovery/deletion/learning and maintenance interactions
+
+- Restore invalidates/fences ephemeral leases/tokens/reservations and replays forward privacy/right/consent/key revocations newer than the backup checkpoint before data becomes authoritative.
+- Key rotation/rewrap is resumable; deletion/crypto-erasure understands backup/archive key-wrap retention; archive health includes decryptability drills.
+- Project clone separates creative assets/policies from execution history, reservations, usage ledger, credentials, sessions and authorization-scoped caches.
+- Learning/evaluation datasets have immutable scoped lineage; consent/privacy withdrawal blocks future use and can trigger promoted-component deprecation/retrain decisions.
+- Search/vector/projection rebuild uses immutable generations + atomic activation/fencing.
+- Protection leases cover dependency sets, not only output files.
+- Publish/replace/takedown for one external publication are serialized/fenced.
+- Logs, metrics, audits, scrubs and backups have quotas/priorities so safety workloads cannot self-DoS production.
+- Backup durability class cannot silently downgrade.
+- Storage move/restore validates filesystem semantics against the existing corpus.
+- Historical actor provenance survives actor disable/tombstone.
+
+
+
+## 39.13 Byzantine/insider and release supply-chain controls
+
+- Task risk classification is independently detected from semantics/protected surfaces; declared LOW cannot weaken required gates.
+- Governance drift is monitored cumulatively so many small PRs cannot silently erode invariant tests, CI permissions or trust surfaces.
+- Release artifacts require trusted-builder provenance/attestation tied to source/toolchain/dependencies/output digest.
+- Signing authorizes an immutable release digest/manifest, not an arbitrary runner path.
+- Authenticated provider responses also require semantic correlation to account/tenant/request/session/artifact role.
+- Connector egress is attested against the actual serialized outbound payload where feasible; connector self-report is not sufficient evidence.
+- Authorization has aggregate/bulk thresholds, preventing many individually allowed destructive/spending/egress calls from bypassing bulk gates.
+- Repository and CI artifact hygiene blocks accidental binaries/vendor trees/secrets and applies sensitivity/retention policy to CI artifacts.
+- Publication is a multi-step external state with explicit destination/timezone and post-platform verification; partial success remains visible.
+
+
+
+## 39.14 Disaster recovery, scale and long-term ownership
+
+- Canonical GitHub repo/trusted actors are pinned by stable IDs; repository visibility/ownership/default-branch/ruleset changes are governance incidents.
+- Merge/release archives retain compact verification evidence so long-term audit does not rely solely on hosted PR comments.
+- Threat model states honest root-compromise boundaries; compromised OS/root or top-level credential cannot be “solved” by logical agent IDs.
+- Backup recovery verifies key metadata/decryptability and forward deletion/revocation journals, not ciphertext/object existence alone.
+- Single-host SQLite mode has observable scale thresholds and a future migration path; unsupported shared-writer/multi-host behavior is rejected.
+- Large asset/timeline/history domains use pagination/virtualization/partitioned projections.
+- Historical migration compatibility is tested with retained old-format fixtures/tooling metadata.
+- Ownership transfer and actor offboarding are first-class workflows distinct from cloning/deletion.
+- Release archives preserve final bytes, manifests/attestations and open/documented interchange while representing reproducibility honestly.
+
+
+
+# 65. External side-effect ledger survives project rollback
+
+A recovery epoch stored only inside the restored project/Core database is insufficient: restoring an old snapshot can make CineForge forget external effects that happened after the snapshot.
+
+CineForge therefore maintains an **Installation External Side-Effect Ledger** outside project rollback scope.
+
+It records before/at dispatch:
+- installation_id;
+- dispatch_fence_id (random globally unique identifier);
+- command/job/attempt identity;
+- provider/connection/account/workspace identity;
+- idempotency key;
+- intent digest;
+- dispatch state;
+- provider receipt/external job ID when known;
+- money/credit exposure;
+- publication/delete/upload side-effect class.
+
+Rules:
+- project restore never rewinds this ledger;
+- restore reconciliation compares restored project state against this ledger;
+- unknown “future” external effects are surfaced/quarantined;
+- restored outbox cannot redispatch an intent whose fence/idempotency evidence is already present unless reconciliation explicitly authorizes it.
+
+For full-machine disaster where the installation ledger is also lost, CineForge enters **EXTERNAL_REALITY_UNKNOWN** and requires provider-side reconciliation/manual decisions before risky redispatch. It must not pretend exact rollback is possible.
+
+# 66. Backup authenticity, confidentiality and failure-domain policy
+
+Backup verification includes more than file hashes stored beside the files.
+
+Backup profiles may require:
+- signed/MACed manifest authenticity;
+- encryption at rest or verified encrypted volume;
+- separate failure domain;
+- immutable/offline retention class;
+- restore drill evidence.
+
+A manifest/hash that an attacker can modify together with the backup is not strong authenticity evidence.
+
+Sensitive temporary/staging/diagnostic data follows retention and encryption policy; “delete” is not represented as guaranteed physical secure erase on SSDs.
+
+# 67. Cache legality/policy identity
+
+A technically identical cached artifact may become unusable after rights/privacy/provider-policy changes.
+
+Any cache capable of reintroducing production content includes all semantics that affect validity, such as:
+- exact source revision hashes;
+- model/connector/workflow revision;
+- media profile;
+- relevant rights/license/policy snapshot or validity epoch;
+- privacy/egress policy where it changes execution/output legality.
+
+A rights revocation or policy change can invalidate cache eligibility without deleting historical bytes.
+
+# 68. Authenticated callback scope binding
+
+A valid callback signature is not sufficient if it belongs to the wrong account/tenant/job.
+
+Callback verification binds:
+- provider;
+- endpoint/channel;
+- expected account/tenant/workspace when available;
+- external job/attempt correlation;
+- current recovery/installation fence where provider metadata supports it.
+
+A validly signed but mismatched-tenant callback is rejected/quarantined.
+
+# 69. Staging/CAS file identity race defense
+
+Registration of parser/connector outputs uses stable file handles/identities where supported.
+
+Between verification and registration CineForge must defend against:
+- symlink/junction replacement;
+- hardlink aliasing;
+- file swap/rename by another process;
+- writable alias to canonical CAS object.
+
+Finalization verifies the same file identity/content that was hashed before atomically entering managed storage.
+
+
+# ARCH-NARRATIVE-01. Narrative context and nonlinear continuity
+
+CineForge separates:
+- screen/edit order;
+- diegetic chronology;
+- continuity context/worldline.
+
+A `NarrativeContext` may represent:
+- MAINLINE
+- FLASHBACK
+- FLASHFORWARD
+- DREAM
+- HYPOTHETICAL
+- ALTERNATE
+- LOOP_ITERATION
+- RETELLING
+- CUSTOM
+
+Contexts may fork/derive from another context with explicit ancestry.
+
+State resolution uses:
+`(narrative_context_id, chronology_key, entity)`
+
+not one global story key.
+
+A ShotContinuitySnapshot pins:
+- narrative context;
+- chronology position;
+- ancestry/baseline hash;
+- relevant entity-state revisions.
+
+# ARCH-PRODUCTION-01. Production hierarchy
+
+Project is the technical/workspace boundary, not necessarily one finished film.
+
+A project may contain hierarchical `ProductionNode`:
+- SERIES / SEASON / EPISODE
+- FEATURE
+- SHORT
+- AD
+- MUSIC_VIDEO
+- DOCUMENTARY
+- TRAILER
+- TEST/EXPERIMENT
+
+Sequences/scenes/shots belong to an applicable production node.
+
+Production nodes pin:
+- canon baseline;
+- media profile;
+- release policy;
+- default style/policy inheritance.
+
+Shared series/franchise canon can evolve without retroactively mutating released production truth.
+
+# ARCH-CASTING-01. Character vs performer vs representation
+
+CineForge distinguishes:
+
+## Narrative Character
+Who exists in the story.
+
+## Person / Performer
+A real human whose face, voice, performance, mocap, stunt/body work or other identity may be used.
+
+## Production Representation
+How a narrative entity is realized in a particular production/scene/shot:
+- live performer;
+- voice performer;
+- stunt/body double;
+- mocap performer;
+- digital double;
+- AI identity package;
+- physical/CG prop;
+- real/set/virtual environment.
+
+Casting/representation bindings are scoped and versioned.
+
+Real-person consent/rights attach to Person/Performer and derived representations.
+Revoking performer rights does not delete the fictional Character; it taints dependent representations/assets.
+
+# ARCH-CAPTURE-01. Live-action capture domain
+
+Live-action/hybrid production adds:
+- ProductionUnit / ShootDay
+- Slate
+- ProductionTake
+- CameraRoll / AudioRoll
+- CaptureClip
+- SyncGroup
+- Ingest/CardManifest
+- Continuity/TakeNote
+
+Planned Shot and recorded Take are different identities.
+
+One Take may contain many camera/audio clips.
+One Shot may use material from many Takes.
+
+Capture original is immutable.
+Editorial selection/preference is metadata/revision, not destructive replacement.
+
+# ARCH-DOCUMENTARY-01. Documentary factual-evidence domain
+
+Documentary/factual projects add:
+- SourceRecord
+- Interview/Participant relation
+- FactClaim
+- ClaimEvidence
+- QuoteRange
+- Verification/Conflict state
+- Release/Consent/Rights binding
+- Archived source snapshot where permitted
+
+A FilmBible/story statement is not automatically a verified factual claim.
+
+Factual review can distinguish:
+- exact transcription;
+- source context;
+- corroboration/conflict;
+- editorial meaning;
+- rights/release eligibility.
+
+# 70. Retcon and released-history policy
+
+Canon revisions have effective scope.
+
+Released production manifests pin their historical canon baseline.
+Later retcon:
+- may invalidate current/future production work according to policy;
+- does not rewrite the historical meaning/evidence of already released production;
+- can create explicit supersession/continuity notes across seasons/episodes.
+
+
+# 71. Shared Canon Space
+
+Canon ownership is independent from Project.
+
+A `CanonSpace` may be scoped as:
+- PROJECT
+- SERIES
+- FRANCHISE
+- STUDIO_LIBRARY
+
+Canonical entities such as Character, Style, Prop, Environment and reusable identity packages may belong to a CanonSpace.
+
+Projects mount CanonSpaces with explicit mode:
+- PINNED_READ
+- TRACK_APPROVED
+- BRANCH_FOR_PROJECT
+- AUTHOR_SHARED (authority required)
+
+Production canon baselines pin exact revisions from one or more mounted CanonSpaces.
+
+Shared-canon promotion is a separate authority action from project-local approval.
+
+# 72. Shared canon and rights separation
+
+Mounting a shared canonical identity never grants usage rights.
+
+Rights/consent are evaluated for:
+- production;
+- territory;
+- medium;
+- purpose;
+- derivative/cloning/training use;
+- performer/source.
+
+A shared Character may be technically available but RIGHTS_BLOCKED in a specific production.
+
+# 73. Documentary evidence lineage and temporal truth
+
+Source evidence may declare:
+- originating source;
+- derived/copy/syndicated relation;
+- independence group;
+- effective/observed time;
+- correction/retraction/supersession.
+
+Corroboration logic does not count dependent copies as independent evidence merely by quantity.
+
+FactClaim approval records temporal/context scope.
+A later correction may stale future/re-release use without rewriting what reviewers knew historically.
+
+# 74. Casting overlap constraints
+
+Casting role semantics define overlap policy by scope.
+
+Examples:
+- PRINCIPAL_ON_CAMERA commonly exclusive for one character/shot unless explicitly multi-cast;
+- MOCAP + FACE_SOURCE + VOICE can coexist;
+- split-screen/double/twin effects may intentionally bind multiple on-camera representations.
+
+Core validates overlaps and creates CONFLICT rather than silently selecting one.
+
+# 75. Historical credit identity
+
+Person private/legal identity is separate from public credit representation.
+
+Release manifests pin:
+- credit name/version;
+- role;
+- contractual attribution requirement;
+- production/release scope.
+
+Later display-name/pseudonym changes do not rewrite prior release evidence.
+
+# 76. Canon/context hierarchy integrity
+
+These parent graphs require DAG validation:
+- ProductionNode parent hierarchy;
+- CanonSpace parent/inheritance where used;
+- NarrativeContext parent/fork ancestry.
+
+Narrative time loops use explicit non-parent loop/causal edges.
+
+A continuity snapshot pins exact scene occurrence + narrative context revision + ancestry hash.
+
+
+
+# 65. Release and installation supply-chain architecture
+
+Release is a privileged pipeline separate from ordinary PR validation.
+
+```text
+Merged immutable release commit
+→ hermetic build
+→ artifact attestation/digest
+→ package-content SBOM/compliance scan
+→ release-manifest freeze
+→ signing authorization
+→ final-byte signatures
+→ installer/update manifest
+→ publish
+```
+
+No stage identifies input merely by filename/tag/branch label.
+
+## Installer boundary
+The installer/updater/bootstrapper is a privileged Windows subsystem:
+- elevation happens only after verified trusted staging;
+- binary/user-data roots remain separate;
+- every system mutation is journaled/compensatable where possible;
+- helper/service/protocol registration is ownership-tracked;
+- recovery bootstrapper survives failed app activation.
+
+## Anti-rollback
+A cryptographically valid old version may still be forbidden.
+Release/update policy has a monotonic revocation/minimum-version floor.
+
+## Release trigger
+Only an immutable authorized release source can enter privileged signing/publish.
+GitHub/environment configuration is verified state, not assumed.
+
+
+
+# 66. Privacy residue and library ownership architecture
+
+Privacy/deletion is a multi-store lifecycle, not a row delete.
+
+Core owns a purge coordinator spanning:
+- canonical relational state;
+- object/derived/cache stores;
+- semantic indexes;
+- learning datasets;
+- observability references;
+- backup/retention policy;
+- external exposure records.
+
+Recovery owns a forward deletion/revocation journal so older backups cannot silently resurrect later privacy/security decisions.
+
+## Semantic isolation
+RAG/vector/search/cache/session state is project/studio/privacy scoped at storage/query time, not merely filtered in UI.
+
+## Single writer
+One writable library has one Core writer epoch enforced by an OS-level exclusive primitive plus DB ownership record.
+
+## Archive
+Sealed archives are immutable/read-only artifacts; viewing never migrates them in place.
+
+
+
+# 67. Collaboration/offline architecture boundary
+
+Multi-user/offline support is branch-and-reconcile, not shared mutable truth.
+
+Canonical project state remains Core-owned.
+Offline clients create bounded working branches against explicit base revisions.
+
+Merge semantics are domain-specific:
+- text/comment collaboration may use CRDT-like convergence;
+- timeline/structured edits use operation rebase only where safe;
+- approval/canon uses compare-and-set;
+- rights/security/irreversible actions require current online authority;
+- semantic conflicts become first-class conflict objects.
+
+Privacy purge/tombstone and current authorization dominate stale offline edits.
+
+
+
+# 68. Scheduler stability and failure-domain architecture
+
+Scheduler is hierarchical and failure-domain aware.
+
+It coordinates:
+- per-project fair share;
+- global/resource-specific admission;
+- provider account/workspace rate/quota domains;
+- durable retry budgets;
+- circuit breakers and fallback hysteresis;
+- mandatory maintenance deadlines;
+- batch/cancellation backpressure.
+
+Workers never independently unleash retries after an outage.
+
+Recovery/fallback optimizes controlled throughput, not instantaneous queue draining.

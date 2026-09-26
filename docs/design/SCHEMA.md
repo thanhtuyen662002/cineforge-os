@@ -299,6 +299,7 @@ Logical profile.
 ## sequences
 - id PK
 - project_id FK
+- production_node_id nullable FK production_nodes
 - stable_code
 - lifecycle_state
 - row_version
@@ -313,6 +314,7 @@ Logical profile.
 ## scenes
 - id PK
 - project_id FK
+- production_node_id nullable FK production_nodes
 - sequence_id FK
 - stable_code
 - lifecycle_state
@@ -332,6 +334,7 @@ Logical profile.
 ## shots
 - id PK
 - project_id FK
+- production_node_id nullable FK production_nodes
 - scene_id FK
 - stable_code
 - lifecycle_state
@@ -400,8 +403,11 @@ Derived/read model only.
 ## story_events
 - id PK
 - project_id FK
+- production_node_id nullable FK production_nodes
+- narrative_context_id nullable FK narrative_contexts
 - scene_id nullable
-- story_order_key
+- chronology_key
+- presentation_order_key nullable
 - event_type
 - subject_entity_type
 - subject_entity_id
@@ -414,11 +420,12 @@ Derived/read model only.
 ## causality_facts
 - id PK
 - project_id FK
+- narrative_context_id nullable FK narrative_contexts
 - fact_type
 - subject_entity_type
 - subject_entity_id
-- valid_from_story_key
-- valid_to_story_key nullable
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - value_json
 - source_event_id nullable
 - authority_level
@@ -537,8 +544,9 @@ PK(visual_identity_revision_id, asset_revision_id, reference_role)
 ## character_state_intervals
 - id PK
 - character_id FK
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - appearance_modifier_json nullable
 - emotion_state_json nullable
 - injury_state_json nullable
@@ -559,8 +567,9 @@ Revision includes components, materials, palette, fit and canonical references.
 - id PK
 - costume_id FK
 - character_id nullable FK
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - dirt_state
 - wetness_state
 - damage_state_json
@@ -574,15 +583,17 @@ Revision includes visual identity, dimensions, material and physical properties.
 - prop_id FK
 - holder_entity_type
 - holder_entity_id
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - state_revision_id nullable
 
 ## prop_state_intervals
 - id PK
 - prop_id FK
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - condition
 - modification_json
 - location_entity_id nullable
@@ -593,8 +604,9 @@ Revision includes topology/geography, scale, entrances/exits, landmarks and base
 
 ## environment_state_intervals
 - environment_id FK
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - time_of_day
 - weather
 - lighting_state_json
@@ -631,7 +643,10 @@ Revision includes:
 Immutable materialized state used by generation/QC.
 - id PK
 - shot_revision_id FK
-- story_key
+- narrative_context_id nullable FK narrative_contexts
+- chronology_key
+- context_ancestry_hash nullable
+- canon_baseline_manifest_id nullable FK canon_baseline_manifests
 - snapshot_hash
 - project_media_profile_revision_id FK
 - style_binding_manifest_json
@@ -711,11 +726,13 @@ Legal/creative logical asset.
 ## storage_objects
 Content identity only; location is separate.
 - id PK
-- sha256 UNIQUE
+- hash_algorithm
+- content_hash
 - byte_size
 - storage_class
 - verified_at_utc_us
 - created_at_utc_us
+UNIQUE(hash_algorithm, content_hash)
 
 ## storage_object_locations
 A content object may exist on multiple managed roots/mirrors.
@@ -800,7 +817,8 @@ PK(parent_asset_revision_id, child_asset_revision_id, relationship_type)
 - byte_size nullable
 - source_path_or_uri
 - ingest_state
-- hash_sha256 nullable
+- hash_algorithm nullable
+- content_hash nullable
 - decode_status
 - security_status
 - resulting_asset_id nullable
@@ -2101,7 +2119,7 @@ Rules:
 - losing candidates remain inspectable unless retention policy explicitly archives/purges their rebuildable artifacts.
 
 
-# 37. Storage root capability constraints
+# 38. Storage root capability constraints
 
 Extend `storage_roots` with capability metadata:
 - path_kind: LOCAL_FIXED | LOCAL_REMOVABLE | NETWORK_UNC | SYNCED_FOLDER | OTHER
@@ -2136,7 +2154,7 @@ For handoff/export, record:
 
 This keeps human-readable naming reversible/auditable across Windows path restrictions.
 
-# 38. Web automation permission
+# 39. Web automation permission
 
 Extend connection/provider policy with:
 - automation_permission: ALLOWED | ASSISTED_ONLY | MANUAL_ONLY | UNKNOWN | BLOCKED
@@ -2147,7 +2165,7 @@ Extend connection/provider policy with:
 An UNKNOWN permission cannot be interpreted as ALLOWED.
 
 
-# 39. Slice-driven migration rule
+# 40. Slice-driven migration rule
 
 This document is a target domain catalog, not an instruction to create every table in the first migration.
 
@@ -2159,3 +2177,2311 @@ Implementation rule:
 - foundational naming/identity/revision conventions must remain compatible with later additions.
 
 This avoids big-bang schema work becoming the first delivery bottleneck.
+
+
+# Extreme hardening extension
+
+For adversarially discovered schema additions (recovery epochs, Core fencing, egress manifests, resource reservations, callback authenticity, SBOM, integrity auditing, bulk snapshots, signing/package retention and release stream manifests), use `docs/design/EXTREME_HARDENING_CONTRACTS.md` as the single detailed implementation owner.
+
+
+
+# 64. Installation external side-effect ledger
+
+This ledger is outside project rollback scope.
+
+## installation_side_effect_ledger
+- id PK
+- installation_id
+- dispatch_fence_id UNIQUE
+- recovery_epoch_id nullable
+- command_id nullable
+- job_attempt_id nullable
+- connection_id nullable
+- provider_account_id nullable
+- provider_tenant_id nullable
+- provider_workspace_id nullable
+- idempotency_key nullable
+- intent_digest
+- side_effect_class: GENERATION | UPLOAD | DELETE | PUBLICATION | PURCHASE | OTHER
+- dispatch_state: PLANNED | DISPATCHING | ACCEPTED | UNKNOWN | RECONCILED | COMPENSATED | FAILED
+- provider_external_id nullable
+- estimated_exposure_minor_units nullable
+- actual_exposure_minor_units nullable
+- created_at_utc_us
+- updated_at_utc_us
+
+This store is not replaced by restoring a project backup.
+
+## installation_identity
+- installation_id PK
+- created_at_utc_us
+- trust_profile_version
+- local_security_profile_id nullable
+- side_effect_ledger_generation
+
+# 65. Backup authenticity/security metadata
+
+Extend `backups`:
+- manifest_auth_method: NONE | HMAC | SIGNATURE
+- manifest_signing_key_id nullable
+- encryption_state: UNKNOWN | UNENCRYPTED | ENCRYPTED_VOLUME | ENCRYPTED_ARCHIVE
+- security_profile_snapshot_json
+- failure_domain_verified BOOL nullable
+
+# 66. Cache validity dependencies
+
+## cache_entries
+- id PK
+- cache_namespace
+- semantic_key_hash
+- artifact_revision_id nullable
+- storage_object_id nullable
+- created_at_utc_us
+- validity_state: VALID | STALE | RIGHTS_BLOCKED | POLICY_BLOCKED | MISSING_DEPENDENCY
+- validity_manifest_hash
+
+## cache_validity_dependencies
+- cache_entry_id FK
+- dependency_type: ASSET_REVISION | RIGHTS_RECORD | LICENSE_SNAPSHOT | POLICY_REVISION | PRIVACY_POLICY | MODEL | CONNECTOR | WORKFLOW | MEDIA_PROFILE
+- dependency_id
+- dependency_revision_or_hash nullable
+PK(cache_entry_id, dependency_type, dependency_id)
+
+# 67. Callback scope binding
+
+Extend `external_inbox_events`:
+- expected_connection_id nullable
+- expected_account_id nullable
+- expected_tenant_id nullable
+- expected_workspace_id nullable
+- correlation_state: MATCHED | UNKNOWN | MISMATCH
+- recovery_fence_state nullable
+
+Only authenticated and scope-matched callbacks may become canonical state transitions.
+
+# 68. Staging file identity
+
+Extend `staging_objects`:
+- os_file_identity_json nullable
+- reparse_state
+- link_count_at_verify nullable
+- finalization_identity_json nullable
+
+Registration verifies identity/content again immediately before CAS finalization.
+
+
+
+
+# 69. Production hierarchy and canon baseline
+
+## production_nodes
+- id PK FK entity_registry
+- project_id FK
+- parent_production_node_id nullable FK production_nodes
+- node_type: SERIES | SEASON | EPISODE | FEATURE | SHORT | AD | MUSIC_VIDEO | DOCUMENTARY | TRAILER | TEST
+- stable_code
+- title
+- lifecycle_state
+- row_version
+
+## production_node_revisions
+- id PK FK revision_registry
+- production_node_id FK
+- intent_json
+- default_media_profile_revision_id nullable
+- canon_baseline_manifest_id nullable
+- release_policy_revision_id nullable
+
+## canon_baseline_manifests
+Immutable set of pinned canon revisions for a production node.
+- id PK
+- project_id FK
+- manifest_hash UNIQUE
+- parent_manifest_id nullable
+- effective_scope_json
+- created_at_utc_us
+- created_by_actor_id
+
+## canon_baseline_members
+- manifest_id FK
+- entity_id FK entity_registry
+- revision_id FK revision_registry
+- canon_role
+PK(manifest_id, entity_id, revision_id)
+
+Sequences/scenes/shots gain `production_node_id` appropriate to their owning production scope.
+Released manifests retain the exact historical canon baseline.
+
+# 70. Narrative contexts and nonlinear continuity
+
+## narrative_contexts
+- id PK FK entity_registry
+- project_id FK
+- production_node_id FK
+- parent_context_id nullable FK narrative_contexts
+- context_type: MAINLINE | FLASHBACK | FLASHFORWARD | DREAM | HYPOTHETICAL | ALTERNATE | LOOP_ITERATION | RETELLING | CUSTOM
+- fork_chronology_key nullable
+- display_name
+- lifecycle_state
+- row_version
+
+## narrative_context_revisions
+- id PK FK revision_registry
+- narrative_context_id FK
+- context_rules_json
+- causal_baseline_hash
+- notes
+
+## scene_occurrences
+A scene may be presented in one order while belonging to another diegetic chronology/context.
+- id PK FK entity_registry
+- scene_id FK
+- narrative_context_id FK
+- chronology_key INTEGER
+- presentation_order_key INTEGER
+- source_story_event_id nullable
+- canonical_status
+
+## narrative_context_edges
+- from_context_id FK
+- to_context_id FK
+- edge_type: FORK | MERGE_REFERENCE | RETELLING_OF | DREAM_OF | HYPOTHETICAL_FROM | LOOP_NEXT | CUSTOM
+- chronology_key nullable
+- evidence_json nullable
+PK(from_context_id,to_context_id,edge_type)
+
+State interval tables are extended with `narrative_context_id`.
+Their order keys are interpreted inside that context, never as one global film-wide timeline.
+
+Extend:
+- character_state_intervals
+- costume_state_intervals
+- prop_possession_intervals
+- prop_state_intervals
+- environment_state_intervals
+- style bindings when story-scoped
+- causality facts
+
+## shot_continuity_snapshots additions
+- narrative_context_id FK
+- chronology_key
+- context_ancestry_hash
+- canon_baseline_manifest_id FK
+
+Legacy `story_key` fields are migration compatibility aliases until context-scoped chronology is implemented.
+
+# 71. People, performers and casting
+
+## people
+Real-person identity, separate from fictional character.
+- id PK FK entity_registry
+- studio_id FK
+- display_name
+- privacy_class
+- rights_identity_id nullable FK rights_identities
+- lifecycle_state
+- row_version
+
+## performer_profiles
+- id PK FK entity_registry
+- person_id FK people
+- profile_type: ON_CAMERA | VOICE | MOCAP | STUNT | BODY_DOUBLE | FACE_SOURCE | HAND_MODEL | OTHER
+- notes
+- lifecycle_state
+
+## casting_bindings
+- id PK FK entity_registry
+- project_id FK
+- production_node_id FK
+- character_id FK
+- performer_profile_id FK
+- role_type: PRINCIPAL_ON_CAMERA | VOICE | DUB_VOICE | STUNT | BODY_DOUBLE | MOCAP | FACE_SOURCE | REFERENCE_ONLY | OTHER
+- narrative_context_id nullable
+- valid_from_chronology_key nullable
+- valid_to_chronology_key nullable
+- scene_id nullable
+- shot_id nullable
+- rights_record_id nullable
+- state: PROPOSED | APPROVED | REVOKED | SUPERSEDED
+- row_version
+
+One Character may have multiple bindings by scope/language/age/shot.
+One Performer may bind multiple Characters.
+
+# 72. Production representations
+
+## production_representations
+Represents how a narrative entity is realized for production.
+- id PK FK entity_registry
+- project_id FK
+- narrative_entity_type: CHARACTER | PROP | ENVIRONMENT | CREATURE | OTHER
+- narrative_entity_id FK entity_registry
+- representation_type: LIVE_PERFORMER | VOICE_PERFORMER | PHYSICAL_PROP | STUNT_PROP | REAL_LOCATION | SET | DIGITAL_DOUBLE | CG_ASSET | AI_IDENTITY | VIRTUAL_ENVIRONMENT | OTHER
+- lifecycle_state
+- rights_identity_id nullable
+- row_version
+
+## production_representation_revisions
+- id PK FK revision_registry
+- production_representation_id FK
+- identity_manifest_json
+- technical_requirements_json
+- source_asset_manifest_json
+- performer_binding_manifest_json nullable
+
+## representation_bindings
+- id PK
+- representation_revision_id FK revision_registry
+- production_node_id FK
+- narrative_context_id nullable
+- scene_id nullable
+- shot_id nullable
+- priority
+- required BOOL
+- effective_from_chronology_key nullable
+- effective_to_chronology_key nullable
+
+ShotContinuitySnapshot pins representation revisions in addition to narrative state.
+
+# 73. Live-action capture
+
+## production_units
+- id PK FK entity_registry
+- production_node_id FK
+- name
+- unit_type: MAIN | SECOND | VFX | SPLINTER | OTHER
+- lifecycle_state
+
+## shoot_days
+- id PK FK entity_registry
+- production_unit_id FK
+- shooting_date_local
+- timezone
+- planned_call_time nullable
+- lifecycle_state
+- row_version
+
+## slates
+- id PK FK entity_registry
+- shoot_day_id FK
+- scene_id nullable
+- shot_id nullable
+- slate_code
+- camera_slate_text nullable
+- script_supervisor_slate_text nullable
+- metadata_conflict_state: NONE | CONFLICT | RESOLVED
+- row_version
+
+## production_takes
+- id PK FK entity_registry
+- slate_id FK
+- take_number nullable
+- take_label
+- lifecycle_state
+- director_preference: NONE | CIRCLE | HOLD | REJECT
+- continuity_notes
+- row_version
+
+## capture_rolls
+- id PK FK entity_registry
+- shoot_day_id FK
+- roll_type: CAMERA | AUDIO | OTHER
+- device_identity
+- reel_name
+- roll_label
+- start_timecode_json nullable
+- manifest_asset_revision_id nullable
+- lifecycle_state
+
+## capture_clips
+- id PK FK entity_registry
+- production_take_id nullable FK
+- capture_roll_id FK
+- asset_revision_id FK
+- camera_or_recorder_id
+- source_timecode_json
+- clip_role
+- ingest_verification_state
+- metadata_conflict_json nullable
+
+## sync_groups
+- id PK FK entity_registry
+- production_take_id nullable
+- name
+- state: PROPOSED | SYNCED | VERIFIED | CONFLICT | REJECTED
+- row_version
+
+## sync_group_members
+- sync_group_id FK
+- capture_clip_id FK
+- offset_num
+- offset_den
+- drift_ppm nullable
+- time_stretch_ratio_num nullable
+- time_stretch_ratio_den nullable
+- sync_method: TIMECODE | WAVEFORM | CLAP | MANUAL | LTC | OTHER
+- evidence_json
+PK(sync_group_id,capture_clip_id)
+
+## ingest_card_manifests
+- id PK
+- shoot_day_id nullable
+- source_volume_identity
+- camera_or_recorder_id nullable
+- file_count
+- byte_count
+- manifest_hash
+- verified_copy_count
+- original_preserved BOOL
+- created_at_utc_us
+
+## ingest_card_files
+- manifest_id FK
+- relative_source_path
+- content_hash_algorithm
+- content_hash
+- byte_size
+- resulting_asset_revision_id nullable
+- verification_state
+PK(manifest_id,relative_source_path)
+
+# 74. Documentary/factual evidence
+
+## source_records
+- id PK FK entity_registry
+- project_id FK
+- production_node_id FK
+- source_type: INTERVIEW | ARCHIVAL_VIDEO | ARCHIVAL_AUDIO | DOCUMENT | WEB | PHOTO | FIELD_RECORDING | DATASET | OTHER
+- title
+- source_date nullable
+- origin_description
+- primary_asset_revision_id nullable
+- rights_identity_id nullable
+- lifecycle_state
+- row_version
+
+## source_snapshots
+- id PK FK revision_registry
+- source_record_id FK
+- captured_content_hash nullable
+- source_uri nullable
+- captured_at_utc_us
+- context_json
+- archival_policy_json
+
+## documentary_participants
+- id PK FK entity_registry
+- source_record_id FK
+- person_id FK people
+- participant_role
+- consent_rights_record_id nullable
+- state
+
+## fact_claims
+- id PK FK entity_registry
+- project_id FK
+- production_node_id FK
+- claim_text
+- claim_type
+- state: DRAFT | UNVERIFIED | CORROBORATED | CONFLICT | DISPUTED | APPROVED_FOR_USE | REJECTED | STALE
+- row_version
+
+## fact_claim_evidence
+- id PK
+- fact_claim_id FK
+- source_record_id FK
+- source_snapshot_revision_id nullable
+- asset_revision_id nullable
+- start_time_json nullable
+- end_time_json nullable
+- quote_text nullable
+- evidence_role: SUPPORTS | CONTRADICTS | CONTEXT | PRIMARY_SOURCE | SECONDARY_SOURCE
+- confidence nullable
+- notes
+
+## quote_usages
+- id PK FK entity_registry
+- fact_claim_evidence_id FK
+- timeline_revision_id nullable
+- clip_instance_id nullable
+- transcript_text
+- edited_text nullable
+- context_before_after_json
+- meaning_review_state: UNREVIEWED | CONSISTENT | POTENTIALLY_MISLEADING | MISLEADING | APPROVED_EXCEPTION
+
+Documentary release policy can require factual-review gates independently from artistic story approval.
+
+
+
+
+# 75. Shared canon spaces
+
+## canon_spaces
+- id PK FK entity_registry
+- studio_id FK
+- parent_canon_space_id nullable FK canon_spaces
+- space_type: PROJECT | SERIES | FRANCHISE | STUDIO_LIBRARY
+- stable_code
+- title
+- lifecycle_state
+- row_version
+
+## canon_space_revisions
+- id PK FK revision_registry
+- canon_space_id FK
+- governance_policy_revision_id nullable
+- description
+- inheritance_rules_json
+
+## canon_space_mounts
+- id PK
+- project_id FK
+- canon_space_id FK
+- mount_mode: PINNED_READ | TRACK_APPROVED | BRANCH_FOR_PROJECT | AUTHOR_SHARED
+- pinned_baseline_manifest_id nullable FK canon_baseline_manifests
+- local_branch_space_id nullable FK canon_spaces
+- authority_policy_revision_id nullable
+- state: ACTIVE | STALE | ACCESS_REVOKED | ARCHIVED
+- row_version
+
+## canon_promotion_requests
+- id PK FK entity_registry
+- source_revision_id FK revision_registry
+- target_canon_space_id FK
+- proposed_by_actor_id FK
+- impact_snapshot_hash
+- state: PROPOSED | UNDER_REVIEW | APPROVED | REJECTED | STALE
+- approved_revision_id nullable FK revision_registry
+
+Shareable canonical entities gain:
+- canon_space_id nullable FK canon_spaces
+- project_id nullable FK projects
+
+At least one ownership scope must be present.
+A project-local branch is a separate CanonSpace, not an invisible mutable copy.
+
+# 76. Person credits and casting overlap
+
+## person_credit_identities
+- id PK FK entity_registry
+- person_id FK people
+- credit_name
+- locale nullable
+- valid_from_utc_us nullable
+- valid_to_utc_us nullable
+- privacy_class
+- rights_record_id nullable
+- lifecycle_state
+
+## casting_overlap_policies
+- id PK
+- role_type
+- exclusivity_mode: EXCLUSIVE | ALLOW_MULTI | ALLOW_MULTI_WITH_REVIEW | CUSTOM
+- scope_dimensions_json
+- policy_revision
+
+## casting_conflicts
+- id PK
+- character_id FK
+- production_node_id FK
+- narrative_context_id nullable
+- scene_id nullable
+- shot_id nullable
+- role_type
+- conflicting_binding_ids_json
+- state: OPEN | RESOLVED | WAIVED
+- resolution_json nullable
+
+Release credit items pin `person_credit_identity_id` or equivalent immutable credit snapshot.
+
+# 77. Documentary source lineage and corrections
+
+## source_lineage_groups
+- id PK FK entity_registry
+- project_id FK
+- group_type: ORIGIN_CLUSTER | SYNDICATION_CLUSTER | COMMON_INFORMANT | DATASET_LINEAGE | CUSTOM
+- description
+- row_version
+
+## source_lineage_edges
+- id PK
+- from_source_record_id FK
+- to_source_record_id FK
+- relation_type: COPIED_FROM | SYNDICATED_FROM | QUOTES | DERIVED_FROM | COMMON_ORIGIN | CORRECTS | RETRACTS | SUPERSEDES | CUSTOM
+- evidence_json
+- observed_at_utc_us nullable
+
+## source_independence_memberships
+- source_record_id FK
+- lineage_group_id FK
+- independence_weight nullable
+- notes
+PK(source_record_id,lineage_group_id)
+
+Extend `fact_claim_evidence`:
+- independence_group_id nullable FK source_lineage_groups
+- observed_at_utc_us nullable
+- effective_from_utc_us nullable
+- effective_to_utc_us nullable
+- correction_state: CURRENT | CORRECTED | RETRACTED | SUPERSEDED
+
+## fact_claim_temporal_scopes
+- id PK
+- fact_claim_id FK
+- effective_from_utc_us nullable
+- effective_to_utc_us nullable
+- geography_scope_json nullable
+- context_scope_json nullable
+- verification_state
+
+# 78. Shared-canon dependency retention
+
+## canon_space_dependency_refs
+- id PK
+- canon_space_id FK
+- revision_id FK revision_registry
+- dependent_type: PROJECT_BASELINE | PRODUCTION_BASELINE | RELEASE | RIGHTS | AUDIT | ARCHIVE
+- dependent_id
+- retention_required BOOL
+- created_at_utc_us
+
+Purge/archival cannot remove the last recoverable revision while a required dependency ref exists.
+
+
+
+# SCHEMA-NUMERIC-01. Canonical numeric domain constraints
+
+Schema/migration layer must enforce basic impossible-state constraints where SQLite can express them, with deeper validation in Core.
+
+Examples:
+- rational denominators > 0;
+- dimensions/sample/frame/channel counts nonnegative and policy-bounded in Core;
+- interval end >= start where same-unit columns permit CHECK;
+- money currency not null when amount is present;
+- canonical money values are integer minor units/fixed scale, not REAL;
+- canonical JSON cannot contain NaN/Infinity.
+
+## currency_amounts
+Reusable conceptual value object:
+- amount_minor_units INTEGER with checked Core arithmetic
+- currency_code TEXT (ISO 4217 or explicit provider-unit namespace)
+
+## fx_rate_snapshots
+- id PK
+- source_currency
+- target_currency
+- rate_decimal_text
+- rate_scale
+- source
+- captured_at_utc_us
+- effective_at_utc_us nullable
+- rounding_policy
+
+## provider_credit_units
+- id PK
+- connection_id FK
+- unit_code
+- unit_schema_version
+- description
+- active_from_utc_us
+- active_to_utc_us nullable
+
+Usage records referencing credits also pin provider_credit_unit_id when unit semantics are versioned.
+
+# SCHEMA-TIME-01. Timecode/calendar semantics
+
+Project/media timing stores separate fields for:
+- frame_rate rational;
+- media time_base rational;
+- SMPTE timecode rate/drop-frame;
+- source start frame/timecode.
+
+Legal/calendar records requiring date-only semantics store:
+- temporal_kind: INSTANT | DATE_ONLY
+- source_timezone_id nullable
+- boundary_policy
+- resolved UTC instant(s) when enforcement is evaluated.
+
+# SCHEMA-ORDER-01. Order key maintenance
+
+Editable ordered entities may use a stable order-key scheme whose representation is explicitly non-semantic.
+
+If rebalance is needed:
+- record maintenance event;
+- preserve entity IDs/revisions;
+- update optimistic versions;
+- reject stale concurrent reorder operations.
+
+
+
+# SCHEMA-STORAGE-01. Storage scrub and durability state
+
+## storage_scrub_policies
+- id PK
+- storage_class
+- interval_ms nullable
+- required_redundancy_count
+- readback_verify BOOL
+- enabled
+
+## storage_scrub_runs
+- id PK
+- policy_id FK
+- started_at_utc_us
+- finished_at_utc_us nullable
+- checked_count
+- corrupt_count
+- repaired_count
+- unresolved_count
+- state
+
+## storage_scrub_findings
+- id PK
+- scrub_run_id FK
+- storage_object_id FK
+- observed_hash_algorithm
+- observed_hash
+- result: VERIFIED | CORRUPT | REPAIRED | UNRECOVERABLE
+- repair_source_storage_object_id nullable
+- evidence_json
+
+## gc_object_operations
+- id PK
+- gc_run_id FK
+- storage_object_id FK
+- safety_generation
+- state: DELETE_INTENT | BYTES_DELETING | BYTES_ABSENT | PURGE_COMMITTED | RECONCILIATION_REQUIRED
+- intent_at_utc_us
+- bytes_deleted_at_utc_us nullable
+- purge_committed_at_utc_us nullable
+
+## environment_fingerprints
+- id PK
+- host_id
+- os_build
+- gpu_profile_json nullable
+- driver_profile_json nullable
+- runtime_profile_json
+- codec_profile_json nullable
+- fingerprint_hash
+- observed_at_utc_us
+
+## certification_environment_bindings
+- certification_record_id FK
+- environment_fingerprint_id FK
+- state: CURRENT | RECHECK_REQUIRED | INVALIDATED
+- last_checked_at_utc_us
+PK(certification_record_id, environment_fingerprint_id)
+
+## release_master_activations
+- id PK
+- release_manifest_id FK
+- master_asset_revision_id FK
+- final_storage_object_id FK
+- expected_digest
+- durability_class
+- state: MASTER_WRITING | MASTER_VERIFIED | MASTER_DURABLE | RELEASE_ACTIVATED | RECONCILIATION_REQUIRED
+- created_at_utc_us
+- activated_at_utc_us nullable
+
+
+
+# SCHEMA-DEPLOYMENT-01. Library lineage and deployment identity
+
+## library_lineages
+- id PK
+- created_at_utc_us
+- origin_type: NEW | RESTORED | IMPORTED | FORKED
+- parent_lineage_id nullable
+- state: ACTIVE | ARCHIVED | COMPROMISED
+- row_version
+
+## deployment_instances
+- id PK
+- library_lineage_id FK
+- generation_no
+- installation_identity
+- host_identity_hash nullable
+- activation_state: UNBOUND | VERIFYING | ACTIVE | READ_ONLY_RECONCILIATION | RETIRED | FORKED | COMPROMISED
+- activation_secret_ref nullable
+- recovery_epoch_id nullable
+- environment_fingerprint_id nullable
+- created_at_utc_us
+- activated_at_utc_us nullable
+- retired_at_utc_us nullable
+UNIQUE(library_lineage_id, generation_no)
+
+## deployment_transitions
+- id PK
+- library_lineage_id FK
+- from_deployment_instance_id nullable
+- to_deployment_instance_id FK
+- transition_type: MOVE | RESTORE | FORK | RECOVER_ACTIVATION
+- command_id FK
+- evidence_json
+- created_at_utc_us
+
+External-dispatch tables bind deployment_instance_id/deployment_generation as applicable.
+
+## deployment_activation_tokens
+- id PK
+- deployment_instance_id FK
+- token_version
+- secure_secret_ref
+- state: ACTIVE | ROTATING | REVOKED
+- issued_at_utc_us
+- revoked_at_utc_us nullable
+
+# SCHEMA-BACKUP-01. Backup generation namespace
+
+Extend `backups`:
+- library_lineage_id FK
+- deployment_instance_id nullable FK
+- backup_generation_id
+- recovery_epoch_id nullable
+- predecessor_backup_id nullable
+UNIQUE(library_lineage_id, backup_generation_id)
+
+# SCHEMA-FORK-01. Fork reconciliation records
+
+## fork_reconciliations
+- id PK
+- source_library_lineage_id
+- source_deployment_instance_id nullable
+- destination_library_lineage_id
+- reconciliation_type: PROJECT_IMPORT | ASSET_IMPORT | CANON_COMPARE | TIMELINE_COMPARE
+- state
+- conflict_manifest_hash nullable
+- created_at_utc_us
+- completed_at_utc_us nullable
+
+No direct database-merge record exists because direct DB merge is unsupported.
+
+
+
+# 64. Privacy purge coordination
+
+## purge_requests
+- id PK
+- project_id nullable
+- subject_type
+- subject_id
+- requested_by_actor_id
+- policy_scope
+- state
+- requested_at_utc_us
+- completed_at_utc_us nullable
+- retained_copy_summary_json nullable
+
+## purge_targets
+- purge_request_id FK
+- target_kind: CANONICAL | OBJECT | PROXY | THUMBNAIL | WAVEFORM | SEARCH_INDEX | VECTOR_INDEX | CACHE | TEMP | LEARNING | OBSERVABILITY | BACKUP | ARCHIVE | EXTERNAL
+- target_id
+- required_action
+- state
+- retention_or_hold_reason nullable
+- evidence_json nullable
+PK(purge_request_id,target_kind,target_id)
+
+## forward_revocation_journal
+- seq INTEGER PRIMARY KEY AUTOINCREMENT
+- event_type: PRIVACY_PURGE | RIGHTS_REVOKE | CREDENTIAL_REVOKE | SIGNING_KEY_REVOKE | MIN_VERSION_FLOOR | TRUST_POLICY_FLOOR
+- subject_type
+- subject_id
+- effective_at_utc_us
+- payload_hash
+- payload_json
+- checkpoint_hash nullable
+
+# 65. Semantic index scope
+
+## semantic_index_entries
+- id PK
+- index_family
+- studio_id
+- project_id nullable
+- shared_scope_id nullable
+- source_entity_id FK
+- source_revision_id nullable FK
+- model_id
+- model_version
+- privacy_class
+- rights_class
+- embedding_object_id
+- generation_epoch
+- state: ACTIVE | STALE | PURGE_PENDING | PURGED
+
+Queries must bind one authorized scope descriptor.
+
+# 66. Inference session isolation
+
+## inference_sessions
+- id PK
+- worker_id FK
+- project_id nullable
+- privacy_scope_hash
+- isolation_class: STATELESS | RESETTABLE | PROCESS_ISOLATED | PROVIDER_MANAGED_UNKNOWN
+- cache_namespace
+- state: ACTIVE | RESETTING | RESET | TAINTED | CLOSED
+- started_at_utc_us
+- last_reset_at_utc_us nullable
+
+# 67. Learning derivative lineage
+
+## learning_derivatives
+- id PK FK entity_registry
+- derivative_type: DATASET | ADAPTER | FINETUNE | CHECKPOINT | ROUTER_PROFILE
+- parent_model_id nullable
+- rights_state
+- privacy_state
+- training_manifest_hash
+- state: ACTIVE | QUARANTINED | RETRAIN_REQUIRED | BLOCKED | RETIRED
+
+## learning_derivative_sources
+- derivative_id FK
+- source_entity_id FK
+- source_revision_id nullable FK
+- source_rights_record_id nullable
+PK(derivative_id,source_entity_id,source_revision_id)
+
+# 68. Observability privacy records
+
+## observability_policies
+- id PK
+- policy_version
+- allowed_data_classes_json
+- retention_json
+- lock_screen_notification_mode
+- crash_reporting_mode
+- telemetry_mode
+
+## observability_records
+- id PK
+- record_type
+- project_id nullable
+- privacy_class
+- retention_until_utc_us nullable
+- redaction_state
+- payload_ref
+- created_at_utc_us
+
+# 69. External exposure ledger
+
+## external_exposures
+- id PK
+- project_id FK
+- command_id nullable
+- job_attempt_id nullable
+- provider_connection_id nullable
+- provider_account_id nullable
+- data_class
+- input_manifest_hash
+- policy_generation
+- provider_terms_snapshot_id nullable
+- exposed_at_utc_us
+- known_retention_state
+- takedown_state nullable
+- evidence_json
+
+# 70. Privacy/consent generations
+
+## privacy_generations
+- id PK
+- studio_id
+- project_id nullable
+- generation_no
+- privacy_policy_revision_id
+- telemetry_allowed
+- cloud_allowed
+- created_at_utc_us
+UNIQUE(studio_id,project_id,generation_no)
+
+Queued outbound action stores expected privacy_generation_id.
+
+# 71. Core/library writer ownership
+
+## library_ownership
+- library_id PK
+- deployment_id
+- os_user_identity
+- core_epoch
+- process_instance_id
+- acquired_at_utc_us
+- last_heartbeat_at_utc_us
+- state: OWNED | DRAINING | STALE | RECOVERING | RELEASED
+
+Only the process holding the OS-level exclusive primitive may move state into OWNED.
+
+# 72. Archive seals
+
+## archive_seals
+- archive_id PK
+- archive_manifest_hash
+- object_set_hash
+- schema/profile_version
+- created_at_utc_us
+- seal_state: SEALED | VERIFICATION_FAILED | SUPERSEDED
+- verification_evidence_json
+
+Derived previews/indexes for archive use separate cache/project space and do not modify the sealed package.
+
+# 73. Temp/cache scope
+
+## scoped_temp_roots
+- id PK
+- project_id nullable
+- job_attempt_id nullable
+- owner_worker_id nullable
+- privacy_scope_hash
+- path
+- state: ACTIVE | ORPHANED | CLEANUP_PENDING | QUARANTINED | CLEANED
+- created_at_utc_us
+
+
+
+# 74. Collaboration branches and conflicts
+
+## collaboration_branches
+- id PK
+- project_id FK
+- actor_id FK
+- device_id
+- app_session_id
+- base_revision_id nullable FK revision_registry
+- base_row_version nullable
+- operation_schema_version
+- scope_json
+- state: ACTIVE | OFFLINE | REBASE_REQUIRED | CONFLICT | MERGED | ABANDONED
+- created_at_utc_us
+- last_sync_at_utc_us nullable
+
+## collaboration_operations
+- id PK
+- branch_id FK
+- local_seq
+- operation_type
+- target_entity_id nullable
+- expected_revision_id nullable
+- payload_json
+- created_client_time nullable
+- created_ordered_at_server nullable
+UNIQUE(branch_id,local_seq)
+
+## collaboration_conflicts
+- id PK FK entity_registry
+- project_id FK
+- branch_id FK
+- conflict_type
+- base_revision_id nullable
+- current_revision_id nullable
+- local_manifest_hash
+- conflicting_scope_json
+- invariant_findings_json
+- state: OPEN | RESOLVING | RESOLVED | DISMISSED
+- created_at_utc_us
+- resolved_at_utc_us nullable
+- resolved_by_actor_id nullable
+
+## collaboration_conflict_resolutions
+- id PK
+- conflict_id FK
+- resolution_type
+- command_id nullable
+- resulting_revision_id nullable
+- rationale
+- created_at_utc_us
+
+# 75. Actor/device/session authority generations
+
+## actor_authority_generations
+- actor_id FK
+- generation_no
+- membership_state
+- role_set_hash
+- effective_at_utc_us
+PK(actor_id,generation_no)
+
+Queued/offline operation stores expected authority generation for diagnostic context only; current authority is re-resolved at sync.
+
+## device_identities
+- id PK
+- actor_id FK
+- installation_id
+- device_label nullable
+- state: ACTIVE | REVOKED | LOST | RETIRED
+- last_seen_at_utc_us nullable
+
+# 76. Exclusive collaboration locks
+
+## collaboration_locks
+- id PK
+- project_id FK
+- scope_type
+- scope_id
+- lock_kind
+- actor_id FK
+- device_id FK
+- core_epoch
+- fencing_token
+- offline_valid_until_utc_us nullable
+- state: ACTIVE | EXPIRED | REVOKED | RELEASED
+
+Offline clients cannot create a new ACTIVE lock without Core authority.
+
+# 77. Collaboration transport bindings
+
+## collaboration_channels
+- id PK
+- project_id FK
+- connection_id nullable
+- transport_type
+- privacy_class
+- provider_account_id nullable
+- provider_tenant_id nullable
+- encryption_profile
+- retention_profile
+- state
+
+LOCAL_ONLY scope cannot use a cloud collaboration_channel unless policy explicitly permits/declassifies.
+
+# 78. Canonical promotion CAS records
+
+## canonical_promotions
+- id PK
+- command_id FK
+- slot_type
+- slot_id
+- expected_revision_id nullable
+- candidate_revision_id FK revision_registry
+- resulting_revision_id nullable
+- outcome: APPLIED | CONFLICT | REJECTED
+- observed_current_revision_id nullable
+- created_at_utc_us
+
+
+
+# 79. Retry/failure domains and fair-share scheduling
+
+## external_failure_domains
+- id PK
+- provider_key
+- account_scope nullable
+- workspace_scope nullable
+- model_scope nullable
+- region_scope nullable
+- rate_limit_scope_key
+- breaker_state
+- opened_at_utc_us nullable
+- cooldown_until_utc_us nullable
+- half_open_probe_budget
+- last_probe_at_utc_us nullable
+- state_version
+
+## logical_retry_budgets
+- id PK
+- logical_effect_key UNIQUE
+- command_id nullable
+- project_id nullable
+- failure_domain_id nullable
+- max_attempts
+- attempts_used
+- manual_extensions
+- next_eligible_at_utc_us nullable
+- last_failure_class nullable
+- unreconciled_exposure_minor_units nullable
+- state_version
+
+## provider_quota_ledgers
+- id PK
+- failure_domain_id FK
+- quota_kind
+- period_start_utc_us
+- period_end_utc_us
+- observed_limit nullable
+- observed_used nullable
+- reserved_amount nullable
+- confidence
+- source_observed_at_utc_us nullable
+
+## project_scheduler_shares
+- project_id PK
+- priority_class
+- weight
+- max_active_jobs nullable
+- max_provider_share nullable
+- starvation_credit
+- updated_at_utc_us
+
+## maintenance_deadlines
+- id PK
+- maintenance_type
+- earliest_start_utc_us
+- latest_safe_start_utc_us
+- resource_bundle_json
+- reserved_capacity_json nullable
+- borrowable BOOL
+- state
+
+## dead_letter_entries
+- id PK
+- logical_effect_key
+- failure_class
+- payload_ref
+- created_at_utc_us
+- retain_until_utc_us nullable
+- evidence_priority
+- archive_state
+- resolution_state
+
+
+
+# 80. Evaluator profiles and evidence
+
+## evaluator_profiles
+- id PK
+- evaluator_family
+- package_id nullable
+- model_digest
+- semantic_version
+- environment_profile_hash
+- backend
+- precision
+- calibrated_domain_json
+- calibration_profile_hash
+- rubric_profile_hash
+- trust_authority_class
+- state
+
+## evaluation_evidence
+- id PK
+- evaluation_result_id FK
+- evaluator_profile_id FK
+- subject_revision_id nullable FK revision_registry
+- representation_asset_revision_id nullable FK
+- subject_digest
+- reference_manifest_hash nullable
+- policy_revision
+- independence_class
+- coverage_profile_id nullable
+- evidence_manifest_hash
+- created_at_utc_us
+
+## qc_coverage_profiles
+- id PK
+- coverage_type: FULL_SCAN | DETERMINISTIC_SAMPLE | RANDOM_SAMPLE | EVENT_TRIGGERED | ADAPTIVE
+- parameters_json
+- seed nullable
+- intended_claims_json
+
+## qc_coverage_ranges
+- evidence_id FK
+- start_time_num
+- start_time_den
+- end_time_num
+- end_time_den
+- coverage_state
+- reason nullable
+
+# 81. Golden/benchmark integrity
+
+## benchmark_examples
+- id PK
+- benchmark_set_id
+- asset_revision_id FK
+- content_digest
+- label_manifest_hash
+- provenance_hash
+- rights_state
+- privacy_state
+- domain_tags_json
+- integrity_state
+- reviewer_evidence_hash nullable
+
+## benchmark_sets
+- id PK
+- set_name
+- set_role: DEVELOPMENT | HIDDEN_HOLDOUT | CROSS_DOMAIN | SHADOW
+- version
+- manifest_hash
+- state
+
+# 82. Preference model scopes
+
+## preference_models
+- id PK FK entity_registry
+- scope_type: ACTOR | TEAM | PROJECT | STUDIO
+- scope_id
+- training_manifest_hash
+- promotion_state
+- model_digest
+- state
+
+# 83. Evaluation cache entries
+
+## evaluation_cache_entries
+- id PK
+- key_hash UNIQUE
+- subject_digest
+- evaluator_profile_id FK
+- policy_revision
+- reference_manifest_hash nullable
+- coverage_profile_hash
+- result_ref
+- created_at_utc_us
+- invalidated_at_utc_us nullable
+- invalidation_reason nullable
+
+
+
+# 84. Provenance/authenticity evidence
+
+## provenance_claims
+- id PK
+- subject_asset_revision_id FK
+- claim_type
+- claim_value_json
+- trust_class
+- source_kind
+- source_ref nullable
+- claim_schema_version
+- state: ACTIVE | INVALID | CONFLICT | SUPERSEDED
+- created_at_utc_us
+
+## provenance_signatures
+- id PK
+- provenance_claim_id FK
+- key_id nullable
+- signer_identity
+- signature_type
+- signature_hash
+- subject_digest
+- timestamp_evidence_json nullable
+- signature_validity
+- trust_at_evidence_time
+- current_trust_state
+- verified_at_utc_us
+
+## provenance_packages
+- id PK
+- subject_asset_revision_id FK
+- subject_digest
+- package_format
+- package_schema_version
+- storage_object_id FK
+- privacy_profile_id nullable
+- verification_state
+- created_at_utc_us
+
+## provenance_transform_edges
+- id PK
+- from_asset_revision_id FK
+- to_asset_revision_id FK
+- transform_type
+- transform_profile_hash nullable
+- essence_relation: IDENTICAL_BYTES | LOSSLESS_REWRAP | LOSSY_DERIVATIVE | FLATTENED | UNKNOWN
+- evidence_json
+
+## publication_artifacts
+- id PK
+- publication_id FK
+- artifact_role: RELEASE_MASTER | UPLOADED_BYTES | PLATFORM_DERIVATIVE
+- asset_revision_id nullable
+- content_digest nullable
+- external_identity nullable
+- verification_state
+- verified_at_utc_us nullable
+
+## provenance_conflicts
+- id PK
+- subject_asset_revision_id FK
+- evidence_set_a_json
+- evidence_set_b_json
+- conflict_type
+- state: OPEN | RESOLVED | WAIVED
+- resolved_by_actor_id nullable
+- resolution_json nullable
+
+
+
+# 84. Learning feedback provenance and evaluation context
+
+## learning_feedback_events
+- id PK
+- subject_revision_id FK revision_registry
+- project_id nullable
+- tenant_scope_id nullable
+- source_type: HUMAN_REVIEW | AI_EVALUATOR | PROVIDER_SIGNAL | USER_OVERRIDE | SYSTEM_METRIC | OTHER
+- source_actor_id nullable FK actors
+- source_evaluator_id nullable
+- source_provider_id nullable
+- source_lineage_hash
+- review_session_id nullable FK review_sessions
+- presentation_context_id nullable
+- outcome_type: APPROVED_SUCCESS | REJECTED | USER_OVERRIDE | ABANDONED | TIMEOUT | CANCELLED | POLICY_BLOCKED | EXTERNAL_FAILURE | UNKNOWN
+- confidence nullable
+- authority_weight_hint nullable
+- training_eligibility: UNTRUSTED_FEEDBACK | CURATION_REQUIRED | ELIGIBLE | INELIGIBLE | TAINTED
+- privacy_scope: PROJECT_LOCAL | STUDIO_LOCAL | TENANT_LOCAL | GLOBAL_ELIGIBLE
+- created_at_utc_us
+
+## feedback_dedup_groups
+- id PK
+- grouping_type: EXACT_EVENT | SAME_ASSET_LINEAGE | SAME_PERFORMANCE | NEAR_DUPLICATE | SAME_SOURCE_CHAIN | CUSTOM
+- group_manifest_hash
+- created_at_utc_us
+
+## feedback_dedup_members
+- group_id FK
+- feedback_event_id FK
+PK(group_id, feedback_event_id)
+
+## evaluation_presentation_contexts
+- id PK
+- blinded BOOL
+- candidate_order_json
+- recommendation_visible BOOL
+- provider_identity_visible BOOL
+- ui_policy_revision
+- reviewer_sequence_index nullable
+- session_fatigue_bucket nullable
+- created_at_utc_us
+
+## evaluation_context_snapshots
+- id PK
+- benchmark_set_id nullable FK benchmark_sets
+- benchmark_version nullable
+- evaluator_version
+- threshold_policy_revision
+- feature_schema_version nullable
+- normalization_calibration_version nullable
+- ui_policy_revision nullable
+- domain_mix_manifest_hash
+- task_difficulty_profile_hash nullable
+- environment_profile_hash nullable
+- context_hash UNIQUE
+- created_at_utc_us
+
+Extend benchmark_runs:
+- evaluation_context_snapshot_id FK
+- matched_cohort_manifest_hash nullable
+- holdout_exposure_count
+- holdout_access_policy_revision
+- leakage_state: CLEAN | SUSPECTED | TAINTED | UNKNOWN
+
+## sealed_holdout_access_events
+- id PK
+- benchmark_set_id FK
+- actor_or_component_id
+- access_purpose
+- access_level: SCORE_ONLY | EVIDENCE_SUMMARY | EXAMPLE_CONTENT
+- authorized BOOL
+- policy_revision
+- created_at_utc_us
+
+## learning_taint_records
+- id PK
+- source_entity_type
+- source_entity_id
+- taint_type: RIGHTS_REVOKED | PRIVACY_REVOKED | LABEL_INVALID | BENCHMARK_LEAKAGE | HOLDOUT_OVEREXPOSED | CORRELATED_FEEDBACK | OTHER
+- caused_at_utc_us
+- resolved_at_utc_us nullable
+- resolution_state
+
+## promotion_evidence_dependencies
+- promotion_record_id FK
+- evidence_type
+- evidence_id
+- evidence_context_hash
+- current_validity: VALID | STALE | TAINTED | REVOKED | UNKNOWN
+PK(promotion_record_id, evidence_type, evidence_id)
+
+# 85. Promoted component bundle closure
+
+## promoted_component_bundles
+- id PK
+- component_type
+- component_version
+- binary_or_model_digest
+- feature_schema_version nullable
+- normalization_version nullable
+- calibration_version nullable
+- threshold_policy_revision nullable
+- config_manifest_hash
+- dependency_manifest_hash
+- rollback_compatible_bundle_id nullable
+- bundle_hash UNIQUE
+
+Promotion/rollback references bundle ID rather than only a model/router version string.
+
+# 86. Router objective and exploration policy
+
+## router_objective_profiles
+- id PK
+- profile_version
+- quality_constraints_json
+- privacy_constraints_json
+- rights_constraints_json
+- diversity_constraints_json
+- concentration_constraints_json
+- cost_constraints_json
+- latency_constraints_json
+- reliability_constraints_json
+- exploration_budget_json
+- created_at_utc_us
+
+## router_exploration_events
+- id PK
+- objective_profile_id FK
+- project_id nullable
+- candidate_provider_or_model
+- domain_profile
+- exploration_reason
+- privacy_rights_gate_snapshot_hash
+- cost_reservation_id nullable
+- result_feedback_event_id nullable
+- created_at_utc_us
+
+# 87. Reviewer calibration and contested golden truth
+
+## reviewer_calibration_records
+- id PK
+- reviewer_actor_id nullable
+- evaluator_id nullable
+- calibration_suite_version
+- domain_profile
+- calibration_metrics_json
+- valid_from_utc_us
+- valid_to_utc_us nullable
+
+## golden_example_disputes
+- id PK
+- golden_example_id FK
+- opened_by_actor_id nullable
+- reason
+- state: OPEN | UNDER_REVIEW | CONFIRMED | REVISED | RETIRED
+- replacement_golden_example_id nullable
+- opened_at_utc_us
+- resolved_at_utc_us nullable
+
+
+
+# 88. Structured document parse domain
+
+## document_parse_revisions
+- id PK FK revision_registry
+- source_asset_revision_id FK asset_revisions
+- parser_family
+- parser_version
+- parse_profile_version
+- source_digest_algorithm
+- source_digest
+- source_encoding nullable
+- source_locale nullable
+- source_date_system nullable
+- semantic_coverage_manifest_hash
+- parse_confidence_summary_json
+- layout_model_version nullable
+- ocr_model_version nullable
+- state: PARSED | PARTIAL | AMBIGUOUS | PASSWORD_REQUIRED | UNSUPPORTED | QUARANTINED
+- created_at_utc_us
+
+## document_semantic_channels
+- id PK
+- document_parse_revision_id FK
+- channel_type: VISIBLE_TEXT | HIDDEN_CONTENT | TABLE | MERGED_RANGE | FORMULA | COMMENT | NOTE | FOOTNOTE | HEADER_FOOTER | SPEAKER_NOTES | DEFINED_NAME | CHART | PIVOT | ATTACHMENT | EMBEDDED_OBJECT | TRACK_CHANGES | FORM | DIGITAL_SIGNATURE | LAYOUT_ORDER | OTHER
+- coverage_state: COVERED | PARTIAL | UNSUPPORTED | UNKNOWN | QUARANTINED
+- item_count nullable
+- ambiguity_count nullable
+- evidence_json nullable
+
+## spreadsheet_cells
+- id PK
+- document_parse_revision_id FK
+- sheet_identity
+- row_index
+- column_index
+- cell_address
+- merge_range nullable
+- hidden_row BOOL
+- hidden_column BOOL
+- formula_expression nullable
+- cached_value_json nullable
+- calculation_freshness: CURRENT | STALE | UNKNOWN | NOT_APPLICABLE
+- external_dependency_state: NONE | PRESENT | BLOCKED | UNKNOWN
+- style_semantics_json nullable
+- normalized_value_json nullable
+
+## spreadsheet_named_ranges
+- id PK
+- document_parse_revision_id FK
+- name
+- sheet_identity nullable
+- range_expression
+- hidden BOOL
+
+## document_text_regions
+- id PK
+- document_parse_revision_id FK
+- page_or_slide_index nullable
+- region_json nullable
+- reading_order_index nullable
+- text
+- confidence nullable
+- source_type: NATIVE_TEXT | OCR | NOTE | COMMENT | FORM_FIELD | OTHER
+- ambiguity_flags_json nullable
+
+## document_active_content_inventory
+- id PK
+- document_parse_revision_id FK
+- active_type: VBA | MACRO | OLE | DDE | EXTERNAL_LINK | DATA_CONNECTION | POWER_QUERY | PDF_JAVASCRIPT | PDF_LAUNCH | EMBEDDED_EXECUTABLE | REMOTE_RESOURCE | OTHER
+- state: INERT | QUARANTINED | BLOCKED | INVENTORIED
+- source_location
+- external_target nullable
+- evidence_json nullable
+
+## document_signature_evidence
+- id PK
+- source_asset_revision_id FK
+- signature_type
+- signer_identity nullable
+- verification_state
+- signed_byte_range_hash
+- verification_evidence_json
+- verified_at_utc_us nullable
+
+A structured parse derived from signed bytes does not itself inherit the original signature.
+
+
+
+# 89. Film spatial/identity/asymmetry continuity
+
+## scene_spatial_entities
+- id PK
+- scene_revision_id FK
+- entity_id FK entity_registry
+- spatial_role
+- anchor_or_zone_json
+- screen_side nullable
+- eyeline_target_entity_id nullable
+- orientation_json nullable
+
+## scene_portals
+- id PK
+- scene_revision_id FK
+- from_environment_revision_id FK
+- to_environment_revision_id FK
+- portal_type
+- topology_json
+- continuity_state
+
+## asymmetric_identity_facts
+- id PK
+- subject_entity_id FK entity_registry
+- fact_type: LEFT_RIGHT_MARKING | SCAR | ACCESSORY | DOMINANT_HAND | LOGO_TEXT | PROP_ORIENTATION | OTHER
+- side_or_orientation
+- value_json
+- valid_from_story_key nullable
+- valid_to_story_key nullable
+- authority_revision_id nullable FK revision_registry
+
+## identity_distinctiveness_constraints
+- id PK
+- project_id FK
+- subject_a_entity_id FK entity_registry
+- subject_b_entity_id FK entity_registry
+- modality: VISUAL | VOICE | BOTH
+- minimum_distinctiveness_profile_json
+- state
+
+## protected_identity_exclusions
+- id PK
+- protected_entity_id FK entity_registry
+- target_scope_type
+- target_scope_id
+- modality: VISUAL | VOICE
+- policy_json
+
+# 90. Long-take / occlusion continuity evidence
+
+## temporal_identity_coverage
+- id PK
+- subject_asset_revision_id FK
+- character_id FK
+- start_num
+- start_den
+- end_num
+- end_den
+- coverage_type: KEYFRAME | SEGMENT | PRE_OCCLUSION | POST_OCCLUSION | CONTINUOUS_SAMPLE
+- identity_state
+- costume_state nullable
+- prop_state_json nullable
+- evidence_id nullable FK evidence
+
+# 91. Camera/lens calibration metadata
+
+## camera_calibration_profiles
+- id PK
+- asset_revision_id nullable FK
+- shot_revision_id nullable FK
+- focal_length_mm nullable
+- horizontal_fov_deg nullable
+- vertical_fov_deg nullable
+- sensor_profile_json nullable
+- crop_factor nullable
+- lens_distortion_json nullable
+- rolling_shutter_json nullable
+- camera_transform_json nullable
+- source_confidence: VERIFIED | ESTIMATED | PROVIDED | UNKNOWN
+
+# 92. Retime/interpolation artifacts
+
+## retime_artifacts
+- id PK FK entity_registry
+- source_asset_revision_id FK
+- output_asset_revision_id FK
+- method: FRAME_SAMPLE | OPTICAL_FLOW | FRAME_INTERPOLATION | SPEED_RAMP | OTHER
+- method_version
+- time_mapping_manifest_hash
+- synthesized_frame_ranges_json nullable
+- visual_qc_state
+- lipsync_dependency_state
+- subtitle_dependency_state
+- music_dependency_state
+
+# 93. Overlapping conversation events
+
+## utterance_events
+- id PK FK entity_registry
+- conversation_session_id FK
+- character_id nullable FK
+- dialogue_line_revision_id nullable FK
+- audio_cue_id nullable FK
+- utterance_type: DIALOGUE | INTERRUPTION | OVERLAP | NONVERBAL | BACKCHANNEL | CROWD
+- start_num
+- start_den
+- end_num
+- end_den
+- speaker_binding_state
+- performance_context_id nullable
+- overlap_group_id nullable
+
+# 94. Language-specific voice performance bindings
+
+## voice_language_profiles
+- id PK
+- voice_identity_revision_id FK
+- locale
+- certified_binding_id nullable FK voice_provider_bindings
+- pronunciation_profile_json
+- prosody_envelope_json
+- age_impression_profile_json
+- pace_range_json
+- certification_state
+
+## dubbing_fit_candidates
+- id PK
+- dubbing_track_id FK
+- dialogue_line_revision_id FK
+- translation_unit_id FK
+- target_duration_num
+- target_duration_den
+- phoneme_viseme_profile_json nullable
+- estimated_speech_rate
+- semantic_fit_score nullable
+- timing_fit_state
+- selected BOOL
+
+# 95. Delivery audio/subtitle target profiles
+
+## audio_delivery_profiles
+- id PK
+- profile_name
+- integrated_loudness_target nullable
+- true_peak_limit nullable
+- channel_layout
+- mono_compatibility_required BOOL
+- codec_profile_json
+- language_flag_policy_json
+
+## subtitle_delivery_profiles
+- id PK
+- profile_name
+- locale
+- max_cps nullable
+- max_chars_per_line nullable
+- max_lines nullable
+- safe_area_profile_json
+- bidi_shaping_profile_json nullable
+- font_embedding_policy_json nullable
+- supported_styling_json
+- target_format
+
+# 96. Editor adapter capability certification
+
+## editor_adapter_versions
+- id PK
+- editor_family
+- editor_version_range
+- adapter_version
+- certification_manifest_hash
+- state
+
+## editor_feature_capabilities
+- editor_adapter_version_id FK
+- feature_code
+- support_level: NATIVE | APPROXIMATED | FLATTENED | UNSUPPORTED
+- notes nullable
+PK(editor_adapter_version_id, feature_code)
+
+## handoff_loss_reports
+- id PK
+- handoff_manifest_id FK
+- feature_code
+- support_level
+- affected_entity_count
+- details_json
+
+# 97. External edit return comparison
+
+## external_edit_contract_diffs
+- id PK
+- external_edit_id FK
+- diff_type: MEDIA_PROFILE | FPS_TIMEBASE | START_TIMECODE | DURATION | MEDIA_IDENTITY | PROXY_ORIGINAL_ROLE | FLATTENING | AUDIO_LANGUAGE | SUBTITLE_LANGUAGE | OTHER
+- severity
+- before_json
+- after_json
+- resolution_state
+
+# 98. Alternate deliverable review scope
+
+## deliverable_variants
+- id PK FK entity_registry
+- release_candidate_id FK
+- variant_type: MASTER | VERTICAL | SQUARE | SOCIAL | TRAILER | PLATFORM_SPECIFIC | OTHER
+- media_profile_revision_id FK
+- crop_reframe_manifest_hash nullable
+- subtitle_profile_id nullable
+- audio_profile_id nullable
+- review_state
+- release_gate_state
+
+
+
+# 99. Collaboration authorization epochs and sessions
+
+## project_memberships
+- id PK
+- project_id FK
+- actor_id FK
+- membership_state: INVITED | ACTIVE | SUSPENDED | REVOKED | LEFT
+- role_set_hash
+- authorization_epoch
+- valid_from_utc_us
+- valid_to_utc_us nullable
+- row_version
+
+## actor_sessions
+- id PK
+- actor_id FK
+- device_or_client_id
+- issued_at_utc_us
+- expires_at_utc_us
+- session_state: ACTIVE | REAUTH_REQUIRED | REVOKED | EXPIRED
+- studio_authorization_epoch
+- last_verified_at_utc_us
+
+## scoped_capability_tokens
+- id PK
+- actor_session_id FK
+- project_id nullable FK
+- purpose
+- subject_type nullable
+- subject_id nullable
+- subject_revision_id nullable
+- authorization_epoch
+- token_hash
+- expires_at_utc_us
+- state: ACTIVE | REVOKED | EXPIRED
+
+## event_subscriptions
+- id PK
+- actor_session_id FK
+- project_id nullable FK
+- scope_manifest_hash
+- authorization_epoch
+- state: ACTIVE | REVOKED | EXPIRED
+- last_event_seq
+- last_authorized_at_utc_us
+
+# 100. Collaborative working copies and edit policies
+
+## domain_merge_policies
+- id PK
+- domain_type
+- merge_mode: EXCLUSIVE_LEASE | OPTIMISTIC_REVISION | OP_LOG_MERGE | STRUCTURED_TEXT_MERGE | BRANCH_ONLY
+- auto_merge_allowed BOOL
+- conflict_policy_json
+- policy_revision
+
+## collaborative_working_copies
+- id PK
+- project_id FK
+- entity_id FK entity_registry
+- owner_actor_id FK
+- owner_session_id FK actor_sessions
+- base_revision_id nullable FK revision_registry
+- branch_revision_id nullable FK revision_registry
+- lease_id nullable
+- state: OPEN | OFFLINE | STALE | CONFLICT | MERGE_READY | MERGED | ABANDONED
+- row_version
+- last_sync_at_utc_us nullable
+
+## collaboration_conflicts
+- id PK
+- working_copy_id FK
+- conflict_type
+- local_value_json
+- canonical_value_json
+- causal_context_json
+- state: OPEN | RESOLVED_LOCAL | RESOLVED_CANONICAL | MANUAL_MERGE | ABANDONED
+- resolved_by_actor_id nullable
+
+## collaborative_operations
+- id PK
+- working_copy_id FK
+- op_seq
+- actor_id FK
+- session_id FK
+- op_type
+- payload_json
+- causation_operation_id nullable
+- compensates_operation_id nullable
+- created_at_utc_us
+UNIQUE(working_copy_id, op_seq)
+
+# 101. Scoped derived data
+
+## derived_data_scopes
+- id PK
+- derived_kind: SEARCH_INDEX | VECTOR_INDEX | THUMBNAIL | PROXY | EVALUATION_CACHE | OTHER
+- project_id nullable
+- studio_id nullable
+- tenant_scope_id nullable
+- privacy_scope_hash
+- data_use_scope_hash
+- authorization_floor_epoch nullable
+- generation_id
+- state
+
+Derived cache/index objects bind this scope ID.
+
+# 102. Delegation and impersonation
+
+## authority_delegations
+- id PK
+- principal_actor_id FK
+- delegate_actor_id FK
+- scope_type
+- scope_id nullable
+- permission_manifest_hash
+- valid_from_utc_us
+- valid_to_utc_us nullable
+- state: ACTIVE | REVOKED | EXPIRED
+- granted_by_actor_id FK
+
+## impersonation_sessions
+- id PK
+- principal_actor_id FK
+- effective_actor_id FK
+- support_or_admin_actor_id FK
+- reason
+- scope_manifest_hash
+- started_at_utc_us
+- ended_at_utc_us nullable
+- state
+
+Commands/audit may record principal_actor_id + effective_actor_id + delegation/impersonation reference.
+
+# 103. Collaboration annotations
+
+## annotations
+- id PK FK entity_registry
+- project_id FK
+- subject_entity_id FK entity_registry
+- subject_revision_id nullable FK revision_registry
+- actor_id FK
+- annotation_type
+- range_or_region_json nullable
+- text
+- lifecycle_state: ACTIVE | RESOLVED | ARCHIVED
+- created_at_utc_us
+- row_version
+
+Authoritative legal/business decisions do not rely solely on mutable/deletable annotations.
+
+# 104. Cross-project asset reuse records
+
+## cross_project_reuse_records
+- id PK
+- source_project_id FK
+- target_project_id FK
+- source_asset_revision_id FK
+- target_asset_id nullable FK
+- reuse_mode: COPY | MANAGED_REFERENCE | IMPORT_DERIVATIVE
+- rights_snapshot_hash
+- privacy_snapshot_hash
+- provenance_snapshot_hash
+- approved_by_actor_id nullable
+- created_at_utc_us
+
+
+
+# 105. Writer pressure / projection scalability
+
+## writer_queue_samples
+- id PK
+- sampled_at_utc_us
+- interactive_depth
+- control_depth
+- background_depth
+- maintenance_depth
+- oldest_interactive_wait_ms nullable
+- oldest_background_wait_ms nullable
+- commit_latency_p50_ms nullable
+- commit_latency_p95_ms nullable
+
+## projection_generations
+- id PK
+- projection_name
+- generation_no
+- source_event_seq_from
+- source_event_seq_to
+- state: BUILDING | VERIFIED | ACTIVE | RETIRED | FAILED
+- checkpoint_manifest_hash
+- created_at_utc_us
+- activated_at_utc_us nullable
+
+## projection_rebuild_cursors
+- projection_name
+- generation_id FK
+- last_event_seq
+- last_entity_cursor nullable
+- updated_at_utc_us
+PRIMARY KEY(projection_name, generation_id)
+
+# 106. Object-store / GC scaling
+
+## object_store_layout_profiles
+- id PK
+- profile_version
+- object_shard_depth
+- shard_encoding
+- small_object_pack_policy_json nullable
+- max_entries_per_pack nullable
+
+## gc_cursors
+- id PK
+- gc_run_id FK
+- candidate_source
+- last_object_key nullable
+- last_entity_cursor nullable
+- processed_count
+- reclaimed_bytes
+- updated_at_utc_us
+
+## storage_scrub_runs
+- id PK
+- root_id FK storage_roots
+- scan_mode: INCREMENTAL | FULL_REPAIR
+- cursor_json
+- io_budget_json
+- state
+- checked_objects
+- corrupted_objects
+- started_at_utc_us
+- finished_at_utc_us nullable
+
+# 107. Backup service-level objectives
+
+## backup_policies
+- id PK
+- scope_type
+- scope_id nullable
+- target_root_id nullable FK storage_roots
+- rpo_seconds nullable
+- rto_seconds nullable
+- backup_mode: FULL | INCREMENTAL | CONTENT_ADDRESSED
+- max_concurrent_backups
+- verification_policy_json
+- retention_policy_json
+
+## backup_restore_measurements
+- id PK
+- backup_id FK
+- restore_scope
+- measured_restore_seconds
+- bytes_restored
+- objects_restored
+- test_environment_profile_hash
+- result
+- measured_at_utc_us
+
+# 108. Derived-work demand scheduling
+
+## derived_work_requests
+- id PK
+- project_id FK
+- source_asset_revision_id FK
+- derived_type: THUMBNAIL | WAVEFORM | PROXY | EMBEDDING | PREVIEW | OTHER
+- demand_class: VISIBLE_INTERACTIVE | ACTIVE_WORKSPACE | NEAR_FUTURE | BACKGROUND_PRECOMPUTE
+- priority
+- estimated_cost_json nullable
+- state: PENDING | ACTIVE | READY | SKIPPED | CANCELLED | FAILED
+- requested_at_utc_us
+- last_demanded_at_utc_us nullable
+
+# 109. Scheduler fairness
+
+## scheduler_fairness_profiles
+- id PK
+- profile_version
+- project_weight_default
+- priority_aging_policy_json
+- interactive_reserve_json
+- max_queue_per_project nullable
+- max_active_per_project nullable
+- preemption_policy_json
+
+## scheduler_project_state
+- project_id PK
+- queued_count
+- active_count
+- weighted_debt
+- last_scheduled_at_utc_us nullable
+- starvation_age_ms nullable
+
+# 110. Maintenance admission / storage topology
+
+## maintenance_requests
+- id PK
+- maintenance_type: VACUUM | ANALYZE | PROJECTION_REBUILD | VECTOR_REBUILD | BACKUP | HASH_SCRUB | INTEGRITY_AUDIT | GC | OTHER
+- scope_type
+- scope_id nullable
+- resource_bundle_json
+- temporary_bytes_estimate nullable
+- lock_class
+- io_intensity
+- state: PLANNED | ADMITTED | RUNNING | PAUSED | COMPLETE | FAILED | CANCELLED
+- created_at_utc_us
+
+## physical_resource_groups
+- id PK
+- group_type: PHYSICAL_DISK | NETWORK_UPLINK | GPU | CPU_NUMA | OTHER
+- member_resources_json
+- capacity_profile_json
+- health_state
+
+Logical roots/resources can map to the same physical_resource_group for contention-aware scheduling.
+
+# 111. Hot/cold history segments
+
+## history_archive_segments
+- id PK
+- segment_type: TELEMETRY | AUDIT_PAYLOAD | JOB_DETAIL | OLD_PROJECTION | OTHER
+- event_seq_from nullable
+- event_seq_to nullable
+- object_manifest_hash
+- storage_object_id FK
+- index_manifest_hash nullable
+- retention_class
+- state: WRITING | VERIFIED | ACTIVE | RETIRED
+- created_at_utc_us
+
+Hot indexes may retain compact headers/references while cold payload moves to verified immutable segment.
+
+# 112. Dependency invalidation generations
+
+## invalidation_generations
+- id PK
+- project_id FK
+- generation_no
+- root_entity_id FK entity_registry
+- root_revision_id nullable FK revision_registry
+- cause_event_seq
+- propagation_state: ROOT_FENCED | PROPAGATING | COMPLETE | FAILED
+- created_at_utc_us
+
+## invalidation_queue
+- generation_id FK
+- entity_id FK entity_registry
+- dependency_cursor nullable
+- state: PENDING | PROCESSING | COMPLETE | FAILED
+- attempts
+PRIMARY KEY(generation_id, entity_id)
+
+Projection considers an entity conservatively stale when its dependency path crosses an active newer invalidation generation even before materialized stale rows finish propagating.
+
+# 113. Release-readiness projection
+
+## release_readiness_projection
+- project_id PK
+- current_release_candidate_id nullable
+- gate_manifest_hash
+- blocking_count
+- unknown_count
+- last_event_seq
+- projection_generation_id
+- updated_at_utc_us
+
+# 114. Working-copy delta persistence
+
+## working_copy_checkpoints
+- id PK
+- working_copy_id FK
+- base_checkpoint_id nullable
+- operation_seq_from
+- operation_seq_to
+- content_manifest_hash
+- byte_size
+- created_at_utc_us
+
+Large editable documents/timelines may persist operation/delta checkpoints instead of rewriting one giant JSON payload.
+
+
+
+# 115. Capability semantic certification
+
+## capability_certifications
+- id PK
+- connection_id FK
+- connector_version_id FK
+- capability_id FK
+- tool_or_action_id nullable
+- server_or_runtime_identity_hash
+- schema_fingerprint
+- semantic_certification_version
+- effect_class: READ | CREATE | MUTATE | DELETE | PUBLISH | PAID | OTHER
+- idempotency_class: IDEMPOTENT | IDEMPOTENT_WITH_KEY | NON_IDEMPOTENT | UNKNOWN
+- cancellation_class: CONFIRMED | REQUEST_ONLY | NOT_SUPPORTED | UNKNOWN
+- partial_output_policy: NONE | VALID_PARTIAL | QUARANTINE_PARTIAL | UNKNOWN
+- required_permission_manifest_hash
+- result_budget_json
+- stream_budget_json nullable
+- certification_state: TESTING | CERTIFIED | DEGRADED | EXPIRED | REVOKED
+- certified_at_utc_us
+- expires_at_utc_us nullable
+
+## tool_identities
+- id PK
+- connector_version_id FK
+- server_or_runtime_identity_hash
+- capability_id FK
+- tool_id
+- schema_revision
+- identity_hash UNIQUE
+
+# 116. Connector execution receipts
+
+## connector_execution_receipts
+- id PK
+- job_attempt_id FK
+- tool_identity_id nullable FK
+- execution_epoch
+- external_action_id nullable
+- effect_class
+- acceptance_state: NOT_ACCEPTED | ACCEPTED | UNKNOWN
+- semantic_result_state: SUCCESS | PARTIAL | FAILED | UNKNOWN
+- provider_account_id nullable
+- provider_workspace_id nullable
+- effective_region nullable
+- subprocessor_chain_json nullable
+- cost_receipt_json nullable
+- raw_receipt_hash
+- host_persisted_at_utc_us
+
+## connector_result_budgets
+- id PK
+- capability_certification_id FK
+- max_result_bytes
+- max_stream_event_count nullable
+- max_stream_bytes nullable
+- max_events_per_second nullable
+- idle_timeout_ms nullable
+- total_timeout_ms nullable
+
+# 117. CLI process execution context
+
+## cli_execution_contexts
+- id PK
+- job_attempt_id FK
+- executable_digest
+- executable_path_identity
+- process_tree_id
+- cwd_root_id
+- home_root_id
+- environment_manifest_hash
+- locale
+- stdin_policy
+- network_policy_revision
+- filesystem_policy_revision
+- started_at_utc_us
+- ended_at_utc_us nullable
+
+# 118. Local service epochs
+
+## local_service_epochs
+- id PK
+- connection_id FK
+- process_instance_id
+- runtime_manifest_hash
+- plugin_manifest_hash
+- started_at_utc_us
+- ended_at_utc_us nullable
+- epoch_state
+
+External queue/job IDs are scoped to local_service_epoch_id.
+
+# 119. API listing/completeness receipts
+
+## api_query_receipts
+- id PK
+- connection_id FK
+- query_type
+- request_hash
+- completeness_state: COMPLETE | PAGINATED_PARTIAL | EVENTUALLY_CONSISTENT | UNKNOWN
+- cursor_state_json nullable
+- provider_consistency_window_json nullable
+- observed_at_utc_us
+
+# 120. Browser semantic action checkpoints
+
+## browser_action_checkpoints
+- id PK
+- browser_interaction_session_id FK
+- action_type
+- effect_class
+- page_context_fingerprint
+- account_workspace_fingerprint
+- target_object_fingerprint nullable
+- semantic_action_fingerprint
+- idempotency_class
+- pre_action_trace_hash
+- post_action_trace_hash nullable
+- state: READY | EXECUTED | UNCERTAIN | RECONCILED | BLOCKED
+- created_at_utc_us
+
+# 121. Capability-specific health
+
+## capability_health_samples
+- id PK
+- connection_id FK
+- connector_version_id FK
+- capability_id FK
+- model_or_action_id nullable
+- health_state
+- auth_scope_state
+- availability_state
+- capacity_state
+- semantic_certification_state
+- sampled_at_utc_us
+- details_json

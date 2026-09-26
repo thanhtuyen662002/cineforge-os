@@ -9,7 +9,7 @@ https://github.com/thanhtuyen662002/cineforge-os
 RUNTIME:
 AGENT_INSTANCE_ID=<stable logical id>
 RUN_ID=<unique invocation id>
-SLOT_ID=<slot id or WORK>
+SLOT_ID=<stable slot id, e.g. S03 or WORK-<id>>
 SLOT_COUNT=<current capacity>
 MODE=<WORK|SCHEDULED>
 ROLE_AFFINITY=<optional list>
@@ -45,10 +45,14 @@ TASK SELECTION:
 - if blocked, follow the no-idle fallback ladder.
 
 CLAIM:
-- calculate deterministic next attempt branch agent/i<issue>-a<attempt>-<slug>;
-- create branch from current main;
-- if branch exists/creation loses race, choose another task;
-- immediately open Draft PR with lease metadata before substantial coding.
+- create one stable CLAIM_INTENT_V1 with CONTROL_EVENT_ID for the issue/attempt;
+- perform a complete scoped reread of trusted claim intents;
+- only the lowest valid GitHub comment ID wins the claim intent;
+- winner creates deterministic branch agent/i<issue>-a<attempt>;
+- on any GitHub write timeout, treat outcome as UNKNOWN and reconcile before retry;
+- winner creates the minimal claim-marker commit containing the winning claim-intent identity;
+- immediately open Draft PR with matching claim metadata before substantial coding;
+- loser performs no branch/implementation mutation for that task.
 
 EXECUTION:
 - make normal technical decisions autonomously;
@@ -110,3 +114,13 @@ Merge:
 
 Backpressure:
 - if CI/review/global WIP stage is saturated, do not create more implementation WIP; switch to review/CI/unblock work.
+
+
+## Context Manifest preflight
+
+For selected Task:
+- resolve required context to `path#stable-section-id` where possible;
+- materialize/validate Context Manifest;
+- load every MANDATORY item completely before substantive mutation;
+- if mandatory context is missing/truncated, set BLOCKED_CONTEXT and do not guess;
+- for HIGH-risk review, independently verify expected context coverage.

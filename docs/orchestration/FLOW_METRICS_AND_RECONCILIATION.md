@@ -204,3 +204,76 @@ Metric:
 - CONTROL_EVENT_COUNT_CURRENT_EPOCH
 - CONTROL_EVENT_FETCH_TIME
 - CONTROL_EPOCH_ROTATIONS
+
+
+
+# 15. Integrity/time/storage stop-the-line signals
+
+Flow Governor treats as stop-the-line or scoped freeze according to severity:
+- integrity incident on canonical state;
+- database READ_ONLY_SAFE;
+- untrusted system time affecting signing/release/leases;
+- migration RECOVERY_REQUIRED;
+- release attestation failure.
+
+Builders may continue unrelated safe work when freeze scope is narrower than whole repository/system.
+
+# 16. Archive/rebuild health metrics
+
+Track:
+- PROJECTION_REBUILD_FROM_SEQ
+- PROJECTION_REBUILD_DURATION
+- EVENT_ARCHIVE_LAG
+- SNAPSHOT_AGE
+- INTEGRITY_INCIDENT_COUNT
+
+Repeated full replay from event 0 is a scaling defect, not expected steady state.
+
+
+# 15. Context throughput metrics
+
+Track where available:
+- CONTEXT_ITEMS_REQUIRED
+- CONTEXT_ITEMS_LOADED
+- CONTEXT_BYTES_FETCHED
+- CONTEXT_LOAD_TIME
+- CONTEXT_CACHE_HIT
+- CONTEXT_MANDATORY_MISS
+- CONTEXT_EXPANSION_COUNT
+
+Repeated high context-load share is a decomposition/documentation bottleneck.
+Flow Governor may create a docs-contract split/index task rather than letting every worker repeatedly load oversized owner files.
+
+
+
+# 15. Anti-gaming / flow-quality signals
+
+Track operational signals for diagnosis:
+- CLAIM_ABANDON_RATE_BY_AGENT
+- CLAIM_WITHOUT_VALID_PARK_EVIDENCE
+- CONTRACT_HASH_MISMATCHES
+- REPEATED_PRIORITY_METADATA_EDITS
+- LOW_VALUE_TASK_INFLATION
+- UNRESOLVED_REVIEW_FINDINGS_ON_ADOPTED_COMMITS
+- FORCE_PUSH_REWRITE_COUNT
+- REVIEW_RUBBER_STAMP_SAMPLE_FAILURES
+
+These metrics do not create an automatic punitive “agent reputation score”.
+They trigger Flow/QA investigation and capacity/role adjustment.
+
+# 16. Critical-path derivation
+
+Downstream-unblock value is computed from the actual current hard/soft dependency graph and milestone path.
+Self-declared prose such as “unblocks 50 tasks” is advisory only.
+
+# 17. Random audit sampling
+
+Flow/QA may select a sample of:
+- low/medium-risk approved PRs;
+- repeated reviewer pairs;
+- high-throughput agents;
+- test/fixture-changing PRs
+
+for fresh independent re-review.
+
+Purpose: detect correlated blind spots/rubber-stamping without making every PR expensive.

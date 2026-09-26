@@ -60,14 +60,15 @@ If an upstream contract is reverted/superseded:
 3. If a Claim PR already merged and no explicit rework exists, reconcile the Issue rather than claiming.
 4. Determine next attempt number from existing attempts/branches/PRs.
 5. Derive exact branch:
-   `agent/i<issue>-a<attempt>-<slug>`
-6. Create branch from current main.
+   `agent/i<issue>-a<attempt>`
+6. Create the exact branch `agent/i<issue>-a<attempt>` from current main. No free-form slug is allowed in the atomic claim key.
 7. If branch creation conflicts, another agent won; choose another task.
-8. Immediately create Draft Claim PR.
-9. Append initial `AGENT_STATE_V1`.
-10. Only then start substantial implementation.
+8. Create one minimal machine claim-marker commit at `.cineforge/claims/i<issue>-a<attempt>.json`. This commit contains only claim identity/context and exists because GitHub rejects opening a zero-diff PR.
+9. Immediately create Draft Claim PR.
+10. Append initial `AGENT_STATE_V1`.
+11. Only then start substantial implementation.
 
-Branch creation is the task claim race primitive.
+Branch creation is the task claim race primitive. The claim marker must be removed before READY_FOR_REVIEW unless a future repository tool replaces it with an empty-commit-capable claim mechanism.
 
 # 5. Claim context record
 
@@ -166,16 +167,29 @@ Flow Governor:
 
 Never race an agent that may be between branch creation and Draft PR creation.
 
-# 12. Takeover
+# 12. Takeover and write fencing
 
 Only current trusted Flow Governor/control authority initiates takeover.
 
-Takeover:
-- inspects Issue, contract hash, PR/diff, checks, reviews;
-- appends trusted `AGENT_TAKEOVER_V1`;
-- continues same PR branch when safe;
-- preserves history;
-- does not duplicate implementation.
+Two modes exist.
+
+## Confirmed handoff
+Use the same branch only when the prior owner explicitly handed off and is known to have stopped mutating it.
+
+## Stale/unconfirmed takeover
+If the prior worker is unreachable, stale or may still wake/push, do **not** continue on the same branch.
+
+Procedure:
+1. inspect Issue, contract hash, old PR/diff/checks/reviews;
+2. append trusted `AGENT_TAKEOVER_V1` on the old PR;
+3. create a fenced replacement branch from the exact adopted old HEAD:
+   `agent/i<issue>-a<attempt>-owner<epoch>`;
+4. open a replacement Draft PR referencing/superseding the old PR;
+5. close the old PR as `SUPERSEDED_TAKEOVER` only after the replacement PR exists;
+6. any later commits pushed by the stale owner to the old branch cannot enter the replacement PR;
+7. preserve original authorship/history and explicitly adopt only verified commits.
+
+This physical branch separation is the fencing boundary. A comment/lease alone cannot stop a stale worker with write access from pushing to the same Git ref.
 
 # 13. One-slot WIP
 
@@ -192,3 +206,107 @@ For declared hotspot:
 - only one ACTIVE PR changes the hotspot contract/range at a time;
 - parallelize outside it;
 - Planner/Integrator sequences the narrow serial surface.
+
+
+# 15. Lease renewal rule
+
+Slot/control ownership TTL is not permission to let a long-running mutation continue blindly after expiry.
+
+For long operations:
+- renew before entering a new mutating phase;
+- before each push, takeover, merge or shared-control mutation, revalidate current lease/owner state;
+- if ownership is uncertain, stop at a local safe checkpoint and reconcile;
+- stale/unconfirmed takeover uses the fenced replacement-branch procedure above.
+
+A lease is coordination evidence, not a magic write lock.
+
+
+# 16. Hard-dependency DAG invariant
+
+The schedulable hard-dependency graph must be acyclic.
+
+Planner/Reconciliation:
+- validates cycles whenever hard dependencies change;
+- treats a detected cycle as BLOCKED_PLANNING_DEFECT;
+- does not mark any member READY by guessing an order;
+- resolves by weakening false hard edges, extracting a contract task, or combining truly atomic work.
+
+Soft/review/integration coordination edges may be cyclic if their semantics allow it, but they never act as READY blockers like hard dependencies.
+
+
+# 17. Write-scope contract
+
+Every schedulable task should define:
+- `allowed_write_paths`;
+- `forbidden_write_classes`.
+
+`likely_touched_paths` remains advisory and helps conflict prediction; it is not authorization.
+
+Diff outside allowed scope:
+- blocks READY_FOR_REVIEW until contract revision or split;
+- cannot be waived by the author alone;
+- escalates risk automatically if protected governance/security/release surfaces are touched.
+
+# 18. Attempt allocation
+
+Next attempt is `max(trusted historical claim attempts)+1`.
+
+Sources include closed/merged PR history and trusted claim events, not merely currently existing branches.
+
+A deleted branch never makes an old attempt number reusable.
+
+
+
+# 16. Claim intent and ambiguous branch creation
+
+Before branch creation, a claimant participates in `CLAIM_INTENT_V1` election defined by CONTROL_PLANE_TRUST_AND_CONCURRENCY.md.
+
+The exact deterministic branch is created only by the winning intent.
+
+Claim marker includes:
+- CLAIM_INTENT_ID
+- CLAIM_INTENT_COMMENT_ID
+- CONTROL_EVENT_ID
+- task contract hash
+- context/base SHA
+- agent/slot/run identity
+
+GitHub write timeout is UNKNOWN_OUTCOME, not failure.
+
+If branch exists but its association to the winning claim intent cannot be proven:
+- do not write substantive commits;
+- classify CLAIM_ASSOCIATION_UNKNOWN;
+- Flow Governor reconciles.
+
+
+
+# 16. Park-state evidence
+
+A parked state must bind a real blocker.
+
+Examples:
+- WAITING_CI: exact check/run ID + expected head;
+- WAITING_REVIEW: requested review profile/identity or blocking review event;
+- BLOCKED_DEPENDENCY: exact dependency task/PR/current unsatisfied state;
+- EXTERNAL_BLOCKER: exact credential/account/user/business dependency category.
+
+Reconciler rejects fictitious/obsolete park state and returns task to actionable flow.
+
+# 17. Task-contract hash verification
+
+Consumers recompute TASK_CONTRACT_HASH from the canonical parsed task contract.
+
+The stored hash in Issue/PR is evidence/cache only.
+Mismatch:
+- blocks claim/merge;
+- creates reconciliation finding;
+- requires Planner correction/version revision.
+
+# 18. Commit adoption provenance
+
+When a worker adopts/cherry-picks code from another PR/branch:
+- record source PR/commit;
+- inspect unresolved review/security findings affecting adopted diff;
+- preserve relevant provenance in the destination PR.
+
+A new branch/title cannot erase known risk attached to the code being adopted.

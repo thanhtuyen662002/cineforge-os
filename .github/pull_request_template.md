@@ -1,6 +1,9 @@
 ## Initial claim record
 
 agent_claim_v1:
+  control_event_id: ""
+  claim_intent_id: ""
+  claim_intent_comment_id: 0
   issue: 0
   attempt: 1
   agent_instance_id: ""
@@ -9,8 +12,9 @@ agent_claim_v1:
   role_profile: ""
   claim_base_sha: ""
   task_contract_version: 1
-  task_contract_hash: ""
+  task_contract_hash: "sha256:"
   context_base_sha: ""
+  context_manifest_hash: "sha256:"
   architecture_refs: []
   risk_profile: "MEDIUM"
 
@@ -64,3 +68,11 @@ Convenience only. Latest valid trusted structured PR event is canonical live sta
 - [ ] No stale architecture/schema/migration conflict
 - [ ] Reconciliation found no merged/reopened/obsolete contradiction
 - [ ] Manual merge lease held, or authoritative Merge Queue used
+
+
+## Context verification
+
+- [ ] Mandatory Context Manifest items fully loaded
+- [ ] Stable section references valid
+- [ ] High-risk reviewer independently checked context coverage where required
+- [ ] No material mandatory section drift since claim/review
