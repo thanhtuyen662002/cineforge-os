@@ -3136,3 +3136,124 @@ Derived previews/indexes for archive use separate cache/project space and do not
 - path
 - state: ACTIVE | ORPHANED | CLEANUP_PENDING | QUARANTINED | CLEANED
 - created_at_utc_us
+
+
+
+# 74. Collaboration branches and conflicts
+
+## collaboration_branches
+- id PK
+- project_id FK
+- actor_id FK
+- device_id
+- app_session_id
+- base_revision_id nullable FK revision_registry
+- base_row_version nullable
+- operation_schema_version
+- scope_json
+- state: ACTIVE | OFFLINE | REBASE_REQUIRED | CONFLICT | MERGED | ABANDONED
+- created_at_utc_us
+- last_sync_at_utc_us nullable
+
+## collaboration_operations
+- id PK
+- branch_id FK
+- local_seq
+- operation_type
+- target_entity_id nullable
+- expected_revision_id nullable
+- payload_json
+- created_client_time nullable
+- created_ordered_at_server nullable
+UNIQUE(branch_id,local_seq)
+
+## collaboration_conflicts
+- id PK FK entity_registry
+- project_id FK
+- branch_id FK
+- conflict_type
+- base_revision_id nullable
+- current_revision_id nullable
+- local_manifest_hash
+- conflicting_scope_json
+- invariant_findings_json
+- state: OPEN | RESOLVING | RESOLVED | DISMISSED
+- created_at_utc_us
+- resolved_at_utc_us nullable
+- resolved_by_actor_id nullable
+
+## collaboration_conflict_resolutions
+- id PK
+- conflict_id FK
+- resolution_type
+- command_id nullable
+- resulting_revision_id nullable
+- rationale
+- created_at_utc_us
+
+# 75. Actor/device/session authority generations
+
+## actor_authority_generations
+- actor_id FK
+- generation_no
+- membership_state
+- role_set_hash
+- effective_at_utc_us
+PK(actor_id,generation_no)
+
+Queued/offline operation stores expected authority generation for diagnostic context only; current authority is re-resolved at sync.
+
+## device_identities
+- id PK
+- actor_id FK
+- installation_id
+- device_label nullable
+- state: ACTIVE | REVOKED | LOST | RETIRED
+- last_seen_at_utc_us nullable
+
+# 76. Exclusive collaboration locks
+
+## collaboration_locks
+- id PK
+- project_id FK
+- scope_type
+- scope_id
+- lock_kind
+- actor_id FK
+- device_id FK
+- core_epoch
+- fencing_token
+- offline_valid_until_utc_us nullable
+- state: ACTIVE | EXPIRED | REVOKED | RELEASED
+
+Offline clients cannot create a new ACTIVE lock without Core authority.
+
+# 77. Collaboration transport bindings
+
+## collaboration_channels
+- id PK
+- project_id FK
+- connection_id nullable
+- transport_type
+- privacy_class
+- provider_account_id nullable
+- provider_tenant_id nullable
+- encryption_profile
+- retention_profile
+- state
+
+LOCAL_ONLY scope cannot use a cloud collaboration_channel unless policy explicitly permits/declassifies.
+
+# 78. Canonical promotion CAS records
+
+## canonical_promotions
+- id PK
+- command_id FK
+- slot_type
+- slot_id
+- expected_revision_id nullable
+- candidate_revision_id FK revision_registry
+- resulting_revision_id nullable
+- outcome: APPLIED | CONFLICT | REJECTED
+- observed_current_revision_id nullable
+- created_at_utc_us
