@@ -1495,3 +1495,140 @@ Claims of reproducibility are tested, not assumed.
 Publication tracks independent substeps:
 media, title/description, thumbnail, subtitles, visibility, schedule/timezone.
 “Delivered” is not “verified exactly as intended”.
+
+
+# 25. Seventh-wave: total disaster, control-plane loss and scale-boundary attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 391 | GitHub account token is revoked while 10 agents are mid-run | CONTAINED/PARTIAL | outage mode stops new mutation; local unpushed work still at risk |
+| 392 | GitHub repository is accidentally deleted/renamed/transferred | **GAP/P1 disaster** | code clones exist, but Issues/PR/comments/control state are not in Git history |
+| 393 | GitHub loses/corrupts Issue/PR comments containing control leases/reviews | **GAP/P1** | live state can be reconstructed partly, but audit/review evidence may be lost |
+| 394 | GitHub organization/account is suspended for days | PARTIAL | offline coding can continue only carefully; no authoritative merge/control plane |
+| 395 | Public repo is made private or private→public accidentally | **GAP/P0/P1 privacy/governance** | visibility change is a security event requiring policy/audit |
+| 396 | Repository fork/mirror becomes mistaken as canonical after rename | **GAP/P1** | canonical repository identity should pin immutable repo ID, not only owner/name |
+| 397 | GitHub user changes username; trusted actor login string no longer matches | **GAP/P1** | trust policy should pin stable GitHub user/account ID plus display login |
+| 398 | Trusted GitHub account is compromised | RESIDUAL P0 | policy comments cannot defend against compromised root credential without independent protection |
+| 399 | All GitHub credentials unavailable but local release hotfix is urgent | **BOUNDARY** | requires explicit emergency/offline governance policy, not silent bypass |
+| 400 | Local machine is fully compromised by OS admin/root malware | **OUT-OF-TRUST-BOUNDARY** | attacker can read memory/keys/files; app controls cannot promise confidentiality |
+| 401 | Ransomware encrypts active library + writable backups simultaneously | PARTIAL | offline/immutable backup mitigates if actually configured |
+| 402 | Ransomware deletes key-wrap metadata but leaves ciphertext | **GAP/P1** | key metadata backup/escrow integrity required |
+| 403 | BitLocker/device encryption recovery key is lost | BOUNDARY | OS-volume protection can make all data irrecoverable; product must disclose |
+| 404 | Motherboard/TPM failure makes OS-backed key unavailable | **GAP/P1 ops** | managed encryption recovery/escrow policy must distinguish machine-bound vs recoverable |
+| 405 | User restores ciphertext backup but not matching key metadata | GAP overlaps key recovery | restore preflight must validate decryptability before claiming success |
+| 406 | Immutable backup provider account is also compromised | RESIDUAL | independent credentials/MFA/offline copies reduce common-mode risk |
+| 407 | Backup chain has one silently corrupt incremental ancestor | **GAP/P1** | restore verification must validate whole dependency chain, not latest object only |
+| 408 | Backup catalog says object exists but remote cold tier has been expired by lifecycle policy | **GAP/P1** | periodic inventory/restore sampling needed |
+| 409 | Disaster restore begins while legal deletion forward journal is unavailable | **GAP/P0/P1** | recovered content must remain quarantined until forward policy journal is recovered/verified |
+| 410 | GitHub control state restored from snapshot older than code branches | **GAP/P1** | control-plane recovery needs epoch/reconciliation like product recovery |
+| 411 | PR review evidence exists only in GitHub, but release audit years later needs it | **GAP/P1 audit** | merge/release should archive essential verification provenance into repo/release evidence |
+| 412 | Required GitHub Action disappears from Marketplace | PARTIAL | pinning commit helps only while source remains available; vendoring/replaceability policy needed |
+| 413 | GitHub Actions outage blocks all merges for 24h | PARTIAL | control plane should park; emergency policy must be explicit if required |
+| 414 | CA/TLS ecosystem failure prevents provider/API access | BOUNDARY/DEGRADED | local workflows continue; no insecure TLS bypass by default |
+| 415 | User clock is year 2038/invalid and cert/auth fails | PARTIAL | clock-health diagnostic needed; never “ignore certificate errors” automatically |
+| 416 | DNS hijack points provider domain to attacker with invalid cert | CONTAINED if TLS enforced | must never auto-disable cert validation |
+| 417 | Enterprise TLS interception uses trusted root and observes confidential media | **GAP/P1 policy** | privacy status should disclose proxy/interception when detectable; true prevention may be impossible |
+| 418 | Network partition during large upload, provider commits partial/complete request unknown | PARTIAL | reconcile/exposure controls; resumable protocol semantics provider-specific |
+| 419 | 100M assets make SQLite indexes/projections too large for workstation SLA | **GAP/P1 scale boundary** | architecture needs explicit scale telemetry/upgrade threshold, not infinite local assumption |
+| 420 | DB migration would require 2x disk but only 1.2x is available | CONTAINED if migration reservation implemented | must block before start |
+| 421 | VACUUM requires huge temporary space and fills disk | CONTAINED by maintenance reservation if implemented |
+| 422 | Integrity audit of 100M assets takes weeks | PARTIAL | incremental sampling/checkpoint; full audit SLA boundary needed |
+| 423 | Project has 1M timeline clips and UI tries to materialize all | **GAP/P1 scale** | paging/virtualization/summary projection required for large timelines |
+| 424 | 100k characters/assets make Ctrl+K semantic index rebuild huge | PARTIAL | bounded index generations; need per-project sharding/priority |
+| 425 | Event table reaches billions of rows | **GAP/P1** | archive/checkpoint strategy exists conceptually; explicit storage/partition migration trigger needed |
+| 426 | SQLite file approaches practical I/O/backup window limits | **GAP/P1** | define migration path to server DB/multi-machine backend at thresholds |
+| 427 | Single writer becomes throughput bottleneck before storage capacity limit | **GAP/P1** | observe writer queue/latency and have scale-out transition criteria |
+| 428 | Multiple machines are requested before V1 multi-host consistency exists | **BOUNDARY** | must refuse unsupported shared-writer mode rather than “it seems to work” |
+| 429 | User puts object library on NAS while DB local; NAS latency spikes | PARTIAL | storage root health; playback/proxy policy needs degraded behavior |
+| 430 | NAS returns stale directory listing after write | **GAP/P2/P1** | content object registration must rely on exact object verification, not listing visibility |
+| 431 | Cold archive retrieval takes hours but release job expects immediate file | **GAP/P2** | availability class/materialization request state needed |
+| 432 | Archived media codec is no longer decodable on current OS | PARTIAL | open intermediate/archive compatibility; isolated legacy runtime may be needed |
+| 433 | Archived package/model cannot legally be redistributed anymore | BOUNDARY | retain evidence/output; executable retrieval may be legally impossible |
+| 434 | Future schema cannot parse 10-year-old project snapshot | **GAP/P1 lifecycle** | compatibility test corpus + migration chain archival needed |
+| 435 | Migration chain requires extinct intermediate binary | **GAP/P1** | migration tooling should be self-contained/versioned where practical |
+| 436 | Encryption algorithm becomes deprecated/unsafe | PARTIAL | crypto agility exists; proactive re-encryption/rewrap policy needed |
+| 437 | Hash algorithm collision becomes practical | BOUNDARY/P1 | algorithm-qualified identity enables migration; collision incident plan needed |
+| 438 | Release archive stored only in proprietary format | **GAP/P1 archive** | preserve documented/open deliverables/intermediates |
+| 439 | User believes archived project can always regenerate exact cloud AI outputs | CONTAINED if UX honest | archive must distinguish exact bytes vs non-reproducible generation |
+| 440 | Regulatory/legal rule changes years later invalidate old processing assumption | BOUNDARY | provenance enables review; system cannot predict future law |
+| 441 | Project is sold/transferred to another company; rights/credentials/privacy ownership changes | **GAP/P1** | ownership transfer workflow distinct from project clone/export |
+| 442 | Employee leaves; their actor owns locks/tasks/approvals | **GAP/P1 ops** | actor deactivation triggers ownership/task/lock reassignment without rewriting history |
+| 443 | Malicious insider with legitimate project access exports all unreleased media | **RESIDUAL/P1** | role/egress/bulk thresholds/audit help; authorized insider cannot be fully prevented |
+| 444 | Studio Owner account compromised | RESIDUAL P0 | strongest authority compromise needs external account security/recovery, not in-app fiction |
+| 445 | Two legal authorities disagree whether data must be retained vs deleted | **BOUNDARY/Decision** | policy conflict requires human/legal decision; system must preserve conflict, not guess |
+| 446 | User asks “delete everything now” while regulatory hold exists | CONTAINED if policy conflict modeled | must block/DecisionRequest rather than promise deletion |
+| 447 | Disaster wipes local machine exactly while GitHub branch has unpushed substantive work | **RESIDUAL** | safe checkpoint cadence reduces but cannot save never-pushed bytes |
+| 448 | Work chat disappears mid-reasoning before checkpoint | CONTAINED operationally only if GitHub checkpoints frequent | chat memory is disposable by design |
+| 449 | Control Plane snapshot and repo clone both exist but secret signing/recovery keys are gone | GAP overlaps key escrow | code recovery != operational recovery |
+| 450 | All backups restore successfully but final published master was never archived locally | **GAP/P1 archive** | release archive policy must pin actual delivered/master bytes and platform-returned version where possible |
+
+# 26. Seventh-wave findings
+
+## X88 — Canonical GitHub identity and control-plane recovery (P1)
+Pin canonical repository by immutable GitHub repository ID + expected owner/name.
+Trusted actors pin stable account/user IDs plus display login.
+
+Periodically archive essential control-plane evidence:
+- merged Task contract/version/hash;
+- final PR head/base/merge SHA;
+- required review assurance/result;
+- CI verification tuple/attestation;
+- release linkage.
+This archive is recovery/audit evidence, not a competing live scheduler.
+
+## X89 — Repository visibility/security-event policy (P0/P1)
+Visibility/ownership/transfer/default-branch/ruleset changes are governance security events.
+Flow/QA detects and blocks normal autonomous merge until reconciled.
+
+## X90 — Honest root-compromise threat boundary
+Document explicitly:
+- compromised OS admin/root can defeat local confidentiality/IPC/key-memory controls;
+- compromised Studio Owner/trusted GitHub root credential can bypass logical policy absent independent external controls.
+Do not market logical agent separation as protection against root credential compromise.
+
+## X91 — Backup/key metadata common-mode resilience (P1)
+Backup manifest, key-wrap metadata and recovery material have independent durability/verification policy.
+Restore success includes decryptability verification, not just ciphertext presence.
+
+## X92 — Control-plane audit archive (P1)
+At merge/release, material verification evidence is captured in durable repository/release audit artifacts so long-term audit does not depend solely on mutable/hosted PR comments.
+
+## X93 — Local architecture scale boundary and migration trigger (P1)
+Define operational thresholds from telemetry:
+- DB size;
+- writer queue/latency;
+- projection/event size;
+- backup/restore duration;
+- asset count;
+- concurrent job rate.
+Crossing sustained thresholds triggers capacity warning and supported migration plan to a server/multi-machine backend rather than silently stretching SQLite forever.
+
+## X94 — Large-domain virtualization/sharding (P1)
+Timeline, asset library, search and audit UI/query APIs page/virtualize/partition; no “load all historical candidates/clips/assets” assumption.
+
+## X95 — Long-term migration compatibility corpus (P1)
+Maintain representative old project/DB/archive fixtures and migration tests across supported history.
+Migration tools needed for archives are versioned/retained independently enough to avoid requiring an extinct app binary.
+
+## X96 — Project ownership transfer workflow (P1)
+Transfer is not clone:
+- new studio/owner authority;
+- rights/consent reassignment/review;
+- privacy/egress policy;
+- credentials/connections rebind;
+- actor/task/lock ownership;
+- audit chain preserved.
+
+## X97 — Actor offboarding workflow (P1)
+Disabling/leaving actor:
+- preserves historical approvals;
+- releases/reassigns live locks/tasks/leases;
+- revokes credentials/sessions;
+- identifies pending decisions needing a new authority.
+
+## X98 — Release archive completeness (P1)
+Release/archive policy retains:
+- immutable final master/deliverables;
+- release manifest/attestation;
+- actual published/transcoded output when retrievable/required;
+- open/documented interchange artifacts needed for future access.
