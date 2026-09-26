@@ -203,3 +203,186 @@ After `BASELINE_LOCK.md` is established:
 must use the HIGH-risk Task → Claim PR → independent review → CI → Integrator flow.
 
 This prevents the control plane from routinely rewriting itself outside its own gates.
+
+
+# 18. Extreme-hardening governance extension
+
+Detailed technical contracts live in `docs/design/EXTREME_HARDENING_CONTRACTS.md`.
+This governance section owns the review/CI consequences.
+
+## 18.1 Autonomous dependency changes
+Adding/upgrading executable dependencies is security/legal surface change.
+
+Required evidence:
+- expected registry/source;
+- lock/integrity/provenance;
+- license classification;
+- vulnerability/advisory check where available;
+- postinstall/build/native-code review according to risk;
+- SBOM update for release-bound changes.
+
+Unexpected registry/typosquat signals block autonomous acceptance.
+
+## 18.2 Critical invariant tests
+Architecture/security/data-integrity invariant tests are governance assets.
+
+Deleting/weakening/replacing them:
+- is HIGH-risk;
+- requires explicit explanation/equivalence evidence;
+- cannot make a PR “green” merely by removing the guard that failed.
+
+## 18.3 URL/callback/network security
+CI/security tests cover:
+- SSRF/private-network redirects/DNS rebinding;
+- custom/file protocol escape;
+- provider callback signature/replay;
+- parser/network protocol denial;
+- local runtime/plugin outbound-network policy.
+
+## 18.4 Local user and CAS integrity
+Tests verify:
+- local IPC/DB/browser/runtime defaults are OS-user scoped;
+- editable handoff cannot mutate canonical CAS bytes through hardlink/reparse alias;
+- external-source staging rejects TOCTOU/reparse escapes.
+
+## 18.5 Trusted CI producer and workflow provenance
+Required checks validate expected:
+- check producer/App identity;
+- workflow path/revision;
+- runner trust class;
+- exact verification tuple.
+
+A same-name status from an unexpected producer is not evidence.
+
+Governance workflow PRs require a base/external verifier they cannot rewrite for their own approval.
+
+## 18.6 Agent write scope
+Task contracts should define allowed/protected write classes.
+A normal feature task cannot silently modify:
+- AGENTS/governance;
+- CI/release/signing;
+- trust policy;
+- critical invariant tests;
+- unrelated migrations/hotspots
+without explicit scope/risk escalation.
+
+## 18.7 Execution-time authority
+Plan-time authorization does not remain valid forever.
+High-impact phases revalidate rights/privacy, authority, recovery epoch, resource/budget, connection identity and manual revision fences.
+
+## 18.8 Authoritative documentation integrity
+CI treats architecture/design documents as executable agent context.
+
+Block:
+- duplicate numbered section IDs in authoritative files;
+- duplicate machine contract definitions;
+- broken authoritative references;
+- more than one detailed owner for one contract family;
+- missing required AGENTS references.
+
+Owner rule:
+- baseline contracts: SCHEMA / STATE_MACHINES / API_CONTRACTS / UI_COMPONENT_SYSTEM;
+- extreme adversarial extension: `docs/design/EXTREME_HARDENING_CONTRACTS.md`.
+
+Documentation contradiction is a correctness failure, not cosmetic lint.
+
+
+
+# 19. Autonomous source-dependency governance
+
+Adding/upgrading executable dependencies is not an ordinary invisible implementation detail.
+
+CI/review detects changes to:
+- package manifests/lockfiles;
+- runtime/model download manifests;
+- native binaries/toolchains;
+- postinstall/build scripts.
+
+Required evidence by risk:
+- expected source/registry;
+- integrity/lock update;
+- license classification;
+- vulnerability/advisory scan where available;
+- SBOM update for release paths;
+- explicit review of new install/build scripts and native binaries.
+
+Unexpected registry/source changes or unreviewed executable install scripts fail closed for privileged/release paths.
+
+# 20. Critical invariant-test protection
+
+Maintain a registry of tests guarding architecture/security/data-integrity invariants.
+
+Governance CI flags:
+- deletion/disablement;
+- material reduction of assertions;
+- exclusion from required test suite;
+- changes turning a forbidden behavior into an allowed expectation.
+
+The PR must explain the invariant change and update authoritative architecture/risk docs when appropriate.
+
+# 21. Task graph cycle validation
+
+Planner metadata tooling validates hard dependencies as a DAG.
+
+A cycle:
+- blocks READY projection for affected tasks;
+- is surfaced to Flow Governor;
+- cannot be “worked around” by assigning an arbitrary first worker.
+
+# 22. Control-plane trust-root change
+
+Changes to `TRUSTED_CONTROL_POLICY.md` use the stricter of:
+- policy currently on protected/base main;
+- proposed new policy.
+
+A PR cannot add its own reviewer/trusted actor and then use that newly added authority to approve itself.
+
+
+
+# 23. Bootstrap verifier ceremony
+
+The first trusted CI/check/parser cannot prove itself recursively.
+
+During BOOTSTRAP_ENABLEMENT:
+1. repository owner/external trusted reviewer inspects the exact workflow/parser source;
+2. record its commit/tree digest;
+3. verify requested GitHub permissions are minimal;
+4. verify it does not execute untrusted fork code with privileged secrets;
+5. run a controlled positive test and a controlled failure test;
+6. record the check producer/App identity and workflow path;
+7. only then promote it to a trusted required verifier.
+
+Subsequent verifier changes use normal HIGH-risk governance flow.
+
+# 24. Repository protection rollout
+
+Rulesets/branch protection are deployed in phases:
+1. readiness/observe-only assessment;
+2. verify current GitHub App/agent/admin access;
+3. test a disposable PR against intended checks;
+4. enable required checks/protection;
+5. verify legitimate Integrator path still works;
+6. verify emergency administrator recovery path exists outside autonomous agent credentials;
+7. record resulting ruleset/check identities.
+
+Protection availability failure is an incident; agents must not weaken rules blindly to restore throughput.
+
+# 25. Required-check migration
+
+Required-check/workflow identity changes use two-phase migration:
+- introduce and prove new check alongside old;
+- update repository rule to accept/require the new identity;
+- confirm merge path works;
+- retire the old check afterward.
+
+Never remove/rename the sole required check before repository rules migrate.
+
+# 26. Assurance unavailable state
+
+If required review assurance exceeds currently available trusted runtime/credential capacity:
+- state is `ASSURANCE_UNAVAILABLE`;
+- do not silently downgrade;
+- do not self-mint another identity;
+- use explicit owner/external reviewer or valid bootstrap/disaster mechanism.
+
+Throughput pressure is not evidence that a lower assurance level is safe.
