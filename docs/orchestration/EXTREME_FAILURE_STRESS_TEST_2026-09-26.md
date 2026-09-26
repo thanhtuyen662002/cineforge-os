@@ -1889,3 +1889,125 @@ Such changes require explicit decision record and role-appropriate independent a
 | 233 | Backup restored on machine with different OS encryption posture | **GAP/P2** | recovery security profile should detect weaker local protection |
 | 234 | Release manifest is valid but signing key revoked between build and publication | **GAP/P1** | publication revalidates current signing trust, not only historical signature |
 | 235 | Callback signature verification library has clock-skew failure and rejects all real events | PARTIAL | quarantine/reconcile; monitor callback-auth failure surge |
+
+
+# 18. Fourth-wave attacks against the hardening itself
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 236 | Side-effect ledger write succeeds but project DB transaction fails | **GAP/P0/P1** | separate stores cannot rely on atomic commit |
+| 237 | Project outbox commits but installation ledger write fails before network dispatch | **GAP/P1** | dispatcher needs idempotent prepare/reconcile protocol |
+| 238 | Side-effect ledger corrupts while project DB is healthy | **GAP/P1** | control store needs its own integrity/backup/recovery policy |
+| 239 | Project A restore freezes all projects because recovery state is installation-global | **GAP/P1 availability** | recovery fencing needs scope, not global blunt stop |
+| 240 | Two projects share one provider job/account; callback correlation maps to wrong project | **GAP/P0/P1 privacy** | side-effect/callback correlation must bind project + connection identity |
+| 241 | Job A reserves GPU then waits for disk; Job B reserves disk then waits for GPU | **GAP/P1** | multi-resource reservation can deadlock |
+| 242 | Low-priority long render holds GPU while urgent release fix starves | **GAP/P1 flow** | resource priority inversion/preemption policy needed |
+| 243 | One project submits thousands of jobs and starves another project | **GAP/P1 multi-project fairness** | scheduler needs per-project fairness/WIP quotas |
+| 244 | Resource lease expires during non-preemptible GPU kernel, replacement job starts and OOMs both | **GAP/P1** | expiry alone cannot imply physical resource release |
+| 245 | Large SQLite migration/write transaction blocks interactive commands for minutes | **GAP/P1 UX/availability** | transaction/chunking/safe-boundary policy needed |
+| 246 | Integrity auditor and GC run concurrently; auditor validates objects GC is about to delete | **GAP/P2/P1** | maintenance operations need snapshot/maintenance lease coordination |
+| 247 | Backup begins during schema migration between compatible checkpoints | **GAP/P1** | backup must bind migration-safe state/snapshot |
+| 248 | Update starts while backup restore/reconciliation is active | **GAP/P0/P1** | maintenance operations need mutual exclusion matrix |
+| 249 | GC runs while external artifact is downloaded but not yet registered | PARTIAL | staging/lease protects if correctly modeled; needs explicit active-staging root |
+| 250 | Rights revocation lands while release is signed but before publish | PARTIAL | publish revalidation must occur immediately pre-side-effect |
+| 251 | Signing key revocation lands after release preflight but before signing API call | **GAP/P1** | final gate must revalidate trust just-in-time |
+| 252 | Privacy policy changes after egress manifest authorization but before upload | **GAP/P1** | egress authorization needs freshness/fence at dispatch |
+| 253 | Manual lock is released, stale AI result immediately canonicalizes without new human decision | **GAP/P1** | old candidate should not auto-promote merely because lock disappeared |
+| 254 | Bulk snapshot has 1M members and becomes a storage/transaction bottleneck | **GAP/P2** | scalable chunked manifest/immutable query snapshot needed |
+| 255 | URL DNS resolution passes, but proxy/environment redirects traffic internally | **GAP/P1** | network egress enforcement must exist below application URL checks |
+| 256 | FFmpeg is denied network but reads Windows UNC path as local input | **GAP/P1** | parser file-access sandbox must restrict path roots, not only protocols |
+| 257 | CSP is strict, but a Tauri command is callable by any renderer frame | **GAP/P0** | IPC authorization must bind webview/window/frame/origin capability |
+| 258 | Local malware steals scoped media token from renderer memory | RESIDUAL/P1 | tokens must be short-lived, scope-bound; local malware is not fully preventable |
+| 259 | Support bundle is encrypted but decryption password appears in clipboard/log | **GAP/P2** | secret handling path for support export needs policy |
+| 260 | Trust policy file on main is correct, but agent reads stale cached copy | **GAP/P1** | critical control docs require base/ref binding, not ambient local cache |
+| 261 | Agent's local checkout has uncommitted modifications to governance docs | **GAP/P1** | control decisions must read authoritative GitHub ref, not dirty local copy |
+| 262 | GitHub branch name atomically claims issue, but attacker/trusted stale branch from prior attempt already occupies name | PARTIAL | attempt reconciliation must distinguish stale branch and safely advance attempt |
+| 263 | Claim marker itself is maliciously modified after Draft PR opens | PARTIAL | marker is not authority; live contract/events must dominate |
+| 264 | Reviewer uses generated summary instead of actual diff and misses malicious line | **GAP/P1 process** | high-risk review requires direct diff/critical-file inspection evidence |
+| 265 | AI reviewer and AI author share same model/systematic blind spot | PARTIAL | runtime independence is not model diversity; high-risk review may need diversity profile |
+| 266 | All agents obey protocol but Planner decomposes system into locally correct slices that never integrate | **GAP/P1 delivery** | Epic integration acceptance must run continuously, not only at end |
+| 267 | Every PR green independently; combined main has performance collapse | **GAP/P1** | performance budget/regression gates needed for critical paths |
+| 268 | SQLite/event integrity checks pass but semantic film state is impossible (character dead then appears alive unintentionally) | PARTIAL | continuity semantic validation is separate from DB integrity |
+| 269 | Recovery quarantines so much external state that user cannot tell what is safe to do | **GAP/P1 UX** | recovery decision prioritization and bounded ambiguity workflow needed |
+| 270 | Immutable/offline backup is months old while local backups are current but ransomware-corrupted | PARTIAL | recovery-point objectives/freshness policy needed |
+
+# 19. New fourth-wave findings
+
+## X41 — Cross-store dispatch protocol (P0/P1)
+Installation side-effect ledger and project DB are separate stores; do not pretend they share an atomic transaction.
+
+Use an idempotent dispatch state machine:
+1. project DB commits command/outbox intent with stable dispatch_fence_id;
+2. dispatcher `prepare` is idempotently recorded in installation ledger;
+3. only after ledger PREPARED may network side effect occur;
+4. provider receipt is written to ledger;
+5. project DB is reconciled from ledger;
+6. any crash point is recoverable by comparing both stores.
+
+An orphan PREPARED ledger entry with no external receipt is not assumed dispatched.
+An outbox intent with no ledger row recreates the same fence entry idempotently before dispatch.
+
+## X42 — Recovery scope (P1)
+Recovery state is scoped at least by affected project/external identities.
+Restoring Project A must not freeze unrelated Project B unless a shared system/connection invariant is affected.
+
+## X43 — Multi-resource atomic reservation/deadlock prevention (P1)
+Scheduler reserves a resource bundle atomically where possible or in a canonical global resource order with rollback-on-failure.
+No hold-and-wait across inconsistent acquisition order.
+
+## X44 — Resource priority/fairness (P1)
+Scheduler needs:
+- per-project WIP/fair-share;
+- priority inheritance/preemption policy where resources support it;
+- non-preemptible task handling;
+- starvation detection.
+
+Lease expiry never proves physical GPU/browser process release.
+
+## X45 — Maintenance operation compatibility matrix (P0/P1)
+Restore, update, schema migration, backup, GC, integrity repair and library move have explicit compatibility/exclusion rules.
+Examples:
+- update cannot activate during restore reconciliation;
+- backup only from migration-safe checkpoint;
+- destructive GC cannot overlap restore switch/integrity repair without snapshot-safe semantics.
+
+## X46 — Just-in-time policy/trust revalidation (P1)
+Rights/privacy/signing/egress authorization are rechecked immediately before irreversible external side effect, not only at planning/preflight.
+
+## X47 — Manual-lock release does not auto-promote stale AI (P1)
+Candidate generated under prior revision/lock remains candidate until a new explicit command promotes it.
+
+## X48 — Defense-in-depth network/file sandbox (P1)
+Application SSRF checks are not enough.
+Parser/browser/connector worker execution also gets OS/process network and filesystem scope restrictions where practical.
+
+## X49 — Authoritative control-context read (P1)
+Critical governance decisions bind to explicit GitHub commit/ref.
+Dirty local files or stale caches cannot override the authoritative policy/context.
+
+## X50 — High-risk review evidence depth (P1)
+For HIGH-risk changes, reviewer must inspect actual changed critical files/diff and record evidence; generated summaries alone are insufficient.
+
+## X51 — Continuous Epic integration validation (P1)
+Epic end-to-end acceptance is checked incrementally as child PRs merge.
+Do not wait until every child is “done” to discover the slices do not compose.
+
+## X52 — Performance/resource regression budgets (P1)
+Critical pathways need measurable budgets:
+- startup;
+- UI responsiveness;
+- Core command latency;
+- DB/WAL growth;
+- memory;
+- import throughput;
+- CI time;
+- media pipeline throughput.
+
+Correctness-green but unusably slow is not complete.
+
+## X53 — Recovery ambiguity workflow (P1 UX)
+Recovery Center ranks unresolved external reality by risk/exposure and supports batch-safe decisions, rather than presenting an unbounded forensic dump.
+
+## X54 — Backup freshness/RPO policy (P1)
+Backup health includes required recovery-point freshness by durability class.
+An immutable backup that is too old is not “healthy enough” solely because it is immutable.
