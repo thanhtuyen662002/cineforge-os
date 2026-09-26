@@ -3332,3 +3332,101 @@ LOCAL_ONLY scope cannot use a cloud collaboration_channel unless policy explicit
 - evidence_priority
 - archive_state
 - resolution_state
+
+
+
+# 80. Evaluator profiles and evidence
+
+## evaluator_profiles
+- id PK
+- evaluator_family
+- package_id nullable
+- model_digest
+- semantic_version
+- environment_profile_hash
+- backend
+- precision
+- calibrated_domain_json
+- calibration_profile_hash
+- rubric_profile_hash
+- trust_authority_class
+- state
+
+## evaluation_evidence
+- id PK
+- evaluation_result_id FK
+- evaluator_profile_id FK
+- subject_revision_id nullable FK revision_registry
+- representation_asset_revision_id nullable FK
+- subject_digest
+- reference_manifest_hash nullable
+- policy_revision
+- independence_class
+- coverage_profile_id nullable
+- evidence_manifest_hash
+- created_at_utc_us
+
+## qc_coverage_profiles
+- id PK
+- coverage_type: FULL_SCAN | DETERMINISTIC_SAMPLE | RANDOM_SAMPLE | EVENT_TRIGGERED | ADAPTIVE
+- parameters_json
+- seed nullable
+- intended_claims_json
+
+## qc_coverage_ranges
+- evidence_id FK
+- start_time_num
+- start_time_den
+- end_time_num
+- end_time_den
+- coverage_state
+- reason nullable
+
+# 81. Golden/benchmark integrity
+
+## benchmark_examples
+- id PK
+- benchmark_set_id
+- asset_revision_id FK
+- content_digest
+- label_manifest_hash
+- provenance_hash
+- rights_state
+- privacy_state
+- domain_tags_json
+- integrity_state
+- reviewer_evidence_hash nullable
+
+## benchmark_sets
+- id PK
+- set_name
+- set_role: DEVELOPMENT | HIDDEN_HOLDOUT | CROSS_DOMAIN | SHADOW
+- version
+- manifest_hash
+- state
+
+# 82. Preference model scopes
+
+## preference_models
+- id PK FK entity_registry
+- scope_type: ACTOR | TEAM | PROJECT | STUDIO
+- scope_id
+- training_manifest_hash
+- promotion_state
+- model_digest
+- state
+
+# 83. Evaluation cache entries
+
+## evaluation_cache_entries
+- id PK
+- key_hash UNIQUE
+- subject_digest
+- evaluator_profile_id FK
+- policy_revision
+- reference_manifest_hash nullable
+- coverage_profile_hash
+- result_ref
+- created_at_utc_us
+- invalidated_at_utc_us nullable
+- invalidation_reason nullable
