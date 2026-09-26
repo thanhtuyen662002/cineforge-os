@@ -2546,3 +2546,76 @@ Editing can change rhetorical meaning without changing transcript words; factual
 Canon changes carry effective production/narrative scope.
 Released productions retain pinned historical canon/evidence.
 Retcon affects future/current work according to explicit policy, not every historical shot automatically.
+
+
+# 27. Eighth-wave franchise/canon and epistemic attacks
+
+| # | Attack | Verdict | Why |
+|---|---|---|---|
+| 351 | Episode 1 and Episode 2 live in separate projects but must share the exact same hero canon | **GAP/P1** | project-owned Character cannot cleanly express shared franchise canon |
+| 352 | Episode project copies shared Character then silently edits its local copy | **GAP/P1 drift** | shared canon needs mount/pin/branch semantics |
+| 353 | Franchise retcon is approved for future productions, but one project still tracks “latest” instead of pinned baseline | CONTAINED if baseline pin implemented; cross-project source still missing |
+| 354 | Two projects concurrently propose different edits to same shared canon character | **GAP/P1** | shared canon needs branch/proposal/merge authority |
+| 355 | Project loses permission to shared canon library but cached revision remains usable | **GAP/P1 auth** | mounted canon authorization must be checked at current policy/release boundaries |
+| 356 | Shared voice identity is valid for one territory/project but not another | **GAP/P1 rights** | shared canon identity and per-production rights binding must remain separate |
+| 357 | Documentary cites 5 websites that all copied one original false report | **GAP/P1 epistemic** | corroboration count without source lineage creates fake independence |
+| 358 | Two interviewees repeat the same claim because both heard it from same third party | **GAP/P2/P1** | evidence independence/provenance should be modeled where material |
+| 359 | Source snapshot is accurate but later correction/retraction exists | **GAP/P1** | factual evidence needs correction/supersession relationship |
+| 360 | Fact claim is true at interview date but false by release date | **GAP/P1 temporal** | factual claim validity/effective-time scope required |
+| 361 | Casting scope overlaps: two PRIMARY_ON_CAMERA bindings active for same Character/shot accidentally | **GAP/P1** | role-specific exclusivity/overlap validation needed |
+| 362 | Two performers intentionally share a role in split-screen/twin VFX | PARTIAL | exclusivity cannot be hard-coded globally; binding policy must allow explicit multi-cast |
+| 363 | Performer changes legal/display identity; historical release credits must remain accurate | **GAP/P2** | Person identity vs credit/name revision should be versioned |
+| 364 | Performer requests pseudonym in future releases but old contract requires legal credit | **GAP/P2 rights** | credit identity is release-scoped rights data, not just display_name |
+| 365 | Shared canon library is deleted/archived while active projects pin revisions from it | **GAP/P1** | mounted/pinned revisions must block destructive purge or preserve immutable historical copies |
+| 366 | Franchise canon package contains a real-person face reference with consent valid only for one production | **GAP/P1 rights** | shared identity package cannot imply universal usage rights |
+| 367 | Project forks shared canon for experimentation and accidentally publishes fork as franchise canon | **GAP/P1 governance** | promotion into shared canon requires authority distinct from project-local approval |
+| 368 | Alternate narrative context parent points back to child, forming ancestry cycle | **GAP/P1** | context parent/fork graph must be acyclic except explicit non-ancestry loop edges |
+| 369 | Production hierarchy Season→Episode→Season cycle via manual edit | **GAP/P1** | production parent tree requires cycle constraint |
+| 370 | Scene occurrence belongs to one narrative context but state snapshot resolves another due stale binding | **GAP/P1** | snapshot must bind exact occurrence/context/ancestry version |
+
+# 28. Eighth-wave findings
+
+## X85 — Shared Canon Space (P1)
+Canon ownership must not be hard-wired to one Project.
+
+Introduce `CanonSpace` with scopes such as:
+- PROJECT
+- SERIES
+- FRANCHISE
+- STUDIO_LIBRARY
+
+Projects mount/pin canon spaces and production baselines pin exact revisions.
+
+Local experimentation creates a branch/variant, not an invisible copy.
+
+Promotion into shared canon requires shared-canon authority.
+
+## X86 — Shared canon identity ≠ usage rights (P1)
+Character/voice/visual identity can be shared while rights/consent remain production/territory/use scoped.
+Mounting shared canon never grants rights automatically.
+
+## X87 — Evidence source lineage/independence (P1)
+Documentary corroboration tracks source lineage/independence groups.
+Five copies of one originating report are not automatically five independent sources.
+
+## X88 — Factual claim temporal validity/correction (P1)
+Fact evidence supports a claim for an effective time/context.
+Corrections/retractions/superseding evidence are explicit and can stale approved uses.
+
+## X89 — Casting overlap policy (P1)
+Casting bindings have role-specific overlap constraints:
+- some roles exclusive by scope;
+- some explicitly allow multiple performers;
+- ambiguity/conflict becomes a reviewable state, not last-write-wins.
+
+## X90 — Historical credit identity (P2)
+Person identity, private/legal identity and public credit name are distinct/versioned where needed.
+Release manifest pins exact approved credit representation.
+
+## X91 — Narrative/production hierarchy cycle safety (P1)
+Parent/fork ancestry DAGs reject cycles.
+Loop storytelling uses explicit LOOP_NEXT/non-ancestry edges rather than corrupting parent ancestry.
+
+## X92 — Shared canon lifecycle/purge safety (P1)
+Pinned revisions remain recoverable while any production/release/rights/audit dependency requires them.
+Archiving a CanonSpace does not invalidate historical production baselines.
