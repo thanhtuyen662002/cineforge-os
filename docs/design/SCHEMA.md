@@ -299,6 +299,7 @@ Logical profile.
 ## sequences
 - id PK
 - project_id FK
+- production_node_id nullable FK production_nodes
 - stable_code
 - lifecycle_state
 - row_version
@@ -313,6 +314,7 @@ Logical profile.
 ## scenes
 - id PK
 - project_id FK
+- production_node_id nullable FK production_nodes
 - sequence_id FK
 - stable_code
 - lifecycle_state
@@ -332,6 +334,7 @@ Logical profile.
 ## shots
 - id PK
 - project_id FK
+- production_node_id nullable FK production_nodes
 - scene_id FK
 - stable_code
 - lifecycle_state
@@ -400,8 +403,11 @@ Derived/read model only.
 ## story_events
 - id PK
 - project_id FK
+- production_node_id nullable FK production_nodes
+- narrative_context_id nullable FK narrative_contexts
 - scene_id nullable
-- story_order_key
+- chronology_key
+- presentation_order_key nullable
 - event_type
 - subject_entity_type
 - subject_entity_id
@@ -414,11 +420,12 @@ Derived/read model only.
 ## causality_facts
 - id PK
 - project_id FK
+- narrative_context_id nullable FK narrative_contexts
 - fact_type
 - subject_entity_type
 - subject_entity_id
-- valid_from_story_key
-- valid_to_story_key nullable
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - value_json
 - source_event_id nullable
 - authority_level
@@ -537,8 +544,9 @@ PK(visual_identity_revision_id, asset_revision_id, reference_role)
 ## character_state_intervals
 - id PK
 - character_id FK
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - appearance_modifier_json nullable
 - emotion_state_json nullable
 - injury_state_json nullable
@@ -559,8 +567,9 @@ Revision includes components, materials, palette, fit and canonical references.
 - id PK
 - costume_id FK
 - character_id nullable FK
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - dirt_state
 - wetness_state
 - damage_state_json
@@ -574,15 +583,17 @@ Revision includes visual identity, dimensions, material and physical properties.
 - prop_id FK
 - holder_entity_type
 - holder_entity_id
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - state_revision_id nullable
 
 ## prop_state_intervals
 - id PK
 - prop_id FK
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - condition
 - modification_json
 - location_entity_id nullable
@@ -593,8 +604,9 @@ Revision includes topology/geography, scale, entrances/exits, landmarks and base
 
 ## environment_state_intervals
 - environment_id FK
-- valid_from_story_key
-- valid_to_story_key nullable
+- narrative_context_id nullable FK narrative_contexts
+- valid_from_chronology_key
+- valid_to_chronology_key nullable
 - time_of_day
 - weather
 - lighting_state_json
@@ -631,7 +643,10 @@ Revision includes:
 Immutable materialized state used by generation/QC.
 - id PK
 - shot_revision_id FK
-- story_key
+- narrative_context_id nullable FK narrative_contexts
+- chronology_key
+- context_ancestry_hash nullable
+- canon_baseline_manifest_id nullable FK canon_baseline_manifests
 - snapshot_hash
 - project_media_profile_revision_id FK
 - style_binding_manifest_json
@@ -711,11 +726,13 @@ Legal/creative logical asset.
 ## storage_objects
 Content identity only; location is separate.
 - id PK
-- sha256 UNIQUE
+- hash_algorithm
+- content_hash
 - byte_size
 - storage_class
 - verified_at_utc_us
 - created_at_utc_us
+UNIQUE(hash_algorithm, content_hash)
 
 ## storage_object_locations
 A content object may exist on multiple managed roots/mirrors.
@@ -800,7 +817,8 @@ PK(parent_asset_revision_id, child_asset_revision_id, relationship_type)
 - byte_size nullable
 - source_path_or_uri
 - ingest_state
-- hash_sha256 nullable
+- hash_algorithm nullable
+- content_hash nullable
 - decode_status
 - security_status
 - resulting_asset_id nullable
