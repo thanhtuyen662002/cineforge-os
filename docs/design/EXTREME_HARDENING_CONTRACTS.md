@@ -4377,3 +4377,194 @@ Retention is constrained by license/storage/security policy; when exact retentio
 171. future archive mandatory semantic field opened by older reader;
 172. archive event version whose original decoder would otherwise be removed;
 173. critical package registry disappearance after archive.
+
+# HH. Semantic cache dependency completeness
+
+A cache key is not prompt text + model name.
+
+Cache identity/eligibility may include where semantically relevant:
+- exact canonical input revisions;
+- compiled context/prompt representation hash;
+- provider/model/package/connector semantic generation;
+- project media profile;
+- style/voice/language/character/canon revisions;
+- timeline/audio neighboring-context dependency;
+- toolchain/algorithm version;
+- rights/privacy/policy revision;
+- destination/deliverable profile.
+
+Two concepts are separate:
+- STORED: bytes may remain physically cached;
+- ELIGIBLE_FOR_REUSE: current policy/dependencies allow use.
+
+Rights/privacy/canon change can make stored cache INELIGIBLE without immediately deleting bytes.
+
+# HI. Derived-cache revocation fence
+
+Derived representations include:
+- thumbnails;
+- proxies;
+- waveforms;
+- embeddings/vector index entries;
+- preview transcodes;
+- search/index projections;
+- analysis/evaluator artifacts.
+
+Revocation/deletion/privacy change immediately removes eligibility/visibility from authorized query/use projections.
+Physical purge/rebuild may run asynchronously.
+
+A stale cache cannot reintroduce an entity hidden by current policy.
+
+# HJ. Proxy, review representation and master separation
+
+Review/approval binds an exact representation revision.
+
+Policy states which dimensions a proxy may prove.
+Examples a lower proxy may prove:
+- rough performance;
+- edit rhythm;
+- composition.
+
+Examples often requiring final/master representation:
+- fine visual defects;
+- HDR/highlight behavior;
+- true resolution/detail;
+- final codec artifacts;
+- final mix loudness/true peak;
+- subtitle/font packaging;
+- stream/channel metadata.
+
+Release readiness never treats a proxy approval as universal proof of the master.
+
+# HK. Canonical conform/timestamp mapping
+
+VFR/CFR/frame-rate conversion/retime records an explicit mapping between source time and canonical rational timeline.
+
+Rules:
+- never accumulate floating point time by repeatedly adding frame durations;
+- store rational/timebase semantics explicitly;
+- source timestamp discontinuity is evidence, not silently smoothed;
+- subtitle/dialogue/music dependencies reference canonical timeline positions/revisions;
+- conform map is preserved for NLE round-trip/relink.
+
+# HL. Audio working-rate, delay and mastering
+
+Project/audio pipeline declares:
+- working sample rate;
+- channel layout/order;
+- resampler/version when conversion occurs;
+- encoder/mux delay/priming behavior where relevant.
+
+Release master QC uses the exact final master bytes and validates:
+- integrated loudness per target profile;
+- true peak/headroom;
+- clipping/non-finite samples;
+- channel count/order/layout;
+- sync/timing;
+- codec/container properties.
+
+Platform/codec profiles may require additional headroom because lossy transcode can increase true peak.
+
+# HM. Color/HDR final-master verification
+
+Final encoded stream is probed/decoded and validated for:
+- color primaries;
+- transfer function;
+- matrix coefficients;
+- full/limited range;
+- bit depth/pixel format;
+- HDR signaling/mastering metadata when relevant;
+- actual decoded dimensions/frame rate.
+
+Proxy transform lineage is recorded but does not prove master correctness.
+
+# HN. Toolchain/backend provenance and reproducibility
+
+Rendered/transcoded media provenance records:
+- encoder/muxer/tool version and digest/package identity where available;
+- hardware/software backend;
+- significant explicit parameters;
+- driver/runtime when output semantics can vary;
+- source dependency manifest.
+
+Artifact reproducibility class:
+- BYTE_EXACT;
+- ESSENCE_EQUIVALENT;
+- VERSION_PINNED_BEST_EFFORT;
+- NON_REPRODUCIBLE.
+
+Hardware fallback is recorded as a semantic execution change when it can affect bytes/quality.
+
+# HO. Destination compatibility and platform verification
+
+A deliverable profile declares destination constraints:
+- container/codec/profile/level;
+- resolution/frame rate/bitrate policy;
+- audio layout/loudness;
+- subtitle/caption format;
+- metadata/provenance requirements;
+- maximum size/duration where applicable.
+
+Preflight validates the final local master against this profile.
+
+Where destination APIs/manual evidence allow, publication verification checks the processed/transcoded destination output rather than assuming upload success equals delivery correctness.
+
+# HP. Localization/audio contextual dependency keys
+
+Contextual media results such as:
+- subtitles;
+- dubbing;
+- lip-sync;
+- dialogue processing;
+- ducking;
+- ambience/music transitions
+
+bind exact relevant revisions and neighboring timing/context.
+
+Examples:
+- localized text revision;
+- voice identity/take;
+- phoneme/timing representation;
+- timeline revision;
+- overlapping dialogue/music cue set;
+- acoustic-space/mix profile.
+
+An isolated source asset hash is insufficient when surrounding context affects output.
+
+# HQ. Release lineage closure
+
+ReleaseCandidate/Manifest computes a closed immutable dependency manifest from:
+- exact timeline revision;
+- selected picture/audio/caption/localization revisions;
+- color/mastering profile;
+- QC/review evidence;
+- rights/privacy/provider-terms snapshots;
+- provenance/toolchain;
+- exact final master storage object digest.
+
+Release-ready state is valid only for that closure.
+
+If a different master/dependency generation is built, prior readiness/approval does not silently transfer.
+
+# HR. Required eighth-wave media-master tests
+
+174. cache prompt collision across different canon revision;
+175. rights/privacy revocation while bytes stay cached;
+176. stale vector/thumbnail visibility after deletion;
+177. proxy approved while 4K master has fine artifact;
+178. proxy/master color-transform mismatch;
+179. long VFR→CFR conform sync drift;
+180. 23.976↔24 rational retime over long-form duration;
+181. repeated audio resampling drift/quality loss;
+182. encoder delay/priming stem alignment;
+183. final-master loudness/true-peak validation;
+184. lossy transcode true-peak increase;
+185. wrong channel-order metadata;
+186. HDR metadata missing/wrong;
+187. full/limited range mismatch;
+188. hardware vs software encoder provenance;
+189. FFmpeg/toolchain default-change regression;
+190. destination profile/level rejection;
+191. platform post-transcode broken subtitle/audio;
+192. old music/lip-sync/audio cache after timing/context change;
+193. final master digest built from different timeline than release readiness.
