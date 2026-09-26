@@ -2548,3 +2548,105 @@ It cannot emit a binding legal verdict.
 
 Manifest parsing never automatically dereferences external URLs.
 Optional external evidence retrieval uses the standard authorized URL-fetch security boundary.
+
+
+
+# 61. Learning feedback and evaluation-integrity API
+
+Queries:
+- query.learning.feedback_provenance
+- query.learning.correlation_groups
+- query.learning.evaluation_context
+- query.learning.holdout_access
+- query.learning.taint_impact
+- query.learning.router_objective
+- query.learning.domain_coverage
+
+Commands:
+- RecordLearningFeedback
+- CurateFeedbackEligibility
+- GroupCorrelatedFeedback
+- CreateEvaluationPresentationContext
+- StartBlindedEvaluation
+- MarkBenchmarkTainted
+- OpenGoldenExampleDispute
+- ResolveGoldenExampleDispute
+- UpdateRouterObjectiveProfile
+- AllocateExplorationBudget
+
+Rules:
+- correlated feedback cannot be counted as independent agreement without an explicit aggregation policy;
+- production UI feedback does not automatically become promotion evidence;
+- benchmark/holdout access is audited;
+- promotion queries expose the exact evaluation-context snapshot behind every metric.
+
+# 62. Sealed holdout access contract
+
+Sealed holdout content is unavailable to:
+- prompt optimization;
+- production router scoring;
+- repair generation;
+- candidate training/tuning;
+- normal assistant context.
+
+Promotion receives only policy-approved outputs such as aggregate score and bounded evidence summary.
+
+Access to example content requires an explicit audit purpose and authority.
+
+# 63. Router multi-objective contract
+
+Before route selection, effective RouterObjectiveProfile resolves hard constraints first:
+- privacy;
+- rights;
+- safety;
+- budget exposure;
+- required editability/quality floor.
+
+Optimization among eligible candidates may then consider:
+- quality;
+- reliability;
+- latency;
+- cost;
+- diversity;
+- provider concentration;
+- exploration.
+
+Dense low-latency/cost telemetry cannot override a hard quality/diversity floor.
+
+# 64. Learning-taint invalidation API
+
+When source/benchmark/label evidence is tainted:
+1. mark dependent dataset/benchmark evidence stale/tainted;
+2. walk promotion_evidence_dependencies;
+3. create DecisionRequest or automatic depromotion according to policy;
+4. invalidate cached benchmark summaries derived from tainted evidence;
+5. preserve historical audit.
+
+# 65. Promotion/rollback bundle API
+
+Promotion methods operate on promoted_component_bundle_id.
+
+Before PromoteComponentVersion:
+- validate feature/schema/calibration compatibility;
+- validate required evidence remains current/non-tainted;
+- verify required domain coverage;
+- verify rollback bundle exists where policy requires.
+
+Rollback restores the compatible bundle, not only the model/router binary.
+
+# 66. Outcome-labeling contract
+
+Learning-facing outcomes never infer success from absence of follow-up.
+
+Every relevant production terminal event maps explicitly to:
+- APPROVED_SUCCESS
+- REJECTED
+- USER_OVERRIDE
+- ABANDONED
+- TIMEOUT
+- CANCELLED
+- POLICY_BLOCKED
+- EXTERNAL_FAILURE
+- UNKNOWN
+
+Only policy-approved subsets are eligible as positive training/promotion evidence.
