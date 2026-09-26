@@ -215,3 +215,25 @@ Scale should follow proven coordination primitives:
 trust → claim → slot/control lease → CI → independent review → serialized/queued merge → reconciliation.
 
 The next unknowns are primarily empirical concurrency failures, not missing conceptual roles.
+
+
+## F25 — Search/index used as absence proof (P1)
+Risk:
+GitHub search can lag or return scoped/paginated results; “0 results” may cause duplicate claims/reviews.
+
+Fix:
+correctness uses direct refs/PR/Issue collections with pagination. Incomplete read => UNKNOWN, not absent.
+
+## F26 — Infinite Capacity Plan comment stream (P2→P1 at scale)
+Risk:
+append-only plan/lease events grow indefinitely, increasing API/context cost and chance of truncated reads.
+
+Fix:
+control epochs rotate to a new canonical open Capacity Plan Issue with linked historical checkpoint.
+
+## F27 — Big-bang implementation from comprehensive schema (P1 delivery)
+Risk:
+coding agents may interpret the complete schema catalog as “create every table now”, producing giant migrations and blocking the first vertical slice.
+
+Fix:
+schema is a target domain catalog; migrations are slice-driven and only add currently exercised contracts.
