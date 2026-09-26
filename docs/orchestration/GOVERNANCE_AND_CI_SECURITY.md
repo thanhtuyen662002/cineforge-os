@@ -533,3 +533,63 @@ Release jobs fail when they rely on:
 - untrusted cache as sole source for security-critical binary.
 
 Actual packaged contents drive SBOM/license/privacy checks.
+
+
+
+# 31. Bootstrap governance state
+
+A repository cannot require mature CI/reviewer infrastructure to approve the first implementation of that same infrastructure.
+
+Use a one-way `BOOTSTRAP_ENABLEMENT` state only while the trusted verifier/reviewer path is absent.
+
+Allowed bootstrap classes:
+- initial Tier A CI workflow;
+- machine metadata parser/validator;
+- first trusted verifier configuration;
+- repository protection/ruleset enablement;
+- control registry/context-pack tooling required to run normal governance.
+
+Bootstrap requirements:
+- repository owner or credential-independent external trusted review of exact diff;
+- exact commit/tree digest recorded;
+- no relaxation of existing security/trust floor;
+- minimal permissions;
+- controlled positive + negative verification;
+- resulting verifier/check producer identity recorded.
+
+Once normal governance capability is enabled:
+- BOOTSTRAP_ENABLEMENT is permanently closed;
+- ordinary agents cannot reopen it;
+- future changes use normal HIGH-risk governance.
+
+# 32. Risk severity calibration
+
+A red-team severity record distinguishes:
+- DESIGN_SEVERITY
+- CURRENT_EXPOSURE_STAGE
+- PRECONDITIONS
+- IMPACT
+- DETECTABILITY
+- EXISTING_CONTAINMENT
+- IMPLEMENTATION_REQUIRED_BY
+
+A future multi-user P0 does not automatically block single-user V1 when that capability is not reachable, provided current implementation preserves the required boundary.
+
+# 33. Risk-proportional CI
+
+CI selection maps:
+- changed domain/control IDs;
+- task risk;
+- current implementation slice;
+- governance/security hotspots
+
+to bounded suites.
+
+Fast PR CI remains fast.
+Broader adversarial suites run:
+- when affected controls require them;
+- nightly/periodically;
+- before release;
+- before scale-up gates.
+
+Security depth must not collapse throughput by running the entire chaos catalog on every trivial PR.
