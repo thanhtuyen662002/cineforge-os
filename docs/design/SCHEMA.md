@@ -3509,3 +3509,205 @@ UI/policy can warn when “backup” is on the same physical failure domain.
 - ipc_acl_state
 - last_verified_at_utc_us
 - findings_json
+
+
+
+# 64. Core instance fencing
+
+## core_instances
+- id PK
+- instance_epoch UNIQUE
+- process_identity
+- os_user_identity
+- started_at_utc_us
+- last_heartbeat_at_utc_us
+- state: STARTING | ACTIVE | DRAINING | STALE | STOPPED
+- fencing_token UNIQUE
+
+## core_instance_ownership
+Singleton row:
+- id = 1
+- active_core_instance_id FK
+- active_epoch
+- fencing_token
+- row_version
+- acquired_at_utc_us
+
+Canonical writes/outbox dispatch validate current fencing token.
+
+# 65. Sleep/resume observations
+
+## system_resume_events
+- id PK
+- detected_at_utc_us
+- monotonic_gap_ms nullable
+- wall_clock_gap_ms nullable
+- previous_core_instance_id nullable
+- reconciliation_state
+- affected_resource_count
+- affected_job_count
+
+# 66. SQLite integrity checks
+
+## database_integrity_checks
+- id PK
+- check_type: QUICK_CHECK | INTEGRITY_CHECK | TARGETED
+- started_at_utc_us
+- finished_at_utc_us nullable
+- state
+- finding_count
+- result_manifest_hash nullable
+- triggered_by: STARTUP | UNCLEAN_SHUTDOWN | SCHEDULED | PRE_RESTORE | POST_RESTORE | PRE_MIGRATION | POST_MIGRATION | MANUAL
+
+# 67. External egress manifests
+
+## egress_manifests
+- id PK
+- job_attempt_id nullable FK
+- command_id FK
+- connection_id FK
+- provider_account_id nullable
+- provider_region nullable
+- purpose
+- privacy_policy_revision_id nullable
+- provider_terms_snapshot_id nullable
+- rights_snapshot_hash nullable
+- compiled_payload_hash nullable
+- authorization_state: PLANNED | ALLOWED | BLOCKED | NEEDS_DECISION
+- authorized_by_actor_id nullable
+- created_at_utc_us
+
+## egress_manifest_items
+- egress_manifest_id FK
+- item_type: ASSET_REVISION | ASSET_SEGMENT | CONTEXT_SEGMENT | TEXT | METADATA
+- item_id
+- revision_id nullable
+- privacy_class
+- byte_or_token_estimate nullable
+- required BOOL
+PK(egress_manifest_id, item_type, item_id)
+
+# 68. Context segment trust/constraint data
+
+## context_segments
+- id PK
+- compile_session_id
+- source_type
+- source_id
+- source_revision_id nullable
+- provenance_json
+- trust_class
+- semantic_role
+- authority_level
+- constraint_class: REQUIRED | COMPRESSIBLE
+- privacy_class
+- rights_class
+- content_hash
+- included_in_payload BOOL
+- omission_reason nullable
+
+## context_required_constraints
+- compile_session_id
+- constraint_code
+- source_segment_id nullable
+- representation_hash
+- validation_state: PRESENT | REPRESENTED_STRUCTURED | MISSING | CONFLICT
+PRIMARY KEY(compile_session_id, constraint_code)
+
+# 69. Credential bindings
+
+## credential_bindings
+- id PK
+- connection_id FK
+- binding_version
+- secure_secret_ref
+- provider_account_id nullable
+- provider_tenant_id nullable
+- state: ACTIVE | ROTATING | REVOKED | EXPIRED | MISSING
+- created_at_utc_us
+- retired_at_utc_us nullable
+UNIQUE(connection_id, binding_version)
+
+Extend `job_attempts`:
+- credential_binding_id nullable FK
+- provider_account_id_at_dispatch nullable
+- provider_tenant_id_at_dispatch nullable
+
+# 70. Migration execution journal
+
+## migration_runs
+- id PK
+- migration_version
+- app_from_version
+- app_to_version
+- state: PLANNED | SCHEMA | BACKFILL | PROJECTIONS | INTEGRITY_CHECK | HEALTH_CHECK | COMPLETE | FAILED | RECOVERY_REQUIRED
+- started_at_utc_us
+- finished_at_utc_us nullable
+- checkpoint_backup_id nullable
+- storage_reservation_id nullable
+- last_completed_step
+- error_json nullable
+
+## migration_step_runs
+- migration_run_id FK
+- step_key
+- idempotency_key
+- state
+- started_at_utc_us
+- finished_at_utc_us nullable
+- evidence_json
+PRIMARY KEY(migration_run_id, step_key)
+
+# 71. Package retention references
+
+## package_retention_references
+- package_id FK
+- reference_type: ACTIVE_JOB | ACTIVE_SESSION | RECOVERY_ATTEMPT | PROVENANCE_ARCHIVE
+- reference_id
+- required_until_utc_us nullable
+- executable_required BOOL
+PK(package_id, reference_type, reference_id)
+
+# 72. Publication destination bindings
+
+## publication_destinations
+- id PK
+- connection_id FK
+- provider_account_id
+- provider_tenant_id nullable
+- provider_workspace_id nullable
+- destination_type
+- external_destination_id
+- display_name
+- identity_fingerprint nullable
+- verification_state
+- verified_at_utc_us nullable
+
+Extend `publications`:
+- publication_destination_id FK
+- destination_snapshot_hash
+
+# 73. Release stream manifests
+
+## release_stream_manifests
+- id PK
+- release_candidate_id FK
+- container
+- expected_stream_count
+- manifest_hash
+- created_at_utc_us
+
+## release_stream_entries
+- stream_manifest_id FK
+- stream_index
+- stream_type
+- codec
+- language nullable
+- channel_layout nullable
+- disposition_json nullable
+- allowed BOOL
+- expected_role
+- metadata_hash nullable
+PRIMARY KEY(stream_manifest_id, stream_index)
+
+Unexpected streams remain explicit records rather than being ignored.
