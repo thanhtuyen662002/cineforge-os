@@ -2590,3 +2590,182 @@ Extend `connections`:
 - created_at_utc_us
 
 A bulk command executes only against its pinned manifest/snapshot.
+
+
+# 63. Core instance ownership
+
+## core_instance_ownership
+Single-row/epoch ownership record per live database.
+- database_id PK
+- ownership_epoch
+- owner_instance_id
+- owner_os_identity
+- owner_process_id nullable
+- owner_boot_id nullable
+- acquired_at_utc_us
+- heartbeat_at_utc_us
+- expires_at_utc_us
+- fencing_token
+- state: ACTIVE | DRAINING | STALE | RELEASED
+
+External-dispatch/maintenance workers bind the ownership epoch/fencing token they were authorized under.
+
+## core_instance_history
+- id PK
+- database_id
+- ownership_epoch
+- instance_id
+- started_at_utc_us
+- ended_at_utc_us nullable
+- end_reason nullable
+
+# 64. Database maintenance records
+
+## database_maintenance_runs
+- id PK
+- operation_type: MIGRATION | VACUUM | REINDEX | CHECKPOINT | INTEGRITY_CHECK
+- state
+- required_temp_bytes nullable
+- reserved_temp_bytes nullable
+- starting_schema_version
+- target_schema_version nullable
+- migration_manifest_hash nullable
+- started_at_utc_us
+- finished_at_utc_us nullable
+- result_json nullable
+
+## sqlite_connection_invariants
+Diagnostic/policy record:
+- connection_class
+- required_pragmas_json
+- validation_state
+- last_validated_at_utc_us
+
+# 65. Time health
+
+## time_health_samples
+- id PK
+- sampled_at_utc_us
+- monotonic_sample_ref
+- detected_wall_clock_delta_ms nullable
+- state: NORMAL | TIME_UNCERTAIN
+- evidence_json
+
+# 66. Derived data privacy/rights lineage
+
+## derived_data_records
+Covers thumbnails/proxies/waveforms/OCR/embeddings/search/diagnostics/learning derivatives that may not be primary assets.
+- id PK
+- derived_type
+- source_entity_type
+- source_entity_id
+- source_revision_id nullable
+- storage_object_id nullable
+- index_namespace nullable
+- privacy_scope_id nullable
+- rights_identity_id nullable
+- training_permission_state nullable
+- lifecycle_state: ACTIVE | STALE | REVOKED | PURGED
+- created_at_utc_us
+
+## derived_data_dependencies
+- derived_data_id FK
+- dependency_type
+- dependency_ref
+PK(derived_data_id, dependency_type, dependency_ref)
+
+# 67. Worker network egress policy
+
+Extend package/worker execution manifest with:
+- network_policy: DENY | ALLOWLIST | REQUIRED
+- allowed_destinations_json nullable
+- dns_policy nullable
+- proxy_policy nullable
+
+## worker_network_observations
+- id PK
+- worker_id FK
+- job_attempt_id nullable
+- destination
+- decision: ALLOWED | BLOCKED | UNEXPECTED
+- observed_at_utc_us
+
+# 68. Local service binding
+
+## local_service_endpoints
+- id PK
+- service_type
+- owner_process_instance
+- bind_interface
+- port_or_pipe
+- acl_profile
+- auth_profile
+- exposure_state: LOCAL_PRIVATE | LOCAL_SHARED | EXTERNALLY_EXPOSED | INVALID
+- last_validated_at_utc_us
+
+# 69. Timeline/edit compaction
+
+## timeline_session_snapshots
+- id PK
+- working_session_id FK
+- up_to_op_seq
+- snapshot_storage_object_id FK
+- snapshot_hash
+- created_at_utc_us
+
+## undo_dependency_pins
+- working_session_id FK
+- referenced_entity_type
+- referenced_entity_id
+- pin_until_checkpoint_id nullable
+- expires_at_utc_us nullable
+PK(working_session_id, referenced_entity_type, referenced_entity_id)
+
+## variant_retention_policies
+- id PK
+- project_id FK
+- scope_type
+- max_active_candidates
+- archive_after_days nullable
+- purge_ephemeral_after_days nullable
+
+# 70. Projection/recovery epoch binding
+
+Extend projections/index metadata with:
+- source_recovery_epoch_id
+- source_event_seq_checkpoint
+- invalidated_at_utc_us nullable
+- invalidation_reason nullable
+
+Security-sensitive query paths refuse projection/index versions older/newer than the active trusted recovery scope when policy requires strict consistency.
+
+# 71. Release final verification
+
+## release_final_verifications
+- id PK
+- release_manifest_id FK
+- verified_at_utc_us
+- artifact_availability_hash
+- rights_snapshot_hash
+- signing_trust_snapshot_hash
+- integrity_findings_open
+- result: PASS | FAIL | UNKNOWN
+- evidence_json
+
+# 72. Large bulk scope manifests
+
+## bulk_scope_manifests
+- id PK
+- storage_object_id FK
+- hash_algorithm
+- content_hash
+- item_count
+- scope_type
+- source_query_hash nullable
+- created_at_utc_us
+
+Extend `bulk_action_snapshots`:
+- bulk_scope_manifest_id nullable FK
+- inline_manifest_json nullable
+
+Large scopes must use `bulk_scope_manifest_id` rather than oversized inline JSON.
