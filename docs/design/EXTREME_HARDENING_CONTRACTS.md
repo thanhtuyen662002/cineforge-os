@@ -6737,3 +6737,156 @@ Repeated metric gain with semantic/creative regression triggers strategy change,
 253. post-QC transcode/mux changes bytes;
 254. reviewer AI-score anchoring/random audit;
 255. repair crops/hides defect to improve metric.
+
+
+
+# KZ. Provenance claim trust model
+
+Provenance evidence carries claim trust class:
+- USER_ASSERTED
+- METADATA_ASSERTED
+- DEVICE_ASSERTED
+- PROVIDER_ASSERTED
+- CRYPTOGRAPHICALLY_SIGNED
+- TRUSTED_SIGNER_VERIFIED
+- INTERNAL_CHAIN_VERIFIED
+- UNKNOWN
+- CONFLICT
+
+No class implies legal rights automatically.
+
+# LA. Byte artifact vs logical/semantic lineage
+
+CineForge distinguishes:
+- byte artifact identity;
+- media essence/representation relation;
+- logical asset revision;
+- transform/derivation edge;
+- provenance claim;
+- rights identity.
+
+A remux/transcode can create new bytes while remaining a documented derivative.
+Byte equality does not merge rights/provenance identities automatically.
+
+# LB. Embedded provenance preservation state
+
+For embedded/sidecar provenance:
+- PRESENT
+- VERIFIED
+- PRESERVED
+- STRIPPED
+- REATTACHED
+- INVALID
+- UNKNOWN
+
+Internal lineage remains durable even if external tools/platforms strip metadata.
+
+# LC. Provenance manifest binding
+
+A provenance manifest binds:
+- exact subject digest/representation;
+- claim schema/version;
+- signer/key identity;
+- signature result;
+- trusted timestamp evidence if any;
+- external-reference policy;
+- privacy/export profile.
+
+Manifest beside nonmatching bytes is invalid/unassociated.
+
+# LD. Historical/current signer trust
+
+Verification exposes separately:
+- cryptographic signature validity;
+- signer trusted-at-evidence-time when provable;
+- current signer/key trust;
+- revocation state;
+- timestamp trust.
+
+Expired/revoked-now does not automatically mean “signature was never valid then”; missing proof remains UNKNOWN.
+
+# LE. Provenance-rights dual gate
+
+Release/usage policy may independently require:
+- provenance confidence threshold;
+- rights/license/consent permission.
+
+Passing one gate does not satisfy the other.
+
+# LF. Similarity/copyright-risk evidence
+
+Similarity analysis is advisory:
+- candidate source matches;
+- score/evidence;
+- model/version/domain;
+- UNKNOWN/OOD;
+- human/legal review state.
+
+It never sets `INFRINGEMENT=true` or “commercially safe” as an autonomous legal conclusion.
+
+# LG. External handoff chain-of-custody
+
+Handoff records:
+- exact exported asset revisions/digests;
+- transform/export profile;
+- destination/editor;
+- included provenance package;
+- return/import fingerprint;
+- declared editable/flattened relation.
+
+Unexpected returned bytes are a new/unverified source until relationship is explicitly established.
+
+# LH. Publication provenance layers
+
+Publication records:
+1. approved release/master digest;
+2. exact uploaded bytes digest;
+3. external platform receipt;
+4. public/platform-derived artifact identity when obtainable.
+
+Verification status is independent per layer.
+
+# LI. Provenance privacy/export profile
+
+Provenance fields are classified for external disclosure:
+- public-safe;
+- internal-only;
+- sensitive identity/device/location;
+- legal/audit restricted.
+
+Export policy selects allowed claims and may produce a privacy-minimized provenance package while retaining full internal evidence.
+
+# LJ. Provenance conflict
+
+Conflicting evidence sets are preserved.
+
+State:
+- CONSISTENT
+- PARTIAL
+- UNKNOWN
+- CONFLICT
+
+CONFLICT blocks only claims/policies that require resolved provenance certainty; it does not erase usable media automatically.
+
+# LK. Provenance parser trust
+
+Provenance manifests/metadata/external links are hostile input:
+- strict schema/depth/size limits;
+- external entity/network fetch disabled by default;
+- URLs are data, not automatically fetched;
+- annotations cannot become agent/tool instructions.
+
+# LL. Required provenance tests
+
+256. spoofed EXIF “camera original”;
+257. valid signature from untrusted signer;
+258. signer revoked after historical approval;
+259. sidecar copied beside wrong bytes;
+260. transcode strips embedded credentials;
+261. NLE handoff return fingerprint mismatch;
+262. public platform transcode differs from uploaded master;
+263. provenance export leaks device/location;
+264. conflicting signed vs internal lineage;
+265. provenance manifest prompt injection/external URL;
+266. similarity detector false positive;
+267. watermark detector false negative.
