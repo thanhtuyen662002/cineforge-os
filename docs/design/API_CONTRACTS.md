@@ -1122,3 +1122,122 @@ A connector health result of READY does not imply automation permission.
 # Extreme hardening extension
 
 For adversarially discovered API contracts, use `docs/design/EXTREME_HARDENING_CONTRACTS.md`. Do not recreate parallel API definitions in this file.
+
+
+
+# 61. Task graph integrity API
+
+Planner/control methods:
+- `tasks.validate_dependency_graph`
+- `tasks.explain_cycle`
+- `tasks.recompute_readiness`
+
+Hard-dependency writes are rejected when they create a cycle.
+If manual edits produce an invalid graph, affected tasks become `BLOCKED_DEPENDENCY_CYCLE` until repaired.
+
+# 62. Secure URL intake API
+
+`imports.inspect_url(url, policy_revision)` performs security classification before fetch.
+
+Returns:
+- normalized URL/scheme;
+- redirect policy;
+- current resolved addresses;
+- private/link-local/loopback denial;
+- content-size/type expectations;
+- credential-forwarding policy.
+
+Actual fetch revalidates connect-time address/redirects.
+A preflight pass does not authorize an address that changes later.
+
+# 63. Callback verification API
+
+Connector ingress:
+- `callbacks.verify_and_register`
+
+Provider adapter supplies:
+- raw body/hash;
+- signature/token headers;
+- provider/account endpoint identity;
+- timestamp/nonce/event id where supported.
+
+Only verified/policy-approved events enter `external_inbox_events` as actionable evidence.
+
+# 64. Dependency governance API
+
+Queries:
+- `query.dependencies.source_inventory`
+- `query.dependencies.license_risks`
+- `query.dependencies.security_risks`
+- `query.sbom.current`
+
+Commands:
+- ProposeDependencyChange
+- ApproveDependencyChange
+- GenerateSbomSnapshot
+
+A normal feature command may not silently add a new executable dependency outside the dependency-governance path.
+
+# 65. Invariant-test governance API
+
+Queries:
+- `query.invariants.active`
+- `query.invariants.diff_impact`
+
+CI/governance evaluates changes that:
+- delete invariant tests;
+- disable them;
+- weaken assertions;
+- change expected failure semantics.
+
+Such changes require explicit justification and elevated review.
+
+# 66. External source stable-ingest API
+
+For critical ingest/relink:
+- `sources.stage_and_fingerprint`
+- `sources.revalidate_external_location`
+
+The API returns the cryptographic fingerprint actually bound to the revision/review.
+mtime/size/path are hints, not identity.
+
+# 67. Rebuildability dependency API
+
+- `query.rebuildability(asset_revision_id)`
+- `query.recipe_dependency_impact(package/license/provider_change)`
+
+Package removal, license revocation and provider deprecation run dependency impact before the system may claim an output is safely rebuildable.
+
+# 68. Integrity auditor API
+
+- `integrity.run(scope)`
+- `integrity.get_findings`
+- `integrity.reconcile(finding_id, decision)`
+
+Critical findings may force SAFE_MODE or block release/GC depending on policy.
+
+# 69. Local security profile API
+
+- `query.local_security_profile`
+- `security.verify_local_acl`
+- `security.repair_local_acl`
+
+Core startup can verify user-scoped ACL/IPC assumptions before enabling privileged operations.
+
+# 70. Connection account/workspace verification API
+
+- `connections.verify_identity_scope`
+
+Returns account/tenant/workspace/region identity when provider exposes it.
+A configured pin mismatch yields `IDENTITY_MISMATCH` and blocks privileged automation.
+
+# 71. Bulk snapshot API
+
+Planning:
+- `bulk.materialize_scope`
+
+Execution:
+- `bulk.execute(snapshot_id, command_template)`
+
+The snapshot freezes exact entity/revision membership.
+Live filters are never re-evaluated at execution time for an already-confirmed destructive/approval command.
