@@ -2145,3 +2145,17 @@ Extend connection/provider policy with:
 - reviewed_at_utc_us nullable
 
 An UNKNOWN permission cannot be interpreted as ALLOWED.
+
+
+# 39. Slice-driven migration rule
+
+This document is a target domain catalog, not an instruction to create every table in the first migration.
+
+Implementation rule:
+- create only schema required by the current approved vertical slice plus foundational registries/contracts it actually exercises;
+- do not create dozens of unused placeholder tables merely to “match the document”;
+- each migration has executable use/tests in the same or immediately dependent slice;
+- future tables remain documented design until their feature slice begins;
+- foundational naming/identity/revision conventions must remain compatible with later additions.
+
+This avoids big-bang schema work becoming the first delivery bottleneck.
