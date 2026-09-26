@@ -1596,3 +1596,185 @@ Routing rules:
 - BLOCKED prevents automated use.
 
 ProviderTermsSnapshot and project policy determine the effective mode.
+
+
+# 39. Recovery epoch and external-world fencing
+
+A database restore is not a rollback of providers, browsers, emails, publications, charges or in-flight jobs.
+
+CineForge therefore maintains a monotonic **Recovery Epoch**.
+
+Every external dispatch/attempt/session records:
+- recovery_epoch;
+- command/job identity;
+- external correlation identity.
+
+After a restore:
+1. Core enters `RECOVERY_RECONCILIATION`;
+2. increment recovery epoch;
+3. freeze new external dispatch;
+4. reconcile restored outbox entries against known provider/external receipts;
+5. quarantine callbacks/events belonging to an unknown/newer historical epoch rather than applying them;
+6. revalidate browser sessions/connections;
+7. surface unresolved external side effects;
+8. only then resume normal dispatch.
+
+Never blindly replay a restored outbox.
+
+# 40. SQLite WAL and system storage-pressure governor
+
+SQLite WAL correctness requires more than “single writer”.
+
+Core monitors:
+- WAL bytes/growth rate;
+- oldest active read transaction age;
+- checkpoint progress;
+- DB/cache/temp/free-disk reserve;
+- write latency.
+
+Rules:
+- UI/projection reads must not hold unbounded read transactions;
+- long analytical reads use bounded snapshots/chunking;
+- failed checkpoints are visible health signals;
+- CRITICAL storage pressure pauses large imports/generation/proxy/model downloads;
+- if safe persistence cannot be guaranteed, Core enters read-only/degraded safe mode instead of repeatedly failing writes.
+
+Disk reservation is advisory; external processes can consume the same volume.
+
+# 41. Desktop WebView/native bridge security boundary
+
+The desktop UI is privileged code.
+
+Imported/generated/user content must never gain equivalent privilege through HTML/Markdown rendering.
+
+Required:
+- strict Content Security Policy;
+- no unsanitized active HTML/script;
+- remote navigation does not retain native/Tauri bridge access;
+- external links open through a controlled system-browser path;
+- local media resolver uses scoped short-lived tokens;
+- IPC/native commands validate authenticated session, authority, origin/context and typed payload;
+- renderer compromise is assumed possible and must not equal unrestricted filesystem/shell access.
+
+# 42. Import/media parser sandbox and resource budgets
+
+All media/document/archive inputs are hostile until validated.
+
+Parser/prober workers enforce:
+- recursion/archive expansion limits;
+- decoded pixel/sample/frame limits;
+- CPU/RAM/time quotas;
+- file-count/metadata-size limits;
+- protocol/network deny by default for media parsers such as FFmpeg;
+- no arbitrary local-file/network traversal through playlists/manifests;
+- sandboxed temporary output roots;
+- kill/recover behavior for hung parsers.
+
+File extension never authorizes a parser path.
+
+# 43. Context Compiler trust channels
+
+Context Compiler does not concatenate “all useful text” into one instruction stream.
+
+Every segment has:
+- provenance;
+- trust class;
+- semantic role;
+- authority level.
+
+Only trusted system/policy/task-control segments may instruct tools or mutate workflow behavior.
+
+Untrusted:
+- screenplay text;
+- OCR;
+- imported documents;
+- subtitles;
+- web content;
+- model output;
+- media metadata
+
+are supplied as quoted/typed data, never promoted to control instructions merely because they contain imperative language.
+
+# 44. Artifact durability, digest agility and external materialization
+
+Provider/session URLs are not canonical assets.
+
+External output becomes a CineForge READY artifact only after:
+`REMOTE_RESULT → STAGING → LOCAL_MATERIALIZED → HASHED → DECODE_VERIFIED → REGISTERED → READY`.
+
+Content identity stores an algorithm-qualified digest, e.g. `sha256:<digest>`, so hash algorithms can migrate without ambiguous identities.
+
+# 45. Cost exposure and uncertain external acceptance
+
+A reservation estimate is not a hard spending boundary when provider billing is delayed/unknown.
+
+Budgets support:
+- maximum unreconciled external exposure;
+- per-command/job exposure ceiling;
+- unknown-cost policy;
+- provider quota/credit guard when observable.
+
+When timeout leaves acceptance/cost unknown:
+- reconcile before retry;
+- do not multiply exposure blindly.
+
+# 46. Update/DB compatibility and trust-root recovery
+
+Application update declares:
+- minimum readable schema version;
+- maximum compatible schema version;
+- migration plan;
+- rollback compatibility.
+
+Prefer expand/contract migrations across an app rollback window.
+
+A destructive/incompatible migration requires a verified DB/object checkpoint and explicit recovery path; rolling back only the executable is not sufficient.
+
+Updater/signing trust includes:
+- key IDs;
+- offline/root trust vs online signing key where practical;
+- rotation;
+- revocation;
+- emergency recovery.
+
+# 47. Human creative ownership and AI late-write fencing
+
+AI automation must not silently overwrite intentional human edits.
+
+Editable scopes may carry a human/manual ownership lock or revision fence.
+
+If an AI job was created before a human edit/lock:
+- its late result may remain a candidate/evidence;
+- it cannot silently become canonical over the newer human-owned state;
+- explicit user/command promotion is required.
+
+# 48. Bulk fanout and resource reservation
+
+Before large fanout:
+- estimate job count/cost/storage/resource exposure;
+- support sample-first/staged dispatch policy;
+- set batch exposure cap;
+- allow fast bulk cancel/invalidate after upstream canon/reference correction.
+
+Resource scheduling uses reservations/leases with safety headroom, not free-memory telemetry alone, for GPU/VRAM/CPU/disk constrained work.
+
+# 49. Restore/machine-move credential behavior
+
+Credentials backed by OS/user secure storage may not be portable with project backups.
+
+After restore/machine move:
+- missing secure credential material yields `REAUTH_REQUIRED`;
+- CineForge does not silently route creative work to another provider merely because credentials are unavailable;
+- user/project policy determines whether fallback is allowed after explicit state reconciliation.
+
+# 50. Backup resilience profile
+
+Local writable backup is not protection against every machine-wide failure/ransomware event.
+
+CineForge supports policy distinction:
+- local fast backup;
+- separate-volume backup;
+- offline/immutable backup target when configured;
+- restore-verified backup.
+
+Backup health reports recoverability evidence, not only “last copy succeeded”.
