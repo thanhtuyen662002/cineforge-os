@@ -1423,3 +1423,105 @@ Before destructive/high-impact bulk command:
 - `bulk.execute(snapshot_id)` revalidates entity revisions before mutation.
 
 New items that match the live filter later are excluded.
+
+
+# 71. Core ownership API
+
+Internal startup/control:
+- `core.acquire_database_ownership`
+- `core.renew_database_ownership`
+- `core.drain_database_ownership`
+- `core.release_database_ownership`
+
+Every external-dispatch scheduler/maintenance action validates current fencing token.
+
+Second Core startup against an actively owned DB returns:
+`CORE_ALREADY_ACTIVE`
+with safe options such as focus existing UI/retry after shutdown.
+
+# 72. Database maintenance API
+
+Queries:
+- `query.database.maintenance_readiness`
+- `query.database.connection_invariants`
+
+Commands/internal:
+- PlanDatabaseMaintenance
+- RunDatabaseMaintenance
+- VerifyDatabaseMigration
+
+Plan includes worst-case temp disk estimate/reservation and safe-boundary requirements.
+
+# 73. Time health API
+
+`query.system.time_health`
+
+If TIME_UNCERTAIN:
+- commands relying materially on rights/token/license/deadline wall time may block or request revalidation;
+- duration/retry/lease logic continues to use monotonic/server-authoritative timing where designed.
+
+# 74. Derived confidential data API
+
+Queries:
+- `query.derived_data.lineage`
+- `query.derived_data.scope`
+
+Commands:
+- InvalidateDerivedData
+- PurgeDerivedData
+- RebuildScopedIndex
+
+Privacy/right/training revocation propagates to derived-data records before global retrieval/learning can use them.
+
+# 75. Worker network policy API
+
+Package/worker execution validation exposes effective network policy.
+
+Unexpected egress:
+- generates security health finding;
+- may terminate/quarantine worker according to policy.
+
+# 76. Local service endpoint API
+
+Queries:
+- `query.local_services`
+- `query.local_service.exposure`
+
+Health checks validate bind interface/ACL/auth.
+A service unexpectedly bound beyond approved local scope is unhealthy/security-blocked.
+
+# 77. Timeline history compaction API
+
+Internal/editor:
+- `timeline.compact_working_session`
+- `timeline.get_undo_retention`
+
+Compaction preserves current working state + allowed undo horizon while releasing unreachable ephemeral dependencies according to policy.
+
+# 78. Recovery projection API
+
+On recovery activation:
+- invalidate derived projections/indexes beyond restored checkpoint;
+- rebuild required strict projections before normal query readiness.
+
+`query.projection.health` includes recovery epoch/checkpoint compatibility.
+
+# 79. Release final-verification API
+
+`release.final_verify(release_manifest_id)`
+
+Must run immediately before final signing/publish according to release policy.
+
+Returns:
+- required artifacts present/hash-valid;
+- rights current;
+- signing trust ready;
+- integrity blockers;
+- result PASS/FAIL/UNKNOWN.
+
+# 80. Large bulk scope API
+
+`bulk.plan` chooses inline vs immutable manifest storage based on size policy.
+`bulk.execute` streams and validates the exact pinned manifest.
+
+The command/event never requires loading 50k+ IDs into one model/UI payload.
