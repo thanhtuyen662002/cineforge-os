@@ -3,7 +3,7 @@
   "matrix_id": "cineforge-promotion-lane-matrix",
   "generated_from": "docs/orchestration/findings/COVERAGE.json",
   "generated_from_registry_revision": 2,
-  "assignment_note": "Lane finding lists are derived from required CT IDs and may overlap. No lane changes coverage_state or creates VERIFIED evidence.",
+  "assignment_note": "Lane finding lists are derived from required CT IDs and may overlap. Owner mapping state changes do not create empirical evidence or VERIFIED records.",
   "lanes": [
     {
       "lane_id": "L3",
@@ -338,7 +338,6 @@
         "CFRT-71B061F68036",
         "CFRT-746F5B2530C2",
         "CFRT-7495BB869954",
-        "CFRT-78940DDEF4A2",
         "CFRT-7A4D94E6AB4C",
         "CFRT-7C4D00E0089A",
         "CFRT-8499AA895834",
@@ -350,13 +349,11 @@
         "CFRT-9B99199664BD",
         "CFRT-9DAB9291E440",
         "CFRT-9FF795042DF1",
-        "CFRT-A03313AA49FE",
         "CFRT-A1A453CA42D2",
         "CFRT-A422ECEA6BFE",
         "CFRT-A64A8786FBE8",
         "CFRT-AC6323A929C3",
         "CFRT-AF4FCD3E7BA8",
-        "CFRT-AF79EC7DEFFA",
         "CFRT-B0ABDA4D80AA",
         "CFRT-B259D95D512F",
         "CFRT-B2F206563CBC",
@@ -621,7 +618,6 @@
         "CFRT-2F5C9EB6862F",
         "CFRT-300494EDDBD9",
         "CFRT-306A677F2EFE",
-        "CFRT-309C531910E7",
         "CFRT-30E1C509191E",
         "CFRT-343B1904F172",
         "CFRT-3712064CB463",
@@ -661,7 +657,6 @@
         "CFRT-6F6F2237CF17",
         "CFRT-70BFFE816322",
         "CFRT-71004FABAE0C",
-        "CFRT-720A170D6118",
         "CFRT-72486E1F4E4C",
         "CFRT-72FDD621339C",
         "CFRT-75B3936E8C28",
@@ -705,7 +700,6 @@
         "CFRT-B0C81F496954",
         "CFRT-B38AD637A01C",
         "CFRT-B399507AD8DF",
-        "CFRT-B3C25D1DFE9D",
         "CFRT-B43A6A09C075",
         "CFRT-B5778A4F24E1",
         "CFRT-B6A8B46C9A1F",
@@ -713,7 +707,6 @@
         "CFRT-B8DCD098E6F3",
         "CFRT-B9C13A1F77DF",
         "CFRT-BA165475B1F1",
-        "CFRT-BAC331BA37E5",
         "CFRT-BB4DF44FED1C",
         "CFRT-BE1B85E3184D",
         "CFRT-BF0AE7311E65",
@@ -734,7 +727,6 @@
         "CFRT-CD668F0251F2",
         "CFRT-CD8E94C88341",
         "CFRT-D0C026F97867",
-        "CFRT-D15BD8EF69A4",
         "CFRT-D3BDDB0352B0",
         "CFRT-D6FED19296C0",
         "CFRT-D7DF31C1AA56",
@@ -1015,7 +1007,6 @@
         "CFRT-00B64A09330E",
         "CFRT-023462D0406E",
         "CFRT-0433C68C7F66",
-        "CFRT-05A5117066AE",
         "CFRT-05B5E8D822CB",
         "CFRT-07EE949877B5",
         "CFRT-0843846E2686",
@@ -1097,7 +1088,6 @@
         "CFRT-73DD46887B7D",
         "CFRT-74585FE03C9D",
         "CFRT-74812F792BB8",
-        "CFRT-74BA877E4D01",
         "CFRT-7774AF963126",
         "CFRT-7841E47DE86B",
         "CFRT-793E82441890",
@@ -1106,7 +1096,6 @@
         "CFRT-7AC1511E7B20",
         "CFRT-7B2218045F4A",
         "CFRT-7D8AB0457B37",
-        "CFRT-7DF5B0D72CBC",
         "CFRT-7F59A11EDF6B",
         "CFRT-80A27A35BDB4",
         "CFRT-824E640DCDF6",
@@ -1142,7 +1131,6 @@
         "CFRT-A6F2E734A387",
         "CFRT-A915C7E5E977",
         "CFRT-AACC5CF8C612",
-        "CFRT-AB72CEB9781D",
         "CFRT-ABCE06B456F3",
         "CFRT-AF55C19A2A9C",
         "CFRT-B34104411243",
@@ -1290,10 +1278,7 @@
       ],
       "required_control_ids": [
         "CF-CTRL-RIGHTS-PRIVACY",
-        "CF-CTRL-RELEASE-PROVENANCE",
-        "CF-CTRL-COLLAB-BRANCH",
-        "CF-CTRL-COLLAB-AUTH",
-        "CF-CTRL-HIGH-SECURE-ERASURE"
+        "CF-CTRL-RELEASE-PROVENANCE"
       ],
       "owner_refs": [
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#G1",
@@ -1492,7 +1477,6 @@
         "CFRT-AD4F2AAA7818",
         "CFRT-AEAAF3BABB91",
         "CFRT-B0C81F496954",
-        "CFRT-B3C25D1DFE9D",
         "CFRT-B532579AC513",
         "CFRT-B5778A4F24E1",
         "CFRT-B7AE8AE07858",
@@ -1623,7 +1607,30 @@
         "gate": "docs/orchestration/l7_release_gate.py",
         "gate_selftest": "docs/orchestration/l7_release_gate_selftest.py",
         "implementation_class": "REFERENCE_HARNESS_ONLY"
-      }
+      },
+      "inherited_control_ids": [
+        "CF-CTRL-RECOVERY-EPOCH",
+        "CF-CTRL-BACKUP-CONSISTENCY",
+        "CF-CTRL-UPDATE-SUPPLY-CHAIN"
+      ],
+      "inherited_control_sources": {
+        "CF-CTRL-RECOVERY-EPOCH": [
+          "L4"
+        ],
+        "CF-CTRL-BACKUP-CONSISTENCY": [
+          "L4"
+        ],
+        "CF-CTRL-UPDATE-SUPPLY-CHAIN": [
+          "L4",
+          "L5"
+        ]
+      },
+      "supplemental_control_ids": [
+        "CF-CTRL-COLLAB-BRANCH",
+        "CF-CTRL-COLLAB-AUTH",
+        "CF-CTRL-HIGH-SECURE-ERASURE"
+      ],
+      "control_scope_note": "L7 directly requires V1 rights/privacy and release-provenance controls. Recovery, backup and update supply-chain controls are inherited from L4 (update supply-chain is also covered by L5). Collaboration and high-secure erasure controls are compatibility/profile supplements; they are not V1 closure prerequisites until their applicability rule activates."
     }
   ]
 }

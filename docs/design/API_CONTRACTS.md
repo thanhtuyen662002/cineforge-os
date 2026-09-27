@@ -3198,3 +3198,20 @@ Stable errors include:
 - CLIENT_RESET_REQUIRED
 
 UI/support can distinguish disaster-recovery divergence from an ordinary stale edit.
+
+# API-POLICY-EXPLANATION. Causal policy explanation contract
+
+When a command is blocked, Core returns an ordered, typed explanation chain
+instead of a generic denial. Each step identifies the policy revision,
+decision input class, owning authority, and the resulting `ALLOW`, `BLOCK`,
+`DEGRADED_EXPLICIT`, or `REAUTH_REQUIRED` decision. The chain is a diagnostic
+projection of canonical policy decisions; it cannot grant authority, rewrite a
+decision, or be treated as user supplied control text.
+
+The explanation is stable for a pinned command/snapshot and includes the
+effective policy generation and decision snapshot identity. A later policy
+change produces a new explanation and requires the command to be revalidated.
+Redaction follows the same data-class policy as diagnostics, so secrets,
+private prompts, credentials, and protected media paths are never copied into
+the explanation. Unknown or incomplete causal inputs remain explicit and keep
+the command blocked until an authorized policy resolves them.

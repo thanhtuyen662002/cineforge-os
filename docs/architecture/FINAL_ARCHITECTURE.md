@@ -2210,6 +2210,12 @@ architecture and its L3–L7 contract routing are closed at the design level.
 The bounded lane gates prove that the owner links, chaos assignments,
 fail-closed assertions and non-claim boundaries are internally consistent.
 
+The canonical finding ledger is also closed for design ownership: all 662
+findings resolve to a unique owner section, with zero `UNCOVERED` and zero
+`OPEN_UNOWNED_PENDING_AUDIT` records.  Design-covered records retain explicit
+`OPEN_UNVERIFIED` residual state until their required executable tests and
+independent review exist.
+
 This decision does not claim that CineForge runtime behavior exists.  Product
 implementation, independent architecture/security/QA review, trusted exact
 head CI, executed runtime/chaos evidence, child implementation PRs and

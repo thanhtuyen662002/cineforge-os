@@ -73,6 +73,16 @@ def main() -> int:
 
     tree = temporary_tree()
     try:
+        mutate_manifest(tree, supplemental_control_ids=[])
+        errors, _ = gate.validate_manifest(tree, run_selftest=False)
+        require(errors and any("supplemental_control_ids" in error for error in errors), "applicability supplements must remain explicit")
+    finally:
+        shutil.rmtree(tree, ignore_errors=True)
+    print("PASS applicability-inheritance boundary")
+    cases += 1
+
+    tree = temporary_tree()
+    try:
         mutate_manifest(tree, forbidden_claims=[])
         errors, _ = gate.validate_manifest(tree, run_selftest=False)
         require(errors and any("forbidden_claims" in error for error in errors), "claim boundary removal must fail closed")

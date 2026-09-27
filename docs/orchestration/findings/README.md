@@ -22,7 +22,10 @@ Adding new findings or reclassifying domain/severity does not renumber existing 
 - `domain` and `severity` are mutable classifications and may be corrected without changing `stable_id`.
 - Raw stress-test file is evidence, not implementation contract.
 - `docs/design/EXTREME_HARDENING_CONTRACTS.md` is the implementation-contract owner for promoted controls.
-- A finding becomes COVERED only after explicit owner mapping and negative/chaos-test requirement.
+- A finding becomes `DESIGN_COVERED` only after explicit owner mapping; runtime-facing
+  findings also retain their required negative/chaos-test obligation. Design-only
+  threat boundaries may have no executable chaos ID, but they remain
+  `DESIGNED_UNVERIFIED` until implementation and review evidence exist.
 - Registry generation fails on stable-ID collision.
 - Existing stable IDs never change silently.
 
@@ -65,14 +68,15 @@ It carries every stable ID, legacy alias, title, severity, source section and so
 The coverage ledger is keyed by `stable_id` and carries the exact control owner,
 supporting owner paths, residual state, required negative/chaos tests and empirical
 status for every registry record. It is the current coverage source; the registry's
-`coverage_state` is synchronized from the ledger for quick inventory checks. The P0-first bootstrap
-maps all 176 P0 findings to an owner and keeps each in `EMPIRICAL_TEST_REQUIRED`
-until executable evidence exists. No design-only mapping is treated as `VERIFIED`.
+`coverage_state` is synchronized from the ledger for quick inventory checks. All
+662 findings now resolve to a unique design owner or an explicit residual. No
+design-only mapping is treated as `VERIFIED`.
 
 Current P0/P1 audit status:
 
 - P0: 176 total; 176 exact owners; 173 `EMPIRICAL_TEST_REQUIRED`; 3 explicit `RESIDUAL`; 0 `UNCOVERED`;
-- P1-containing: 612 total; 138 exact owners; 137 `EMPIRICAL_TEST_REQUIRED`; 1 explicit `RESIDUAL`; 474 explicit `PARTIAL` records; 0 `UNCOVERED`;
+- P1-containing: 612 total; 612 exact owners; 474 `DESIGN_COVERED`; 137 `EMPIRICAL_TEST_REQUIRED`; 1 explicit `RESIDUAL`; 0 `PARTIAL`; 0 `UNCOVERED`;
+- Global ledger: 662 exact design owners; 486 `DESIGN_COVERED`; 173 `EMPIRICAL_TEST_REQUIRED`; 3 explicit residuals; 0 `UNCOVERED`; 0 `OPEN_UNOWNED_PENDING_AUDIT`;
 - empirical `VERIFIED`: 0 (the branch contains specifications, not runtime proof).
 
 The executable scenario catalog is
@@ -157,14 +161,47 @@ fixtures with `python docs/orchestration/architecture_closure_gate_selftest.py`.
 That gate can close the design baseline only.  It must report
 `CHOT_DESIGN_BASELINE`, `NOT_IMPLEMENTED_IN_REPOSITORY` and `NOT_CLOSED`
 together; those values are deliberate and are not a release authorization.
+The manifest also binds a deterministic SHA-256 digest over the authoritative
+architecture/design/orchestration sources, every matrix owner document, and the
+canonical coverage/owner-mapping approval artifacts;
+editing a bound source without regenerating the manifest fails closed.  The
+normal baseline command intentionally reports unresolved ledger counts while
+the design remains parked.  A promotion or final-closure review must run
+`python docs/orchestration/architecture_closure_gate.py --require-full-closure
+--skip-promotion`; that strict mode fails whenever any finding is
+`UNCOVERED`, `PARTIAL` or `OPEN_UNOWNED_PENDING_AUDIT`.
+
+The deterministic P1 partial-owner audit is recorded as a historical input
+snapshot in
+`docs/orchestration/findings/P1_PARTIAL_OWNER_MAPPING.json` and rebuilt by
+`python docs/orchestration/findings/build_p1_owner_mapping.py`. It selects
+the 474 P1-containing `PARTIAL` records that originally had no exact owner, resolves
+candidate `path#section-id` references only against authoritative design and
+orchestration headings, and copies each finding's source and chaos references.
+Required/additional/chaos test-catalog headings are retained as review leads,
+not treated as semantic owners.
+The artifact is deliberately an advisory pre-approval snapshot: it did not
+mutate `COVERAGE.json` and does not provide implementation or empirical
+evidence. Semantic owner review was completed by the approval step recorded
+below. The deterministic pre-approval dispositions
+are 386 `SAFE_CANDIDATE` and 88 `REVIEW_REQUIRED`; there are currently no
+`NO_SAFE_MATCH` records after adding
+`docs/design/API_CONTRACTS.md#API-POLICY-EXPLANATION` for
+`CFRT-E08BC449E703` (causal policy explanation). Run
+`python docs/orchestration/findings/build_p1_owner_mapping.py --check` to
+verify the review artifact/approval receipt and closed ledger; the architecture
+closure gate's bound-source digest detects later owner-document drift.
+The separate lead-review transition is implemented by
+`docs/orchestration/findings/approve_p1_owner_mapping.py` and records its
+exact input hashes in `P1_OWNER_MAPPING_APPROVAL.json`.
 
 ## Next gate
 
-Before this PR can become review-ready:
-1. map every P0/P1 finding to a control owner;
-2. map a required negative/chaos test;
-3. mark residual/external limitations explicitly;
-4. no P0 finding may remain `NEEDS_COVERAGE_REVIEW`.
+The architecture ownership gate is complete. Before this PR can become
+review-ready, independent architecture/security/QA review, exact-head CI,
+product implementation and executed negative/chaos evidence must be attached.
+No empirical `VERIFIED` state may be asserted until those evidence links exist,
+and no P0 finding may remain `NEEDS_COVERAGE_REVIEW`.
 
 The bounded contract gates for lanes #3--#7 are now present, but their matrix
 keeps runtime evidence `NOT_IMPLEMENTED_IN_REPOSITORY` and promotion

@@ -237,7 +237,7 @@ def _validate_l6_artifact(root: Path, artifact: object) -> list[str]:
     return errors
 
 
-def _validate_l7_artifact(root: Path, artifact: object) -> list[str]:
+def _validate_l7_artifact(root: Path, artifact: object, lane: dict) -> list[str]:
     """Validate the L7 release-boundary reference harness is present without promoting it."""
     errors: list[str] = []
     if not isinstance(artifact, dict):
@@ -289,6 +289,15 @@ def _validate_l7_artifact(root: Path, artifact: object) -> list[str]:
                 required = ["CT-29", "CT-30", "CT-31", "CT-32", "CT-33", "CT-34", "CT-38", "CT-40"]
                 if manifest_value.get("required_chaos_ids") != required:
                     errors.append("L7 implementation manifest required_chaos_ids are incomplete or reordered")
+                for field in (
+                    "required_control_ids",
+                    "inherited_control_ids",
+                    "inherited_control_sources",
+                    "supplemental_control_ids",
+                    "control_scope_note",
+                ):
+                    if manifest_value.get(field) != lane.get(field):
+                        errors.append(f"L7 matrix/manifest {field} must agree")
     return errors
 
 
@@ -357,7 +366,7 @@ def validate_matrix(root: Path, selected_lane: str | None = None) -> tuple[list[
         if lane_id == "L6":
             errors.extend(_validate_l6_artifact(root, lane.get("implementation_artifact")))
         if lane_id == "L7":
-            errors.extend(_validate_l7_artifact(root, lane.get("implementation_artifact")))
+            errors.extend(_validate_l7_artifact(root, lane.get("implementation_artifact"), lane))
         if lane.get("status") != "CONTRACT_GATE_IMPLEMENTED":
             errors.append(f"{lane_id} has unsupported status")
         if lane.get("promotion_state") != "PARKED_EXPLORATION_ONLY":

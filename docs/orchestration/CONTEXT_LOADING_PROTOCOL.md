@@ -190,6 +190,20 @@ Rules:
 - include FUTURE_MULTIUSER only for collaboration/multi-user work or when a current design boundary must preserve compatibility;
 - include OPTIONAL_HIGH_SECURITY only when the active security profile/task requires it.
 
+Lane manifests must preserve this applicability boundary.  A lane's
+`required_control_ids` are direct requirements for that lane's promotion
+task; a registry control marked `V1_BEFORE_RELEASE` can therefore be direct
+in a release lane even when its global `current_slice_required` flag is false.
+A control listed in `inherited_control_ids` is enforced by the named
+prerequisite lane and remains a release dependency without being duplicated
+as a direct lane requirement.  `supplemental_control_ids` record
+`FUTURE_MULTIUSER` or `OPTIONAL_HIGH_SECURITY` controls that keep
+compatibility but do not block the current V1 lane until their applicability
+rule activates.  These arrays are machine-checked in the L7 release manifest
+so a future or optional control cannot silently be treated as a current-slice
+prerequisite, and an inherited recovery/supply-chain control cannot silently
+disappear from the release closure.
+
 A context pack is derived cache, not authority.
 If any referenced owner doc/control changed materially from BASE_SHA, pack is stale.
 

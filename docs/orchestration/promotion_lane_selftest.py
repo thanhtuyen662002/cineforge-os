@@ -97,6 +97,13 @@ def mutate_assertion_status(root: Path) -> None:
     write_matrix(root, matrix)
 
 
+def mutate_l7_control_scope(root: Path) -> None:
+    path = root / "docs" / "orchestration" / "L7_RELEASE_CONTRACT_MANIFEST.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["supplemental_control_ids"] = []
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     temporary, root = fixture()
     try:
@@ -119,6 +126,7 @@ def main() -> int:
         ("owner reference drift", mutate_owner_ref, "owner reference does not resolve uniquely"),
         ("registry revision drift", mutate_registry_revision, "registry revision is stale"),
         ("assertion evidence promotion", mutate_assertion_status, "cannot claim runtime verification"),
+        ("L7 control-scope inheritance drift", mutate_l7_control_scope, "matrix/manifest supplemental_control_ids must agree"),
     ]
     for name, mutate, expected in cases:
         run_case(name, mutate, expected)

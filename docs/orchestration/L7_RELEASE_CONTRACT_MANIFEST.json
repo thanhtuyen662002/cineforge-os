@@ -21,10 +21,7 @@
   ],
   "required_control_ids": [
     "CF-CTRL-RIGHTS-PRIVACY",
-    "CF-CTRL-RELEASE-PROVENANCE",
-    "CF-CTRL-COLLAB-BRANCH",
-    "CF-CTRL-COLLAB-AUTH",
-    "CF-CTRL-HIGH-SECURE-ERASURE"
+    "CF-CTRL-RELEASE-PROVENANCE"
   ],
   "owner_refs": [
     "docs/design/EXTREME_HARDENING_CONTRACTS.md#G1",
@@ -165,5 +162,28 @@
     "real provider/publication/compensation proof",
     "production release or chaos coverage proof",
     "coverage_state=VERIFIED"
-  ]
+  ],
+  "inherited_control_ids": [
+    "CF-CTRL-RECOVERY-EPOCH",
+    "CF-CTRL-BACKUP-CONSISTENCY",
+    "CF-CTRL-UPDATE-SUPPLY-CHAIN"
+  ],
+  "inherited_control_sources": {
+    "CF-CTRL-RECOVERY-EPOCH": [
+      "L4"
+    ],
+    "CF-CTRL-BACKUP-CONSISTENCY": [
+      "L4"
+    ],
+    "CF-CTRL-UPDATE-SUPPLY-CHAIN": [
+      "L4",
+      "L5"
+    ]
+  },
+  "supplemental_control_ids": [
+    "CF-CTRL-COLLAB-BRANCH",
+    "CF-CTRL-COLLAB-AUTH",
+    "CF-CTRL-HIGH-SECURE-ERASURE"
+  ],
+  "control_scope_note": "L7 directly requires V1 rights/privacy and release-provenance controls. Recovery, backup and update supply-chain controls are inherited from L4 (update supply-chain is also covered by L5). Collaboration and high-secure erasure controls are compatibility/profile supplements; they are not V1 closure prerequisites until their applicability rule activates."
 }
