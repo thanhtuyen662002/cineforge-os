@@ -149,3 +149,24 @@ When a stable section is superseded:
 - do not reuse the old ID for unrelated content.
 
 Integrator/reviewer may require active tasks to rebind when semantics changed materially.
+
+
+# 13. Finding-registry lint
+
+CI documentation lint additionally verifies:
+- every canonical finding in `findings/REGISTRY.json` has a unique `stable_id`;
+- legacy `Xnn` is never treated as canonical identity;
+- stable finding ID does not depend on mutable domain/severity classification;
+- registry source title hash still matches the normalized title;
+- no duplicate active hardening section ID;
+- coverage records reference canonical stable finding IDs only;
+- deprecated legacy coverage files are not accepted as current implementation evidence.
+
+# 14. Hardening contract section identity
+
+For `EXTREME_HARDENING_CONTRACTS.md`:
+- every active top-level owner ID is unique;
+- duplicate IDs block merge;
+- renaming/migration records an explicit map;
+- high-volume future contracts should prefer semantic stable IDs over alphabetic sequence continuation;
+- a cross-reference must resolve to exactly one active section.
