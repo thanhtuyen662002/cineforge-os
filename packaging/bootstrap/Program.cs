@@ -36,6 +36,7 @@ internal static class Program
         var logsRoot = Path.Combine(dataRoot, "logs");
         Directory.CreateDirectory(logsRoot);
         var bootstrapLog = Path.Combine(logsRoot, "bootstrap.log");
+        RotateLog(bootstrapLog);
         Log(bootstrapLog, $"startup root={root}; data={dataRoot}; offline={options.AllowOffline}");
 
         var webRoot = ResolveWebRoot(root);
@@ -150,6 +151,22 @@ internal static class Program
         catch
         {
             // Diagnostics must never prevent the product from starting.
+        }
+    }
+
+    private static void RotateLog(string path)
+    {
+        try
+        {
+            const long maxBytes = 2 * 1024 * 1024;
+            if (!File.Exists(path) || new FileInfo(path).Length <= maxBytes) return;
+            var rotated = path + ".1";
+            if (File.Exists(rotated)) File.Delete(rotated);
+            File.Move(path, rotated);
+        }
+        catch
+        {
+            // A locked diagnostics file must never prevent startup.
         }
     }
 
@@ -420,7 +437,6 @@ internal static class Program
         try
         {
             var path = context.Request.Url?.AbsolutePath ?? "/";
-            Log(bootstrapLog, $"request {context.Request.HttpMethod} {path}");
             if (path.Equals("/healthz", StringComparison.OrdinalIgnoreCase))
             {
                 var payload = JsonSerializer.Serialize(new
@@ -456,7 +472,6 @@ internal static class Program
         }
         finally
         {
-            Log(bootstrapLog, "request complete");
             context.Response.Close();
         }
     }
