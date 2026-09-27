@@ -5549,7 +5549,7 @@ A live heartbeat with no semantic progress beyond task-specific threshold moves 
 
 
 
-# HS. CI/release artifact provenance
+# ZHS. CI/release artifact provenance
 
 Privileged artifact identity binds:
 - repository identity;
@@ -5566,7 +5566,7 @@ Artifact display name is presentation only.
 
 A privileged workflow must not promote an untrusted/fork artifact merely because its name/path matches.
 
-# HT. GitHub Actions trust baseline
+# ZHT. GitHub Actions trust baseline
 
 Production CI/release policy:
 - third-party Actions pinned to immutable commit SHA;
@@ -5577,7 +5577,7 @@ Production CI/release policy:
 
 Mutable tags are convenience only for discovery, never release trust.
 
-# HU. Release identity and anti-rollback
+# ZHU. Release identity and anti-rollback
 
 Release identity is one immutable tuple:
 - release epoch;
@@ -5593,7 +5593,7 @@ Rules:
 - installer/updater refuses policy-forbidden downgrade even if old signature is valid;
 - differential patch binds exact base digest and expected final digest.
 
-# HV. Signed update manifest closure
+# ZHV. Signed update manifest closure
 
 Signed update manifest binds:
 - package digest + size;
@@ -5607,7 +5607,7 @@ Signed update manifest binds:
 Transport/CDN/mirror is untrusted.
 Digest trust comes from the signed manifest, not a hash fetched from the same mirror.
 
-# HW. Installer/elevation transaction
+# ZHW. Installer/elevation transaction
 
 Elevated installer operates from trusted staged bytes and managed working directory.
 
@@ -5626,7 +5626,7 @@ Rules:
 - uninstall removes only owned/refcount-safe components;
 - repair preserves/reconciles newer user/security configuration.
 
-# HX. Signing authorization boundary
+# ZHX. Signing authorization boundary
 
 Signing service accepts an approved **release manifest + exact digest**, not arbitrary caller-provided bytes.
 
@@ -5639,7 +5639,7 @@ It revalidates:
 
 Signature response binds exact digest/key/timestamp evidence.
 
-# HY. Final-byte signature closure
+# ZHY. Final-byte signature closure
 
 No signed executable/package is mutated after the signature-covered byte boundary.
 
@@ -5650,7 +5650,7 @@ When packaging is layered:
 
 Updater verifies final staged bytes before activation.
 
-# HZ. Updater/bootstrapper root of trust
+# ZHZ. Updater/bootstrapper root of trust
 
 Updater/bootstrapper is separately versioned and recovery-tested.
 
@@ -5663,7 +5663,7 @@ It:
 
 A failed main-app update must not destroy the only component capable of recovery.
 
-# IA. Hermetic release build
+# ZIA. Hermetic release build
 
 Release inputs are declared and pinned:
 - compiler/toolchain;
@@ -5676,7 +5676,7 @@ No release path depends on undeclared developer-global state or unpinned `latest
 
 Where full bit reproducibility is impossible, policy records the expected nondeterminism and still requires content/provenance attestation.
 
-# IB. Packaged-content SBOM and legal closure
+# ZIB. Packaged-content SBOM and legal closure
 
 Release compliance is derived from actual packaged contents.
 
@@ -5690,7 +5690,7 @@ Gate compares:
 
 Source-tree SBOM alone is insufficient.
 
-# IC. Release artifact privacy/symbol handling
+# ZIC. Release artifact privacy/symbol handling
 
 Public/release artifacts are scanned for:
 - credentials/tokens;
@@ -5704,7 +5704,7 @@ Debug symbols are a separately classified artifact:
 - have explicit storage/access/retention;
 - are not automatically public.
 
-# ID. Release trigger and protected environment authority
+# ZID. Release trigger and protected environment authority
 
 Release execution validates:
 - allowed trigger/source;
@@ -5716,7 +5716,7 @@ Release execution validates:
 
 Missing/renamed/degraded protection becomes BLOCKED/ASSURANCE_UNAVAILABLE, not implicit approval.
 
-# IE. Offline install/update revocation policy
+# ZIE. Offline install/update revocation policy
 
 Offline verification distinguishes:
 - cryptographic signature validity;
@@ -5730,7 +5730,7 @@ Security profile may:
 
 Offline mode must not claim revocation freshness it cannot observe.
 
-# IF. Installer/update lifecycle
+# ZIF. Installer/update lifecycle
 
 States:
 `PLANNED → PREFLIGHT → STAGED → VERIFIED → WAITING_SAFE_BOUNDARY → INSTALLING → ACTIVATING → HEALTH_CHECK → ACTIVE`
@@ -5747,7 +5747,7 @@ Failure/recovery:
 
 “Rollback available” is exposed only when installer journal + schema compatibility prove it.
 
-# IG. Required supply-chain tests
+# ZIG. Required supply-chain tests
 
 158. mutable third-party Action tag compromised;
 159. PR workflow accidentally receives OIDC/write permission;
@@ -5775,7 +5775,7 @@ Failure/recovery:
 
 
 
-# IH. Privacy purge closure and completion barrier
+# ZIH. Privacy purge closure and completion barrier
 
 A privacy/delete/purge request owns a closure over:
 - canonical entities/revisions;
@@ -5793,7 +5793,7 @@ Purge states:
 
 The strongest user-facing wording is shown only after the corresponding barrier.
 
-# II. Forward deletion/revocation journal
+# ZII. Forward deletion/revocation journal
 
 Disaster restore must not resurrect later privacy/security decisions.
 
@@ -5808,7 +5808,7 @@ Journal entries have monotonic sequence and durable checkpoint outside ordinary 
 
 Recovery applies the forward journal before recovered content becomes active.
 
-# IJ. Embedding/vector/semantic-index security scope
+# ZIJ. Embedding/vector/semantic-index security scope
 
 Embeddings are sensitive derivatives.
 
@@ -5824,7 +5824,7 @@ Search/RAG query requires a scope token; index implementation must not retrieve 
 
 Cross-project/shared retrieval requires explicit shared collection authority.
 
-# IK. Model/session isolation
+# ZIK. Model/session isolation
 
 Inference runtimes declare session isolation class:
 - STATELESS;
@@ -5840,7 +5840,7 @@ On project/privacy boundary:
 
 A runtime unable to prove reset semantics cannot be reused across restricted scopes under strict privacy policy.
 
-# IL. Learning/training derivative governance
+# ZIL. Learning/training derivative governance
 
 Training examples, fine-tuning datasets, adapters and trained checkpoints are first-class derivatives with lineage and rights.
 
@@ -5853,7 +5853,7 @@ Revocation handling may include:
 
 Deleting source bytes is never represented as proof that a trained model no longer encodes influence from them.
 
-# IM. Observability privacy plane
+# ZIM. Observability privacy plane
 
 Logs/traces/metrics/crash diagnostics have explicit schemas and data classes.
 
@@ -5868,7 +5868,7 @@ Redaction/minimization happens before emission/storage, not only during later su
 
 Retention/purge policy applies independently to observability stores.
 
-# IN. Native notification privacy
+# ZIN. Native notification privacy
 
 Notification payload is derived from a trusted template plus sanitized args and a privacy profile:
 - FULL_CONTENT;
@@ -5879,7 +5879,7 @@ Sensitive content never depends on OS lock-screen behavior alone.
 
 Actionable notification carries DecisionRequest/entity ID + expected version and always revalidates state on click.
 
-# IO. Backup vs ephemeral authentication
+# ZIO. Backup vs ephemeral authentication
 
 Project/system backup excludes live browser cookies/session tokens/worker secret leases by default.
 
@@ -5891,7 +5891,7 @@ If secure credential backup is supported, it is a separate explicit encrypted me
 
 Ordinary restore expects REAUTH_REQUIRED where secure material is unavailable.
 
-# IP. Single Core/library writer ownership
+# ZIP. Single Core/library writer ownership
 
 Each writable CineForge library has:
 - library/deployment identity;
@@ -5911,7 +5911,7 @@ A second UI connects to the existing Core; it does not start a second writer.
 
 Updater/new Core cannot acquire writer authority until the prior Core is drained/terminated and ownership is reconciled.
 
-# IQ. Archive immutability
+# ZIQ. Archive immutability
 
 Sealed archive/package bytes are immutable.
 
@@ -5923,7 +5923,7 @@ No in-place schema migration, index write, metadata normalization or decoder “
 
 Derived preview/index output lives outside the sealed package and is disposable.
 
-# IR. Consent/privacy generation epoch
+# ZIR. Consent/privacy generation epoch
 
 Privacy/telemetry/cloud-consent policy has a generation number.
 
@@ -5936,7 +5936,7 @@ Immediately before transmission:
 
 Turning off telemetry/cloud sharing affects queued-unsent work; it cannot erase already transmitted exposure.
 
-# IS. External exposure ledger
+# ZIS. External exposure ledger
 
 Every outbound sensitive-data transfer records:
 - project/data class;
@@ -5950,7 +5950,7 @@ Every outbound sensitive-data transfer records:
 
 The ledger survives local purge according to audit/privacy policy so the UI can truthfully explain external residual exposure.
 
-# IT. Most-restrictive dependency privacy
+# ZIT. Most-restrictive dependency privacy
 
 A command's effective egress class is computed from the full input/dependency closure.
 
@@ -5960,7 +5960,7 @@ Default rule:
 - provider-specific restrictions propagate through derived assets;
 - explicit declassification/reclassification is a separate authorized audited command.
 
-# IU. Temp/cache/project isolation
+# ZIU. Temp/cache/project isolation
 
 Per-job/project temp/cache roots are scope-bound.
 
@@ -5971,7 +5971,7 @@ On crash/startup reconciliation:
 
 Model/runtime package cache is separate from project-content cache.
 
-# IV. Required privacy/isolation tests
+# ZIV. Required privacy/isolation tests
 
 181. purge project while thumbnails/vector index still contain data;
 182. restore backup after later privacy purge;
@@ -5991,7 +5991,7 @@ Model/runtime package cache is separate from project-content cache.
 
 
 
-# IW. Offline collaboration branch
+# ZIW. Offline collaboration branch
 
 Offline edits are not delayed canonical writes.
 
@@ -6008,7 +6008,7 @@ An offline working branch records:
 
 Reconnect performs a rebase/merge plan through normal command authorization.
 
-# IX. Domain merge classes
+# ZIX. Domain merge classes
 
 Every collaborative domain declares merge class:
 
@@ -6020,7 +6020,7 @@ Every collaborative domain declares merge class:
 
 No generic LWW policy is allowed for privilege-bearing or canon-bearing state.
 
-# IY. Collaboration conflict entity
+# ZIY. Collaboration conflict entity
 
 Conflict captures:
 - base revision/version;
@@ -6034,7 +6034,7 @@ Conflict captures:
 Resolution produces a new explicit command/revision.
 Conflict history is not erased.
 
-# IZ. Sync authority revalidation
+# ZIZ. Sync authority revalidation
 
 On reconnect/submit, revalidate:
 - actor/account enabled;
@@ -6046,7 +6046,7 @@ On reconnect/submit, revalidate:
 
 Old offline authorization never grants present authority.
 
-# JA. Tombstone/terminal-state dominance
+# ZJA. Tombstone/terminal-state dominance
 
 Stale/offline edits cannot resurrect:
 - privacy-purged entities;
@@ -6057,7 +6057,7 @@ Stale/offline edits cannot resurrect:
 
 Explicit restore/recreate command under current policy is required.
 
-# JB. Authoritative exclusive locks
+# ZJB. Authoritative exclusive locks
 
 Only authoritative Core can grant a new exclusive/manual/canonical lock.
 
@@ -6069,7 +6069,7 @@ Offline continuation of an existing lease is bounded by:
 
 Loss of authoritative lock means offline work returns as candidate/conflict, not canonical write.
 
-# JC. Actor/device/session identity
+# ZJC. Actor/device/session identity
 
 Collaboration provenance records:
 - actor;
@@ -6080,7 +6080,7 @@ Collaboration provenance records:
 
 Same actor on multiple devices is not treated as one conflict-free stream.
 
-# JD. Offline queue compaction and expiry
+# ZJD. Offline queue compaction and expiry
 
 Offline branch has:
 - max operation count/bytes/age;
@@ -6091,7 +6091,7 @@ Offline branch has:
 
 Unknown old operation semantics fail closed.
 
-# JE. Offline irreversible-action rule
+# ZJE. Offline irreversible-action rule
 
 Offline mode may prepare:
 - drafts;
@@ -6108,7 +6108,7 @@ It cannot execute final external/irreversible phases such as:
 
 These require fresh online/current authority and external-state checks.
 
-# JF. Collaboration transport as capability
+# ZJF. Collaboration transport as capability
 
 Network collaboration/sync is a capability provider with:
 - egress/privacy class;
@@ -6120,7 +6120,7 @@ Network collaboration/sync is a capability provider with:
 
 LOCAL_ONLY input closure blocks cloud collaboration for that content unless separately authorized/declassified.
 
-# JG. Notification recipient authorization
+# ZJG. Notification recipient authorization
 
 Collaboration notification/mention delivery revalidates:
 - recipient membership/access;
@@ -6129,7 +6129,7 @@ Collaboration notification/mention delivery revalidates:
 
 Stale queued notifications are redacted/dropped when access was removed.
 
-# JH. Canonical promotion CAS
+# ZJH. Canonical promotion CAS
 
 Canonical promotion/approval binds:
 - canonical slot/entity;
@@ -6140,7 +6140,7 @@ Canonical promotion/approval binds:
 Mutation succeeds only if expected current value still matches.
 Concurrent loser receives conflict and remains candidate/noncanonical.
 
-# JI. Required collaboration tests
+# ZJI. Required collaboration tests
 
 196. offline edit against changed canon;
 197. offline edit after privacy purge;
@@ -6159,7 +6159,7 @@ Concurrent loser receives conflict and remains candidate/noncanonical.
 
 
 
-# JJ. Coordinated retry domains
+# ZJJ. Coordinated retry domains
 
 Retry is scheduled by a coordinator scoped to the external failure/rate-limit domain, not independently by each worker.
 
@@ -6176,7 +6176,7 @@ State tracks:
 Provider retry hints are parsed/clamped.
 Half-open state admits a bounded number of probes.
 
-# JK. Fallback hysteresis
+# ZJK. Fallback hysteresis
 
 Router stores recent fallback history and cooldown.
 
@@ -6187,7 +6187,7 @@ Failover from A→B:
 - avoids immediate B→A oscillation;
 - keeps failed-domain circuit state across Core restart where appropriate.
 
-# JL. Shared quota/rate-limit domains
+# ZJL. Shared quota/rate-limit domains
 
 Connection records identify or infer the provider limiting scope:
 - credential/API key;
@@ -6200,7 +6200,7 @@ Connection records identify or infer the provider limiting scope:
 Quota/rate state is aggregated at the limiting scope.
 Multiple UI Connection cards do not imply independent quota.
 
-# JM. Project fair-share scheduling
+# ZJM. Project fair-share scheduling
 
 Scheduler calculates effective priority from:
 - policy priority class;
@@ -6215,7 +6215,7 @@ User-entered priority is an input, not unrestricted scheduler authority.
 
 No numeric overflow/NaN/Infinity is accepted.
 
-# JN. Mandatory maintenance deadlines
+# ZJN. Mandatory maintenance deadlines
 
 Safety maintenance declares:
 - earliest start;
@@ -6226,7 +6226,7 @@ Safety maintenance declares:
 
 If borrowed capacity is allowed, only reclaimable/preemptible work may occupy the deadline buffer.
 
-# JO. Cancellation coordinator
+# ZJO. Cancellation coordinator
 
 Bulk cancellation:
 - coalesces/batches where provider supports it;
@@ -6237,7 +6237,7 @@ Bulk cancellation:
 
 Cancellation never erases cost exposure evidence.
 
-# JP. Durable retry/exposure budget
+# ZJP. Durable retry/exposure budget
 
 Logical external effect owns a durable retry budget independent from worker process.
 
@@ -6250,7 +6250,7 @@ Budget survives:
 
 Manual retry-budget extension is a high-impact audited command.
 
-# JQ. Persistent external breaker state
+# ZJQ. Persistent external breaker state
 
 Breaker state persists enough evidence to avoid restart hammering:
 - failure domain;
@@ -6262,7 +6262,7 @@ Breaker state persists enough evidence to avoid restart hammering:
 
 On recovery, stale state is revalidated conservatively.
 
-# JR. Paid dispatch revalidation
+# ZJR. Paid dispatch revalidation
 
 Immediately before paid dispatch:
 - current price/credit unit snapshot when available;
@@ -6275,7 +6275,7 @@ Immediately before paid dispatch:
 
 Admission may block even if the original plan estimate was under budget.
 
-# JS. Dead-letter and retry-history lifecycle
+# ZJS. Dead-letter and retry-history lifecycle
 
 DLQ/retry evidence has:
 - bounded hot retention;
@@ -6284,7 +6284,7 @@ DLQ/retry evidence has:
 - priority retention for irreversible/paid/security events;
 - cleanup that never destroys unresolved compensation/reconciliation evidence.
 
-# JT. Hierarchical active queue
+# ZJT. Hierarchical active queue
 
 Large batches/projects remain hierarchical.
 
@@ -7040,7 +7040,7 @@ Post-mux validation checks A/V/subtitle alignment against final bytes.
 284. final mux timestamp rebase A/V/subtitle check.
 
 
-# LW. Canonical source-tree materialization
+# ZLW. Canonical source-tree materialization
 
 Trusted CI/release materializes source from a declared source manifest.
 
