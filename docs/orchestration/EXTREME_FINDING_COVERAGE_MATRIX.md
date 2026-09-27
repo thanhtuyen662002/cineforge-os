@@ -1,4 +1,20 @@
-# CineForge OS — Extreme Finding Coverage Matrix
+# LEGACY — Extreme Finding Coverage Matrix
+
+> **DEPRECATED FOR MACHINE IDENTITY AND CURRENT COVERAGE.**
+>
+> This file predates the canonical finding registry. Legacy `Xnn` labels were reused by later attack waves and are therefore ambiguous.
+>
+> Current canonical identity:
+> - `docs/orchestration/findings/REGISTRY.json`
+> - `docs/orchestration/findings/README.md`
+>
+> Current implementation-contract owner:
+> - `docs/design/EXTREME_HARDENING_CONTRACTS.md`
+>
+> The historical table below is retained only as audit evidence for the earliest X01–X60 wave.
+> Coding agents MUST NOT use `Xnn` alone to identify a finding or infer coverage.
+
+---
 
 > Task #1 / Draft PR #2.
 > Purpose: prove that every newly discovered X01–X60 finding has an implementation/control owner. This is a mapping document, not a duplicate contract source.
