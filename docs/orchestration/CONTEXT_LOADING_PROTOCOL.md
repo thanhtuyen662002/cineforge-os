@@ -128,3 +128,39 @@ Rules:
 - trusted Planner adoption creates a new/authorized Task contract rather than blessing arbitrary external prose wholesale.
 
 Context minimization must never remove the trust check.
+
+
+# 11. Section-addressable context
+
+Task context should reference `path#stable-section-id` when the owner document is large/sectional.
+
+Whole-file references are reserved for contracts that genuinely require the entire document.
+
+A search hit/snippet is navigation evidence, not proof the mandatory section was fully loaded.
+
+# 12. Context Manifest
+
+At claim, materialize the Context Manifest defined in `CONTEXT_MANIFEST_AND_DOC_LINT.md`.
+
+Before substantive mutation:
+- validate all MANDATORY items;
+- bind source commit/digest;
+- block as `BLOCKED_CONTEXT` if a mandatory section is missing/truncated/unavailable.
+
+Review/merge revalidates changed mandatory section digests rather than invalidating a task for unrelated edits elsewhere in a large file.
+
+# 13. High-risk independent context resolution
+
+For HIGH-risk review, reviewer independently computes the expected mandatory owner/risk sections and compares with the author/Task manifest.
+
+Author-provided context is input, not the sole authority.
+
+# 14. Context overhead
+
+Flow may track context bytes/load time/cache hit/mandatory miss.
+
+If context overhead dominates scheduled execution:
+- split Task;
+- narrow context;
+- split oversized owner section;
+- do not respond by silently skipping required context.

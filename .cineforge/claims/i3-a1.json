@@ -1,0 +1,12 @@
+{
+  "claim_version": 1,
+  "issue": 3,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-redteam",
+  "run_id": "WORK-redteam-20260926-I3-A1",
+  "slot_id": "WORK-redteam",
+  "claim_base_sha": "20d5a6f1760df3b49cc18e93ba0e938187e25e2a",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:83abc857753a11261928339121438d67a981cdf4743e805203776384a7f3ef84",
+  "context_base_sha": "20d5a6f1760df3b49cc18e93ba0e938187e25e2a"
+}

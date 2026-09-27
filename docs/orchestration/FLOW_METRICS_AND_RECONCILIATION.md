@@ -204,3 +204,42 @@ Metric:
 - CONTROL_EVENT_COUNT_CURRENT_EPOCH
 - CONTROL_EVENT_FETCH_TIME
 - CONTROL_EPOCH_ROTATIONS
+
+
+
+# 15. Integrity/time/storage stop-the-line signals
+
+Flow Governor treats as stop-the-line or scoped freeze according to severity:
+- integrity incident on canonical state;
+- database READ_ONLY_SAFE;
+- untrusted system time affecting signing/release/leases;
+- migration RECOVERY_REQUIRED;
+- release attestation failure.
+
+Builders may continue unrelated safe work when freeze scope is narrower than whole repository/system.
+
+# 16. Archive/rebuild health metrics
+
+Track:
+- PROJECTION_REBUILD_FROM_SEQ
+- PROJECTION_REBUILD_DURATION
+- EVENT_ARCHIVE_LAG
+- SNAPSHOT_AGE
+- INTEGRITY_INCIDENT_COUNT
+
+Repeated full replay from event 0 is a scaling defect, not expected steady state.
+
+
+# 15. Context throughput metrics
+
+Track where available:
+- CONTEXT_ITEMS_REQUIRED
+- CONTEXT_ITEMS_LOADED
+- CONTEXT_BYTES_FETCHED
+- CONTEXT_LOAD_TIME
+- CONTEXT_CACHE_HIT
+- CONTEXT_MANDATORY_MISS
+- CONTEXT_EXPANSION_COUNT
+
+Repeated high context-load share is a decomposition/documentation bottleneck.
+Flow Governor may create a docs-contract split/index task rather than letting every worker repeatedly load oversized owner files.
