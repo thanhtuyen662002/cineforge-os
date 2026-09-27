@@ -310,6 +310,36 @@ a provider or publish externally.  L6 remains `DESIGNED_UNVERIFIED` and
 `PARKED_EXPLORATION_ONLY` until independent runtime, verifier and executed
 chaos evidence exist.
 
+The L7 slice adds a bounded release-boundary reference harness and gate:
+
+```text
+python docs/orchestration/l7_release_selftest.py
+python docs/orchestration/l7_release_gate.py
+python docs/orchestration/l7_release_gate_selftest.py
+```
+
+These fixtures cover CT-29, CT-30, CT-31, CT-32, CT-33, CT-34, CT-38 and
+CT-40.  The supplemental archive fixture is read-only and cannot be promoted
+to real backup, restore or erasure evidence.  The module is explicitly
+`REFERENCE_HARNESS_ONLY`: it does not enforce real rights, erase a real disk,
+restore a real backup, verify a real signing key or CI runner, authorize a
+real offline actor, or activate a real deployment.  L7 remains
+`DESIGNED_UNVERIFIED` and `PARKED_EXPLORATION_ONLY` until independent runtime,
+verifier and executed chaos evidence exist.
+
+The architecture-level closure boundary is machine-readable in
+`docs/orchestration/ARCHITECTURE_CLOSURE_MANIFEST.json` and is checked with:
+
+```text
+python docs/orchestration/architecture_closure_gate.py
+python docs/orchestration/architecture_closure_gate_selftest.py
+```
+
+The closure gate can close the design baseline only.  It must preserve
+`CHOT_DESIGN_BASELINE`, `NOT_IMPLEMENTED_IN_REPOSITORY`,
+`PARKED_EXPLORATION_ONLY` and `NOT_CLOSED`; a green gate is not runtime,
+production or release evidence.
+
 # 17. Lane #3 bootstrap gate
 
 The first promotion slice for the exploration PR is the control-plane and

@@ -2201,3 +2201,18 @@ It coordinates:
 Workers never independently unleash retries after an outage.
 
 Recovery/fallback optimizes controlled throughput, not instantaneous queue draining.
+
+
+# ARCH-REDTEAM-CLOSURE-01. Red-team closure boundary
+
+The architecture decision is **CHOT_DESIGN_BASELINE**: the authoritative
+architecture and its L3–L7 contract routing are closed at the design level.
+The bounded lane gates prove that the owner links, chaos assignments,
+fail-closed assertions and non-claim boundaries are internally consistent.
+
+This decision does not claim that CineForge runtime behavior exists.  Product
+implementation, independent architecture/security/QA review, trusted exact
+head CI, executed runtime/chaos evidence, child implementation PRs and
+post-merge reconciliation remain required before implementation or production
+release can be closed.  The machine-readable boundary is recorded in
+`docs/orchestration/ARCHITECTURE_CLOSURE_MANIFEST.json`.

@@ -132,6 +132,32 @@ start a worker process, access a camera, call a provider or publish externally.
 Passing fixtures remain `DESIGNED_UNVERIFIED`, and L6 promotion remains parked
 until independent runtime, verifier and executed chaos evidence exist.
 
+L7 has a bounded reference harness for rights-generation cache fences,
+forward-delete/restore reconciliation, package-key revocation and security
+epochs, CI artifact provenance, clean release closure, final-byte signer
+binding, offline authority revalidation and deployment split-brain fencing:
+`docs/orchestration/l7_release_contract.py` and
+`docs/orchestration/L7_RELEASE_CONTRACT_MANIFEST.json`.  Run
+`python docs/orchestration/l7_release_selftest.py`, then
+`python docs/orchestration/l7_release_gate.py`; gate metadata fixtures run
+with `python docs/orchestration/l7_release_gate_selftest.py`.  The exact chaos
+slice is CT-29, CT-30, CT-31, CT-32, CT-33, CT-34, CT-38 and CT-40.  The
+read-only archive import is supplemental and cannot satisfy a production
+restore or erasure claim.  The module is explicitly `REFERENCE_HARNESS_ONLY`:
+it does not enforce real rights, erase a real disk, restore a real backup,
+verify a real signing key or CI runner, authorize a real offline actor, or
+activate a real deployment.  Passing fixtures remain `DESIGNED_UNVERIFIED`,
+and L7 promotion remains parked until independent runtime, verifier and
+executed chaos evidence exist.
+
+The architecture-level closure boundary is machine-readable in
+`docs/orchestration/ARCHITECTURE_CLOSURE_MANIFEST.json`; validate it with
+`python docs/orchestration/architecture_closure_gate.py` and its metadata
+fixtures with `python docs/orchestration/architecture_closure_gate_selftest.py`.
+That gate can close the design baseline only.  It must report
+`CHOT_DESIGN_BASELINE`, `NOT_IMPLEMENTED_IN_REPOSITORY` and `NOT_CLOSED`
+together; those values are deliberate and are not a release authorization.
+
 ## Next gate
 
 Before this PR can become review-ready:

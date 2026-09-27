@@ -58,6 +58,21 @@ runtime evidence parked.  The exact chaos mapping is CT-25/26/27/28/39.  The
 capture-session fixture is supplemental and cannot satisfy CT-39 publication
 evidence.
 
+For an L7 release-boundary contract slice, also run
+`l7_release_selftest.py`, `l7_release_gate.py` and
+`l7_release_gate_selftest.py`; these are reference fixtures only and must keep
+runtime evidence parked.  The exact chaos mapping is
+CT-29/30/31/32/33/34/38/40.  The read-only archive import fixture is
+supplemental and cannot satisfy real restore, erasure, signing, CI,
+offline-authority or deployment evidence.
+
+When assessing architecture closure, also run
+`architecture_closure_gate.py` and
+`architecture_closure_gate_selftest.py`.  A passing result closes only the
+design baseline and must preserve `CHOT_DESIGN_BASELINE`,
+`NOT_IMPLEMENTED_IN_REPOSITORY`, `PARKED_EXPLORATION_ONLY` and
+`NOT_CLOSED` as separate states.
+
 TASK SELECTION:
 - choose highest-value READY task compatible with your role;
 - prefer critical path / downstream-unblock value;
