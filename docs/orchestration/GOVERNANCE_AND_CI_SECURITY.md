@@ -479,7 +479,7 @@ When the repository first adds real GitHub Actions:
 
 
 
-# 27. GitHub Actions/release supply-chain gates
+# GOV-SUPPLY-CHAIN-GATES. GitHub Actions/release supply-chain gates
 
 Production/release workflows additionally require:
 - third-party Actions pinned by immutable commit SHA;
@@ -490,7 +490,7 @@ Production/release workflows additionally require:
 - release build tied to immutable release commit/manifest;
 - release/signing environments checked for expected protection identity.
 
-# 28. Release artifact/signing separation
+# GOV-RELEASE-SIGNING-SEPARATION. Release artifact/signing separation
 
 Build/test job cannot directly request arbitrary signing.
 
@@ -502,7 +502,7 @@ Signing authorization consumes:
 
 A release workflow change that weakens this separation is HIGH-risk governance.
 
-# 29. Installer/update governance
+# GOV-INSTALLER-UPDATE. Installer/update governance
 
 Changes to:
 - installer/bootstrapper;
@@ -524,7 +524,7 @@ They require negative tests for:
 - power-loss/partial install;
 - user-data preservation.
 
-# 30. Release input hermeticity
+# GOV-RELEASE-HERMETICITY. Release input hermeticity
 
 Release jobs fail when they rely on:
 - unpinned `latest` executable/toolchain download;
@@ -536,7 +536,7 @@ Actual packaged contents drive SBOM/license/privacy checks.
 
 
 
-# 31. Bootstrap governance state
+# GOV-BOOTSTRAP-STATE. Bootstrap governance state
 
 A repository cannot require mature CI/reviewer infrastructure to approve the first implementation of that same infrastructure.
 
@@ -562,7 +562,7 @@ Once normal governance capability is enabled:
 - ordinary agents cannot reopen it;
 - future changes use normal HIGH-risk governance.
 
-# 32. Risk severity calibration
+# GOV-SEVERITY-CALIBRATION. Risk severity calibration
 
 A red-team severity record distinguishes:
 - DESIGN_SEVERITY
@@ -575,7 +575,7 @@ A red-team severity record distinguishes:
 
 A future multi-user P0 does not automatically block single-user V1 when that capability is not reachable, provided current implementation preserves the required boundary.
 
-# 33. Risk-proportional CI
+# GOV-RISK-PROPORTIONAL-CI. Risk-proportional CI
 
 CI selection maps:
 - changed domain/control IDs;
@@ -595,7 +595,7 @@ Broader adversarial suites run:
 Security depth must not collapse throughput by running the entire chaos catalog on every trivial PR.
 
 
-# 34. Canonical checkout/source gate
+# GOV-CANONICAL-CHECKOUT. Canonical checkout/source gate
 
 Privileged CI/release checkout verifies:
 - exact repository/commit/tree;

@@ -230,7 +230,7 @@ Track:
 Repeated full replay from event 0 is a scaling defect, not expected steady state.
 
 
-# 15. Context throughput metrics
+# FLOW-CONTEXT-THROUGHPUT. Context throughput metrics
 
 Track where available:
 - CONTEXT_ITEMS_REQUIRED
@@ -246,7 +246,7 @@ Flow Governor may create a docs-contract split/index task rather than letting ev
 
 
 
-# 15. Anti-gaming / flow-quality signals
+# FLOW-ANTI-GAMING. Anti-gaming / flow-quality signals
 
 Track operational signals for diagnosis:
 - CLAIM_ABANDON_RATE_BY_AGENT
@@ -261,7 +261,7 @@ Track operational signals for diagnosis:
 These metrics do not create an automatic punitive “agent reputation score”.
 They trigger Flow/QA investigation and capacity/role adjustment.
 
-# 16. Critical-path derivation
+# FLOW-CRITICAL-PATH. Critical-path derivation
 
 Downstream-unblock value is computed from the actual current hard/soft dependency graph and milestone path.
 Self-declared prose such as “unblocks 50 tasks” is advisory only.

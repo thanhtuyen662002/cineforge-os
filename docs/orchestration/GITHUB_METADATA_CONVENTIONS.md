@@ -270,7 +270,7 @@ This bootstrap commit is not substantive implementation and exists solely to mak
 
 
 
-# 14. Structured evidence source
+# GH-EVIDENCE-SOURCE. Structured evidence source
 
 AGENT_REVIEW and state events may reference:
 - EVIDENCE_SOURCE_CLASS

@@ -1783,7 +1783,7 @@ Independent axes:
 
 
 
-# 61. Release build and signing lifecycle
+# STATE-RELEASE-BUILD-SIGNING. Release build and signing lifecycle
 
 Release build:
 ```text
@@ -1809,7 +1809,7 @@ Failures:
 
 Artifact identity is immutable after ARTIFACT_ATTESTED.
 
-# 62. Installer transaction lifecycle
+# STATE-INSTALLER-TRANSACTION. Installer transaction lifecycle
 
 ```text
 PLANNED
@@ -1838,7 +1838,7 @@ Uninstall:
 
 User/project/media data is never classified as installer-owned merely because of path proximity.
 
-# 63. Update anti-rollback state
+# STATE-UPDATE-ANTI-ROLLBACK. Update anti-rollback state
 
 Update candidate:
 - ALLOWED
@@ -1851,7 +1851,7 @@ Update candidate:
 
 UNKNOWN_REVOCATION_FRESHNESS never silently becomes ALLOWED under strict profile.
 
-# 64. Signing key/service authorization state
+# STATE-SIGNING-KEY-SERVICE-AUTHORIZATION. Signing key/service authorization state
 
 Signing request:
 - REQUESTED
@@ -1868,7 +1868,7 @@ Reject if:
 - gate evidence stale;
 - key revoked/expired.
 
-# 65. Updater/bootstrapper state
+# STATE-UPDATER-BOOTSTRAPPER. Updater/bootstrapper state
 
 - HEALTHY
 - UPDATE_AVAILABLE
@@ -1883,7 +1883,7 @@ Main app failure cannot automatically mark updater HEALTHY if updater verificati
 
 
 
-# 66. Privacy purge lifecycle
+# STATE-PRIVACY-PURGE. Privacy purge lifecycle
 
 ```text
 REQUESTED
@@ -1903,7 +1903,7 @@ Alternate:
 
 The state is not COMPLETE merely because canonical DB rows are gone.
 
-# 67. Semantic index entry lifecycle
+# STATE-SEMANTIC-INDEX-ENTRY. Semantic index entry lifecycle
 
 - ACTIVE
 - STALE
@@ -1913,7 +1913,7 @@ The state is not COMPLETE merely because canonical DB rows are gone.
 
 A source rights/privacy change can move ACTIVE directly to STALE/PURGE_PENDING.
 
-# 68. Inference session lifecycle
+# STATE-INFERENCE-SESSION. Inference session lifecycle
 
 - CREATED
 - ACTIVE
@@ -1927,7 +1927,7 @@ A privacy/project scope change requires RESET_REQUIRED unless isolation class is
 
 TAINTED sessions cannot accept new production work.
 
-# 69. Learning derivative lifecycle
+# STATE-LEARNING-DERIVATIVE. Learning derivative lifecycle
 
 - ACTIVE
 - QUARANTINED
@@ -1937,7 +1937,7 @@ TAINTED sessions cannot accept new production work.
 
 Source revocation may propagate ACTIVE → QUARANTINED/RETRAIN_REQUIRED according to policy.
 
-# 70. Privacy generation lifecycle
+# STATE-PRIVACY-GENERATION. Privacy generation lifecycle
 
 Privacy revision:
 - DRAFT
@@ -1951,7 +1951,7 @@ Queued outbound operation:
 - BLOCKED_BY_NEW_POLICY
 - SENT
 
-# 71. Library writer ownership lifecycle
+# STATE-LIBRARY-WRITER-OWNERSHIP. Library writer ownership lifecycle
 
 - UNOWNED
 - ACQUIRING
@@ -1964,7 +1964,7 @@ Queued outbound operation:
 Only one process may be OWNED for a writable library.
 A second Core remains CLIENT_OR_BLOCKED, never co-writer.
 
-# 72. Archive lifecycle
+# STATE-ARCHIVE. Archive lifecycle
 
 - BUILDING
 - SEALED
@@ -1975,7 +1975,7 @@ A second Core remains CLIENT_OR_BLOCKED, never co-writer.
 
 READ_ONLY_OPEN cannot transition into mutable migration of the sealed archive itself.
 
-# 73. External exposure lifecycle
+# STATE-EXTERNAL-EXPOSURE. External exposure lifecycle
 
 Exposure record:
 - RECORDED
@@ -1989,7 +1989,7 @@ Local purge never deletes historical exposure truth merely to show a cleaner sta
 
 
 
-# 74. Collaboration branch lifecycle
+# STATE-COLLABORATION-BRANCH. Collaboration branch lifecycle
 
 ```text
 ACTIVE_ONLINE
@@ -2007,7 +2007,7 @@ Alternate:
 - any nonterminal → ABANDONED
 - unsupported/too-old queue → IMPORT_AS_BRANCH_REQUIRED
 
-# 75. Collaboration conflict lifecycle
+# STATE-COLLABORATION-CONFLICT. Collaboration conflict lifecycle
 
 - OPEN
 - RESOLVING
@@ -2017,7 +2017,7 @@ Alternate:
 
 A conflict becomes OBSOLETE if canonical state changed so much that the proposed resolution no longer applies.
 
-# 76. Actor/device authority state
+# STATE-ACTOR-DEVICE-AUTHORITY. Actor/device authority state
 
 Actor:
 - ACTIVE
@@ -2033,7 +2033,7 @@ Device:
 
 Current state is checked at sync/irreversible action; historical authority does not survive revocation.
 
-# 77. Collaboration lock lifecycle
+# STATE-COLLABORATION-LOCK. Collaboration lock lifecycle
 
 - REQUESTED
 - ACTIVE
@@ -2044,7 +2044,7 @@ Current state is checked at sync/irreversible action; historical authority does 
 
 OFFLINE_GRACE cannot mint new privileged/canonical authority; final canonical merge still revalidates with Core.
 
-# 78. Canonical promotion race
+# STATE-CANONICAL-PROMOTION-RACE. Canonical promotion race
 
 ```text
 PROPOSED
@@ -2059,7 +2059,7 @@ or:
 
 Exactly one concurrent promotion may apply for a given expected current revision.
 
-# 79. Offline action class
+# STATE-OFFLINE-ACTION-CLASS. Offline action class
 
 Action policy:
 - OFFLINE_ALLOWED_DRAFT
@@ -2071,7 +2071,7 @@ Rights/security/publish/credential/high-cost final actions are ONLINE_REQUIRED/O
 
 
 
-# 80. External circuit breaker lifecycle
+# STATE-EXTERNAL-CIRCUIT-BREAKER. External circuit breaker lifecycle
 
 - CLOSED
 - OPEN
@@ -2090,7 +2090,7 @@ Transitions:
 
 Only coordinator grants HALF_OPEN probe slots.
 
-# 81. Retry budget lifecycle
+# STATE-RETRY-BUDGET. Retry budget lifecycle
 
 - ACTIVE
 - WAITING_BACKOFF
@@ -2101,7 +2101,7 @@ Only coordinator grants HALF_OPEN probe slots.
 
 Restart/requeue does not reset attempts_used.
 
-# 82. Maintenance deadline state
+# STATE-MAINTENANCE-DEADLINE. Maintenance deadline state
 
 - PLANNED
 - BORROWING_CAPACITY
@@ -2115,7 +2115,7 @@ Restart/requeue does not reset attempts_used.
 
 AT_RISK triggers Flow/System attention before deadline is missed.
 
-# 83. Fallback ramp state
+# STATE-FALLBACK-RAMP. Fallback ramp state
 
 - PRIMARY
 - EVALUATING_FALLBACK
@@ -2129,7 +2129,7 @@ Anti-oscillation cooldown prevents rapid A↔B flip-flop.
 
 
 
-# 84. Browser profile lifecycle
+# STATE-BROWSER-PROFILE. Browser profile lifecycle
 
 - CREATING
 - READY
@@ -2142,7 +2142,7 @@ Anti-oscillation cooldown prevents rapid A↔B flip-flop.
 - REAUTH_REQUIRED
 - REMOVED
 
-# 85. Browser auth session lifecycle
+# STATE-BROWSER-AUTH-SESSION. Browser auth session lifecycle
 
 ```text
 CREATED
@@ -2163,7 +2163,7 @@ Failures:
 - EXPIRED
 - CANCELLED
 
-# 86. Browser automation execution
+# STATE-BROWSER-AUTOMATION-EXECUTION. Browser automation execution
 
 - PRECONDITION_CHECK
 - NAVIGATING
@@ -2184,7 +2184,7 @@ Interruptions:
 - PROFILE_DEGRADED
 - DOWNLOAD_AMBIGUOUS
 
-# 87. Human takeover state
+# STATE-HUMAN-TAKEOVER. Human takeover state
 
 - REQUESTED
 - HUMAN_ACTIVE
@@ -2196,7 +2196,7 @@ Interruptions:
 
 
 
-# 88. Evaluation lifecycle with OOD/coverage
+# STATE-EVALUATION-OOD-COVERAGE. Evaluation lifecycle with OOD/coverage
 
 ```text
 QUEUED
@@ -2221,7 +2221,7 @@ Operational failures:
 
 UNKNOWN/OUT_OF_DOMAIN are terminal evaluation outcomes, not evaluator crashes.
 
-# 89. Benchmark example lifecycle
+# STATE-BENCHMARK-EXAMPLE. Benchmark example lifecycle
 
 - ACTIVE
 - INTEGRITY_FAILED
@@ -2232,7 +2232,7 @@ UNKNOWN/OUT_OF_DOMAIN are terminal evaluation outcomes, not evaluator crashes.
 
 Promotion/benchmark run ignores blocked examples only through an explicit new benchmark-set revision; it never silently changes denominator/baseline.
 
-# 90. Evaluation-cache lifecycle
+# STATE-EVALUATION-CACHE. Evaluation-cache lifecycle
 
 - VALID
 - STALE_SUBJECT
@@ -2244,7 +2244,7 @@ Promotion/benchmark run ignores blocked examples only through an explicit new be
 
 Only VALID entry can satisfy a requested claim/profile.
 
-# 91. Post-QC artifact state
+# STATE-POST-QC-ARTIFACT. Post-QC artifact state
 
 - QC_CURRENT
 - MUTATED_AFTER_QC
@@ -2255,7 +2255,7 @@ Release gate accepts only evidence current for the exact release artifact revisi
 
 
 
-# 92. Provenance evidence lifecycle
+# STATE-PROVENANCE-EVIDENCE. Provenance evidence lifecycle
 
 Claim:
 - ACTIVE
@@ -2274,7 +2274,7 @@ Package verification:
 
 No single “VERIFIED” state collapses subject/signature/trust/rights dimensions.
 
-# 93. Embedded provenance preservation
+# STATE-EMBEDDED-PROVENANCE-PRESERVATION. Embedded provenance preservation
 
 - PRESENT
 - PRESERVED
@@ -2285,7 +2285,7 @@ No single “VERIFIED” state collapses subject/signature/trust/rights dimensio
 
 A transform may legitimately move PRESERVED → STRIPPED while internal lineage remains intact.
 
-# 94. Publication artifact verification
+# STATE-PUBLICATION-ARTIFACT-VERIFICATION. Publication artifact verification
 
 For each role:
 - UNOBSERVED
@@ -2297,7 +2297,7 @@ For each role:
 
 Uploaded bytes and public derivative are independent.
 
-# 95. Provenance conflict lifecycle
+# STATE-PROVENANCE-CONFLICT. Provenance conflict lifecycle
 
 - OPEN
 - UNDER_REVIEW
@@ -2309,7 +2309,7 @@ Waiver records scope; it does not delete conflicting evidence.
 
 
 
-# 61. Learning feedback eligibility lifecycle
+# STATE-LEARNING-FEEDBACK-ELIGIBILITY. Learning feedback eligibility lifecycle
 
 UNTRUSTED_FEEDBACK
 → CURATION_REQUIRED
@@ -2322,7 +2322,7 @@ Alternate:
 
 TAINTED feedback never silently remains positive evidence in a later benchmark/promotion.
 
-# 62. Benchmark/holdout integrity state
+# STATE-BENCHMARK-HOLDOUT-INTEGRITY. Benchmark/holdout integrity state
 
 - CLEAN
 - SUSPECTED_LEAKAGE
@@ -2332,7 +2332,7 @@ TAINTED feedback never silently remains positive evidence in a later benchmark/p
 
 A sealed holdout exceeding configured exposure or leaking into candidate optimization becomes ineligible for authoritative promotion until replaced/revalidated.
 
-# 63. Promotion evidence validity
+# STATE-PROMOTION-EVIDENCE-VALIDITY. Promotion evidence validity
 
 Independent axis:
 - VALID
@@ -2345,7 +2345,7 @@ Promotion state PROMOTED does not erase evidence validity changes.
 If mandatory evidence later becomes TAINTED/REVOKED:
 - policy may trigger REVIEW_REQUIRED, DEPROMOTION_PENDING or immediate rollback for critical components.
 
-# 64. Router exploration lifecycle
+# STATE-ROUTER-EXPLORATION. Router exploration lifecycle
 
 - PLANNED
 - POLICY_CHECKED
@@ -2359,7 +2359,7 @@ If mandatory evidence later becomes TAINTED/REVOKED:
 
 Exploration never bypasses project privacy/rights/budget constraints.
 
-# 65. Golden-example dispute lifecycle
+# STATE-GOLDEN-EXAMPLE-DISPUTE. Golden-example dispute lifecycle
 
 - OPEN
 - UNDER_REVIEW
@@ -2373,7 +2373,7 @@ While UNDER_REVIEW:
 
 
 
-# 66. Project membership lifecycle
+# STATE-PROJECT-MEMBERSHIP. Project membership lifecycle
 
 INVITED
 → ACTIVE
@@ -2389,7 +2389,7 @@ Each authority-changing transition increments authorization_epoch.
 
 Historical actions retain former membership evidence but future authority uses current epoch.
 
-# 67. Collaborative working copy lifecycle
+# STATE-COLLABORATIVE-WORKING-COPY. Collaborative working copy lifecycle
 
 OPEN
 → OFFLINE
@@ -2405,7 +2405,7 @@ MERGE_READY → MERGED
 
 A stale/offline working copy cannot jump directly to canonical merged state without base/conflict validation.
 
-# 68. Event subscription authorization lifecycle
+# STATE-EVENT-SUBSCRIPTION-AUTHORIZATION. Event subscription authorization lifecycle
 
 ACTIVE
 → REAUTH_REQUIRED
@@ -2417,7 +2417,7 @@ Terminal:
 
 Authorization epoch change affecting scope moves relevant subscription out of ACTIVE until revalidated.
 
-# 69. Delegation lifecycle
+# STATE-DELEGATION. Delegation lifecycle
 
 ACTIVE
 → REVOKED
@@ -2426,7 +2426,7 @@ ACTIVE → EXPIRED
 
 A queued command using a delegation revalidates it before an irreversible/external phase.
 
-# 70. Annotation staleness projection
+# STATE-ANNOTATION-STALENESS-PROJECTION. Annotation staleness projection
 
 Annotation itself remains historical, but projection can be:
 - CURRENT
@@ -2438,7 +2438,7 @@ Annotations never silently migrate to a newer revision when their original range
 
 
 
-# 71. Capability certification lifecycle
+# STATE-CAPABILITY-CERTIFICATION. Capability certification lifecycle
 
 UNVERIFIED
 → TESTING
@@ -2454,7 +2454,7 @@ Terminal/alternate:
 
 Schema/server/runtime identity change can move CERTIFIED to UNVERIFIED/DEGRADED according to severity.
 
-# 72. Connector semantic action state
+# STATE-CONNECTOR-SEMANTIC-ACTION. Connector semantic action state
 
 VALIDATING_CONTEXT
 → AUTHORIZED
@@ -2470,7 +2470,7 @@ Uncertain branches:
 - RECONCILING → ACCEPTED | NOT_ACCEPTED | NEEDS_HUMAN
 - any output → PARTIAL/QUARANTINED when certification says incomplete output cannot be canonical
 
-# 73. Browser guarded-action state
+# STATE-BROWSER-GUARDED-ACTION. Browser guarded-action state
 
 CONTEXT_VERIFY
 → READY
@@ -2486,7 +2486,7 @@ Alternate:
 
 UNCERTAIN never loops directly back to EXECUTING for a non-idempotent action.
 
-# 74. Local service epoch state
+# STATE-LOCAL-SERVICE-EPOCH. Local service epoch state
 
 STARTING
 → CERTIFYING
@@ -2503,7 +2503,7 @@ Queue/job identifiers are invalid outside the epoch in which they were issued un
 
 
 
-# 75. Client synchronization lifecycle
+# STATE-CLIENT-SYNCHRONIZATION. Client synchronization lifecycle
 
 CONNECTING
 → HANDSHAKING
@@ -2528,7 +2528,7 @@ RECOVERY_DIVERGENT:
 
 Side-effectful pending commands never auto-transition from RECOVERY_DIVERGENT to EXECUTING.
 
-# 76. Event stream cursor lifecycle
+# STATE-EVENT-STREAM-CURSOR. Event stream cursor lifecycle
 
 VALID
 → ADVANCING

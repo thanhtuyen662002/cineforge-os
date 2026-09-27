@@ -29,35 +29,57 @@ Adding new findings or reclassifying domain/severity does not renumber existing 
 ## Current inventory
 
 - Total canonical findings: **662**
-- Domains: **17**
+- Domains: **16**
 - Findings with P0 in severity: **176**
 - Findings with P1 in severity: **612**
 
 ### Domain counts
 
-- GEN: 144
-- ORCH: 101
+- BUILD: 25
+- CAP: 31
+- COLLAB: 16
+- DATA: 29
+- GEN: 108
+- INGEST: 12
+- MEDIA: 34
+- ML: 27
+- ORCH: 122
+- PLAT: 22
 - PRIV: 53
 - REC: 41
-- SEC: 40
-- MEDIA: 38
-- BUILD: 34
-- REL: 33
-- PLAT: 29
-- ML: 28
-- CAP: 27
-- STOR: 24
-- DATA: 23
-- COLLAB: 19
-- OBS: 14
-- TIME: 8
-- INGEST: 6
+- REL: 22
+- SEC: 84
+- STOR: 27
+- TIME: 9
 
 ## Machine-readable registry
 
 `docs/orchestration/findings/REGISTRY.json`
 
 It carries every stable ID, legacy alias, title, severity, source section and source line.
+
+## Canonical coverage ledger
+
+`docs/orchestration/findings/COVERAGE.json`
+
+The coverage ledger is keyed by `stable_id` and carries the exact control owner,
+supporting owner paths, residual state, required negative/chaos tests and empirical
+status for every registry record. It is the current coverage source; the registry's
+`coverage_state` is synchronized from the ledger for quick inventory checks. The P0-first bootstrap
+maps all 176 P0 findings to an owner and keeps each in `EMPIRICAL_TEST_REQUIRED`
+until executable evidence exists. No design-only mapping is treated as `VERIFIED`.
+
+Current P0/P1 audit status:
+
+- P0: 176 total; 176 exact owners; 173 `EMPIRICAL_TEST_REQUIRED`; 3 explicit `RESIDUAL`; 0 `UNCOVERED`;
+- P1-containing: 612 total; 138 exact owners; 137 `EMPIRICAL_TEST_REQUIRED`; 1 explicit `RESIDUAL`; 474 explicit `PARTIAL` records; 0 `UNCOVERED`;
+- empirical `VERIFIED`: 0 (the branch contains specifications, not runtime proof).
+
+The executable scenario catalog is
+`docs/orchestration/CHAOS_TEST_PLAN.md` (`CT-01` through `CT-40`).
+Cross-layer precedence and contradiction handling is indexed in
+`docs/orchestration/CONTROL_CONSISTENCY_MATRIX.md`; the matrix points back to
+the single authoritative owner for each behavior.
 
 ## Next gate
 

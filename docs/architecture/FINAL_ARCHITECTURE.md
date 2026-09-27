@@ -2105,7 +2105,7 @@ A continuity snapshot pins exact scene occurrence + narrative context revision +
 
 
 
-# 65. Release and installation supply-chain architecture
+# ARCH-RELEASE-INSTALLATION-SUPPLY-CHAIN-ARCHITECTURE. Release and installation supply-chain architecture
 
 Release is a privileged pipeline separate from ordinary PR validation.
 
@@ -2141,7 +2141,7 @@ GitHub/environment configuration is verified state, not assumed.
 
 
 
-# 66. Privacy residue and library ownership architecture
+# ARCH-PRIVACY-RESIDUE-LIBRARY-OWNERSHIP-ARCHITECTURE. Privacy residue and library ownership architecture
 
 Privacy/deletion is a multi-store lifecycle, not a row delete.
 
@@ -2167,7 +2167,7 @@ Sealed archives are immutable/read-only artifacts; viewing never migrates them i
 
 
 
-# 67. Collaboration/offline architecture boundary
+# ARCH-COLLABORATION-OFFLINE-ARCHITECTURE-BOUNDARY. Collaboration/offline architecture boundary
 
 Multi-user/offline support is branch-and-reconcile, not shared mutable truth.
 
@@ -2185,7 +2185,7 @@ Privacy purge/tombstone and current authorization dominate stale offline edits.
 
 
 
-# 68. Scheduler stability and failure-domain architecture
+# ARCH-SCHEDULER-STABILITY-FAILURE-DOMAIN-ARCHITECTURE. Scheduler stability and failure-domain architecture
 
 Scheduler is hierarchical and failure-domain aware.
 

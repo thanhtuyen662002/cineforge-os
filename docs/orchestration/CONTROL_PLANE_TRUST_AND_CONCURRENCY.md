@@ -420,7 +420,7 @@ Out-of-scope change requires:
 An agent must not silently expand scope because “the code needed it”.
 
 
-# 23. Ambiguous GitHub mutation outcome
+# CTRL-MUTATION-OUTCOME. Ambiguous GitHub mutation outcome
 
 All correctness-critical GitHub writes use a stable operation identity and explicit outcome state.
 
@@ -437,7 +437,7 @@ UNKNOWN_OUTCOME rule:
 
 Never convert network timeout into “operation failed”.
 
-# 24. Structured event idempotency
+# CTRL-EVENT-IDEMPOTENCY. Structured event idempotency
 
 Every structured control event includes:
 `CONTROL_EVENT_ID=<uuid/random-stable-before-send>`
@@ -455,7 +455,7 @@ Reconciliation:
 - conflicting payloads under same ID are governance corruption;
 - retries reuse the same event ID.
 
-# 25. Claim-intent election
+# CTRL-CLAIM-ELECTION. Claim-intent election
 
 Task claim under partial failure uses a two-stage protocol.
 
@@ -474,7 +474,7 @@ Task claim under partial failure uses a two-stage protocol.
 If intent append outcome is UNKNOWN, reconcile that event ID before retry.
 If branch creation outcome is UNKNOWN, reconcile branch + winning marker/PR before any substantive work.
 
-# 26. Merge mutation ambiguity
+# CTRL-MERGE-OUTCOME. Merge mutation ambiguity
 
 MERGE_LEASE does not imply a merge API response is authoritative.
 
@@ -492,7 +492,7 @@ Until reconciled:
 - do not unblock dependents.
 
 
-# 27. Development-agent instruction provenance
+# CTRL-INSTRUCTION-PROVENANCE. Development-agent instruction provenance
 
 For coding/review agents, authoritative instruction channels are explicitly allowlisted:
 - system/runtime policy;

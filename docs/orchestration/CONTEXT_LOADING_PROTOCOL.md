@@ -167,7 +167,7 @@ If context overhead dominates scheduled execution:
 
 
 
-# 11. Control-registry-driven context packs
+# CTX-REGISTRY-PACKS. Control-registry-driven context packs
 
 Task context selection uses `docs/design/CONTROL_REGISTRY.yaml`.
 
@@ -193,7 +193,7 @@ Rules:
 A context pack is derived cache, not authority.
 If any referenced owner doc/control changed materially from BASE_SHA, pack is stale.
 
-# 12. Bounded context reading
+# CTX-BOUNDED-READING. Bounded context reading
 
 Agent startup should not reread every architecture/risk document in full on every run.
 
@@ -212,7 +212,7 @@ Broad corpus reread is reserved for:
 
 This reduces token/API cost without weakening authoritative-source precedence.
 
-# 13. Material invalidation
+# CTX-MATERIAL-INVALIDATION. Material invalidation
 
 A task is recontextualized only when:
 - applicable control semantics changed;
@@ -222,3 +222,19 @@ A task is recontextualized only when:
 - current implementation slice changed materially.
 
 Unrelated prose/style edits do not force all active agents to restart.
+
+# CTX-FINDING-ROUTING. Canonical finding-to-context routing
+
+For red-team and high-risk implementation work, route context by canonical
+finding identity instead of loading the raw stress corpus:
+
+1. resolve `stable_id` in `docs/orchestration/findings/REGISTRY.json`;
+2. read its `COVERAGE.json` owner path and exact section ID;
+3. load the required `CT-*` case from `CHAOS_TEST_PLAN.md`;
+4. fetch the raw evidence line only when the owner/reviewer needs to inspect
+   the original attack.
+
+The raw corpus is deliberately excluded from default Context Manifests. Use
+the size budgets and fail-closed `BLOCKED_CONTEXT` rule in
+`CONTEXT_MANIFEST_AND_DOC_LINT.md#15` when a required owner section is too
+large.

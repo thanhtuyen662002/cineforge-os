@@ -1987,7 +1987,7 @@ Do not claim “Có thể hoàn tác” merely because CineForge has a takedown 
 
 
 
-# 61. Release provenance UI
+# UI-RELEASE-PROVENANCE. Release provenance UI
 
 Advanced Release detail shows:
 - exact source commit;
@@ -2002,7 +2002,7 @@ Normal user sees concise:
 or
 `Bản phát hành chưa đủ bằng chứng để ký/phát hành`.
 
-# 62. Update security UX
+# UI-UPDATE-SECURITY. Update security UX
 
 Update card distinguishes:
 - Có bản cập nhật hợp lệ
@@ -2013,7 +2013,7 @@ Update card distinguishes:
 
 Never collapse all failures into “Update failed”.
 
-# 63. Installer/uninstall impact preview
+# UI-INSTALLER-UNINSTALL-IMPACT-PREVIEW. Installer/uninstall impact preview
 
 Before uninstall/repair:
 - app components to remove/replace;
@@ -2024,7 +2024,7 @@ Before uninstall/repair:
 
 The UI must never suggest that uninstalling CineForge deletes project media by default.
 
-# 64. Offline installer warning
+# UI-OFFLINE-INSTALLER-WARNING. Offline installer warning
 
 When revocation freshness is stale:
 `Chữ ký hợp lệ, nhưng máy này không thể kiểm tra thông tin thu hồi mới nhất.`
@@ -2038,7 +2038,7 @@ Do not label this as equivalent to fully current online verification.
 
 
 
-# 65. Privacy purge UX
+# UI-PRIVACY-PURGE. Privacy purge UX
 
 Delete/Purge progress separates:
 - Đã xóa khỏi project
@@ -2049,7 +2049,7 @@ Delete/Purge progress separates:
 
 Never show “đã xóa hoàn toàn mọi nơi” unless policy/evidence can actually support it.
 
-# 66. External exposure view
+# UI-EXTERNAL-EXPOSURE-VIEW. External exposure view
 
 Privacy/Project detail can show:
 `Dữ liệu từng được gửi ra ngoài`
@@ -2063,7 +2063,7 @@ Per entry:
 
 This remains auditable after local purge according to retention policy.
 
-# 67. Semantic search privacy
+# UI-SEMANTIC-SEARCH-PRIVACY. Semantic search privacy
 
 Search results never display cross-project content merely because semantic similarity is high.
 
@@ -2072,7 +2072,7 @@ When shared-library search is enabled:
 - shared result provenance/project is visible;
 - permissions are checked before preview.
 
-# 68. Model/session isolation status
+# UI-MODEL-SESSION-ISOLATION-STATUS. Model/session isolation status
 
 Advanced Diagnostics may show:
 - runtime isolation class;
@@ -2083,7 +2083,7 @@ Advanced Diagnostics may show:
 Normal users see:
 `AI runtime đang được làm sạch trước khi chuyển sang project khác.`
 
-# 69. Learning derivative revocation UX
+# UI-LEARNING-DERIVATIVE-REVOCATION. Learning derivative revocation UX
 
 When a rights/privacy revocation affects a trained derivative:
 `Nội dung này đã được dùng trong một mô hình/tập học trước đó.`
@@ -2095,7 +2095,7 @@ Show possible actions:
 
 Do not falsely claim one-click deletion “unlearned” the model.
 
-# 70. Core ownership UX
+# UI-CORE-OWNERSHIP. Core ownership UX
 
 If another valid Core already owns the library:
 `CineForge đang chạy ở phiên khác. Cửa sổ này sẽ kết nối vào phiên đang hoạt động.`
@@ -2105,7 +2105,7 @@ If writer ownership is uncertain:
 
 No second writer startup retry loop.
 
-# 71. Archive read-only UX
+# UI-ARCHIVE-READ-ONLY. Archive read-only UX
 
 Banner:
 `Đây là bản lưu trữ đã niêm phong. CineForge sẽ không thay đổi nội dung gốc.`
@@ -2117,7 +2117,7 @@ Actions:
 
 Never “upgrade this archive in place”.
 
-# 72. Notification privacy
+# UI-NOTIFICATION-PRIVACY. Notification privacy
 
 Settings:
 - Hiện đầy đủ
@@ -2128,7 +2128,7 @@ Decision notifications still remain actionable after unlock/revalidation; privac
 
 
 
-# 73. Offline collaboration UX
+# UI-OFFLINE-COLLABORATION. Offline collaboration UX
 
 When offline:
 `Bạn đang làm trên một nhánh cục bộ. Thay đổi sẽ được đối chiếu khi kết nối lại.`
@@ -2142,7 +2142,7 @@ Reconnect states:
 - Quyền truy cập đã thay đổi
 - Project đã bị lưu trữ/xóa trong khi bạn offline
 
-# 74. Collaboration conflict workspace
+# UI-COLLABORATION-CONFLICT-WORKSPACE. Collaboration conflict workspace
 
 Show side-by-side:
 - base;
@@ -2160,7 +2160,7 @@ Resolution actions:
 
 No generic “Use Mine / Use Theirs” when semantic invariants are involved.
 
-# 75. Permission revoked while offline
+# UI-PERMISSION-REVOKED-WHILE-OFFLINE. Permission revoked while offline
 
 Message:
 `Quyền của bạn đã thay đổi từ lần kết nối trước. Thay đổi cục bộ vẫn được giữ, nhưng CineForge không thể ghi chúng vào project hiện tại.`
@@ -2170,7 +2170,7 @@ Options depend on policy:
 - request access;
 - discard local branch.
 
-# 76. Concurrent approval conflict UX
+# UI-CONCURRENT-APPROVAL-CONFLICT. Concurrent approval conflict UX
 
 If another user approved first:
 `Một bản khác đã được duyệt trước khi thao tác của bạn hoàn tất.`
@@ -2178,7 +2178,7 @@ If another user approved first:
 Show current approved revision vs user's candidate.
 Do not silently replace either side.
 
-# 77. Collaboration privacy indicator
+# UI-COLLABORATION-PRIVACY-INDICATOR. Collaboration privacy indicator
 
 If collaboration transport is cloud-based:
 - project privacy eligibility visible;
@@ -2189,7 +2189,7 @@ Normal editing UI should not imply “offline/local” when background collabora
 
 
 
-# 78. Browser connection security UX
+# UI-BROWSER-CONNECTION-SECURITY. Browser connection security UX
 
 Connection detail separates:
 - Browser/runtime health
@@ -2207,7 +2207,7 @@ Examples:
 
 Do not collapse these into one green/red dot.
 
-# 79. Browser auth challenge UX
+# UI-BROWSER-AUTH-CHALLENGE. Browser auth challenge UX
 
 When login/MFA/CAPTCHA appears during a job:
 `CineForge cần bạn xác nhận tài khoản. Tác vụ tạo nội dung chưa được tự động chạy lại.`
@@ -2219,7 +2219,7 @@ The UI distinguishes:
 
 Replacement generation is not the default response to an auth challenge.
 
-# 80. Human takeover resume UX
+# UI-HUMAN-TAKEOVER-RESUME. Human takeover resume UX
 
 After user hands control back:
 `Đang kiểm tra lại trang, tài khoản và tác vụ trước khi tiếp tục…`
@@ -2232,7 +2232,7 @@ Show:
 - observed mismatch;
 - safe actions: return to expected page, reconcile, cancel.
 
-# 81. Browser download safety UX
+# UI-BROWSER-DOWNLOAD-SAFETY. Browser download safety UX
 
 Downloaded provider result first appears as:
 - Đang tải
@@ -2242,7 +2242,7 @@ Downloaded provider result first appears as:
 Executable/script/unsupported downloads never receive “Mở/Chạy tự động”.
 Unexpected content type is quarantined with human-readable reason.
 
-# 82. Browser diagnostics privacy
+# UI-BROWSER-DIAGNOSTICS-PRIVACY. Browser diagnostics privacy
 
 Advanced diagnostic capture explains:
 - screenshot/DOM/network metadata may contain account/project data;
@@ -2254,7 +2254,7 @@ Profile recreation:
 
 
 
-# 83. QC uncertainty UX
+# UI-QC-UNCERTAINTY. QC uncertainty UX
 
 Never render UNKNOWN/OUT_OF_DOMAIN as a green success.
 
@@ -2265,7 +2265,7 @@ Examples:
 
 Advanced detail shows evaluator/version/calibration/coverage.
 
-# 84. Human review anti-anchoring
+# UI-HUMAN-REVIEW-ANTI-ANCHORING. Human review anti-anchoring
 
 For configured review classes:
 - hide AI score until reviewer submits first verdict;
@@ -2274,7 +2274,7 @@ For configured review classes:
 
 Do not place one giant “92/100” score next to the Approve button when it would bias judgment.
 
-# 85. QC coverage visualization
+# UI-QC-COVERAGE-VISUALIZATION. QC coverage visualization
 
 Review can display:
 - Full scan
@@ -2285,14 +2285,14 @@ Review can display:
 Timeline overlay shows checked/unobserved ranges when useful.
 User can understand that sampled PASS is not identical to whole-master proof.
 
-# 86. Post-QC mutation warning
+# UI-POST-QC-MUTATION-WARNING. Post-QC mutation warning
 
 If export/mux/transcode/edit changed approved bytes:
 `Bản này đã thay đổi sau lần kiểm tra trước. Cần xác minh lại trước khi phát hành.`
 
 Do not silently preserve old green badges on the new artifact.
 
-# 87. Benchmark/golden integrity UX
+# UI-BENCHMARK-GOLDEN-INTEGRITY. Benchmark/golden integrity UX
 
 Advanced Learning screen surfaces:
 - corrupt/quarantined examples;
@@ -2304,7 +2304,7 @@ Promotion button remains unavailable while required benchmark integrity is not s
 
 
 
-# 88. Provenance/authenticity UX
+# UI-PROVENANCE-AUTHENTICITY. Provenance/authenticity UX
 
 Avoid one global badge “Verified”.
 
@@ -2323,7 +2323,7 @@ Possible labels:
 - Bằng chứng nguồn đang xung đột
 - Quyền sử dụng hợp lệ / chưa đủ thông tin
 
-# 89. Publication provenance UX
+# UI-PUBLICATION-PROVENANCE. Publication provenance UX
 
 Release detail separates:
 - Master đã duyệt
@@ -2333,7 +2333,7 @@ Release detail separates:
 If platform derivative cannot be fetched:
 `File upload đã được xác minh; CineForge chưa thể xác minh byte cuối cùng mà nền tảng phát cho người xem.`
 
-# 90. Provenance privacy export
+# UI-PROVENANCE-PRIVACY-EXPORT. Provenance privacy export
 
 Before exporting/sharing provenance:
 show whether package includes:
@@ -2345,7 +2345,7 @@ show whether package includes:
 
 Provide privacy-minimized export where policy permits.
 
-# 91. Provenance conflict UX
+# UI-PROVENANCE-CONFLICT. Provenance conflict UX
 
 When external signed metadata conflicts with internal lineage:
 - show both evidence sources;
@@ -2357,7 +2357,7 @@ Media remains usable as candidate unless another policy blocks it.
 
 
 
-# 61. Structured document import preview
+# UI-STRUCTURED-DOCUMENT-IMPORT-PREVIEW. Structured document import preview
 
 Document import distinguishes:
 - File ingested
@@ -2378,7 +2378,7 @@ Shows human language such as:
 
 Do not show one generic green “Imported” badge when semantic coverage is partial.
 
-# 62. Spreadsheet mapping workspace
+# UI-SPREADSHEET-MAPPING-WORKSPACE. Spreadsheet mapping workspace
 
 For Excel/CSV:
 - sheet/table/range navigator;
@@ -2392,7 +2392,7 @@ For Excel/CSV:
 
 Critical mapping can be confirmed per table/range instead of flattening the entire workbook.
 
-# 63. PDF/DOCX/PPTX review workspace
+# UI-PDF-DOCX-PPTX-REVIEW-WORKSPACE. PDF/DOCX/PPTX review workspace
 
 Preview can expose:
 - page/slide;
@@ -2406,7 +2406,7 @@ Preview can expose:
 
 Unsupported channels are listed explicitly.
 
-# 64. Protected/encrypted document UX
+# UI-PROTECTED-ENCRYPTED-DOCUMENT. Protected/encrypted document UX
 
 Use:
 - “File cần mật khẩu”
@@ -2418,14 +2418,14 @@ as distinct states.
 
 Password entry is scoped to the current import operation and clearly not stored unless a future explicit secure policy says otherwise.
 
-# 65. Document active-content warning
+# UI-DOCUMENT-ACTIVE-CONTENT-WARNING. Document active-content warning
 
 Macros/OLE/DDE/PDF actions/external data refresh are never executed in preview/import.
 
 UI message:
 “CineForge phát hiện nội dung có thể chạy hoặc tải dữ liệu bên ngoài. Nội dung này đã bị vô hiệu hóa; bạn vẫn có thể xem dữ liệu an toàn mà CineForge đọc được.”
 
-# 66. Structured import confidence
+# UI-STRUCTURED-IMPORT-CONFIDENCE. Structured import confidence
 
 When OCR/layout/semantic parse is uncertain:
 - highlight affected range/page/field;
@@ -2437,7 +2437,7 @@ The goal is targeted human judgment, not making the user manually reconstruct th
 
 
 
-# 67. Film continuity diagnostics
+# UI-FILM-CONTINUITY-DIAGNOSTICS. Film continuity diagnostics
 
 Review/Shot workspace can surface human-readable findings:
 - “Vết sẹo đã đổi bên.”
@@ -2449,7 +2449,7 @@ Review/Shot workspace can surface human-readable findings:
 
 Advanced view shows spatial graph/evidence; normal users do not manage raw geometry.
 
-# 68. Long-take identity review
+# UI-LONG-TAKE-IDENTITY-REVIEW. Long-take identity review
 
 For long shots, review can jump to:
 - drift hotspots;
@@ -2459,7 +2459,7 @@ For long shots, review can jump to:
 
 Do not force frame-by-frame manual review unless policy requires it.
 
-# 69. Dialogue overlap / dubbing workspace
+# UI-DIALOGUE-OVERLAP-DUBBING-WORKSPACE. Dialogue overlap / dubbing workspace
 
 Conversation timeline shows overlapping utterances as intervals.
 
@@ -2477,7 +2477,7 @@ If translation does not fit performance duration:
 - “Điều chỉnh timing”
 rather than automatically speeding voice unnaturally.
 
-# 70. Subtitle/accessibility validation UI
+# UI-SUBTITLE-ACCESSIBILITY-VALIDATION. Subtitle/accessibility validation UI
 
 Before release:
 - reading-speed warnings;
@@ -2489,7 +2489,7 @@ Before release:
 
 Warnings link directly to affected time ranges.
 
-# 71. Handoff capability report
+# UI-HANDOFF-CAPABILITY-REPORT. Handoff capability report
 
 Before exporting to CapCut/Premiere/Resolve/FCP/other target:
 show features as:
@@ -2502,7 +2502,7 @@ Never advertise “editable project” as one binary capability.
 
 Unknown/unverified target version produces a conservative compatibility report.
 
-# 72. External edit return reconcile UI
+# UI-EXTERNAL-EDIT-RETURN-RECONCILE. External edit return reconcile UI
 
 When returned edit changes:
 - FPS/timebase;
@@ -2514,7 +2514,7 @@ When returned edit changes:
 
 show a reconcile sheet before accepting it as canonical.
 
-# 73. Alternate-format review
+# UI-ALTERNATE-FORMAT-REVIEW. Alternate-format review
 
 Vertical/social/square version appears as its own deliverable variant with:
 - framing preview;
@@ -2526,7 +2526,7 @@ Approval of the landscape master is visible context, not automatic approval.
 
 
 
-# 74. Large-project loading UX
+# UI-LARGE-PROJECT-LOADING. Large-project loading UX
 
 Opening a very large project first renders:
 - project summary;
@@ -2539,7 +2539,7 @@ Library/history/timeline detail loads on demand.
 
 Never block project open on enumerating every asset/event or generating every thumbnail.
 
-# 75. Virtualized library/timeline
+# UI-VIRTUALIZED-LIBRARY-TIMELINE. Virtualized library/timeline
 
 Large lists/grids/timelines use virtualization and windowed queries.
 
@@ -2550,7 +2550,7 @@ Timeline dynamically requests:
 
 No “render 50,000 DOM cards because data already exists” behavior.
 
-# 76. Background derived-work controls
+# UI-BACKGROUND-DERIVED-WORK-CONTROLS. Background derived-work controls
 
 Activity Center groups optional background work:
 - Đang tạo thumbnail
@@ -2563,7 +2563,7 @@ User can pause noncritical background work without pausing canonical saves/recov
 Foreground message:
 “Bạn có thể tiếp tục chỉnh sửa; phần xem trước còn lại sẽ được tạo khi cần.”
 
-# 77. Backup health UX
+# UI-BACKUP-HEALTH. Backup health UX
 
 Show:
 - backup age;
@@ -2574,7 +2574,7 @@ Show:
 
 Avoid one reassuring green check if restore would take days or has never been tested.
 
-# 78. Performance pressure UX
+# UI-PERFORMANCE-PRESSURE. Performance pressure UX
 
 When system pressure affects responsiveness:
 - explain which background class is throttled;
@@ -2583,7 +2583,7 @@ When system pressure affects responsiveness:
 
 Do not expose raw writer-queue jargon unless Advanced.
 
-# 79. Cold archive UX
+# UI-COLD-ARCHIVE. Cold archive UX
 
 Archived project opens metadata/previews first.
 Cold/original media hydrates only when needed.
@@ -2594,7 +2594,7 @@ Clearly distinguish:
 - original media offline/cold;
 - execution dependency unavailable.
 
-# 80. Invalidation fanout UX
+# UI-INVALIDATION-FANOUT. Invalidation fanout UX
 
 Large canon change responds immediately with:
 “Đã khóa các kết quả phụ thuộc cũ. CineForge đang cập nhật 12.438 mục liên quan.”
@@ -2603,7 +2603,7 @@ Until propagation finishes, affected descendants are conservatively shown stale/
 
 
 
-# 81. Capability-level connection detail
+# UI-CAPABILITY-LEVEL-CONNECTION-DETAIL. Capability-level connection detail
 
 Connection detail can expand by capability:
 
@@ -2615,7 +2615,7 @@ Example:
 
 Do not compress all of these into one green/red connection dot.
 
-# 82. Connector semantic-risk display
+# UI-CONNECTOR-SEMANTIC-RISK-DISPLAY. Connector semantic-risk display
 
 Advanced connection detail shows:
 - Read/Create/Mutate/Delete/Publish/Paid effect class
@@ -2628,7 +2628,7 @@ Advanced connection detail shows:
 
 Normal users see plain-language consequences rather than protocol jargon.
 
-# 83. Browser semantic drift warning
+# UI-BROWSER-SEMANTIC-DRIFT-WARNING. Browser semantic drift warning
 
 If selector still exists but contextual semantics changed:
 “CineForge nhận thấy giao diện của dịch vụ đã thay đổi. Tác vụ này đã dừng trước bước có thể tạo/xóa/phát hành dữ liệu.”
@@ -2640,7 +2640,7 @@ Actions:
 
 Never silently click through a high-effect UI drift.
 
-# 84. Uncertain external action UX
+# UI-UNCERTAIN-EXTERNAL-ACTION. Uncertain external action UX
 
 For a timed-out non-idempotent browser/API action:
 “Chưa xác định dịch vụ đã nhận thao tác hay chưa. CineForge đang đối chiếu trước khi thử lại.”

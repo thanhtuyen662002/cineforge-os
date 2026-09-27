@@ -170,3 +170,48 @@ For `EXTREME_HARDENING_CONTRACTS.md`:
 - renaming/migration records an explicit map;
 - high-volume future contracts should prefer semantic stable IDs over alphabetic sequence continuation;
 - a cross-reference must resolve to exactly one active section.
+
+# 15. Red-team context routing and size budgets
+
+The raw stress corpus is an audit source, not default implementation context.
+Normal task context is routed through:
+
+```text
+REGISTRY.json
+  -> COVERAGE.json (stable_id)
+  -> exact control_owner_path#control_owner_section_id
+  -> required CT-* chaos case
+```
+
+Context packs must not make `EXTREME_FAILURE_STRESS_TEST_2026-09-26.md`
+mandatory merely because a finding is referenced. Load the source-evidence line
+on demand when a reviewer needs the original attack text. A pack records an
+omission reason for every excluded domain/control family.
+
+Default budgets are guardrails, not permission to truncate:
+
+- `MAX_CONTEXT_PACK_BYTES = 262144` for a normal implementation claim;
+- `MAX_MANDATORY_SECTION_BYTES = 65536` for one required owner section;
+- `MAX_RAW_EVIDENCE_BYTES = 0` in a default coding pack (on-demand only).
+
+If a mandatory section exceeds its budget, split the contract or split the
+Task. The loader must fail with `BLOCKED_CONTEXT` rather than silently
+truncating it.
+
+# 16. Executable documentation lint gate
+
+The bootstrap repository provides a dependency-free checker:
+
+```text
+python docs/orchestration/doc_lint.py
+```
+
+The command is merge-blocking for authoritative-document changes. It checks
+duplicate active IDs (including migrated architecture/design headings), broken
+`path#section-id` references, hardening-section uniqueness, registry stable-ID
+collisions, P0 ownership/test requirements, coverage/registry identity parity,
+and owner-section resolution. A green result proves document identity and
+ledger shape only. It also checks that `CHAOS_TEST_PLAN.md` contains exactly
+`CT-01` through `CT-40`, each with the eight required executable-spec fields,
+and that ledger references resolve to real cases. A green result does not
+prove runtime implementation or empirical chaos success.

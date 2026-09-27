@@ -2073,7 +2073,7 @@ A publication can be DELIVERED while compensation readiness is DEGRADED.
 
 
 
-# 61. Release artifact provenance API
+# API-RELEASE-ARTIFACT-PROVENANCE. Release artifact provenance API
 
 Queries:
 - `query.release.build_provenance`
@@ -2100,7 +2100,7 @@ Commands:
 
 Signing service must not accept arbitrary raw bytes without approved manifest context.
 
-# 62. Installer/update plan API
+# API-INSTALLER-UPDATE-PLAN. Installer/update plan API
 
 Queries:
 - `query.update.current_floor`
@@ -2127,7 +2127,7 @@ Preflight returns:
 - reboot requirement;
 - active jobs/packages that must drain.
 
-# 63. Artifact provenance resolution
+# API-ARTIFACT-PROVENANCE-RESOLUTION. Artifact provenance resolution
 
 Privileged artifact selection accepts immutable artifact identity only:
 - source repository/workflow;
@@ -2138,7 +2138,7 @@ Privileged artifact selection accepts immutable artifact identity only:
 
 API rejects “give me artifact named Release-x64” as sufficient authority.
 
-# 64. Offline verification API
+# API-OFFLINE-VERIFICATION. Offline verification API
 
 `update.verify_offline_package` returns separately:
 - signature validity;
@@ -2150,7 +2150,7 @@ API rejects “give me artifact named Release-x64” as sufficient authority.
 
 UI/policy decides whether stale revocation knowledge is acceptable for the active security profile.
 
-# 65. Release trigger authorization
+# API-RELEASE-TRIGGER-AUTHORIZATION. Release trigger authorization
 
 Before a privileged release command:
 - validate source commit is in allowed release lineage;
@@ -2162,7 +2162,7 @@ Missing expected protection returns ASSURANCE_UNAVAILABLE/POLICY_BLOCKED, not su
 
 
 
-# 66. Privacy purge API
+# API-PRIVACY-PURGE. Privacy purge API
 
 Queries:
 - `query.purge.status`
@@ -2178,7 +2178,7 @@ Commands:
 Purge plan returns exact target classes and expected retained copies.
 Command does not report strongest completion wording until required targets reach the configured barrier.
 
-# 67. Forward revocation recovery API
+# API-FORWARD-REVOCATION-RECOVERY. Forward revocation recovery API
 
 Internal recovery:
 - `recovery.load_forward_journal`
@@ -2187,7 +2187,7 @@ Internal recovery:
 
 Recovered backups cannot activate until later purge/revocation/security-floor entries are applied.
 
-# 68. Semantic search scope API
+# API-SEMANTIC-SEARCH-SCOPE. Semantic search scope API
 
 Search request requires:
 - authorized studio/project/shared scope;
@@ -2197,7 +2197,7 @@ Search request requires:
 Backend retrieval itself enforces scope.
 UI-side post-filtering is not the primary security boundary.
 
-# 69. Inference session isolation API
+# API-INFERENCE-SESSION-ISOLATION. Inference session isolation API
 
 Internal:
 - `inference.acquire_session(scope)`
@@ -2206,7 +2206,7 @@ Internal:
 
 Cross-project/private scope transition requires reset or new isolated process according to runtime isolation class.
 
-# 70. Learning derivative API
+# API-LEARNING-DERIVATIVE. Learning derivative API
 
 Queries:
 - `query.learning.derivative_lineage`
@@ -2219,7 +2219,7 @@ Commands:
 
 Revoking a source can invalidate downstream datasets/adapters/checkpoints according to rights policy.
 
-# 71. Consent/telemetry dispatch API
+# API-CONSENT-TELEMETRY-DISPATCH. Consent/telemetry dispatch API
 
 Before telemetry/cloud outbound emission:
 - resolve current privacy_generation;
@@ -2227,7 +2227,7 @@ Before telemetry/cloud outbound emission:
 - recompute destination/data-class permission;
 - cancel/block if tightened policy no longer allows transmission.
 
-# 72. Core ownership API
+# API-CORE-OWNERSHIP. Core ownership API
 
 Startup/internal:
 - `core.acquire_library_writer`
@@ -2238,7 +2238,7 @@ Startup/internal:
 
 A UI process cannot directly claim writer ownership.
 
-# 73. Archive read-only API
+# API-ARCHIVE-READ-ONLY. Archive read-only API
 
 - `archive.verify_seal`
 - `archive.open_readonly`
@@ -2246,7 +2246,7 @@ A UI process cannot directly claim writer ownership.
 
 No mutation/migration command targets sealed archive bytes.
 
-# 74. External exposure API
+# API-EXTERNAL-EXPOSURE. External exposure API
 
 Exposure query is durable even after local purge, subject to audit/privacy retention.
 
@@ -2259,7 +2259,7 @@ UI can answer:
 
 
 
-# 75. Collaboration/offline API
+# API-COLLABORATION-OFFLINE. Collaboration/offline API
 
 Queries:
 - `query.collaboration.branch`
@@ -2277,7 +2277,7 @@ Commands:
 
 Offline operation upload never writes canonical state directly.
 
-# 76. Reconnect/rebase contract
+# API-RECONNECT-REBASE. Reconnect/rebase contract
 
 `PlanBranchRebase` returns:
 - base/current revision;
@@ -2290,7 +2290,7 @@ Offline operation upload never writes canonical state directly.
 
 `SubmitBranchForMerge` re-runs the plan against current state before committing.
 
-# 77. Collaboration authority revalidation
+# API-COLLABORATION-AUTHORITY-REVALIDATION. Collaboration authority revalidation
 
 At sync/submit:
 - actor account enabled;
@@ -2302,7 +2302,7 @@ At sync/submit:
 
 If authority was revoked, branch remains exportable/inspectable according to policy but cannot mutate canonical project.
 
-# 78. Canonical promotion CAS API
+# API-CANONICAL-PROMOTION-CAS. Canonical promotion CAS API
 
 `PromoteCandidate` requires:
 - canonical slot ID;
@@ -2312,7 +2312,7 @@ If authority was revoked, branch remains exportable/inspectable according to pol
 Conflict returns current observed canonical revision.
 No automatic last-write-wins.
 
-# 79. Offline irreversible-action API
+# API-OFFLINE-IRREVERSIBLE-ACTION. Offline irreversible-action API
 
 Offline client may call plan/draft APIs but final methods:
 - PublishRelease
@@ -2324,7 +2324,7 @@ Offline client may call plan/draft APIs but final methods:
 
 require an online current Core session and fresh authority token.
 
-# 80. Notification delivery authorization
+# API-NOTIFICATION-DELIVERY-AUTHORIZATION. Notification delivery authorization
 
 Before collaboration mention/review/task notification is emitted:
 - resolve current recipient access;
@@ -2333,7 +2333,7 @@ Before collaboration mention/review/task notification is emitted:
 
 
 
-# 81. Scheduler/retry coordination API
+# API-SCHEDULER-RETRY-COORDINATION. Scheduler/retry coordination API
 
 Queries:
 - `query.scheduler.failure_domains`
@@ -2354,7 +2354,7 @@ Internal commands:
 
 Worker retry request does not directly dispatch; it asks the coordinator for authorization.
 
-# 82. Fallback routing API
+# API-FALLBACK-ROUTING. Fallback routing API
 
 `routing.plan_fallback` returns:
 - source failure domain;
@@ -2367,7 +2367,7 @@ Worker retry request does not directly dispatch; it asks the coordinator for aut
 
 No binary “provider down → all traffic to fallback” operation.
 
-# 83. Paid dispatch budget API additions
+# API-PAID-DISPATCH-BUDGET-ADDITIONS. Paid dispatch budget API additions
 
 Paid dispatch response includes:
 - settled actual;
@@ -2381,7 +2381,7 @@ If delayed settlement later pushes actual over nominal cap, UI/audit records it 
 
 
 
-# 84. Browser profile/session API
+# API-BROWSER-PROFILE-SESSION. Browser profile/session API
 
 Queries:
 - `query.browser.profile_health`
@@ -2399,7 +2399,7 @@ Commands/internal:
 - BeginHumanTakeover
 - ResumeAfterHumanTakeover
 
-# 85. Browser action execution API
+# API-BROWSER-ACTION-EXECUTION. Browser action execution API
 
 `browser.execute_typed_action` accepts:
 - connector capability/action ID;
@@ -2411,7 +2411,7 @@ Commands/internal:
 
 No raw “click arbitrary selector/run page instruction” is exposed as normal production API.
 
-# 86. Browser download receipt API
+# API-BROWSER-DOWNLOAD-RECEIPT. Browser download receipt API
 
 Download receipt contains:
 - browser/profile/session;
@@ -2425,7 +2425,7 @@ Download receipt contains:
 
 Materialization proceeds through normal external-artifact verification.
 
-# 87. Browser auth challenge API
+# API-BROWSER-AUTH-CHALLENGE. Browser auth challenge API
 
 Challenge result:
 - challenge_type;
@@ -2437,7 +2437,7 @@ UNKNOWN never authorizes a replacement paid generation.
 
 
 
-# 88. Evaluator/QC API
+# API-EVALUATOR-QC. Evaluator/QC API
 
 Queries:
 - `query.qc.evaluator_profile`
@@ -2460,7 +2460,7 @@ Commands/internal:
 - coverage profile;
 - policy/reference manifest.
 
-# 89. OOD/abstention contract
+# API-OOD-ABSTENTION. OOD/abstention contract
 
 Evaluation output includes:
 - claim type;
@@ -2473,7 +2473,7 @@ Evaluation output includes:
 
 Client cannot convert UNKNOWN/OUT_OF_DOMAIN to PASS by local defaulting.
 
-# 90. Golden/benchmark API
+# API-GOLDEN-BENCHMARK. Golden/benchmark API
 
 Queries:
 - `query.learning.benchmark_integrity`
@@ -2486,7 +2486,7 @@ Promotion commands reject benchmark sets with:
 - stale integrity manifest;
 - insufficient required holdout/shadow evidence.
 
-# 91. Post-QC mutation API
+# API-POST-QC-MUTATION. Post-QC mutation API
 
 Any artifact-transforming command reports whether it invalidates:
 - technical QC;
@@ -2499,7 +2499,7 @@ Release readiness queries final artifact lineage and currently valid evidence on
 
 
 
-# 92. Provenance API
+# API-PROVENANCE. Provenance API
 
 Queries:
 - `query.provenance.summary`
@@ -2521,7 +2521,7 @@ Provenance summary returns separate:
 - rights status;
 - conflict/unknown state.
 
-# 93. Handoff/import provenance API
+# API-HANDOFF-IMPORT-PROVENANCE. Handoff/import provenance API
 
 Handoff manifest exposes exact exported fingerprints.
 Return import:
@@ -2530,7 +2530,7 @@ Return import:
 - creates transform/flattened edge only when evidence supports it;
 - otherwise registers a new UNVERIFIED source.
 
-# 94. Publication artifact API
+# API-PUBLICATION-ARTIFACT. Publication artifact API
 
 Publication query distinguishes:
 - approved master;
@@ -2539,19 +2539,19 @@ Publication query distinguishes:
 
 Verification of one artifact role never marks all roles verified.
 
-# 95. Similarity-risk API
+# API-SIMILARITY-RISK. Similarity-risk API
 
 Similarity analysis returns evidence/UNKNOWN/OOD and possible source matches.
 It cannot emit a binding legal verdict.
 
-# 96. Provenance parser network policy
+# API-PROVENANCE-PARSER-NETWORK-POLICY. Provenance parser network policy
 
 Manifest parsing never automatically dereferences external URLs.
 Optional external evidence retrieval uses the standard authorized URL-fetch security boundary.
 
 
 
-# 61. Learning feedback and evaluation-integrity API
+# API-LEARNING-FEEDBACK-EVALUATION-INTEGRITY. Learning feedback and evaluation-integrity API
 
 Queries:
 - query.learning.feedback_provenance
@@ -2580,7 +2580,7 @@ Rules:
 - benchmark/holdout access is audited;
 - promotion queries expose the exact evaluation-context snapshot behind every metric.
 
-# 62. Sealed holdout access contract
+# API-SEALED-HOLDOUT-ACCESS. Sealed holdout access contract
 
 Sealed holdout content is unavailable to:
 - prompt optimization;
@@ -2593,7 +2593,7 @@ Promotion receives only policy-approved outputs such as aggregate score and boun
 
 Access to example content requires an explicit audit purpose and authority.
 
-# 63. Router multi-objective contract
+# API-ROUTER-MULTI-OBJECTIVE. Router multi-objective contract
 
 Before route selection, effective RouterObjectiveProfile resolves hard constraints first:
 - privacy;
@@ -2613,7 +2613,7 @@ Optimization among eligible candidates may then consider:
 
 Dense low-latency/cost telemetry cannot override a hard quality/diversity floor.
 
-# 64. Learning-taint invalidation API
+# API-LEARNING-TAINT-INVALIDATION. Learning-taint invalidation API
 
 When source/benchmark/label evidence is tainted:
 1. mark dependent dataset/benchmark evidence stale/tainted;
@@ -2622,7 +2622,7 @@ When source/benchmark/label evidence is tainted:
 4. invalidate cached benchmark summaries derived from tainted evidence;
 5. preserve historical audit.
 
-# 65. Promotion/rollback bundle API
+# API-PROMOTION-ROLLBACK-BUNDLE. Promotion/rollback bundle API
 
 Promotion methods operate on promoted_component_bundle_id.
 
@@ -2634,7 +2634,7 @@ Before PromoteComponentVersion:
 
 Rollback restores the compatible bundle, not only the model/router binary.
 
-# 66. Outcome-labeling contract
+# API-OUTCOME-LABELING. Outcome-labeling contract
 
 Learning-facing outcomes never infer success from absence of follow-up.
 
@@ -2653,7 +2653,7 @@ Only policy-approved subsets are eligible as positive training/promotion evidenc
 
 
 
-# 67. Structured document parsing API
+# API-STRUCTURED-DOCUMENT-PARSING. Structured document parsing API
 
 Queries:
 - query.documents.parse_status
@@ -2678,7 +2678,7 @@ Rules:
 - parser never refreshes external workbook/data connections automatically;
 - active content stays inert/quarantined.
 
-# 68. Spreadsheet formula/value contract
+# API-SPREADSHEET-FORMULA-VALUE. Spreadsheet formula/value contract
 
 Spreadsheet API returns separately:
 - source formula;
@@ -2691,7 +2691,7 @@ Spreadsheet API returns separately:
 
 Caller cannot request “just give me the value” and silently lose whether it is stale/external/formula-derived when that distinction matters.
 
-# 69. OCR/layout evidence API
+# API-OCR-LAYOUT-EVIDENCE. OCR/layout evidence API
 
 OCR/layout result includes:
 - page/region;
@@ -2702,7 +2702,7 @@ OCR/layout result includes:
 
 Canonical script/shot/canon mapping from low-confidence OCR requires review according to policy.
 
-# 70. Document protection state API
+# API-DOCUMENT-PROTECTION. Document protection state API
 
 Errors/states distinguish:
 - PASSWORD_REQUIRED
@@ -2714,7 +2714,7 @@ Errors/states distinguish:
 
 Password/credential material is scoped to the parse session and excluded from normal logs.
 
-# 71. Semantic-coverage gate
+# API-SEMANTIC-COVERAGE-GATE. Semantic-coverage gate
 
 Before using a document parse as authoritative structured project data:
 1. identify which semantic channels the intended use depends on;
@@ -2724,7 +2724,7 @@ Before using a document parse as authoritative structured project data:
 
 
 
-# 72. Film spatial/continuity API
+# API-FILM-SPATIAL-CONTINUITY. Film spatial/continuity API
 
 Queries:
 - query.scene.spatial_graph
@@ -2748,7 +2748,7 @@ QC can return:
 - hero-identity leakage into crowd;
 - ambiguous named-character distinctiveness.
 
-# 73. Retime/interpolation API
+# API-RETIME-INTERPOLATION. Retime/interpolation API
 
 Commands:
 - CreateRetimeArtifact
@@ -2763,7 +2763,7 @@ CreateRetimeArtifact returns:
 
 Retime methods that synthesize frames create a new asset revision and cannot inherit source visual approval automatically.
 
-# 74. Conversation overlap API
+# API-CONVERSATION-OVERLAP. Conversation overlap API
 
 Queries:
 - query.dialogue.utterance_timeline
@@ -2777,7 +2777,7 @@ Commands:
 
 Diarization may propose speaker binding but does not become canonical without policy/evidence.
 
-# 75. Multilingual dubbing-fit API
+# API-MULTILINGUAL-DUBBING-FIT. Multilingual dubbing-fit API
 
 Queries:
 - query.dubbing.voice_language_profile
@@ -2790,7 +2790,7 @@ Commands:
 
 Fit analysis considers semantic text, duration, speech rate, pronunciation and viseme/phoneme compatibility where available.
 
-# 76. Deliverable audio/subtitle validation API
+# API-DELIVERABLE-AUDIO-SUBTITLE-VALIDATION. Deliverable audio/subtitle validation API
 
 Queries:
 - query.delivery.audio_validation
@@ -2807,7 +2807,7 @@ Validation may include:
 - bidi/script shaping;
 - target-format loss.
 
-# 77. Editor handoff capability API
+# API-EDITOR-HANDOFF-CAPABILITY. Editor handoff capability API
 
 Queries:
 - query.handoff.adapter_capabilities
@@ -2822,7 +2822,7 @@ Commands:
 A handoff request names target editor/version.
 Unknown target version cannot inherit prior “native/editable” capability claims automatically.
 
-# 78. Alternate deliverable API
+# API-ALTERNATE-DELIVERABLE. Alternate deliverable API
 
 Commands:
 - CreateDeliverableVariant
@@ -2834,7 +2834,7 @@ Each materially distinct crop/aspect/profile has independent review/release gate
 
 
 
-# 79. Collaboration authorization API
+# API-COLLABORATION-AUTHORIZATION. Collaboration authorization API
 
 Queries:
 - query.membership.current
@@ -2855,7 +2855,7 @@ Commands:
 
 Sensitive command/approval submit rechecks current authorization epoch.
 
-# 80. Capability-token/subscription revocation API
+# API-CAPABILITY-TOKEN-SUBSCRIPTION-REVOCATION. Capability-token/subscription revocation API
 
 Internal methods:
 - auth.issue_scoped_capability_token
@@ -2867,7 +2867,7 @@ Internal methods:
 Media/preview tokens bind actor/session/project/purpose and authorization epoch.
 Membership/role revocation can invalidate sensitive tokens/subscriptions.
 
-# 81. Collaborative edit merge contract
+# API-COLLABORATIVE-EDIT-MERGE. Collaborative edit merge contract
 
 Per-domain merge policy is queried before sync/merge.
 
@@ -2877,7 +2877,7 @@ Rules:
 - last-write-wins is not the default for canon/rights/release/timeline critical edits;
 - structured text merge can produce unresolved conflicts rather than invent one truth.
 
-# 82. Collaborative undo API
+# API-COLLABORATIVE-UNDO. Collaborative undo API
 
 Undo/redo in shared state operates on the current actor/session operation graph.
 
@@ -2887,7 +2887,7 @@ Command:
 
 It does not rewind unrelated later operations by other actors.
 
-# 83. Concurrent approval/select API
+# API-CONCURRENT-APPROVAL-SELECT. Concurrent approval/select API
 
 Canonical selection/approval commands require:
 - expected aggregate/canonical revision;
@@ -2897,7 +2897,7 @@ Canonical selection/approval commands require:
 
 Conflicting simultaneous approvals return STALE/CONFLICT; both do not become canonical.
 
-# 84. Delegation/impersonation API
+# API-DELEGATION-IMPERSONATION. Delegation/impersonation API
 
 Queries:
 - query.authority.delegations
@@ -2911,7 +2911,7 @@ Commands:
 
 Every delegated/impersonated command records principal + effective actor and authority source.
 
-# 85. Cross-project reuse API
+# API-CROSS-PROJECT-REUSE. Cross-project reuse API
 
 Command:
 - PlanCrossProjectAssetReuse
@@ -2929,7 +2929,7 @@ Raw asset ID/handle copy is not cross-project authorization.
 
 
 
-# 86. Performance/working-set query contract
+# API-PERFORMANCE-WORKING-SET-QUERY. Performance/working-set query contract
 
 Large collections are cursor-paginated and bounded.
 
@@ -2944,7 +2944,7 @@ Queries:
 
 No ordinary UI query is allowed to implicitly return the complete project graph/history/library.
 
-# 87. Writer-pressure API
+# API-WRITER-PRESSURE. Writer-pressure API
 
 Core exposes human-safe and advanced writer health.
 
@@ -2955,7 +2955,7 @@ Internal admission:
 
 A delayed background persistence does not cause UI to falsely show canonical save as durable.
 
-# 88. Projection rebuild API
+# API-PROJECTION-REBUILD. Projection rebuild API
 
 Commands:
 - StartProjectionRebuild
@@ -2967,7 +2967,7 @@ Commands:
 Rebuild records cursor/checkpoint and can resume.
 Verified previous generation remains queryable where policy permits.
 
-# 89. Derived-work demand API
+# API-DERIVED-WORK-DEMAND. Derived-work demand API
 
 Queries:
 - query.derived_work.pending
@@ -2981,7 +2981,7 @@ Commands:
 
 Visible/active workspace demand outranks speculative background precompute.
 
-# 90. Scheduler fairness API
+# API-SCHEDULER-FAIRNESS. Scheduler fairness API
 
 Queries:
 - query.scheduler.fairness
@@ -2991,7 +2991,7 @@ Queries:
 Planner/scheduler uses project weights, priority aging and interactive reserve.
 Priority does not imply permanent starvation of lower classes.
 
-# 91. Backup RPO/RTO API
+# API-BACKUP-RPO-RTO. Backup RPO/RTO API
 
 Queries:
 - query.backup.policy_health
@@ -3006,7 +3006,7 @@ Backup health reports:
 
 “Backup exists” is not equivalent to meeting RPO/RTO.
 
-# 92. Maintenance admission API
+# API-MAINTENANCE-ADMISSION. Maintenance admission API
 
 Commands:
 - PlanMaintenance
@@ -3021,7 +3021,7 @@ Admission evaluates:
 - physical resource group contention;
 - battery/thermal policy.
 
-# 93. Large-fanout invalidation API
+# API-LARGE-FANOUT-INVALIDATION. Large-fanout invalidation API
 
 Root change commits an invalidation generation/fence quickly.
 Background propagation materializes descendants in chunks.
@@ -3033,14 +3033,14 @@ Queries expose:
 
 No UI/API may report a descendant as current merely because its materialized stale row has not yet been written.
 
-# 94. Incremental release-readiness API
+# API-INCREMENTAL-RELEASE-READINESS. Incremental release-readiness API
 
 Release readiness query uses an event-maintained projection for responsiveness.
 Final release command performs authoritative current gate revalidation independent from cached projection.
 
 
 
-# 95. Capability semantic certification API
+# API-CAPABILITY-SEMANTIC-CERTIFICATION. Capability semantic certification API
 
 Queries:
 - query.connections.capability_certification
@@ -3056,7 +3056,7 @@ Commands:
 
 Dispatch requires a current certification compatible with the requested effect/idempotency/cancellation profile.
 
-# 96. MCP/nested-call authorization contract
+# API-MCP-NESTED-CALL-AUTHORIZATION. MCP/nested-call authorization contract
 
 Every nested tool/resource/callback request from a connector is authorized as a new host operation.
 
@@ -3068,7 +3068,7 @@ It may not:
 
 unless the host explicitly grants that typed bridge.
 
-# 97. Connector result/stream budget API
+# API-CONNECTOR-RESULT-STREAM-BUDGET. Connector result/stream budget API
 
 Host enforces:
 - max metadata bytes;
@@ -3079,7 +3079,7 @@ Host enforces:
 
 Oversized result becomes PARTIAL/QUARANTINED/FAILED per certification policy; it is not loaded unbounded into Core/UI memory.
 
-# 98. CLI runner semantic success API
+# API-CLI-RUNNER-SEMANTIC-SUCCESS. CLI runner semantic success API
 
 CLI result reports:
 - process exit status;
@@ -3091,7 +3091,7 @@ CLI result reports:
 
 Human stdout text is not parsed as authoritative success when a machine contract exists.
 
-# 99. API completeness/retry contract
+# API-COMPLETENESS-RETRY. API completeness/retry contract
 
 Adapter exposes:
 - per-item batch outcome;
@@ -3102,7 +3102,7 @@ Adapter exposes:
 
 A missing item in an incomplete/eventually-consistent listing is not proof it does not exist.
 
-# 100. Browser action guard API
+# API-BROWSER-ACTION-GUARD. Browser action guard API
 
 Before high-effect browser actions:
 - browser.verify_action_context(checkpoint)
@@ -3113,14 +3113,14 @@ Context verification includes account/workspace/page/action/target fingerprints.
 
 Timeout after click produces UNCERTAIN, not automatic retry.
 
-# 101. Capability health API
+# API-CAPABILITY-HEALTH. Capability health API
 
 Connection summary aggregates per-capability health.
 
 Routing asks for exact requested capability/model/action readiness.
 A green connection card alone does not authorize a critical action.
 
-# 102. Subprocessor/egress chain contract
+# API-SUBPROCESSOR-EGRESS-CHAIN. Subprocessor/egress chain contract
 
 Execution receipt includes declared/observed effective provider/account/region/subprocessor metadata when available.
 
@@ -3130,7 +3130,7 @@ Unknown effective processing path can block sensitive jobs.
 
 
 
-# 103. Epoch-qualified event cursor API
+# API-EPOCH-QUALIFIED-EVENT-CURSOR. Epoch-qualified event cursor API
 
 Replace the conceptual bare after_seq cursor with:
 
@@ -3154,7 +3154,7 @@ Responses include:
 
 The server never returns an empty successful stream solely because the client's numeric seq is greater than the restored stream.
 
-# 104. Client/Core recovery handshake
+# API-CLIENT-CORE-RECOVERY-HANDSHAKE. Client/Core recovery handshake
 
 On connect/reconnect:
 - client.handshake(local_sync_context)
@@ -3174,7 +3174,7 @@ If mismatch:
 - pending side-effectful commands moved to reconciliation;
 - unsynced drafts preserved as divergent working copies where possible.
 
-# 105. Offline pending-command reconciliation API
+# API-OFFLINE-PENDING-COMMAND-RECONCILIATION. Offline pending-command reconciliation API
 
 Commands:
 - ClassifyOfflinePendingCommands
@@ -3188,7 +3188,7 @@ Policy:
 - local draft edits may be preserved/branched;
 - reads can normally be discarded/reissued.
 
-# 106. Recovery-specific conflict errors
+# API-RECOVERY-SPECIFIC-CONFLICT-ERRORS. Recovery-specific conflict errors
 
 Stable errors include:
 - RECOVERY_EPOCH_MISMATCH

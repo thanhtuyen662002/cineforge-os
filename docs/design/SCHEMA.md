@@ -2959,7 +2959,7 @@ No direct database-merge record exists because direct DB merge is unsupported.
 
 
 
-# 64. Privacy purge coordination
+# SCHEMA-PRIVACY-PURGE-COORDINATION. Privacy purge coordination
 
 ## purge_requests
 - id PK
@@ -2993,7 +2993,7 @@ PK(purge_request_id,target_kind,target_id)
 - payload_json
 - checkpoint_hash nullable
 
-# 65. Semantic index scope
+# SCHEMA-SEMANTIC-INDEX-SCOPE. Semantic index scope
 
 ## semantic_index_entries
 - id PK
@@ -3013,7 +3013,7 @@ PK(purge_request_id,target_kind,target_id)
 
 Queries must bind one authorized scope descriptor.
 
-# 66. Inference session isolation
+# SCHEMA-INFERENCE-SESSION-ISOLATION. Inference session isolation
 
 ## inference_sessions
 - id PK
@@ -3026,7 +3026,7 @@ Queries must bind one authorized scope descriptor.
 - started_at_utc_us
 - last_reset_at_utc_us nullable
 
-# 67. Learning derivative lineage
+# SCHEMA-LEARNING-DERIVATIVE-LINEAGE. Learning derivative lineage
 
 ## learning_derivatives
 - id PK FK entity_registry
@@ -3044,7 +3044,7 @@ Queries must bind one authorized scope descriptor.
 - source_rights_record_id nullable
 PK(derivative_id,source_entity_id,source_revision_id)
 
-# 68. Observability privacy records
+# SCHEMA-OBSERVABILITY-PRIVACY-RECORDS. Observability privacy records
 
 ## observability_policies
 - id PK
@@ -3065,7 +3065,7 @@ PK(derivative_id,source_entity_id,source_revision_id)
 - payload_ref
 - created_at_utc_us
 
-# 69. External exposure ledger
+# SCHEMA-EXTERNAL-EXPOSURE-LEDGER. External exposure ledger
 
 ## external_exposures
 - id PK
@@ -3083,7 +3083,7 @@ PK(derivative_id,source_entity_id,source_revision_id)
 - takedown_state nullable
 - evidence_json
 
-# 70. Privacy/consent generations
+# SCHEMA-PRIVACY-CONSENT-GENERATIONS. Privacy/consent generations
 
 ## privacy_generations
 - id PK
@@ -3098,7 +3098,7 @@ UNIQUE(studio_id,project_id,generation_no)
 
 Queued outbound action stores expected privacy_generation_id.
 
-# 71. Core/library writer ownership
+# SCHEMA-CORE-LIBRARY-WRITER-OWNERSHIP. Core/library writer ownership
 
 ## library_ownership
 - library_id PK
@@ -3112,7 +3112,7 @@ Queued outbound action stores expected privacy_generation_id.
 
 Only the process holding the OS-level exclusive primitive may move state into OWNED.
 
-# 72. Archive seals
+# SCHEMA-ARCHIVE-SEALS. Archive seals
 
 ## archive_seals
 - archive_id PK
@@ -3125,7 +3125,7 @@ Only the process holding the OS-level exclusive primitive may move state into OW
 
 Derived previews/indexes for archive use separate cache/project space and do not modify the sealed package.
 
-# 73. Temp/cache scope
+# SCHEMA-TEMP-CACHE-SCOPE. Temp/cache scope
 
 ## scoped_temp_roots
 - id PK
@@ -3139,7 +3139,7 @@ Derived previews/indexes for archive use separate cache/project space and do not
 
 
 
-# 74. Collaboration branches and conflicts
+# SCHEMA-COLLABORATION-BRANCHES-CONFLICTS. Collaboration branches and conflicts
 
 ## collaboration_branches
 - id PK
@@ -3191,7 +3191,7 @@ UNIQUE(branch_id,local_seq)
 - rationale
 - created_at_utc_us
 
-# 75. Actor/device/session authority generations
+# SCHEMA-ACTOR-DEVICE-SESSION-AUTHORITY-GENERATIONS. Actor/device/session authority generations
 
 ## actor_authority_generations
 - actor_id FK
@@ -3211,7 +3211,7 @@ Queued/offline operation stores expected authority generation for diagnostic con
 - state: ACTIVE | REVOKED | LOST | RETIRED
 - last_seen_at_utc_us nullable
 
-# 76. Exclusive collaboration locks
+# SCHEMA-EXCLUSIVE-COLLABORATION-LOCKS. Exclusive collaboration locks
 
 ## collaboration_locks
 - id PK
@@ -3228,7 +3228,7 @@ Queued/offline operation stores expected authority generation for diagnostic con
 
 Offline clients cannot create a new ACTIVE lock without Core authority.
 
-# 77. Collaboration transport bindings
+# SCHEMA-COLLABORATION-TRANSPORT-BINDINGS. Collaboration transport bindings
 
 ## collaboration_channels
 - id PK
@@ -3244,7 +3244,7 @@ Offline clients cannot create a new ACTIVE lock without Core authority.
 
 LOCAL_ONLY scope cannot use a cloud collaboration_channel unless policy explicitly permits/declassifies.
 
-# 78. Canonical promotion CAS records
+# SCHEMA-CANONICAL-PROMOTION-CAS-RECORDS. Canonical promotion CAS records
 
 ## canonical_promotions
 - id PK
@@ -3503,7 +3503,7 @@ LOCAL_ONLY scope cannot use a cloud collaboration_channel unless policy explicit
 
 
 
-# 84. Learning feedback provenance and evaluation context
+# SCHEMA-LEARNING-FEEDBACK-PROVENANCE-EVALUATION-CONTEXT. Learning feedback provenance and evaluation context
 
 ## learning_feedback_events
 - id PK

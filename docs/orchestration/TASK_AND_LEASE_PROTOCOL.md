@@ -257,7 +257,7 @@ A deleted branch never makes an old attempt number reusable.
 
 
 
-# 16. Claim intent and ambiguous branch creation
+# TASK-CLAIM-INTENT. Claim intent and ambiguous branch creation
 
 Before branch creation, a claimant participates in `CLAIM_INTENT_V1` election defined by CONTROL_PLANE_TRUST_AND_CONCURRENCY.md.
 
@@ -280,7 +280,7 @@ If branch exists but its association to the winning claim intent cannot be prove
 
 
 
-# 16. Park-state evidence
+# TASK-PARK-EVIDENCE. Park-state evidence
 
 A parked state must bind a real blocker.
 
@@ -292,7 +292,7 @@ Examples:
 
 Reconciler rejects fictitious/obsolete park state and returns task to actionable flow.
 
-# 17. Task-contract hash verification
+# TASK-CONTRACT-HASH. Task-contract hash verification
 
 Consumers recompute TASK_CONTRACT_HASH from the canonical parsed task contract.
 
@@ -302,7 +302,7 @@ Mismatch:
 - creates reconciliation finding;
 - requires Planner correction/version revision.
 
-# 18. Commit adoption provenance
+# TASK-COMMIT-ADOPTION. Commit adoption provenance
 
 When a worker adopts/cherry-picks code from another PR/branch:
 - record source PR/commit;

@@ -15,7 +15,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-62806DFE9410",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X02",
@@ -26,7 +26,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-7686AE3E2849",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X03",
@@ -37,7 +37,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-9B4B8A967BB6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -49,7 +49,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5330D1F5F0F8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X05",
@@ -60,7 +60,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-55AED564D5F1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X06",
@@ -71,7 +71,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-69E2FE1B5074",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X07",
@@ -82,7 +82,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-DBC58E6BAB45",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X08",
@@ -93,7 +93,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-87A850FB66E3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X09",
@@ -104,7 +104,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-F3A2B19C5E54",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X10",
@@ -115,7 +115,7 @@
       "domain": "REC",
       "stable_id": "CFRT-F6445E05CBB2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X11",
@@ -126,7 +126,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-DA563533BDA1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X12",
@@ -137,7 +137,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-5E9B381FF713",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X13",
@@ -148,7 +148,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-72FDD621339C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X14",
@@ -159,7 +159,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-A0B819B47EF4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X15",
@@ -170,7 +170,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-43EA66EE73D0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X16",
@@ -181,7 +181,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-74585FE03C9D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X17",
@@ -192,7 +192,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-71004FABAE0C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X18",
@@ -203,7 +203,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-FBD687E43E3D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X19",
@@ -214,7 +214,7 @@
       "domain": "REC",
       "stable_id": "CFRT-7C4D00E0089A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X20",
@@ -225,7 +225,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-94006F3302ED",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X21",
@@ -236,7 +236,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-3EBBE298A789",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X22",
@@ -247,7 +247,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-D0C026F97867",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X23",
@@ -258,7 +258,7 @@
       "domain": "REC",
       "stable_id": "CFRT-C9923FAFFB8E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X24",
@@ -269,7 +269,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-B6D1442C34C9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X25",
@@ -280,7 +280,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-5E92819AC38D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X26",
@@ -291,7 +291,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-F35AD8D83CAE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X27",
@@ -302,7 +302,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-451CE8074C53",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X28",
@@ -313,7 +313,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-DF84DDD92300",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X29",
@@ -324,7 +324,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-88C2BFC54D40",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X30",
@@ -335,7 +335,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-2C7F5F533EB4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X31",
@@ -346,7 +346,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-023462D0406E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X32",
@@ -357,7 +357,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-5E0DD6D33B0B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X33",
@@ -368,7 +368,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-B9C13A1F77DF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X34",
@@ -379,7 +379,7 @@
       "domain": "REC",
       "stable_id": "CFRT-C35D07D21B54",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X35",
@@ -390,7 +390,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-C0B2976CA1C3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X36",
@@ -401,7 +401,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-B6792BDA4059",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X37",
@@ -412,7 +412,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-219BC842AF46",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X38",
@@ -423,7 +423,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-48E929B11A3E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X39",
@@ -434,7 +434,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-23400BE789CE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -446,7 +446,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-AF4FCD3E7BA8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X41",
@@ -457,7 +457,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-09C02EBD97AD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X42",
@@ -468,7 +468,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-EE6EAABA1DA9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X43",
@@ -479,7 +479,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-84FA0E8EAA09",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X44",
@@ -490,7 +490,7 @@
       "domain": "REC",
       "stable_id": "CFRT-2304893995B2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X45",
@@ -501,7 +501,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-922B8B294719",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X46",
@@ -512,7 +512,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-6900D47A0D16",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X47",
@@ -523,7 +523,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-23E963D082F9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X48",
@@ -534,7 +534,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-A5FE0A5BDDE4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X49",
@@ -545,7 +545,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-ED68CC301C6D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -557,7 +557,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-F8F20C0B27B4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X51",
@@ -568,7 +568,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-A8670FED4FEF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X52",
@@ -579,7 +579,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-AACC5CF8C612",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X53",
@@ -590,7 +590,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-53BD8776F90F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X54",
@@ -601,7 +601,7 @@
       "domain": "REC",
       "stable_id": "CFRT-2E7E0A92ED1F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X55",
@@ -612,7 +612,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-248EDA60C87C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X39",
@@ -623,7 +623,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-DDEAE371E320",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X40",
@@ -634,7 +634,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-0D494598C763",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X41",
@@ -645,7 +645,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-7A3D6092393F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X42",
@@ -656,7 +656,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-711AE40241A4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X43",
@@ -667,7 +667,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-35686479FAB5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X44",
@@ -678,7 +678,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-4F51B2388E5A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X45",
@@ -689,7 +689,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-C1A2A2D0C2C1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X46",
@@ -700,7 +700,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-1865269AB469",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X47",
@@ -711,7 +711,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-0433C68C7F66",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X48",
@@ -722,7 +722,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-7841E47DE86B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X49",
@@ -733,7 +733,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-23A6B0EC90D8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X50",
@@ -744,7 +744,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-E27AF14633A4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X51",
@@ -755,7 +755,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-555CAD8D5C1F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X52",
@@ -766,7 +766,7 @@
       "domain": "REC",
       "stable_id": "CFRT-F708E58CCAFA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X53",
@@ -777,7 +777,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-C0D04158D6C1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X54",
@@ -788,7 +788,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-3E88E87F79A3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X55",
@@ -799,7 +799,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-B8DE0113D728",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X56",
@@ -810,7 +810,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-4150333CE3F8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X57",
@@ -821,7 +821,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-2E3622023E94",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X58",
@@ -832,7 +832,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-92A09F90543D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X59",
@@ -843,7 +843,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-6A5AE3A69194",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X60",
@@ -854,7 +854,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-93C729DBD383",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X61",
@@ -865,7 +865,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-2A4A43886C95",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X62",
@@ -876,7 +876,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-1BA846DB8BC9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -888,7 +888,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-9FC75F3570A6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X64",
@@ -899,7 +899,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-2B0E9EA37FBF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X65",
@@ -910,7 +910,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-B45EFDA4C4FD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X66",
@@ -921,7 +921,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-BAC851FDB2C6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X67",
@@ -932,7 +932,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-A8CE101C1DDB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X39",
@@ -943,7 +943,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-0776E7B4C2E7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -955,7 +955,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-2E9F1C9D6CF3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X41",
@@ -966,7 +966,7 @@
       "domain": "REC",
       "stable_id": "CFRT-21ADDF9A004D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X42",
@@ -977,7 +977,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-62321F71AA92",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X43",
@@ -988,7 +988,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-11290F589C31",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X44",
@@ -999,7 +999,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-D14EFE78DA95",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X45",
@@ -1010,7 +1010,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-CA4A9F965BA7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X46",
@@ -1021,7 +1021,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-6A3ED704A807",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X47",
@@ -1032,7 +1032,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-6D0590D2879C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1044,7 +1044,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-F4343E7D54C6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1056,7 +1056,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-E8032D07F29A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X50",
@@ -1067,7 +1067,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-E762A38B1321",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X51",
@@ -1078,7 +1078,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-0A9FD1C18BDD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X52",
@@ -1089,7 +1089,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-FD70D62DBFC5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X53",
@@ -1100,7 +1100,7 @@
       "domain": "REL",
       "stable_id": "CFRT-3A73716EE9BD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X54",
@@ -1111,7 +1111,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-434CF354BF3F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X55",
@@ -1122,7 +1122,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-C7F27E348801",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X56",
@@ -1133,7 +1133,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-4FF2D99DD0A2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X57",
@@ -1144,7 +1144,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-9075DCC19D85",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X58",
@@ -1155,7 +1155,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-4372DA233003",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X59",
@@ -1166,7 +1166,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-AC6624DC7108",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X60",
@@ -1177,7 +1177,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-B4ED10BAFED5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X61",
@@ -1188,7 +1188,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-7F59A11EDF6B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X62",
@@ -1199,7 +1199,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-51BD6F878A0A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X63",
@@ -1210,7 +1210,7 @@
       "domain": "REC",
       "stable_id": "CFRT-9B99199664BD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X64",
@@ -1221,7 +1221,7 @@
       "domain": "REC",
       "stable_id": "CFRT-CC0C6ED2AE4C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X65",
@@ -1232,7 +1232,7 @@
       "domain": "REC",
       "stable_id": "CFRT-4FDB1B4ADCE2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X66",
@@ -1243,7 +1243,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-EC6904241437",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X67",
@@ -1254,7 +1254,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-3BB802E5E3D2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X68",
@@ -1265,7 +1265,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-50E04BF3D732",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X69",
@@ -1276,7 +1276,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-09DF18447A4D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X70",
@@ -1287,7 +1287,7 @@
       "domain": "REL",
       "stable_id": "CFRT-33CC337071DF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X71",
@@ -1298,7 +1298,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-50C254AB4887",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X72",
@@ -1309,7 +1309,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-CCCE4FA21533",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X73",
@@ -1320,7 +1320,7 @@
       "domain": "ML",
       "stable_id": "CFRT-48C92B7CEEE6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X74",
@@ -1331,7 +1331,7 @@
       "domain": "ML",
       "stable_id": "CFRT-B38AD637A01C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X75",
@@ -1342,7 +1342,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-7A4D94E6AB4C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X76",
@@ -1353,7 +1353,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-4F815392821A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X77",
@@ -1364,7 +1364,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-E290ACC7A8D7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1376,7 +1376,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-C63ADD52C659",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X79",
@@ -1387,7 +1387,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-6F6F2237CF17",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X80",
@@ -1398,7 +1398,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-93A7440172CB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X81",
@@ -1409,7 +1409,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-CB3FB62807F3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1421,7 +1421,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-0843846E2686",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1433,7 +1433,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-D71A26A72E93",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1445,7 +1445,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-0C4640ACA2B3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X85",
@@ -1456,7 +1456,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-51D0E8EE6BAE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X86",
@@ -1467,7 +1467,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-99D41E80B2D0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X87",
@@ -1478,7 +1478,7 @@
       "domain": "REL",
       "stable_id": "CFRT-08F1E4F5AF1B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X88",
@@ -1489,7 +1489,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-FDE1988F3218",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X89",
@@ -1500,7 +1500,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-69B154A0DAA5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X90",
@@ -1511,7 +1511,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-AB72CEB9781D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X91",
@@ -1522,7 +1522,7 @@
       "domain": "REC",
       "stable_id": "CFRT-8F13E58EF2C9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X92",
@@ -1533,7 +1533,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-6C8FD9151577",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X93",
@@ -1544,7 +1544,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-D34804AD3B41",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X94",
@@ -1555,7 +1555,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-84251FE20DE8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X95",
@@ -1566,7 +1566,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-88EBE62EA0E0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X96",
@@ -1577,7 +1577,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-723ED58B4D18",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X97",
@@ -1588,7 +1588,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-61300C4F1D1A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X98",
@@ -1599,7 +1599,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-9A6E6CEE0B0B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X39",
@@ -1610,7 +1610,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-A3316B208C78",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X40",
@@ -1621,7 +1621,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-D6FED19296C0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X41",
@@ -1632,7 +1632,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-CFD283F6183A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X42",
@@ -1643,7 +1643,7 @@
       "domain": "REL",
       "stable_id": "CFRT-F80217EB037E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1655,7 +1655,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-C7ECD13205F1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X44",
@@ -1666,7 +1666,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-41A01BC7BC15",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X45",
@@ -1677,7 +1677,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-3051FBB31D31",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X46",
@@ -1688,7 +1688,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-699B3DD0C2FC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X47",
@@ -1699,7 +1699,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-284E8F3D1BF1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X48",
@@ -1710,7 +1710,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-70F66E704BAB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X49",
@@ -1721,7 +1721,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-41FAF6FA6B87",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X50",
@@ -1732,7 +1732,7 @@
       "domain": "ML",
       "stable_id": "CFRT-F39D4704E091",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X51",
@@ -1743,7 +1743,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-45FEFAD45662",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X52",
@@ -1754,7 +1754,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-E04FBF388BB3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X53",
@@ -1765,7 +1765,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-82581FE67CC8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X54",
@@ -1776,7 +1776,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-8AC73285AA83",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X55",
@@ -1787,7 +1787,7 @@
       "domain": "REC",
       "stable_id": "CFRT-239E1DDFB66D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X56",
@@ -1798,7 +1798,7 @@
       "domain": "REL",
       "stable_id": "CFRT-E3E3F4E43B90",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X57",
@@ -1809,7 +1809,7 @@
       "domain": "REL",
       "stable_id": "CFRT-1A81CDE3C5D9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X58",
@@ -1820,7 +1820,7 @@
       "domain": "REL",
       "stable_id": "CFRT-FCC0146D5B65",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X59",
@@ -1831,7 +1831,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-D7C0584D0D1D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X60",
@@ -1842,7 +1842,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-355BE3150C1F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1854,7 +1854,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-AC6323A929C3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -1866,7 +1866,7 @@
       "domain": "REC",
       "stable_id": "CFRT-45CB0CBA1DFE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X43",
@@ -1877,7 +1877,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-1953123B97CD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X44",
@@ -1888,7 +1888,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-E965FE877BB6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X45",
@@ -1899,7 +1899,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-D1450AF9158D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X46",
@@ -1910,7 +1910,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-A73A32C491DC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X47",
@@ -1921,7 +1921,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-7B2218045F4A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X48",
@@ -1932,7 +1932,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-C5ED643A28EB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X49",
@@ -1943,7 +1943,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-9BD46D97C6BC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X50",
@@ -1954,7 +1954,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-17A380684A15",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X51",
@@ -1965,7 +1965,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-BFB23F8450AA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X52",
@@ -1976,7 +1976,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-655580C3B332",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X53",
@@ -1987,7 +1987,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5B827541E826",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X54",
@@ -1998,7 +1998,7 @@
       "domain": "REC",
       "stable_id": "CFRT-1085C410FE25",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X39",
@@ -2009,7 +2009,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-BDE81785A93B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -2021,7 +2021,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-16966B7CA43D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X41",
@@ -2032,7 +2032,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-70E6F4940CE3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X42",
@@ -2043,7 +2043,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-7AC1511E7B20",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X43",
@@ -2054,7 +2054,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-4EF2EC90977A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X44",
@@ -2065,7 +2065,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-168C504C359A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X39",
@@ -2076,7 +2076,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-44CB39CFD109",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X40",
@@ -2087,7 +2087,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-9143D5AE1A4F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X41",
@@ -2098,7 +2098,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-4C3499148C27",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -2110,7 +2110,7 @@
       "domain": "REC",
       "stable_id": "CFRT-4C75F093B6C5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X43",
@@ -2121,7 +2121,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-3E362D43BF46",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X44",
@@ -2132,7 +2132,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-30E1C509191E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -2144,7 +2144,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-B259D95D512F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X46",
@@ -2155,7 +2155,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-1D9849F7F965",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X47",
@@ -2166,7 +2166,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-8D578E66EEA4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X48",
@@ -2177,7 +2177,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-05A5117066AE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X49",
@@ -2188,7 +2188,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-F7A95A2D4C4C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X50",
@@ -2199,7 +2199,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-83D6E6041A3C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X51",
@@ -2210,7 +2210,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-21768D6D215A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X52",
@@ -2221,7 +2221,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-28EE64B08A5C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X53",
@@ -2232,7 +2232,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-80A27A35BDB4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X54",
@@ -2243,7 +2243,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-966BDF8BE8AA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X55",
@@ -2254,7 +2254,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-0B814E10079B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X56",
@@ -2265,7 +2265,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-B5DA5D5B2E50",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X57",
@@ -2276,7 +2276,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-A64A8786FBE8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X58",
@@ -2287,7 +2287,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-BFB09C1C9D39",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X59",
@@ -2298,7 +2298,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-B5090913BF71",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X60",
@@ -2309,7 +2309,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-7AE2DB0E7209",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X61",
@@ -2320,7 +2320,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-C069B4BE78F0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X62",
@@ -2331,7 +2331,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5AA4CF7EE9C7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X63",
@@ -2342,7 +2342,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-291232A59D44",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X64",
@@ -2353,7 +2353,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-05E61D035227",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X65",
@@ -2364,7 +2364,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-98A05C7F489B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X66",
@@ -2375,7 +2375,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-AEAAF3BABB91",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X67",
@@ -2386,7 +2386,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-93A51F37B168",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X68",
@@ -2397,7 +2397,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-13A72B6DA0FA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X69",
@@ -2408,7 +2408,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-1C44061C3504",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X70",
@@ -2419,7 +2419,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-4346F77C1A85",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X71",
@@ -2430,7 +2430,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-21B0B514ADD3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X72",
@@ -2441,7 +2441,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-9EE2371A7777",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X73",
@@ -2452,7 +2452,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-48DDC2170E3A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X74",
@@ -2463,7 +2463,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-87746A5C97E7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -2475,7 +2475,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-CD8E94C88341",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X76",
@@ -2486,7 +2486,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-720A170D6118",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X77",
@@ -2497,7 +2497,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-893DB3DE407B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -2509,7 +2509,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-62ADC480B92E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X79",
@@ -2520,7 +2520,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-3F026EF21762",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X80",
@@ -2531,7 +2531,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-FCE877A48C79",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X81",
@@ -2542,7 +2542,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-A63823431CF8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X82",
@@ -2553,7 +2553,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-31AE0CFC6CB8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X83",
@@ -2564,7 +2564,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-9B487908E658",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X84",
@@ -2575,7 +2575,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-420376498756",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X85",
@@ -2586,7 +2586,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-95444AB4CAD1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X86",
@@ -2597,7 +2597,7 @@
       "domain": "REL",
       "stable_id": "CFRT-12EEDE59CC57",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X87",
@@ -2608,7 +2608,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-390CD86D1F32",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X88",
@@ -2619,7 +2619,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-33FB0EAEAAB4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X89",
@@ -2630,7 +2630,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-592DED128E51",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X90",
@@ -2641,7 +2641,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-AF79EC7DEFFA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X91",
@@ -2652,7 +2652,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-64C740D7C202",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X92",
@@ -2663,7 +2663,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-55537CA6F9D9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X39",
@@ -2674,7 +2674,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-CD668F0251F2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X40",
@@ -2685,7 +2685,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-187AF85E32A1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X41",
@@ -2696,7 +2696,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-8616A92C548D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X42",
@@ -2707,7 +2707,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-824583986F1C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X43",
@@ -2718,7 +2718,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-6392690885D7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X44",
@@ -2729,7 +2729,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-2F1C5F7A27D7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X45",
@@ -2740,7 +2740,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-9977E80C824A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X46",
@@ -2751,7 +2751,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-07EE949877B5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X47",
@@ -2762,7 +2762,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-C68EC0F7EC35",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X48",
@@ -2773,7 +2773,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-AAA3C2A0DDDB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X49",
@@ -2784,7 +2784,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-0ADDC822FE5B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X50",
@@ -2795,7 +2795,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-4831172D454B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X51",
@@ -2806,7 +2806,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-CDE08BEA14ED",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X52",
@@ -2817,7 +2817,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-3E567164EEC7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X53",
@@ -2828,7 +2828,7 @@
       "domain": "REL",
       "stable_id": "CFRT-60DC3CB30485",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X54",
@@ -2839,7 +2839,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-A03313AA49FE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X55",
@@ -2850,7 +2850,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-55E43E3DB274",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X56",
@@ -2861,7 +2861,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-F771CABA2EC7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X57",
@@ -2872,7 +2872,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5D6A58332413",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X58",
@@ -2883,7 +2883,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-B3C25D1DFE9D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X59",
@@ -2894,7 +2894,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-6D4A3F5CA71E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X60",
@@ -2905,7 +2905,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-8EE0B4A4C5FA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X61",
@@ -2916,7 +2916,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-DEC61FACBF1D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X62",
@@ -2927,7 +2927,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-128657C83386",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X63",
@@ -2938,7 +2938,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-F71AEF8E3D93",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X64",
@@ -2949,7 +2949,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-B34104411243",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X65",
@@ -2960,7 +2960,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5D00EADE893E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X66",
@@ -2971,7 +2971,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-4AEC87FDC253",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X67",
@@ -2982,7 +2982,7 @@
       "domain": "REC",
       "stable_id": "CFRT-5D24EE65B170",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X68",
@@ -2993,7 +2993,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-7495BB869954",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X69",
@@ -3004,7 +3004,7 @@
       "domain": "REC",
       "stable_id": "CFRT-1CFA941304EE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X70",
@@ -3015,7 +3015,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-52AB87842619",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X71",
@@ -3026,7 +3026,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-47A0C10BCF21",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X72",
@@ -3037,7 +3037,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-71B061F68036",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X73",
@@ -3048,7 +3048,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-78940DDEF4A2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X74",
@@ -3059,7 +3059,7 @@
       "domain": "REC",
       "stable_id": "CFRT-0C53ED747E52",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X75",
@@ -3070,7 +3070,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-D99AEA01C00F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X76",
@@ -3081,7 +3081,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-83BB82745A31",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X77",
@@ -3092,7 +3092,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-789B4E8E7A1D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X78",
@@ -3103,7 +3103,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-C7427804884F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X79",
@@ -3114,7 +3114,7 @@
       "domain": "REC",
       "stable_id": "CFRT-757203FC65C9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X80",
@@ -3125,7 +3125,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-846F0D78B8D4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X81",
@@ -3136,7 +3136,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-AFB649567AEE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X82",
@@ -3147,7 +3147,7 @@
       "domain": "REL",
       "stable_id": "CFRT-8499AA895834",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X83",
@@ -3158,7 +3158,7 @@
       "domain": "REL",
       "stable_id": "CFRT-C2333D956F52",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X84",
@@ -3169,7 +3169,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-4B3C72505EA3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X85",
@@ -3180,7 +3180,7 @@
       "domain": "REL",
       "stable_id": "CFRT-E1344D2A182A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X86",
@@ -3191,7 +3191,7 @@
       "domain": "REL",
       "stable_id": "CFRT-2CCFB9AC0099",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X87",
@@ -3202,7 +3202,7 @@
       "domain": "REL",
       "stable_id": "CFRT-464C8B53940B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X88",
@@ -3213,7 +3213,7 @@
       "domain": "REL",
       "stable_id": "CFRT-6F9F130FA0D0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X89",
@@ -3224,7 +3224,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-C1EC80F482D9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X90",
@@ -3235,7 +3235,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-C5D805E9D019",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X91",
@@ -3246,7 +3246,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-E9EE23F60B4D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X92",
@@ -3257,7 +3257,7 @@
       "domain": "REL",
       "stable_id": "CFRT-35FA202B37EE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X93",
@@ -3268,7 +3268,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-B532579AC513",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -3280,7 +3280,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-194944E30516",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X95",
@@ -3291,7 +3291,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-D7FDD699A75C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X96",
@@ -3302,7 +3302,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-91770B935F44",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X97",
@@ -3313,7 +3313,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-FF0874462556",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X98",
@@ -3324,7 +3324,7 @@
       "domain": "REC",
       "stable_id": "CFRT-CE69887512AB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X99",
@@ -3335,7 +3335,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-30B41746AC91",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X100",
@@ -3346,7 +3346,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-3B212AF58E0A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "RESIDUAL",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -3358,7 +3358,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-5F81D0432DE0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X50",
@@ -3369,7 +3369,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-7774AF963126",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X51",
@@ -3380,7 +3380,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-C49CE96D5DC2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -3392,7 +3392,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-9A4869EF09E1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X53",
@@ -3403,7 +3403,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-85641B60C283",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X54",
@@ -3414,7 +3414,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-C1455CA27F7D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X55",
@@ -3425,7 +3425,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-0988DB8EA268",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X56",
@@ -3436,7 +3436,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-B2F206563CBC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X57",
@@ -3447,7 +3447,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-2F116A3E0BFF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X58",
@@ -3458,7 +3458,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-241FA08781F0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X59",
@@ -3469,7 +3469,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-5DC0C18304EC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X60",
@@ -3480,7 +3480,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-309C531910E7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X61",
@@ -3491,7 +3491,7 @@
       "domain": "TIME",
       "stable_id": "CFRT-D9E630DF98F1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X62",
@@ -3502,7 +3502,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-3CEA92EAC577",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X63",
@@ -3513,7 +3513,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-614B89209148",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X64",
@@ -3524,7 +3524,7 @@
       "domain": "REL",
       "stable_id": "CFRT-F299E98476C7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X65",
@@ -3535,7 +3535,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-956E3688121B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X66",
@@ -3546,7 +3546,7 @@
       "domain": "REC",
       "stable_id": "CFRT-BEE162A5162B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X67",
@@ -3557,7 +3557,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-BD62D56D7022",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X68",
@@ -3568,7 +3568,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-EEFC1D026564",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X69",
@@ -3579,7 +3579,7 @@
       "domain": "ML",
       "stable_id": "CFRT-A777A41AFBBD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X70",
@@ -3590,7 +3590,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-74812F792BB8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X71",
@@ -3601,7 +3601,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-7A4130F2DE14",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X72",
@@ -3612,7 +3612,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-0B2FD8EFFA23",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X73",
@@ -3623,7 +3623,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-4CFF38F20F92",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X74",
@@ -3634,7 +3634,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-D205992EFDD0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X75",
@@ -3645,7 +3645,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-2BEF957CF10E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X76",
@@ -3656,7 +3656,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-74BA877E4D01",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X77",
@@ -3667,7 +3667,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-7DF5B0D72CBC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X78",
@@ -3678,7 +3678,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-90704B81FB7A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X61",
@@ -3689,7 +3689,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-1702A9EC1AA3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X62",
@@ -3700,7 +3700,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-A1EFF766B521",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X63",
@@ -3711,7 +3711,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-80E369F9700A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X64",
@@ -3722,7 +3722,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-04A72165BB13",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X65",
@@ -3733,7 +3733,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-4AA170E0897F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X66",
@@ -3744,7 +3744,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-FAA1B180F562",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X67",
@@ -3755,7 +3755,7 @@
       "domain": "REC",
       "stable_id": "CFRT-EB2A95A8F51B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X68",
@@ -3766,7 +3766,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-8C94B6037232",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -3778,7 +3778,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-9DF804717E30",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X70",
@@ -3789,7 +3789,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-4F5DF3FE08F1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -3801,7 +3801,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-2D3F68E4D362",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X72",
@@ -3812,7 +3812,7 @@
       "domain": "REC",
       "stable_id": "CFRT-758C9104F496",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X73",
@@ -3823,7 +3823,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-19E380F84FBA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X74",
@@ -3834,7 +3834,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-844374225A55",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X75",
@@ -3845,7 +3845,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-DB9FD610FB78",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X76",
@@ -3856,7 +3856,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-7A8C47D64E5D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X77",
@@ -3867,7 +3867,7 @@
       "domain": "REL",
       "stable_id": "CFRT-ABCE06B456F3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X78",
@@ -3878,7 +3878,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-9DAB9291E440",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X79",
@@ -3889,7 +3889,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-6FCE6CC380C6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X80",
@@ -3900,7 +3900,7 @@
       "domain": "ML",
       "stable_id": "CFRT-3AE5209731FB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X81",
@@ -3911,7 +3911,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-F9457AA13CBA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X82",
@@ -3922,7 +3922,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-EEB87D2326D1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X79",
@@ -3933,7 +3933,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-B43A6A09C075",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -3945,7 +3945,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-FB5B601514CE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X81",
@@ -3956,7 +3956,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-7AAE89AC4BBD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -3968,7 +3968,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-5E830F27038D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X83",
@@ -3979,7 +3979,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-FC46109454C6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X84",
@@ -3990,7 +3990,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-B8953FD37855",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X85",
@@ -4001,7 +4001,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-FCDA1F0F69B0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X86",
@@ -4012,7 +4012,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-235A012D7929",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X83",
@@ -4023,7 +4023,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-34505524AF6D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X84",
@@ -4034,7 +4034,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-8FEBBF26C01B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X85",
@@ -4045,7 +4045,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-11A60156A63A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X86",
@@ -4056,7 +4056,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-F4F189C55436",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X87",
@@ -4067,7 +4067,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-E5F1AA90523D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X88",
@@ -4078,7 +4078,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-214EE4FCE6AE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X89",
@@ -4089,7 +4089,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-4368CD86F68A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X90",
@@ -4100,7 +4100,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-AF55C19A2A9C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X91",
@@ -4111,7 +4111,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-421E03AA0894",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X92",
@@ -4122,7 +4122,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-58C34DC1BBB5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X73",
@@ -4133,7 +4133,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-270D95D56F9E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X74",
@@ -4144,7 +4144,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-4BDFC3B46B3B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X75",
@@ -4155,7 +4155,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-300494EDDBD9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X76",
@@ -4166,7 +4166,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-0E21265C8592",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X77",
@@ -4177,7 +4177,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-2F5C9EB6862F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X78",
@@ -4188,7 +4188,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-6310F9B62081",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X79",
@@ -4199,7 +4199,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-72486E1F4E4C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X80",
@@ -4210,7 +4210,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-9120DB6AE0F5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X81",
@@ -4221,7 +4221,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5552AA7EA766",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X82",
@@ -4232,7 +4232,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-E3B4F91B7214",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X83",
@@ -4243,7 +4243,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-7AEB22F91423",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X84",
@@ -4254,7 +4254,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-641711897145",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X85",
@@ -4265,7 +4265,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-A1A453CA42D2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X86",
@@ -4276,7 +4276,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-EED1D5514639",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X87",
@@ -4287,7 +4287,7 @@
       "domain": "REL",
       "stable_id": "CFRT-CA1A1BC65A0D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X88",
@@ -4298,7 +4298,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-F7A0432EBFF4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X89",
@@ -4309,7 +4309,7 @@
       "domain": "ML",
       "stable_id": "CFRT-DE3E1AFDA01A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X90",
@@ -4320,7 +4320,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-00B64A09330E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X91",
@@ -4331,7 +4331,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-1448A474A038",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X92",
@@ -4342,7 +4342,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-6AD7DDC4EC57",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X93",
@@ -4353,7 +4353,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-7D09D8887EC8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X94",
@@ -4364,7 +4364,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-B376E960C6F6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X95",
@@ -4375,7 +4375,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-412F8BE8ED22",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -4387,7 +4387,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-19EEE6E65E6D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -4399,7 +4399,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-2F1411980A00",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -4411,7 +4411,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-66452E0669F6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X99",
@@ -4422,7 +4422,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-BEB4A51C0620",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X100",
@@ -4433,7 +4433,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-CD658CDDE997",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X101",
@@ -4444,7 +4444,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-26453D1378A0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "RESIDUAL",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -4456,7 +4456,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-0BA6BC678C3D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X103",
@@ -4467,7 +4467,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-73DD46887B7D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X104",
@@ -4478,7 +4478,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-EEC4D0F09603",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X105",
@@ -4489,7 +4489,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-826F04A51D54",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X106",
@@ -4500,7 +4500,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-D870A4132658",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X107",
@@ -4511,7 +4511,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-2D5B5AE78A56",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X108",
@@ -4522,7 +4522,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-6D6783E258EA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X109",
@@ -4533,7 +4533,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-E33A3085A800",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X110",
@@ -4544,7 +4544,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-38000E49C6BF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X111",
@@ -4555,7 +4555,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-03659FB9081D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X112",
@@ -4566,7 +4566,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-B6A8B46C9A1F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X113",
@@ -4577,7 +4577,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-91AE2B7B65B0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X114",
@@ -4588,7 +4588,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-9FB53BC84D0E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X115",
@@ -4599,7 +4599,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-B5778A4F24E1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X116",
@@ -4610,7 +4610,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-E25B6D9C796C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X117",
@@ -4621,7 +4621,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-4DF2D36C5B98",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X118",
@@ -4632,7 +4632,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-A915C7E5E977",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X119",
@@ -4643,7 +4643,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-EF215A0FC05C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X120",
@@ -4654,7 +4654,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-B248DD1F6B41",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X73",
@@ -4665,7 +4665,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-40EF4FF44BFE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X74",
@@ -4676,7 +4676,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-26D5C240EA21",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X75",
@@ -4687,7 +4687,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-75B3936E8C28",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X76",
@@ -4698,7 +4698,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-577AF04E52CD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X77",
@@ -4709,7 +4709,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-70BFFE816322",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X78",
@@ -4720,7 +4720,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-AD4F2AAA7818",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X79",
@@ -4731,7 +4731,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-00D1A9A2D333",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X80",
@@ -4742,7 +4742,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-C5AFC1BA1E80",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X81",
@@ -4753,7 +4753,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-EB375813B36A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X82",
@@ -4764,7 +4764,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-64094E7F03B7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X83",
@@ -4775,7 +4775,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-E9A0C60C726E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X84",
@@ -4786,7 +4786,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-228A4C2F79A1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X85",
@@ -4797,7 +4797,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-793E82441890",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X86",
@@ -4808,7 +4808,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-CB756658A8DE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X87",
@@ -4819,7 +4819,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-7F362B49DA4A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X88",
@@ -4830,7 +4830,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-F3C2EF56A9CC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X89",
@@ -4841,7 +4841,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-E26C4B034EDC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X90",
@@ -4852,7 +4852,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-7D8AB0457B37",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -4864,7 +4864,7 @@
       "domain": "ML",
       "stable_id": "CFRT-E13C60F49FED",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X92",
@@ -4875,7 +4875,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-3A596E4E1252",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X93",
@@ -4886,7 +4886,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-0B5F8034B662",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X94",
@@ -4897,7 +4897,7 @@
       "domain": "REC",
       "stable_id": "CFRT-5F37E4EA30B7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X95",
@@ -4908,7 +4908,7 @@
       "domain": "DATA",
       "stable_id": "CFRT-1BA7388E519C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -4920,7 +4920,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-F3EA2DB2A41D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X97",
@@ -4931,7 +4931,7 @@
       "domain": "REC",
       "stable_id": "CFRT-27EC3E002BA3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X98",
@@ -4942,7 +4942,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-1B9B766F5D94",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X99",
@@ -4953,7 +4953,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-0ADDB4E67792",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X100",
@@ -4964,7 +4964,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-30C5226217A9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X101",
@@ -4975,7 +4975,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-9A969164AE69",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X102",
@@ -4986,7 +4986,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-C50870166E89",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X103",
@@ -4997,7 +4997,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-4D7D11463FCF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X104",
@@ -5008,7 +5008,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-B7AE8AE07858",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X105",
@@ -5019,7 +5019,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-19C5D9093F9C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X106",
@@ -5030,7 +5030,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-857597484C91",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X107",
@@ -5041,7 +5041,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-769FA4D8851D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X108",
@@ -5052,7 +5052,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-CF68726483DB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X109",
@@ -5063,7 +5063,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-71F3A0E16C1E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X110",
@@ -5074,7 +5074,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-CFF7B6D63C4B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X111",
@@ -5085,7 +5085,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-DA82CB0D73F5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X112",
@@ -5096,7 +5096,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-9FF795042DF1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X113",
@@ -5107,7 +5107,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-7CF16564B49C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X114",
@@ -5118,7 +5118,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-D9816FD8A6AD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X115",
@@ -5129,7 +5129,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-64627FF8EDBA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X116",
@@ -5140,7 +5140,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-65B3AB10E5CC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X117",
@@ -5151,7 +5151,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5D731706D296",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X118",
@@ -5162,7 +5162,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-B5CA493538E5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X119",
@@ -5173,7 +5173,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-AA7B6981291D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X120",
@@ -5184,7 +5184,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-C41E2AC5393D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X121",
@@ -5195,7 +5195,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-8F7C6B374966",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X122",
@@ -5206,7 +5206,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-7DE64DECC64B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X123",
@@ -5217,7 +5217,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-FEB3AF894024",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X124",
@@ -5228,7 +5228,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-547E5E20F5D5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X125",
@@ -5239,7 +5239,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-3B54AA77FBFC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X126",
@@ -5250,7 +5250,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-B912BDD3EDAC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -5262,7 +5262,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-F01C67A5D73E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X128",
@@ -5273,7 +5273,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-D186EDC4BCD7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X129",
@@ -5284,7 +5284,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-2156D87AECD7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X130",
@@ -5295,7 +5295,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-DB1C72A67299",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -5307,7 +5307,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-31A7D32BE626",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -5319,7 +5319,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-204DF673F160",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X133",
@@ -5330,7 +5330,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-4A817B63C6D0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X134",
@@ -5341,7 +5341,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-A3BEE8F6C860",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X135",
@@ -5352,7 +5352,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-F22FDE54E8A1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X136",
@@ -5363,7 +5363,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-2121F6683815",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X137",
@@ -5374,7 +5374,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-E08BC449E703",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X138",
@@ -5385,7 +5385,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-B7B42D4154CB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X139",
@@ -5396,7 +5396,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-DD5F6205D3CE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -5408,7 +5408,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-D4BF53A0F3F8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED",
       "domain_source": "MANUAL_P0_REVIEW"
     },
     {
@@ -5420,7 +5420,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-CB5A2DF1EC0E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X142",
@@ -5431,7 +5431,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-3F0256C9A8F6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X143",
@@ -5442,7 +5442,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-A10EDB75B1F0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X144",
@@ -5453,7 +5453,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-0E09B3046D19",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X145",
@@ -5464,7 +5464,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-BA165475B1F1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X146",
@@ -5475,7 +5475,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-7944B42E609D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X147",
@@ -5486,7 +5486,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-402DB4BF84F9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X148",
@@ -5497,7 +5497,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-E41D8D6040AF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X149",
@@ -5508,7 +5508,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-5BE8F10D7566",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X150",
@@ -5519,7 +5519,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-4EA7C6DF253E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X151",
@@ -5530,7 +5530,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-FAA8AEFEB3D9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X152",
@@ -5541,7 +5541,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-53D309655919",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X153",
@@ -5552,7 +5552,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-0872CE573C21",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X154",
@@ -5563,7 +5563,7 @@
       "domain": "REC",
       "stable_id": "CFRT-1D5BA4F1F8D7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X155",
@@ -5574,7 +5574,7 @@
       "domain": "REL",
       "stable_id": "CFRT-F4801764611E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X156",
@@ -5585,7 +5585,7 @@
       "domain": "ML",
       "stable_id": "CFRT-F5B645CB0CBF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X157",
@@ -5596,7 +5596,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-BE1B85E3184D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X158",
@@ -5607,7 +5607,7 @@
       "domain": "ML",
       "stable_id": "CFRT-4B3DF330E902",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X159",
@@ -5618,7 +5618,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-27754FA75174",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X160",
@@ -5629,7 +5629,7 @@
       "domain": "ML",
       "stable_id": "CFRT-A9C50C89DBD0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X161",
@@ -5640,7 +5640,7 @@
       "domain": "ML",
       "stable_id": "CFRT-A422EA25D5AD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X162",
@@ -5651,7 +5651,7 @@
       "domain": "REL",
       "stable_id": "CFRT-92A38E66844D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X163",
@@ -5662,7 +5662,7 @@
       "domain": "ML",
       "stable_id": "CFRT-5A2460BBE54E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X164",
@@ -5673,7 +5673,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-3C89E5FF521E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X165",
@@ -5684,7 +5684,7 @@
       "domain": "ML",
       "stable_id": "CFRT-56D5EB1DB0AE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X166",
@@ -5695,7 +5695,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-E3A784BF2486",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X167",
@@ -5706,7 +5706,7 @@
       "domain": "ML",
       "stable_id": "CFRT-40CCFFF95C43",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X168",
@@ -5717,7 +5717,7 @@
       "domain": "ML",
       "stable_id": "CFRT-BAC331BA37E5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X169",
@@ -5728,7 +5728,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-E2A71D68C18A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X170",
@@ -5739,7 +5739,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-992B4783A3C1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X171",
@@ -5750,7 +5750,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-2AEB18426736",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X172",
@@ -5761,7 +5761,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-920898C37FAB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X173",
@@ -5772,7 +5772,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-87DA4AA62551",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X174",
@@ -5783,7 +5783,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-3C960343127C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X175",
@@ -5794,7 +5794,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-C119E5888375",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X176",
@@ -5805,7 +5805,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-B8DCD098E6F3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X177",
@@ -5816,7 +5816,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-E2916300CFEC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X178",
@@ -5827,7 +5827,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-BB4DF44FED1C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X179",
@@ -5838,7 +5838,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-22AC0483F733",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X180",
@@ -5849,7 +5849,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-2D4CFF6E02E7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X181",
@@ -5860,7 +5860,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-824E640DCDF6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X182",
@@ -5871,7 +5871,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-FA54DBA63430",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X183",
@@ -5882,7 +5882,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-34534F57215D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X184",
@@ -5893,7 +5893,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-29C532547796",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X185",
@@ -5904,7 +5904,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-4BE554810C48",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X186",
@@ -5915,7 +5915,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-68FF7F68359F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X187",
@@ -5926,7 +5926,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-53AA1E703B78",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X188",
@@ -5937,7 +5937,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-F416859CFB9D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X189",
@@ -5948,7 +5948,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-CC0194234068",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X190",
@@ -5959,7 +5959,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-6912BFE41882",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X73",
@@ -5970,7 +5970,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-87B5FC02E164",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X74",
@@ -5981,7 +5981,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-9E8CECDD31FF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X75",
@@ -5992,7 +5992,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-FC0417368CBC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X76",
@@ -6003,7 +6003,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-067C2411D7CC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X77",
@@ -6014,7 +6014,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-EEBBAF17B3A4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X78",
@@ -6025,7 +6025,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-343B1904F172",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X79",
@@ -6036,7 +6036,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-3712064CB463",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X80",
@@ -6047,7 +6047,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-B0C81F496954",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X81",
@@ -6058,7 +6058,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5AD17F1C9F1D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X82",
@@ -6069,7 +6069,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-CA06C0B26192",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X83",
@@ -6080,7 +6080,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-C818CBA6598D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X84",
@@ -6091,7 +6091,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-5978FCD248AC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X85",
@@ -6102,7 +6102,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-6888DE4C3968",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X86",
@@ -6113,7 +6113,7 @@
       "domain": "REL",
       "stable_id": "CFRT-9A3F40E9422E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X87",
@@ -6124,7 +6124,7 @@
       "domain": "ML",
       "stable_id": "CFRT-BF0AE7311E65",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X88",
@@ -6135,7 +6135,7 @@
       "domain": "ML",
       "stable_id": "CFRT-8950C582DB87",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X89",
@@ -6146,7 +6146,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-B0ABDA4D80AA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X90",
@@ -6157,7 +6157,7 @@
       "domain": "ML",
       "stable_id": "CFRT-7F752536846B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X91",
@@ -6168,7 +6168,7 @@
       "domain": "ML",
       "stable_id": "CFRT-298D97B44911",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X92",
@@ -6179,7 +6179,7 @@
       "domain": "ML",
       "stable_id": "CFRT-D7DF31C1AA56",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X93",
@@ -6190,7 +6190,7 @@
       "domain": "ML",
       "stable_id": "CFRT-306A677F2EFE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X94",
@@ -6201,7 +6201,7 @@
       "domain": "ML",
       "stable_id": "CFRT-D3BDDB0352B0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X95",
@@ -6212,7 +6212,7 @@
       "domain": "ML",
       "stable_id": "CFRT-AD9AF6156B17",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X96",
@@ -6223,7 +6223,7 @@
       "domain": "ML",
       "stable_id": "CFRT-DCA78D7E1503",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "RESIDUAL"
     },
     {
       "legacy_id": "X97",
@@ -6234,7 +6234,7 @@
       "domain": "ML",
       "stable_id": "CFRT-A6E69C945538",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X98",
@@ -6245,7 +6245,7 @@
       "domain": "ML",
       "stable_id": "CFRT-8CD55ED363E0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X99",
@@ -6256,7 +6256,7 @@
       "domain": "ML",
       "stable_id": "CFRT-8DA80DE721CC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X100",
@@ -6267,7 +6267,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-8A58334F55BB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X101",
@@ -6278,7 +6278,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-00BAACAB15F6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X102",
@@ -6289,7 +6289,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-65BC281C5283",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X103",
@@ -6300,7 +6300,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-FA3FFCD06BC8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X104",
@@ -6311,7 +6311,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-7797512A7965",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X105",
@@ -6322,7 +6322,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-4E1702F63149",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X106",
@@ -6333,7 +6333,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-F3A666214B4F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X107",
@@ -6344,7 +6344,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-2CF831416AB3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X108",
@@ -6355,7 +6355,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-5E7E22B1D14D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X109",
@@ -6366,7 +6366,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-E51BA5705380",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X110",
@@ -6377,7 +6377,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-41B00D8BC6E1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X111",
@@ -6388,7 +6388,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-F9F9DBF2A1BC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X112",
@@ -6399,7 +6399,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-0693A52924B1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X113",
@@ -6410,7 +6410,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-B837DAFBB374",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X114",
@@ -6421,7 +6421,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-646251EC83C5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X115",
@@ -6432,7 +6432,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-04DD0890E451",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X116",
@@ -6443,7 +6443,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-B399507AD8DF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X117",
@@ -6454,7 +6454,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-E374D9CF38E1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X118",
@@ -6465,7 +6465,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-B03CE92D3609",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X119",
@@ -6476,7 +6476,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-3F2C3B89A22C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X120",
@@ -6487,7 +6487,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-D15BD8EF69A4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "UNCOVERED"
     },
     {
       "legacy_id": "X121",
@@ -6498,7 +6498,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-EC3F420AD03D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X122",
@@ -6509,7 +6509,7 @@
       "domain": "INGEST",
       "stable_id": "CFRT-5C1AE21C0683",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X123",
@@ -6520,7 +6520,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-FBF55AF7A1A6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X124",
@@ -6531,7 +6531,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-A69FFCA71B42",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X125",
@@ -6542,7 +6542,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-E7A0BB14950C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X126",
@@ -6553,7 +6553,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-8BC2C4F76B02",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X127",
@@ -6564,7 +6564,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-BACF94C1ED6E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X128",
@@ -6575,7 +6575,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-C8FC9A38CC96",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X129",
@@ -6586,7 +6586,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-89D2F6AF7F65",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X130",
@@ -6597,7 +6597,7 @@
       "domain": "REC",
       "stable_id": "CFRT-3160C04B6712",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X131",
@@ -6608,7 +6608,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-25C67B9336E8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X132",
@@ -6619,7 +6619,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-CEDB850050DB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X133",
@@ -6630,7 +6630,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-CC827170CDC6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X134",
@@ -6641,7 +6641,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-05B5E8D822CB",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X135",
@@ -6652,7 +6652,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-64048754CC1C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X136",
@@ -6663,7 +6663,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-6972FC7068CE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X137",
@@ -6674,7 +6674,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-1FED5BDB2A33",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X138",
@@ -6685,7 +6685,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-F01CA037C2C0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X139",
@@ -6696,7 +6696,7 @@
       "domain": "MEDIA",
       "stable_id": "CFRT-6E223A1A650E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X140",
@@ -6707,7 +6707,7 @@
       "domain": "REC",
       "stable_id": "CFRT-9387148E8A56",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X141",
@@ -6718,7 +6718,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-A462411E8875",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X142",
@@ -6729,7 +6729,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-445B12CD685C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X143",
@@ -6740,7 +6740,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-8A347129964E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X144",
@@ -6751,7 +6751,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-E31CCB9F4C67",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X145",
@@ -6762,7 +6762,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-4E4A2FCA215B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X146",
@@ -6773,7 +6773,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-8F63428F415D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X147",
@@ -6784,7 +6784,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-E4815BBCBF32",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X148",
@@ -6795,7 +6795,7 @@
       "domain": "REC",
       "stable_id": "CFRT-D3694F5CB5D8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X149",
@@ -6806,7 +6806,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-8036C1FD8C5C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X150",
@@ -6817,7 +6817,7 @@
       "domain": "COLLAB",
       "stable_id": "CFRT-251C42C5CEE1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X151",
@@ -6828,7 +6828,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-2A094B5BB549",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X152",
@@ -6839,7 +6839,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-B5F901FB755F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X153",
@@ -6850,7 +6850,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-F8FA5B50413D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X154",
@@ -6861,7 +6861,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-4CE0071E1120",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X155",
@@ -6872,7 +6872,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-ECE07B264D55",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X156",
@@ -6883,7 +6883,7 @@
       "domain": "REC",
       "stable_id": "CFRT-84BE4DB888C5",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X157",
@@ -6894,7 +6894,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-DDD4D5F8F21F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X158",
@@ -6905,7 +6905,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-1BC64F4F80E2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X159",
@@ -6916,7 +6916,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-746F5B2530C2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X160",
@@ -6927,7 +6927,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-F1586650E6F7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X161",
@@ -6938,7 +6938,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-8522E81C9234",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X162",
@@ -6949,7 +6949,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-A6F2E734A387",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X163",
@@ -6960,7 +6960,7 @@
       "domain": "BUILD",
       "stable_id": "CFRT-62598658C2A1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X164",
@@ -6971,7 +6971,7 @@
       "domain": "ORCH",
       "stable_id": "CFRT-D5EC96482587",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X165",
@@ -6982,7 +6982,7 @@
       "domain": "GEN",
       "stable_id": "CFRT-CA0713A5256F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X166",
@@ -6993,7 +6993,7 @@
       "domain": "PLAT",
       "stable_id": "CFRT-0CE39E49C648",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X167",
@@ -7004,7 +7004,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-51E9AAAACB46",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X168",
@@ -7015,7 +7015,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-F51A9A73D316",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X169",
@@ -7026,7 +7026,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-E1B216F93912",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X170",
@@ -7037,7 +7037,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-343F10DC5E33",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X171",
@@ -7048,7 +7048,7 @@
       "domain": "SEC",
       "stable_id": "CFRT-91F5516E78A4",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X172",
@@ -7059,7 +7059,7 @@
       "domain": "REC",
       "stable_id": "CFRT-E624BC75FBC1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X173",
@@ -7070,7 +7070,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-C31BF374CB34",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X174",
@@ -7081,7 +7081,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-14ED4B049375",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X175",
@@ -7092,7 +7092,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-F3FB876513B7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X176",
@@ -7103,7 +7103,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-113B50FD9206",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X177",
@@ -7114,7 +7114,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-56DF28C7943D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X178",
@@ -7125,7 +7125,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-E8788B76F362",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X179",
@@ -7136,7 +7136,7 @@
       "domain": "CAP",
       "stable_id": "CFRT-D27B23938A3E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X180",
@@ -7147,7 +7147,7 @@
       "domain": "STOR",
       "stable_id": "CFRT-8E5E442079B2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X181",
@@ -7158,7 +7158,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-73DD1CACD3EF",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X182",
@@ -7169,7 +7169,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-22FE75826E88",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X183",
@@ -7180,7 +7180,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-E8EB73C2F0F3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X184",
@@ -7191,7 +7191,7 @@
       "domain": "REC",
       "stable_id": "CFRT-FC090132783E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X185",
@@ -7202,7 +7202,7 @@
       "domain": "REC",
       "stable_id": "CFRT-421F5CE6E6B9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X186",
@@ -7213,7 +7213,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-61BFEA21437D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X187",
@@ -7224,7 +7224,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-BC3911E0BA06",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X188",
@@ -7235,7 +7235,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-75B2751201CE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X189",
@@ -7246,7 +7246,7 @@
       "domain": "PRIV",
       "stable_id": "CFRT-36AABFC9F4FA",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X190",
@@ -7257,7 +7257,7 @@
       "domain": "REC",
       "stable_id": "CFRT-55F50F27350D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X191",
@@ -7268,7 +7268,7 @@
       "domain": "REC",
       "stable_id": "CFRT-A422ECEA6BFE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X192",
@@ -7279,7 +7279,7 @@
       "domain": "REC",
       "stable_id": "CFRT-E33A59D815D9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X193",
@@ -7290,7 +7290,7 @@
       "domain": "REC",
       "stable_id": "CFRT-D8AD062FF8B2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X194",
@@ -7301,7 +7301,7 @@
       "domain": "REC",
       "stable_id": "CFRT-093261BBC84A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     },
     {
       "legacy_id": "X195",
@@ -7312,7 +7312,7 @@
       "domain": "REC",
       "stable_id": "CFRT-58A007F50052",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "EMPIRICAL_TEST_REQUIRED"
     },
     {
       "legacy_id": "X196",
@@ -7323,11 +7323,14 @@
       "domain": "REC",
       "stable_id": "CFRT-4A63D53C9208",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "PARTIAL"
     }
   ],
   "registry_revision": 2,
   "identity_note": "Canonical finding identity is independent from severity/domain classification so reclassification cannot renumber findings.",
   "classification_revision": 3,
-  "classification_note": "Revision 3 adds manual domain review for all previously GEN-classified P0 findings; stable IDs unchanged."
+  "classification_note": "Revision 3 adds manual domain review for all previously GEN-classified P0 findings; stable IDs unchanged.",
+  "coverage_revision": 1,
+  "coverage_source": "docs/orchestration/findings/COVERAGE.json",
+  "coverage_note": "Coverage state is synchronized from the stable_id-keyed ledger; design text is not empirical proof and VERIFIED requires evidence."
 }
