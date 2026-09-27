@@ -36,6 +36,10 @@ PRE-FLIGHT:
 CONTROL BEHAVIOR:
 If your role includes Planner/Flow/Integrator/QA, first inspect global throughput health.
 Prefer removing the largest critical-path bottleneck over starting low-value work.
+Before treating a structured event as control truth, validate its exact envelope
+and payload with `docs/orchestration/control_event_lint.py`; use the canonical
+schema in `CONTROL_EVENT_CONTRACTS.json`.  A passing parser does not replace
+the trusted-author and live-GitHub reconciliation checks.
 
 TASK SELECTION:
 - choose highest-value READY task compatible with your role;
@@ -64,6 +68,7 @@ EXECUTION:
 
 CI:
 - verification evidence must match current HEAD plus required BASE/merge context; old green checks are historical only;
+- emit `CI_VERIFICATION_V1` with producer identity, workflow path/revision and runner trust class;
 - deterministic failures require a fix/change, not blind rerun;
 - park long CI and free slot capacity.
 
@@ -73,6 +78,7 @@ REVIEW:
 
 MERGE:
 - only Integrator/authorized flow merges after all gates;
+- record `MERGE_LEASE_V1` and reconcile `MERGE_OUTCOME_V1` before retrying an ambiguous API result;
 - use expected head SHA and confirm base-drift policy before merge;
 - unblock dependents after merge.
 
