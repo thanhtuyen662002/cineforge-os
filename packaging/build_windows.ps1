@@ -28,6 +28,26 @@ function Get-ToolPath([string]$Name) {
     return $tool.Source
 }
 
+function Get-Sha256([string]$PathToHash) {
+    # Windows PowerShell installations used on build machines do not always
+    # ship the Get-FileHash cmdlet. Keep the manifest deterministic with the
+    # framework crypto API so the one-click wrapper works on both PowerShell
+    # editions.
+    $fileHash = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+    if ($null -ne $fileHash) {
+        return ((& $fileHash.Name -LiteralPath $PathToHash -Algorithm SHA256).Hash).ToLowerInvariant()
+    }
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($PathToHash)
+    try {
+        return ([System.BitConverter]::ToString($algorithm.ComputeHash($stream)) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
 function Invoke-Checked([string]$FilePath, [string[]]$Arguments, [string]$Description, [string]$WorkingDirectory = $repoRoot) {
     Write-Host "==> $Description" -ForegroundColor Cyan
     Push-Location $WorkingDirectory
@@ -286,7 +306,7 @@ $manifest = [ordered]@{
     core = $coreMode
     tauri_installer = if ($null -ne $tauriInstaller) { [IO.Path]::GetRelativePath($distRoot, $tauriInstaller) } else { $null }
     bootstrap = 'CineForge.exe'
-    bootstrap_sha256 = if (Test-Path -LiteralPath $exe) { (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+    bootstrap_sha256 = if (Test-Path -LiteralPath $exe) { Get-Sha256 $exe } else { $null }
     signing = 'UNSIGNED_BUILD_REQUIRES_TRUSTED_RELEASE_SIGNING'
     runtime = if ($coreMode -eq 'node-self-contained') { 'Self-contained bootstrap with bundled Node.js and Core.' } elseif ($coreMode -eq 'python-source-fallback') { 'Python 3.11+ required unless Core is bundled with PyInstaller.' } else { 'Self-contained bootstrap; Core bundled.' }
     warnings = @($warnings)
