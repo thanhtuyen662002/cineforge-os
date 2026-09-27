@@ -34,10 +34,11 @@
       "severity": "P0",
       "source_section": "12. Newly uncovered findings requiring hardening",
       "source_line": 259,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-9B4B8A967BB6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X04",
@@ -430,10 +431,11 @@
       "severity": "P0/P1",
       "source_section": "18. Third-wave findings",
       "source_line": 602,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-23400BE789CE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X40",
@@ -540,10 +542,11 @@
       "severity": "P0/P1",
       "source_section": "18. Third-wave findings",
       "source_line": 644,
-      "domain": "GEN",
+      "domain": "PRIV",
       "stable_id": "CFRT-ED68CC301C6D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X50",
@@ -870,10 +873,11 @@
       "severity": "P0/P1",
       "source_section": "22. Fifth-wave findings",
       "source_line": 961,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-1BA846DB8BC9",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X63",
@@ -936,10 +940,11 @@
       "severity": "P0/P1",
       "source_section": "18. Third-wave findings",
       "source_line": 1056,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-0776E7B4C2E7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X40",
@@ -1024,10 +1029,11 @@
       "severity": "P0/P1",
       "source_section": "18. Third-wave findings",
       "source_line": 1107,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-6D0590D2879C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X48",
@@ -1035,10 +1041,11 @@
       "severity": "P0",
       "source_section": "18. Third-wave findings",
       "source_line": 1117,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-F4343E7D54C6",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X49",
@@ -1354,10 +1361,11 @@
       "severity": "P0/P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 1423,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-E290ACC7A8D7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X78",
@@ -1398,10 +1406,11 @@
       "severity": "P0/P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 1456,
-      "domain": "GEN",
+      "domain": "CAP",
       "stable_id": "CFRT-CB3FB62807F3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X82",
@@ -1409,10 +1418,11 @@
       "severity": "P0/P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 1465,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-0843846E2686",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X83",
@@ -1420,10 +1430,11 @@
       "severity": "P0/P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 1469,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-D71A26A72E93",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X84",
@@ -1629,10 +1640,11 @@
       "severity": "P0/P1",
       "source_section": "18. Findings from third wave",
       "source_line": 1707,
-      "domain": "GEN",
+      "domain": "REL",
       "stable_id": "CFRT-F80217EB037E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X43",
@@ -1827,10 +1839,11 @@
       "severity": "P0/P1",
       "source_section": "20. Findings from fourth wave",
       "source_line": 1863,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-355BE3150C1F",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X41",
@@ -1838,10 +1851,11 @@
       "severity": "P0/P1",
       "source_section": "19. New fourth-wave findings",
       "source_line": 1936,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-AC6323A929C3",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X42",
@@ -1992,10 +2006,11 @@
       "severity": "P0",
       "source_section": "18. New findings",
       "source_line": 2033,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-BDE81785A93B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X40",
@@ -2080,10 +2095,11 @@
       "severity": "P0/P1",
       "source_section": "18. Third-wave findings",
       "source_line": 2119,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-4C3499148C27",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X42",
@@ -2113,10 +2129,11 @@
       "severity": "P0/P1",
       "source_section": "18. Third-wave findings",
       "source_line": 2132,
-      "domain": "GEN",
+      "domain": "BUILD",
       "stable_id": "CFRT-30E1C509191E",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X45",
@@ -2443,10 +2460,11 @@
       "severity": "P0/P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 2408,
-      "domain": "GEN",
+      "domain": "PRIV",
       "stable_id": "CFRT-87746A5C97E7",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X75",
@@ -2476,10 +2494,11 @@
       "severity": "P0/P1 domain",
       "source_section": "26. Seventh-wave findings",
       "source_line": 2463,
-      "domain": "GEN",
+      "domain": "MEDIA",
       "stable_id": "CFRT-893DB3DE407B",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X78",
@@ -3246,10 +3265,11 @@
       "severity": "P0/P1",
       "source_section": "30. Installation/library clone findings",
       "source_line": 3323,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-B532579AC513",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X94",
@@ -3323,10 +3343,11 @@
       "severity": "P0",
       "source_section": "30. Installation/library clone findings",
       "source_line": 3377,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-3B212AF58E0A",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X49",
@@ -3356,10 +3377,11 @@
       "severity": "P0/P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 3456,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-C49CE96D5DC2",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X52",
@@ -3741,10 +3763,11 @@
       "severity": "P0/P1",
       "source_section": "22. Findings from fifth-wave authority confusion",
       "source_line": 3888,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-8C94B6037232",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X69",
@@ -3763,10 +3786,11 @@
       "severity": "P0/P1",
       "source_section": "22. Findings from fifth-wave authority confusion",
       "source_line": 3909,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-4F5DF3FE08F1",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X71",
@@ -3906,10 +3930,11 @@
       "severity": "P0/P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 4047,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-B43A6A09C075",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X80",
@@ -3928,10 +3953,11 @@
       "severity": "P0/P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 4078,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-7AAE89AC4BBD",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X82",
@@ -4346,10 +4372,11 @@
       "severity": "P0/P1",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4571,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-412F8BE8ED22",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X96",
@@ -4357,10 +4384,11 @@
       "severity": "P0/P1",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4582,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-19EEE6E65E6D",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X97",
@@ -4368,10 +4396,11 @@
       "severity": "P0/P1",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4597,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-2F1411980A00",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X98",
@@ -4412,10 +4441,11 @@
       "severity": "P0 residual",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4636,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-26453D1378A0",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X102",
@@ -4819,10 +4849,11 @@
       "severity": "P0/P1",
       "source_section": "26. Data-residue/isolation findings",
       "source_line": 5314,
-      "domain": "GEN",
+      "domain": "PRIV",
       "stable_id": "CFRT-7D8AB0457B37",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X91",
@@ -4874,10 +4905,11 @@
       "severity": "P0",
       "source_section": "26. Data-residue/isolation findings",
       "source_line": 5361,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-1BA7388E519C",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X96",
@@ -5215,10 +5247,11 @@
       "severity": "P0/P1 delivery",
       "source_section": "32. Complexity-control findings",
       "source_line": 5764,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-B912BDD3EDAC",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X127",
@@ -5259,10 +5292,11 @@
       "severity": "P0/P1",
       "source_section": "32. Complexity-control findings",
       "source_line": 5813,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-DB1C72A67299",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X131",
@@ -5270,10 +5304,11 @@
       "severity": "P0",
       "source_section": "32. Complexity-control findings",
       "source_line": 5823,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-31A7D32BE626",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X132",
@@ -5358,10 +5393,11 @@
       "severity": "P0 product",
       "source_section": "32. Complexity-control findings",
       "source_line": 5897,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-DD5F6205D3CE",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X140",
@@ -5369,10 +5405,11 @@
       "severity": "P0/P1",
       "source_section": "32. Complexity-control findings",
       "source_line": 5906,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-D4BF53A0F3F8",
       "registry_state": "IDENTIFIED",
-      "coverage_state": "NEEDS_COVERAGE_REVIEW"
+      "coverage_state": "NEEDS_COVERAGE_REVIEW",
+      "domain_source": "MANUAL_P0_REVIEW"
     },
     {
       "legacy_id": "X141",
@@ -7291,6 +7328,6 @@
   ],
   "registry_revision": 2,
   "identity_note": "Canonical finding identity is independent from severity/domain classification so reclassification cannot renumber findings.",
-  "classification_revision": 2,
-  "classification_note": "Domain is mutable metadata; revision 2 uses title-first semantic heuristics. stable_id is unchanged."
+  "classification_revision": 3,
+  "classification_note": "Revision 3 adds manual domain review for all previously GEN-classified P0 findings; stable IDs unchanged."
 }
