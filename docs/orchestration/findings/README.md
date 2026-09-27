@@ -89,6 +89,21 @@ are routed by
 chaos and stable-ID mappings with
 `python docs/orchestration/promotion_lane_gate.py`.
 
+L4 has a bounded reference contract harness for recovery/storage decisions:
+`docs/orchestration/l4_recovery_contract.py` and its machine-readable manifest
+`docs/orchestration/L4_RECOVERY_CONTRACT_MANIFEST.json`.  Run the negative
+fixtures with `python docs/orchestration/l4_recovery_selftest.py`, then run
+`python docs/orchestration/l4_recovery_gate.py`.  The harness covers CT-10
+through CT-16 (recovery epochs, old outbox policy, SQLite pressure, temporary
+reservations, single-writer fencing, backup verification, and migration/update
+rollback).  It is explicitly `REFERENCE_HARNESS_ONLY`: it does not open a
+product SQLite database, acquire an OS lock, verify a real signing key, or
+prove power-loss/hardware recovery.  A passing fixture therefore remains
+`DESIGNED_UNVERIFIED`, and L4 promotion remains parked until independent
+runtime and chaos evidence exists.
+The gate metadata fixtures are exercised with
+`python docs/orchestration/l4_recovery_gate_selftest.py`.
+
 ## Next gate
 
 Before this PR can become review-ready:

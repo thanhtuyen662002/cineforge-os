@@ -230,6 +230,7 @@
         "CF-CTRL-RECOVERY-EPOCH",
         "CF-CTRL-BACKUP-CONSISTENCY",
         "CF-CTRL-UPDATE-SUPPLY-CHAIN",
+        "CF-CTRL-SINGLE-CORE-WRITER",
         "CF-CTRL-SQLITE-SAFE-ROOT"
       ],
       "owner_refs": [
@@ -237,6 +238,7 @@
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#B2",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#B3",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#B4",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#F2",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#K",
         "docs/architecture/FINAL_ARCHITECTURE.md#21",
         "docs/architecture/FINAL_ARCHITECTURE.md#27",
@@ -266,6 +268,14 @@
         "real signing-key verification",
         "hardware failure proof"
       ],
+      "implementation_artifact": {
+        "manifest": "docs/orchestration/L4_RECOVERY_CONTRACT_MANIFEST.json",
+        "source": "docs/orchestration/l4_recovery_contract.py",
+        "selftest": "docs/orchestration/l4_recovery_selftest.py",
+        "gate": "docs/orchestration/l4_recovery_gate.py",
+        "gate_selftest": "docs/orchestration/l4_recovery_gate_selftest.py",
+        "implementation_class": "REFERENCE_HARNESS_ONLY"
+      },
       "finding_ids": [
         "CFRT-04A72165BB13",
         "CFRT-05E61D035227",
@@ -403,12 +413,52 @@
           "status": "DESIGNED_UNVERIFIED"
         },
         {
+          "id": "L4-ASSERT-OUTBOX-REVOCATION",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B1",
+          "chaos_ids": [
+            "CT-11"
+          ],
+          "negative_test": "forward deletion/revocation journal blocks restored pre-policy outbox dispatch",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
           "id": "L4-ASSERT-SQLITE-WRITER",
           "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B2",
           "chaos_ids": [
-            "CT-12"
+            "CT-14"
           ],
           "negative_test": "second Core writer enters attach/read-only recovery and cannot write",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L4-ASSERT-WAL-PRESSURE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B3",
+          "chaos_ids": [
+            "CT-12"
+          ],
+          "negative_test": "WAL/free-space pressure enters READ_ONLY_SAFE before protected data can be evicted",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L4-ASSERT-INTEGRITY-SALVAGE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B3",
+          "chaos_ids": [
+            "CT-15"
+          ],
+          "negative_test": "corrupt SQLite pages enter read-only recovery without silent truncation or destructive repair",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L4-ASSERT-RESOURCE-RESERVATION",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#F2",
+          "chaos_ids": [
+            "CT-13"
+          ],
+          "negative_test": "aggregate import/read/update reservations reject overcommit atomically",
           "fail_closed": true,
           "status": "DESIGNED_UNVERIFIED"
         },
@@ -416,7 +466,7 @@
           "id": "L4-ASSERT-MIGRATION-FENCE",
           "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B4",
           "chaos_ids": [
-            "CT-14"
+            "CT-16"
           ],
           "negative_test": "partial migration resumes idempotently or blocks without mixed schema",
           "fail_closed": true,
@@ -426,6 +476,8 @@
           "id": "L4-ASSERT-BACKUP-RESTORE",
           "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#K",
           "chaos_ids": [
+            "CT-10",
+            "CT-11",
             "CT-15"
           ],
           "negative_test": "restore refuses unverifiable/incomplete DB-object-rights state",

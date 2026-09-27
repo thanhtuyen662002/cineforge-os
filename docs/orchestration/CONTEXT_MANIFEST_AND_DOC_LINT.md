@@ -256,6 +256,22 @@ lanes are contract-gate complete, while their runtime status remains
 `NOT_IMPLEMENTED_IN_REPOSITORY` and their promotion state remains
 `PARKED_EXPLORATION_ONLY`.
 
+The L4 slice also has a bounded reference harness and gate:
+
+```text
+python docs/orchestration/l4_recovery_selftest.py
+python docs/orchestration/l4_recovery_gate.py
+python docs/orchestration/l4_recovery_gate_selftest.py
+```
+
+These fixtures exercise CT-10 through CT-16 for recovery-epoch/outbox
+fencing, SQLite pressure, temporary-space admission, single-Core ownership,
+backup integrity, and migration/update rollback.  They are explicitly
+`REFERENCE_HARNESS_ONLY`; they do not provide product SQLite, OS lock,
+signing-key, power-loss, hardware, or production-restore evidence.  The L4
+matrix therefore remains fail-closed at `DESIGNED_UNVERIFIED` and
+`PARKED_EXPLORATION_ONLY`.
+
 # 17. Lane #3 bootstrap gate
 
 The first promotion slice for the exploration PR is the control-plane and

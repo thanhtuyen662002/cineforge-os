@@ -74,6 +74,57 @@ def _owner_sections(root: Path) -> dict[str, dict[str, list[int]]]:
     return sections
 
 
+def _validate_l4_artifact(root: Path, artifact: object) -> list[str]:
+    """Validate the L4 reference harness is present without promoting it."""
+    errors: list[str] = []
+    if not isinstance(artifact, dict):
+        return ["L4 implementation_artifact must be an object"]
+    expected = {
+        "manifest": "docs/orchestration/L4_RECOVERY_CONTRACT_MANIFEST.json",
+        "source": "docs/orchestration/l4_recovery_contract.py",
+        "selftest": "docs/orchestration/l4_recovery_selftest.py",
+        "gate": "docs/orchestration/l4_recovery_gate.py",
+        "gate_selftest": "docs/orchestration/l4_recovery_gate_selftest.py",
+        "implementation_class": "REFERENCE_HARNESS_ONLY",
+    }
+    for key, value in expected.items():
+        if artifact.get(key) != value:
+            errors.append(f"L4 implementation_artifact {key} must be {value!r}")
+    artifact_paths = [artifact.get(key) for key in ("manifest", "source", "selftest", "gate", "gate_selftest")]
+    root_resolved = root.resolve()
+    for relative in artifact_paths:
+        if not isinstance(relative, str) or not relative or relative.startswith(("/", "\\")):
+            errors.append(f"L4 implementation artifact path is invalid: {relative!r}")
+            continue
+        candidate = (root / relative).resolve()
+        try:
+            candidate.relative_to(root_resolved)
+        except ValueError:
+            errors.append(f"L4 implementation artifact escapes repository root: {relative}")
+            continue
+        if not candidate.is_file():
+            errors.append(f"L4 implementation artifact is missing: {relative}")
+    manifest = artifact.get("manifest")
+    if isinstance(manifest, str):
+        try:
+            manifest_value = _load_json(root, Path(manifest))
+        except (OSError, UnicodeError, ValueError) as exc:
+            errors.append(f"L4 implementation manifest cannot be loaded: {exc}")
+        else:
+            if not isinstance(manifest_value, dict):
+                errors.append("L4 implementation manifest must be an object")
+            else:
+                for key, value in {
+                    "lane_id": "L4",
+                    "implementation_class": "REFERENCE_HARNESS_ONLY",
+                    "runtime_status": "NOT_IMPLEMENTED_IN_REPOSITORY",
+                    "promotion_state": "PARKED_EXPLORATION_ONLY",
+                }.items():
+                    if manifest_value.get(key) != value:
+                        errors.append(f"L4 implementation manifest {key} must be {value!r}")
+    return errors
+
+
 def validate_matrix(root: Path, selected_lane: str | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     output: list[str] = []
@@ -132,6 +183,8 @@ def validate_matrix(root: Path, selected_lane: str | None = None) -> tuple[list[
         for field in required_strings:
             if not isinstance(lane.get(field), str) or not lane[field].strip():
                 errors.append(f"{lane_id} missing non-empty {field}")
+        if lane_id == "L4":
+            errors.extend(_validate_l4_artifact(root, lane.get("implementation_artifact")))
         if lane.get("status") != "CONTRACT_GATE_IMPLEMENTED":
             errors.append(f"{lane_id} has unsupported status")
         if lane.get("promotion_state") != "PARKED_EXPLORATION_ONLY":

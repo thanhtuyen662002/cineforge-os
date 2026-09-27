@@ -40,6 +40,10 @@ Before treating a structured event as control truth, validate its exact envelope
 and payload with `docs/orchestration/control_event_lint.py`; use the canonical
 schema in `CONTROL_EVENT_CONTRACTS.json`.  A passing parser does not replace
 the trusted-author and live-GitHub reconciliation checks.
+For an L4 recovery/storage contract slice, also run
+`l4_recovery_selftest.py` and `l4_recovery_gate.py`; these are reference
+fixtures only and must keep runtime evidence parked until an independent
+product implementation exists.
 
 TASK SELECTION:
 - choose highest-value READY task compatible with your role;
