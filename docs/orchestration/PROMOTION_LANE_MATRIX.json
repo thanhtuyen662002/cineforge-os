@@ -522,7 +522,9 @@
         "CF-CTRL-INPUT-SANDBOX",
         "CF-CTRL-CONTEXT-TRUST",
         "CF-CTRL-EXTERNAL-MATERIALIZE",
-        "CF-CTRL-RELEASE-PROVENANCE"
+        "CF-CTRL-RELEASE-PROVENANCE",
+        "CF-CTRL-RIGHTS-PRIVACY",
+        "CF-CTRL-UPDATE-SUPPLY-CHAIN"
       ],
       "owner_refs": [
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#C1",
@@ -559,7 +561,10 @@
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#O4",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#P1",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#P2",
-        "docs/design/EXTREME_HARDENING_CONTRACTS.md#D4"
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#D4",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#J3",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#Y4",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#V2"
       ],
       "required_layers": [
         "algorithm-qualified staged ingest/CAS alias safety",
@@ -580,6 +585,14 @@
         "credential disclosure",
         "native-code exploit absence proof"
       ],
+      "implementation_artifact": {
+        "manifest": "docs/orchestration/L5_SECURITY_CONTRACT_MANIFEST.json",
+        "source": "docs/orchestration/l5_security_contract.py",
+        "selftest": "docs/orchestration/l5_security_selftest.py",
+        "gate": "docs/orchestration/l5_security_gate.py",
+        "gate_selftest": "docs/orchestration/l5_security_gate_selftest.py",
+        "implementation_class": "REFERENCE_HARNESS_ONLY"
+      },
       "finding_ids": [
         "CFRT-00B64A09330E",
         "CFRT-00D1A9A2D333",
@@ -758,11 +771,11 @@
       "control_assertions": [
         {
           "id": "L5-ASSERT-STAGED-OBJECT",
-          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C1",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C2",
           "chaos_ids": [
             "CT-17"
           ],
-          "negative_test": "hash/decode failure cannot transition an artifact to READY",
+          "negative_test": "staged bytes require immutable path, digest and decode evidence before READY",
           "fail_closed": true,
           "status": "DESIGNED_UNVERIFIED"
         },
@@ -770,40 +783,159 @@
           "id": "L5-ASSERT-PARSER-BUDGET",
           "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C5",
           "chaos_ids": [
-            "CT-19",
-            "CT-20"
+            "CT-17"
           ],
-          "negative_test": "parser/network budget exhaustion is bounded and quarantined",
+          "negative_test": "parser files, expansion, resource and network budgets quarantine overrun input",
           "fail_closed": true,
           "status": "DESIGNED_UNVERIFIED"
         },
         {
-          "id": "L5-ASSERT-AUTHENTICATED-IPC",
+          "id": "L5-ASSERT-URL-DESTINATION",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C4",
+          "chaos_ids": [
+            "CT-18"
+          ],
+          "negative_test": "private literals, private DNS resolutions and unsafe redirects are blocked",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-AUTHENTICATED-BRIDGE",
           "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#D1",
+          "chaos_ids": [
+            "CT-19"
+          ],
+          "negative_test": "replayed, cross-session or remote-origin IPC lacks a scoped capability",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-CONTEXT-TRUST",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#D2",
+          "chaos_ids": [
+            "CT-20"
+          ],
+          "negative_test": "untrusted context cannot satisfy a mandatory trusted role",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-TYPED-TOOL",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#D3",
+          "chaos_ids": [
+            "CT-20"
+          ],
+          "negative_test": "plain or unreviewed tool calls cannot cross the typed tool boundary",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-CALLBACK-AUTH",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#E1",
           "chaos_ids": [
             "CT-21"
           ],
-          "negative_test": "impersonated local client lacks a user-scoped capability",
+          "negative_test": "stale, forged, replayed or cross-account callbacks remain non-canonical",
           "fail_closed": true,
           "status": "DESIGNED_UNVERIFIED"
         },
         {
-          "id": "L5-ASSERT-EGRESS-MANIFEST",
-          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#D4",
+          "id": "L5-ASSERT-EXTERNAL-MATERIALIZE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C6",
+          "chaos_ids": [
+            "CT-22"
+          ],
+          "negative_test": "expired, mismatched, low-confidence or DNS-rebound artifacts cannot become READY",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-ACCOUNT-WORKSPACE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#E2",
           "chaos_ids": [
             "CT-23"
           ],
-          "negative_test": "undeclared or broadened egress is denied and audited",
+          "negative_test": "connection, account, tenant, workspace and egress-plan drift is denied",
           "fail_closed": true,
           "status": "DESIGNED_UNVERIFIED"
         },
         {
-          "id": "L5-ASSERT-PROVENANCE",
-          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#H1",
+          "id": "L5-ASSERT-SEMANTIC-ACTION",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#N11",
+          "chaos_ids": [
+            "CT-24"
+          ],
+          "negative_test": "browser account, site fingerprint or action schema drift requires review",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-KEY-REVOCATION",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#I1",
+          "chaos_ids": [
+            "CT-31"
+          ],
+          "negative_test": "revoked, stale or below-policy package provenance is rejected",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-ARTIFACT-PROVENANCE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#J3",
+          "chaos_ids": [
+            "CT-32"
+          ],
+          "negative_test": "artifact bytes, manifest, SBOM, attestation and CI run provenance bind exactly",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-HERMETIC-SOURCE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#N4",
+          "chaos_ids": [
+            "CT-33"
+          ],
+          "negative_test": "dirty, untracked, unverified or colliding source closure cannot release",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-SIGNER-DIGEST",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#Y4",
+          "chaos_ids": [
+            "CT-34"
+          ],
+          "negative_test": "signer evidence is bound to the exact artifact digest and identity",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-PATH-COLLISION",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#V2",
+          "chaos_ids": [
+            "CT-35"
+          ],
+          "negative_test": "Windows case, Unicode, reserved-name and device-path collisions are rejected",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-TOOLCHAIN-IDENTITY",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#N4",
           "chaos_ids": [
             "CT-36"
           ],
-          "negative_test": "unreviewed dependency/package provenance cannot pass certification",
+          "negative_test": "managed executable, environment and registry identity drift is rejected",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L5-ASSERT-DEPENDENCY-PROVENANCE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#H1",
+          "chaos_ids": [
+            "CT-37"
+          ],
+          "negative_test": "registry, signature, install-script and provenance mismatches fail closed",
           "fail_closed": true,
           "status": "DESIGNED_UNVERIFIED"
         }

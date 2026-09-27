@@ -272,6 +272,26 @@ signing-key, power-loss, hardware, or production-restore evidence.  The L4
 matrix therefore remains fail-closed at `DESIGNED_UNVERIFIED` and
 `PARKED_EXPLORATION_ONLY`.
 
+The L5 slice adds a bounded reference harness for hostile input, IPC, parser,
+external materialization, browser identity and software-supply-chain decisions:
+
+```text
+python docs/orchestration/l5_security_selftest.py
+python docs/orchestration/l5_security_gate.py
+python docs/orchestration/l5_security_gate_selftest.py
+```
+
+These fixtures cover CT-17 through CT-24 and CT-31 through CT-37.  They model
+staged immutable bytes, Windows path/collision rules, private-network and DNS
+rebinding policy, parser budgets, scoped IPC and context/tool gates, callback
+replay, external-artifact expiry/digest binding, account/semantic fences, and
+package/artifact/toolchain provenance.  The module is explicitly
+`REFERENCE_HARNESS_ONLY`: it does not parse a real archive, verify a stable OS
+file handle, open a socket, create a WebView/native bridge, verify a provider or signing signature, or
+prove a production release.  L5 therefore remains `DESIGNED_UNVERIFIED` and
+`PARKED_EXPLORATION_ONLY` until an independent product implementation,
+provider/security verifier and executed chaos evidence exist.
+
 # 17. Lane #3 bootstrap gate
 
 The first promotion slice for the exploration PR is the control-plane and

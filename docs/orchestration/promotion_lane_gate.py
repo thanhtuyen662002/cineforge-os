@@ -125,6 +125,63 @@ def _validate_l4_artifact(root: Path, artifact: object) -> list[str]:
     return errors
 
 
+def _validate_l5_artifact(root: Path, artifact: object) -> list[str]:
+    """Validate the L5 reference harness is present without promoting it."""
+    errors: list[str] = []
+    if not isinstance(artifact, dict):
+        return ["L5 implementation_artifact must be an object"]
+    expected = {
+        "manifest": "docs/orchestration/L5_SECURITY_CONTRACT_MANIFEST.json",
+        "source": "docs/orchestration/l5_security_contract.py",
+        "selftest": "docs/orchestration/l5_security_selftest.py",
+        "gate": "docs/orchestration/l5_security_gate.py",
+        "gate_selftest": "docs/orchestration/l5_security_gate_selftest.py",
+        "implementation_class": "REFERENCE_HARNESS_ONLY",
+    }
+    for key, value in expected.items():
+        if artifact.get(key) != value:
+            errors.append(f"L5 implementation_artifact {key} must be {value!r}")
+    root_resolved = root.resolve()
+    for key in ("manifest", "source", "selftest", "gate", "gate_selftest"):
+        relative = artifact.get(key)
+        if not isinstance(relative, str) or not relative or relative.startswith(("/", "\\")):
+            errors.append(f"L5 implementation artifact path is invalid: {relative!r}")
+            continue
+        candidate = (root / relative).resolve()
+        try:
+            candidate.relative_to(root_resolved)
+        except ValueError:
+            errors.append(f"L5 implementation artifact escapes repository root: {relative}")
+            continue
+        if not candidate.is_file():
+            errors.append(f"L5 implementation artifact is missing: {relative}")
+    manifest = artifact.get("manifest")
+    if isinstance(manifest, str):
+        try:
+            manifest_value = _load_json(root, Path(manifest))
+        except (OSError, UnicodeError, ValueError) as exc:
+            errors.append(f"L5 implementation manifest cannot be loaded: {exc}")
+        else:
+            if not isinstance(manifest_value, dict):
+                errors.append("L5 implementation manifest must be an object")
+            else:
+                for key, value in {
+                    "lane_id": "L5",
+                    "implementation_class": "REFERENCE_HARNESS_ONLY",
+                    "runtime_status": "NOT_IMPLEMENTED_IN_REPOSITORY",
+                    "promotion_state": "PARKED_EXPLORATION_ONLY",
+                }.items():
+                    if manifest_value.get(key) != value:
+                        errors.append(f"L5 implementation manifest {key} must be {value!r}")
+                required = [
+                    "CT-17", "CT-18", "CT-19", "CT-20", "CT-21", "CT-22", "CT-23", "CT-24",
+                    "CT-31", "CT-32", "CT-33", "CT-34", "CT-35", "CT-36", "CT-37",
+                ]
+                if manifest_value.get("required_chaos_ids") != required:
+                    errors.append("L5 implementation manifest required_chaos_ids are incomplete or reordered")
+    return errors
+
+
 def validate_matrix(root: Path, selected_lane: str | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     output: list[str] = []
@@ -185,6 +242,8 @@ def validate_matrix(root: Path, selected_lane: str | None = None) -> tuple[list[
                 errors.append(f"{lane_id} missing non-empty {field}")
         if lane_id == "L4":
             errors.extend(_validate_l4_artifact(root, lane.get("implementation_artifact")))
+        if lane_id == "L5":
+            errors.extend(_validate_l5_artifact(root, lane.get("implementation_artifact")))
         if lane.get("status") != "CONTRACT_GATE_IMPLEMENTED":
             errors.append(f"{lane_id} has unsupported status")
         if lane.get("promotion_state") != "PARKED_EXPLORATION_ONLY":
@@ -245,6 +304,7 @@ def validate_matrix(root: Path, selected_lane: str | None = None) -> tuple[list[
         if not isinstance(assertions, list) or len(assertions) < 4:
             errors.append(f"{lane_id} must define at least four control assertions")
             assertions = []
+        assertion_chaos_covered: set[str] = set()
         for assertion in assertions:
             if not isinstance(assertion, dict):
                 errors.append(f"{lane_id} control assertion must be an object")
@@ -264,12 +324,21 @@ def validate_matrix(root: Path, selected_lane: str | None = None) -> tuple[list[
                 errors.append(f"{lane_id} assertion {assertion_id} chaos_ids must be unique and non-empty")
             elif not set(assertion_chaos).issubset(lane_chaos):
                 errors.append(f"{lane_id} assertion {assertion_id} references a case outside its lane")
+            else:
+                assertion_chaos_covered.update(assertion_chaos)
             if assertion.get("fail_closed") is not True:
                 errors.append(f"{lane_id} assertion {assertion_id} must be fail-closed")
             if assertion.get("status") != "DESIGNED_UNVERIFIED":
                 errors.append(f"{lane_id} assertion {assertion_id} cannot claim runtime verification")
             if not isinstance(assertion.get("negative_test"), str) or not assertion["negative_test"].strip():
                 errors.append(f"{lane_id} assertion {assertion_id} needs a negative-test description")
+        if lane_id == "L5" and assertion_chaos_covered != lane_chaos:
+            missing = sorted(lane_chaos - assertion_chaos_covered)
+            extra = sorted(assertion_chaos_covered - lane_chaos)
+            if missing:
+                errors.append(f"L5 control assertions omit chaos cases: {','.join(missing)}")
+            if extra:
+                errors.append(f"L5 control assertions contain out-of-lane chaos cases: {','.join(extra)}")
         for field in ("required_layers", "required_external_evidence", "excluded"):
             values = lane.get(field)
             if not isinstance(values, list) or not values or any(not isinstance(value, str) or not value.strip() for value in values):

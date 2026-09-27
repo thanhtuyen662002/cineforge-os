@@ -104,6 +104,20 @@ runtime and chaos evidence exists.
 The gate metadata fixtures are exercised with
 `python docs/orchestration/l4_recovery_gate_selftest.py`.
 
+L5 has a bounded reference security harness for untrusted-input, IPC, parser,
+external-materialization, browser-identity and supply-chain decisions:
+`docs/orchestration/l5_security_contract.py` and
+`docs/orchestration/L5_SECURITY_CONTRACT_MANIFEST.json`.  Run
+`python docs/orchestration/l5_security_selftest.py`, then
+`python docs/orchestration/l5_security_gate.py`; the gate metadata fixtures
+run with `python docs/orchestration/l5_security_gate_selftest.py`.  The slice
+covers CT-17 through CT-24 and CT-31 through CT-37.  It is explicitly
+`REFERENCE_HARNESS_ONLY`: it does not parse a real archive, verify a stable OS
+file handle, open a socket, create a WebView/native bridge, verify a provider or signing signature, or
+prove production security.  Passing fixtures remain `DESIGNED_UNVERIFIED`,
+and L5 promotion remains parked until the product implementation,
+independent verifier and executed chaos evidence exist.
+
 ## Next gate
 
 Before this PR can become review-ready:

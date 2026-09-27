@@ -45,6 +45,12 @@ For an L4 recovery/storage contract slice, also run
 fixtures only and must keep runtime evidence parked until an independent
 product implementation exists.
 
+For an L5 untrusted-input/IPC/parser/supply-chain contract slice, also run
+`l5_security_selftest.py`, `l5_security_gate.py` and
+`l5_security_gate_selftest.py`; these are reference fixtures only and must
+keep runtime evidence parked until an independent product implementation and
+verifier exist.
+
 TASK SELECTION:
 - choose highest-value READY task compatible with your role;
 - prefer critical path / downstream-unblock value;
