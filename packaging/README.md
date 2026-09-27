@@ -36,6 +36,11 @@ sidecar, so an installer would otherwise open a UI without the canonical local
 database. `-NoInstall` avoids changing the UI dependency tree and requires
 dependencies to already be installed.
 
+The build machine needs Node.js 22.5+ (the Core uses the built-in
+`node:sqlite`) and the .NET 8 SDK. The resulting portable product bundles its
+own Node executable, so an end user does not need Node, npm, Rust, or the .NET
+SDK installed.
+
 The portable build is the reliable fallback when the Rust toolchain is absent. When `core/server.mjs` is present, the build copies the Node executable next to the Core, so the target machine does not need Node installed. A Python Core is supported as a development fallback; it requires Python on the target unless PyInstaller is available during the build. The generated `build-manifest.json` records which mode was used.
 
 ## Launch and smoke test

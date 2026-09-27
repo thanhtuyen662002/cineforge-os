@@ -109,6 +109,12 @@ if (Test-Path -LiteralPath $appPackage) {
     if ($null -eq $node -or $null -eq $npm) {
         throw 'app/package.json exists but Node.js/npm is unavailable.'
     }
+    $nodeVersionText = (& $node -p "process.versions.node").Trim()
+    try { $nodeVersion = [version]$nodeVersionText }
+    catch { throw "Could not read the Node.js version ($nodeVersionText). Node.js 22.5+ is required for the built-in node:sqlite Core." }
+    if ($nodeVersion.Major -lt 22 -or ($nodeVersion.Major -eq 22 -and $nodeVersion.Minor -lt 5)) {
+        throw "Node.js $nodeVersionText is too old. Node.js 22.5+ is required for the built-in node:sqlite Core."
+    }
     if (-not $NoInstall) {
         $lock = Join-Path $appRoot 'package-lock.json'
         if (Test-Path -LiteralPath $lock) {

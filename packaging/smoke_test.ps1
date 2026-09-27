@@ -96,13 +96,19 @@ try {
         # Restart the exact bootstrap against the same data directory. This
         # catches accidental in-memory-only success in the packaged path.
         Stop-Tree $process
-        Start-Sleep -Milliseconds 250
-        $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $resolvedRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+        for ($attempt = 0; $attempt -lt 20 -and -not $process.HasExited; $attempt++) {
+            Start-Sleep -Milliseconds 100
+        }
+        # Use separate redirect files so Windows does not race a still-closing
+        # handle from the first bootstrap process.
+        $restartStdout = Join-Path $dataRoot 'bootstrap.restart.stdout.log'
+        $restartStderr = Join-Path $dataRoot 'bootstrap.restart.stderr.log'
+        $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $resolvedRoot -WindowStyle Hidden -RedirectStandardOutput $restartStdout -RedirectStandardError $restartStderr -PassThru
         $restartedHealth = $null
         $restartDeadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
         while ((Get-Date) -lt $restartDeadline -and $null -eq $restartedHealth) {
             if ($process.HasExited) {
-                $errorText = if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr -Raw } else { '' }
+                $errorText = if (Test-Path -LiteralPath $restartStderr) { Get-Content -LiteralPath $restartStderr -Raw } else { '' }
                 throw "CineForge.exe exited during restart (code $($process.ExitCode)). $errorText"
             }
             try { $restartedHealth = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/healthz" -TimeoutSec 2 }
