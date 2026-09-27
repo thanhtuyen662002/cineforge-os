@@ -79,7 +79,7 @@ export class HttpCoreClient implements CoreClient {
           ...project,
           productionItems,
           completion: completion.total > 0 || project.completion.total === 0 ? completion : project.completion,
-          activity: activity.map((item) => item.projectName === project.id ? { ...item, projectName: project.name } : item),
+          activity: activity.map((item) => item.projectId === project.id || item.projectName === project.id ? { ...item, projectId: project.id, projectName: project.name } : item),
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') throw error
@@ -181,7 +181,7 @@ export class HttpCoreClient implements CoreClient {
     if (!this.baseUrl) {
       const snapshot = localSnapshot()
       const project = snapshot.projects.find((candidate) => candidate.id === projectId)
-      return project ? snapshot.activity.filter((item) => item.projectName === project.name) : []
+      return project ? snapshot.activity.filter((item) => item.projectId === project.id || item.projectName === project.name) : []
     }
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/activity`, { signal, headers: { Accept: 'application/json' } })
     const payload = await readCorePayload(response, 'activity')
@@ -273,6 +273,7 @@ function mapActivityRecord(value: unknown, projectId: string, index: number): Ac
   const state = states.includes(rawState as WorkState) ? rawState as WorkState : rawState.toLowerCase().includes('block') ? 'blocked' : rawState.toLowerCase().includes('complete') || rawState.toLowerCase().includes('done') ? 'complete' : 'waiting'
   return {
     id: stringValue(source.id ?? source.event_id) ?? `${projectId}-activity-${index}`,
+    projectId: stringValue(source.project_id ?? source.projectId) ?? projectId,
     projectName: stringValue(source.project_name ?? source.projectName) ?? projectId,
     label: stringValue(source.label ?? source.title ?? source.event_type) ?? 'Core activity',
     detail: stringValue(source.detail ?? source.description) ?? 'Activity recorded by Core',

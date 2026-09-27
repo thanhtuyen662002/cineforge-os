@@ -40,6 +40,8 @@ export interface DecisionRequest {
 
 export interface ActivityItem {
   id: string
+  /** Stable Core project identity; projectName remains display-only. */
+  projectId?: string
   projectName: string
   label: string
   detail: string

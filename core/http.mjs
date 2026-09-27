@@ -126,6 +126,7 @@ function mapActivity(source, index) {
   const payload = source?.payload && typeof source.payload === 'object' ? source.payload : {};
   return {
     id: readString(source, 'id', 'event_id') ?? `activity-${index}`,
+    projectId: readString(source, 'project_id', 'projectId'),
     projectName: readString(source, 'project_name', 'projectName', 'project_id', 'projectId') ?? 'CineForge',
     label: readString(source, 'label', 'title') ?? eventType,
     detail: readString(source, 'detail', 'description') ?? `Core recorded ${eventType.toLowerCase()}`,

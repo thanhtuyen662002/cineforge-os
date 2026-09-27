@@ -385,7 +385,7 @@ function ProjectDetailView({ snapshot, projectId, locale, client, onBack, onAddI
       if (controller.signal.aborted) return
       setWorkspaceItems(workspace.productionItems)
       setWorkspaceCounts({ shots: workspace.shotsCount, notes: workspace.notesCount })
-      setWorkspaceActivity(activity.map((item) => item.projectName === project.id ? { ...item, projectName: project.name } : item))
+      setWorkspaceActivity(activity.map((item) => item.projectId === project.id || item.projectName === project.id ? { ...item, projectId: project.id, projectName: project.name } : item))
     }).catch((error: unknown) => {
       if (!controller.signal.aborted) setWorkspaceError(error instanceof Error ? error.message : 'Workspace request failed')
     }).finally(() => {
@@ -396,7 +396,7 @@ function ProjectDetailView({ snapshot, projectId, locale, client, onBack, onAddI
 
   if (!project) return <div className="page"><ErrorState message={locale === 'vi' ? 'Không tìm thấy dự án.' : 'Project could not be found.'} retryLabel={locale === 'vi' ? 'Quay lại dự án' : 'Back to projects'} onRetry={onBack} /></div>
   const items = workspaceItems ?? project.productionItems ?? []
-  const activity = workspaceActivity.length > 0 ? workspaceActivity : snapshot.activity.filter((item) => item.projectName === project.name)
+  const activity = workspaceActivity.length > 0 ? workspaceActivity : snapshot.activity.filter((item) => item.projectId === project.id || item.projectName === project.name)
   const addItem = async (event: FormEvent) => {
     event.preventDefault()
     const title = newItem.trim()
@@ -427,7 +427,7 @@ function ActivityView({ snapshot, locale, onOpenProject }: { snapshot: Dashboard
     { key: 'blocked', vi: 'Đang chặn', en: 'Blocked' },
   ]
   const visible = filter === 'all' ? snapshot.activity : snapshot.activity.filter((item) => item.state === filter)
-  return <div className="page activity-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'THEO DÕI' : 'MONITORING'}</p><h1>{locale === 'vi' ? 'Hoạt động' : 'Activity'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Trạng thái đọc từ Core, theo từng project. Không có tiến độ được dựng trong giao diện.' : 'State read from Core, grouped by project. The interface never invents progress.'}</p></div><span className="count-chip"><Activity size={15} />{snapshot.activity.length}</span></div><div className="activity-filter-row" role="tablist" aria-label={locale === 'vi' ? 'Lọc hoạt động' : 'Activity filters'}>{filters.map((item) => <button key={item.key} className={`filter-chip ${filter === item.key ? 'active' : ''}`} onClick={() => setFilter(item.key)} role="tab" aria-selected={filter === item.key}><Filter size={13} />{locale === 'vi' ? item.vi : item.en}</button>)}</div><section className="activity-page-list">{visible.length === 0 ? <EmptyState icon={CheckCircle2} title={locale === 'vi' ? 'Không có activity phù hợp' : 'No matching activity'} detail={locale === 'vi' ? 'Core chưa ghi nhận trạng thái trong bộ lọc này.' : 'Core has not recorded a state in this filter yet.'} /> : visible.map((item) => { const project = snapshot.projects.find((candidate) => candidate.name === item.projectName); return <ActivityRow key={item.id} item={item} locale={locale} onOpen={project ? () => onOpenProject(project) : undefined} /> })}</section></div>
+  return <div className="page activity-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'THEO DÕI' : 'MONITORING'}</p><h1>{locale === 'vi' ? 'Hoạt động' : 'Activity'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Trạng thái đọc từ Core, theo từng project. Không có tiến độ được dựng trong giao diện.' : 'State read from Core, grouped by project. The interface never invents progress.'}</p></div><span className="count-chip"><Activity size={15} />{snapshot.activity.length}</span></div><div className="activity-filter-row" role="tablist" aria-label={locale === 'vi' ? 'Lọc hoạt động' : 'Activity filters'}>{filters.map((item) => <button key={item.key} className={`filter-chip ${filter === item.key ? 'active' : ''}`} onClick={() => setFilter(item.key)} role="tab" aria-selected={filter === item.key}><Filter size={13} />{locale === 'vi' ? item.vi : item.en}</button>)}</div><section className="activity-page-list">{visible.length === 0 ? <EmptyState icon={CheckCircle2} title={locale === 'vi' ? 'Không có activity phù hợp' : 'No matching activity'} detail={locale === 'vi' ? 'Core chưa ghi nhận trạng thái trong bộ lọc này.' : 'Core has not recorded a state in this filter yet.'} /> : visible.map((item) => { const project = snapshot.projects.find((candidate) => candidate.id === item.projectId || candidate.name === item.projectName); return <ActivityRow key={item.id} item={item} locale={locale} onOpen={project ? () => onOpenProject(project) : undefined} /> })}</section></div>
 }
 
 type IntakeFile = { id: string; name: string; size: number; type: string; modifiedAt: number }

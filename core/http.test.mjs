@@ -67,6 +67,7 @@ test('HTTP presentation adapter exposes dashboard, project and production-item f
     assert.equal(allAssets.assets.length, 2);
     const dashboardAfterAsset = await (await fetch(`${base}/v1/dashboard`)).json();
     assert.ok(dashboardAfterAsset.activity.length >= 2);
+    assert.ok(dashboardAfterAsset.activity.some((item) => item.projectId === project.id));
     assert.notEqual(dashboardAfterAsset.system.storageUsed, '—');
     const importSession = await fetch(`${base}/v1/imports/${encodeURIComponent(asset.importSessionId)}`);
     assert.equal(importSession.status, 200);
