@@ -5,7 +5,9 @@ The repository currently keeps the authoritative contracts in Markdown, while
 the red-team corpus is intentionally evidence-only.  This checker is small on
 purpose so it can run in bootstrap environments without third-party packages.
 It validates the identities that make Context Manifest references safe; it
-does not try to prove that a prose control is implemented.
+does not try to prove that a prose control is implemented. It also verifies
+registry title hashes and that ledger source pointers still land on the stated
+raw-evidence heading/line.
 
 Usage:
     python docs/orchestration/doc_lint.py
@@ -15,9 +17,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
@@ -27,6 +31,7 @@ RAW_EVIDENCE = Path("docs/orchestration/EXTREME_FAILURE_STRESS_TEST_2026-09-26.m
 LEGACY_COVERAGE = Path("docs/orchestration/EXTREME_FINDING_COVERAGE_MATRIX.md")
 COVERAGE_PATH = Path("docs/orchestration/findings/COVERAGE.json")
 REGISTRY_PATH = Path("docs/orchestration/findings/REGISTRY.json")
+CONTROL_REGISTRY_PATH = Path("docs/design/CONTROL_REGISTRY.yaml")
 MIGRATION_PATH = Path("docs/orchestration/findings/AUTHORITATIVE_SECTION_ID_MIGRATION.md")
 CHAOS_PATH = Path("docs/orchestration/CHAOS_TEST_PLAN.md")
 
@@ -43,6 +48,8 @@ REF_RE = re.compile(
     r"(?P<path>(?:docs/|AGENTS\.md)[^\s)`\"'<>]+\.md)#(?P<id>[A-Za-z0-9_.:-]+)"
 )
 STABLE_ID_RE = re.compile(r"^CFRT-[0-9A-F]{12}$")
+TITLE_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+CONTROL_ID_RE = re.compile(r"^CF-[A-Z0-9]+(?:-[A-Z0-9]+)+$")
 CHAOS_ID_RE = re.compile(r"\bCT-(?:0[1-9]|[1-3][0-9]|40)\b")
 CHAOS_HEADING_RE = re.compile(r"^###\s+(CT-\d{2})\s+—\s+.+?\s*$")
 CHAOS_FIELD_RE = re.compile(r"^[-*]\s+\*\*(.+?):\*\*")
@@ -56,6 +63,25 @@ REQUIRED_CHAOS_FIELDS = {
     "Evidence required",
     "Cleanup/recovery",
 }
+
+
+def normalize_title(title: str) -> str:
+    """Normalize a registry title without changing its human-visible text."""
+    return " ".join(unicodedata.normalize("NFC", title).split())
+
+
+def title_hash(title: str) -> str:
+    return "sha256:" + hashlib.sha256(normalize_title(title).encode("utf-8")).hexdigest()
+
+
+def contained_path(root: Path, relative: str) -> Path | None:
+    """Resolve a repository-relative path without allowing traversal outside root."""
+    candidate = (root / relative).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate
 
 
 def authoritative_markdown(root: Path) -> list[Path]:
@@ -140,11 +166,17 @@ def lint_references(root: Path, sections: dict[str, dict[str, list[int]]]) -> li
         for match in REF_RE.finditer(text):
             referenced_path = match.group("path").rstrip(".,;:)")
             identifier = match.group("id").rstrip(".,;:)")
-            target = sections.get(referenced_path)
+            resolved_path = contained_path(root, referenced_path)
+            canonical_path = (
+                resolved_path.relative_to(root).as_posix()
+                if resolved_path is not None
+                else None
+            )
+            target = sections.get(canonical_path or referenced_path)
             if target is None:
                 # References to a file outside the authoritative scan are still
                 # checked for existence when they name a repository path.
-                if not (root / referenced_path).exists():
+                if resolved_path is None or not resolved_path.exists():
                     errors.append(f"broken reference in {relative}: {referenced_path}#{identifier} (missing path)")
                 continue
             locations = target.get(identifier, [])
@@ -197,6 +229,150 @@ def lint_chaos_plan(root: Path) -> tuple[list[str], set[str]]:
     return errors, set(ids)
 
 
+def lint_source_evidence(root: Path, records: list[dict]) -> list[str]:
+    """Ensure each ledger pointer still identifies its raw evidence line."""
+    errors: list[str] = []
+    line_cache: dict[Path, list[str]] = {}
+    heading_cache: dict[Path, list[tuple[int, int, str]]] = {}
+    for record in records:
+        stable_id = record.get("stable_id")
+        source = record.get("source_evidence")
+        if not isinstance(source, dict):
+            continue
+        source_path = source.get("path")
+        line_number = source.get("line")
+        if isinstance(line_number, bool) or not isinstance(line_number, int) or line_number < 1:
+            errors.append(f"coverage {stable_id!r} source line must be a positive integer")
+            continue
+        path = contained_path(root, str(source_path))
+        if path is None:
+            errors.append(f"coverage {stable_id!r} source path escapes repository: {source_path!r}")
+            continue
+        if not path.exists():
+            continue
+        if path not in line_cache:
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeError) as exc:
+                errors.append(f"coverage {stable_id!r} source evidence cannot be read: {exc}")
+                continue
+            line_cache[path] = lines
+            headings: list[tuple[int, int, str]] = []
+            for candidate_line, candidate in enumerate(lines, 1):
+                heading = HEADING_RE.match(candidate)
+                if heading:
+                    headings.append((candidate_line, len(heading.group(1)), normalize_title(heading.group(2))))
+            heading_cache[path] = headings
+        lines = line_cache[path]
+        if line_number > len(lines):
+            errors.append(f"coverage {stable_id!r} source line is outside {source_path}: {line_number}")
+            continue
+        line = lines[line_number - 1]
+        legacy_id = source.get("legacy_id")
+        if legacy_id and str(legacy_id) not in line:
+            errors.append(f"coverage {stable_id!r} source line does not contain legacy_id {legacy_id!r}")
+        section = source.get("section")
+        if not section:
+            continue
+        expected_section = normalize_title(str(section))
+        source_heading = HEADING_RE.match(line)
+        if source_heading:
+            source_level = len(source_heading.group(1))
+            source_title = normalize_title(source_heading.group(2))
+            parent = next(
+                (
+                    candidate
+                    for candidate in reversed(heading_cache[path])
+                    if candidate[0] < line_number and candidate[1] < source_level
+                ),
+                None,
+            )
+            section_matches = source_title == expected_section or (parent is not None and parent[2] == expected_section)
+        else:
+            section_matches = any(
+                candidate[0] <= line_number and candidate[2] == expected_section
+                for candidate in heading_cache[path]
+            )
+        if not section_matches:
+            errors.append(f"coverage {stable_id!r} source section is not found before line {line_number}: {section!r}")
+    return errors
+
+
+def lint_control_registry(root: Path, sections: dict[str, dict[str, list[int]]]) -> list[str]:
+    """Validate the repository's deliberately small, dependency-free YAML index."""
+    path = root / CONTROL_REGISTRY_PATH
+    if not path.exists():
+        return [f"missing control registry: {CONTROL_REGISTRY_PATH.as_posix()}"]
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        return [f"control registry cannot be read: {exc}"]
+    controls: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for line_number, line in enumerate(lines, 1):
+        control_start = re.match(r"^\s{2}-\s+id:\s*(\S+)\s*$", line)
+        if control_start:
+            if current is not None:
+                controls.append(current)
+            current = {"id": control_start.group(1), "_line": str(line_number)}
+            continue
+        if current is None:
+            continue
+        field = re.match(r"^\s{4}([a-z][a-z0-9_]*)\s*:\s*(.*?)\s*$", line)
+        if field:
+            current[field.group(1)] = field.group(2).strip().strip('"\'')
+    if current is not None:
+        controls.append(current)
+    errors: list[str] = []
+    if not controls:
+        errors.append("control registry has no controls")
+        return errors
+    ids = [control.get("id", "") for control in controls]
+    if len(ids) != len(set(ids)):
+        errors.append("control registry has duplicate control IDs")
+    allowed_applicability = {
+        "V1_FOUNDATION",
+        "V1_BEFORE_RELEASE",
+        "SCALE_HARDENING",
+        "FUTURE_MULTIUSER",
+        "OPTIONAL_HIGH_SECURITY",
+    }
+    allowed_maturity = {
+        "DESIGNED",
+        "SPECIFIED",
+        "IMPLEMENTED",
+        "AUTOMATED_TESTED",
+        "CHAOS_TESTED",
+        "PRODUCTION_PROVEN",
+    }
+    for control in controls:
+        identifier = control.get("id", "")
+        line_number = control.get("_line", "?")
+        if not CONTROL_ID_RE.fullmatch(identifier):
+            errors.append(f"control registry invalid ID at line {line_number}: {identifier!r}")
+        owner = control.get("owner")
+        if not owner:
+            errors.append(f"control registry {identifier} has no owner")
+        else:
+            owner_path = contained_path(root, owner)
+            if owner_path is None or not owner_path.exists():
+                errors.append(f"control registry {identifier} owner path is missing: {owner}")
+            elif owner not in sections:
+                errors.append(f"control registry {identifier} owner is not authoritative Markdown: {owner}")
+        if control.get("applicability") not in allowed_applicability:
+            errors.append(f"control registry {identifier} has invalid applicability")
+        maturity = control.get("maturity")
+        if maturity not in allowed_maturity:
+            errors.append(f"control registry {identifier} has invalid maturity")
+        if control.get("current_slice_required") not in {"true", "false"}:
+            errors.append(f"control registry {identifier} current_slice_required must be boolean")
+        if maturity in {"IMPLEMENTED", "AUTOMATED_TESTED", "CHAOS_TESTED", "PRODUCTION_PROVEN"} and not (
+            control.get("evidence") or control.get("evidence_link") or control.get("evidence_links")
+        ):
+            errors.append(f"control registry {identifier} claims {maturity} without evidence")
+    return errors
+
+
 def lint_registry_and_coverage(
     root: Path,
     sections: dict[str, dict[str, list[int]]],
@@ -222,6 +398,20 @@ def lint_registry_and_coverage(
             errors.append(f"invalid canonical stable_id: {stable_id!r}")
     if registry.get("finding_count") != len(findings):
         errors.append("registry finding_count does not match findings array")
+    if registry.get("title_hash_rule") != "sha256:<normalized-title-UTF-8>":
+        errors.append("registry title_hash_rule is missing or unsupported")
+    if registry.get("title_hash_algorithm") != "SHA-256":
+        errors.append("registry title_hash_algorithm is missing or unsupported")
+    for item in findings:
+        if not isinstance(item, dict):
+            errors.append("registry finding is not an object")
+            continue
+        expected_hash = title_hash(str(item.get("title", "")))
+        actual_hash = item.get("title_hash")
+        if not isinstance(actual_hash, str) or not TITLE_HASH_RE.fullmatch(actual_hash):
+            errors.append(f"registry {item.get('stable_id')!r} has invalid title_hash")
+        elif actual_hash != expected_hash:
+            errors.append(f"registry {item.get('stable_id')!r} title_hash does not match normalized title")
     if any("P0" in str(item.get("severity", "")) and item.get("domain") == "GEN" for item in findings):
         errors.append("P0 finding remains in generic GEN domain")
     if any(
@@ -244,6 +434,8 @@ def lint_registry_and_coverage(
     records = coverage.get("findings", coverage.get("records"))
     if not isinstance(records, list):
         return errors + ["coverage records must be an array"]
+    if coverage.get("source_registry_revision") != registry.get("registry_revision"):
+        errors.append("coverage source_registry_revision does not match registry revision")
     if coverage.get("finding_count") != len(records):
         errors.append("coverage finding_count does not match findings array")
     coverage_ids = [item.get("stable_id") for item in records if isinstance(item, dict)]
@@ -271,8 +463,14 @@ def lint_registry_and_coverage(
     registry_by_id = {item.get("stable_id"): item for item in findings if isinstance(item, dict)}
     coverage_by_id = {item.get("stable_id"): item for item in records if isinstance(item, dict)}
     for stable_id in set(registry_by_id) & set(coverage_by_id):
-        if registry_by_id[stable_id].get("coverage_state") != coverage_by_id[stable_id].get("coverage_state"):
+        registry_record = registry_by_id[stable_id]
+        coverage_record = coverage_by_id[stable_id]
+        if registry_record.get("coverage_state") != coverage_record.get("coverage_state"):
             errors.append(f"registry/coverage state mismatch for {stable_id}")
+        for field in ("title", "severity", "domain"):
+            if registry_record.get(field) != coverage_record.get(field):
+                errors.append(f"registry/coverage {field} mismatch for {stable_id}")
+    errors.extend(lint_source_evidence(root, [item for item in records if isinstance(item, dict)]))
     for record in records:
         if not isinstance(record, dict):
             errors.append("coverage record is not an object")
@@ -285,6 +483,15 @@ def lint_registry_and_coverage(
         ) if key not in record]
         if missing:
             errors.append(f"coverage {record.get('stable_id')!r} missing fields: {','.join(missing)}")
+        if not isinstance(record.get("stable_id"), str) or not record.get("stable_id"):
+            errors.append(f"coverage record has empty stable_id: {record!r}")
+        supporting_paths = record.get("supporting_owner_paths")
+        if not isinstance(supporting_paths, list) or not all(isinstance(path, str) and path for path in supporting_paths):
+            errors.append(f"coverage {record.get('stable_id')!r} supporting_owner_paths must be a string array")
+        for field in ("required_negative_tests", "required_chaos_tests"):
+            values = record.get(field)
+            if not isinstance(values, list) or not all(isinstance(value, str) and value for value in values):
+                errors.append(f"coverage {record.get('stable_id')!r} {field} must be a string array")
         if record.get("coverage_state") not in allowed_states:
             errors.append(f"coverage {record.get('stable_id')!r} has invalid state {record.get('coverage_state')!r}")
         source = record.get("source_evidence")
@@ -315,8 +522,8 @@ def lint_registry_and_coverage(
                 errors.append(f"P0 {record.get('stable_id')} has no exact control owner")
             if not record.get("required_negative_tests") or not record.get("required_chaos_tests"):
                 errors.append(f"P0 {record.get('stable_id')} has no negative/chaos test requirement")
-            if record.get("coverage_state") == "RESIDUAL" and record.get("residual_state") in {None, "UNASSESSED", "OPEN_UNVERIFIED"}:
-                errors.append(f"P0 {record.get('stable_id')} residual state is not explicit")
+        if record.get("coverage_state") == "RESIDUAL" and record.get("residual_state") in {None, "UNASSESSED", "OPEN_UNVERIFIED"}:
+            errors.append(f"coverage {record.get('stable_id')} residual state is not explicit")
         if record.get("coverage_state") == "VERIFIED" and str(record.get("empirical_status")) in {"NOT_RUN", "SPEC_ONLY"}:
             errors.append(f"coverage {record.get('stable_id')} is VERIFIED without empirical status")
         owner_path = record.get("control_owner_path")
@@ -350,6 +557,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     errors.extend(lint_references(root, sections))
     chaos_errors, chaos_ids = lint_chaos_plan(root)
     errors.extend(chaos_errors)
+    errors.extend(lint_control_registry(root, sections))
     errors.extend(lint_registry_and_coverage(root, sections, chaos_ids))
     if errors:
         print("DOC_LINT=FAIL")

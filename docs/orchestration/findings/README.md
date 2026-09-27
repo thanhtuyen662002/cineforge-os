@@ -80,6 +80,8 @@ The executable scenario catalog is
 Cross-layer precedence and contradiction handling is indexed in
 `docs/orchestration/CONTROL_CONSISTENCY_MATRIX.md`; the matrix points back to
 the single authoritative owner for each behavior.
+Run `python docs/orchestration/doc_lint_selftest.py` to exercise the
+fail-closed documentation-gate fixtures without modifying the checkout.
 
 ## Next gate
 

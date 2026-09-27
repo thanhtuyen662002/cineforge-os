@@ -157,7 +157,7 @@ CI documentation lint additionally verifies:
 - every canonical finding in `findings/REGISTRY.json` has a unique `stable_id`;
 - legacy `Xnn` is never treated as canonical identity;
 - stable finding ID does not depend on mutable domain/severity classification;
-- registry source title hash still matches the normalized title;
+- registry `title_hash` uses the declared SHA-256/normalized-title rule;
 - no duplicate active hardening section ID;
 - coverage records reference canonical stable finding IDs only;
 - deprecated legacy coverage files are not accepted as current implementation evidence.
@@ -206,12 +206,43 @@ The bootstrap repository provides a dependency-free checker:
 python docs/orchestration/doc_lint.py
 ```
 
+The gate has a standard-library negative-fixture smoke suite:
+
+```text
+python docs/orchestration/doc_lint_selftest.py
+```
+
+It first proves the current tree passes, then copies the tree to a temporary
+directory and verifies that duplicate IDs, broken references, stable-ID
+collisions, coverage-count drift, missing P0 owners and malformed/incomplete
+chaos references fail closed. The fixtures never modify the checkout.
+
 The command is merge-blocking for authoritative-document changes. It checks
 duplicate active IDs (including migrated architecture/design headings), broken
 `path#section-id` references, hardening-section uniqueness, registry stable-ID
 collisions, P0 ownership/test requirements, coverage/registry identity parity,
-and owner-section resolution. A green result proves document identity and
+owner-section resolution, and the `CONTROL_REGISTRY.yaml` ID/applicability/
+maturity/owner contract. A green result proves document identity and
 ledger shape only. It also checks that `CHAOS_TEST_PLAN.md` contains exactly
 `CT-01` through `CT-40`, each with the eight required executable-spec fields,
 and that ledger references resolve to real cases. A green result does not
 prove runtime implementation or empirical chaos success.
+
+# 17. Lane #3 bootstrap gate
+
+The first promotion slice for the exploration PR is the control-plane and
+documentation-integrity gate. Its bounded evidence surface is:
+
+- canonical registry/coverage identity and title-hash parity;
+- exact owner-section and raw-evidence pointers;
+- Context Manifest routing and size budgets;
+- `doc_lint.py` pass/fail behavior;
+- `doc_lint_selftest.py` baseline plus fail-closed negative fixtures;
+- chaos specifications `CT-01` through `CT-09` for claim, lease, event and CI
+  provenance controls.
+
+The slice does not claim GitHub mutation enforcement, runtime lease locking,
+independent CI, or executed chaos. Those require a repository-native runtime
+and independent verifier in the reviewable promotion lane. Until that evidence
+exists, affected findings remain `EMPIRICAL_TEST_REQUIRED` or explicit
+`RESIDUAL`.
