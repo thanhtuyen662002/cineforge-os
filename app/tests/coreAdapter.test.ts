@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { createCoreClient } from '../src/coreAdapter'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HttpCoreClient, createCoreClient } from '../src/coreAdapter'
 
 describe('local Core adapter', () => {
   beforeEach(() => localStorage.clear())
@@ -38,5 +38,46 @@ describe('local Core adapter', () => {
 
     expect(snapshot.projects.length).toBeGreaterThan(0)
     expect(localStorage.getItem('cineforge-dashboard-v1')).toBeNull()
+  })
+
+  it('exposes a read-only workspace view from the same local source of truth', async () => {
+    const client = createCoreClient()
+    const project = (await client.getDashboard()).projects[0]
+
+    const workspace = await client.getProjectWorkspace?.(project.id)
+
+    expect(workspace?.projectId).toBe(project.id)
+    expect(workspace?.productionItems).toEqual(project.productionItems)
+    expect(workspace?.shotsCount).toBe(project.productionItems?.length)
+  })
+
+  it('keeps activity reads empty for an unknown local project', async () => {
+    const client = createCoreClient()
+
+    await expect(client.getProjectActivity?.('missing-project')).resolves.toEqual([])
+  })
+
+  it('maps HTTP asset records and sends a Core import command', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (init?.method === 'POST') {
+        return new Response(JSON.stringify({ id: 'asset-1', projectId: 'project-1', name: 'shot.png', assetType: 'IMAGE', availability: 'AVAILABLE', revisionId: 'revision-1', contentHash: 'a'.repeat(64), byteSize: 42, storageUri: 'object://sha-256/a/aaa', warnings: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      expect(url).toContain('/v1/assets')
+      return new Response(JSON.stringify({ assets: [{ id: 'asset-1', projectId: 'project-1', name: 'shot.png', assetType: 'IMAGE', availability: 'AVAILABLE', revisionId: 'revision-1', contentHash: 'a'.repeat(64), byteSize: 42, storageUri: 'object://sha-256/a/aaa', warnings: [] }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const assets = await client.getAssets?.()
+      expect(assets?.[0].contentHash).toBe('a'.repeat(64))
+      expect(assets?.[0].byteSize).toBe(42)
+      const imported = await client.importAsset?.({ sourcePath: 'C:/media/shot.png', projectId: 'project-1' })
+      expect(imported?.id).toBe('asset-1')
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(String(fetchMock.mock.calls[1][0])).toContain('/v1/projects/project-1/assets')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

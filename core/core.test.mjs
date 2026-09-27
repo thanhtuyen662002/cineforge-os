@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -130,6 +131,100 @@ test('invalid project is recorded as a failed command rather than corrupting sta
   const failed = core.handle(request('query.audit.list'));
   assert.equal(failed.result.records.length, 1);
   assert.equal(failed.result.records[0].outcome, 'FAILED');
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('asset intake hashes bytes, stages a durable object and preserves redacted provenance', () => {
+  const { dbPath, directory } = tempDb();
+  const assetStorePath = path.join(directory, 'asset-store');
+  const sourcePath = path.join(directory, 'shot-010.txt');
+  const content = 'CineForge asset bytes\n';
+  fs.writeFileSync(sourcePath, content, 'utf8');
+  const expectedHash = crypto.createHash('sha256').update(content).digest('hex');
+  const core = new CoreService({ dbPath, assetStorePath });
+  const project = execute(core, 'CreateProject', { title: 'Asset intake', code: 'asset-intake' }, {}, 'asset-project');
+  const projectId = project.result.id;
+  const imported = execute(core, 'ImportAsset', {
+    project_id: projectId,
+    source_path: sourcePath,
+    asset_type: 'DOCUMENT',
+    semantic_role: 'SOURCE_REFERENCE',
+    content_hash: expectedHash,
+  }, {}, 'asset-import');
+  assert.equal(imported.ok, true);
+  const asset = imported.result.asset;
+  assert.equal(asset.project_id, projectId);
+  assert.equal(asset.latest_revision.availability_state, 'AVAILABLE');
+  assert.equal(asset.latest_revision.review_state, 'UNREVIEWED');
+  assert.equal(asset.latest_revision.storage_object.content_hash, expectedHash);
+  assert.deepEqual(imported.result.warnings, ['SECURITY_SCAN_PENDING', 'MEDIA_DECODE_PENDING']);
+  assert.equal(asset.latest_revision.provenance.source_name, 'shot-010.txt');
+  assert.equal(Object.hasOwn(asset.latest_revision.provenance, 'source_path_or_uri'), false);
+  assert.match(asset.latest_revision.locations[0].path_or_uri, /^object:\/\/sha-256\//);
+  assert.equal(fs.readFileSync(sourcePath, 'utf8'), content);
+
+  const objectRelative = path.join('objects', 'sha-256', expectedHash.slice(0, 2), expectedHash);
+  const objectPath = path.join(assetStorePath, objectRelative);
+  assert.equal(fs.readFileSync(objectPath, 'utf8'), content);
+  const workspace = core.handle(request('query.project.workspace', { project_id: projectId }));
+  assert.equal(workspace.ok, true);
+  assert.equal(workspace.result.assets.length, 1);
+  assert.equal(workspace.result.counts.assets, 1);
+  const replay = execute(core, 'ImportAsset', { project_id: projectId, source_path: sourcePath }, {}, 'asset-import');
+  assert.equal(replay.ok, true);
+  assert.equal(replay.result.idempotent_replay, true);
+  assert.equal(core.handle(request('query.project.assets', { project_id: projectId })).result.assets.length, 1);
+
+  const reopened = new CoreService({ dbPath, assetStorePath });
+  const loaded = reopened.handle(request('query.library.assets'));
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.result.assets[0].latest_revision.storage_object.content_hash, expectedHash);
+  assert.throws(() => reopened.db.prepare('DELETE FROM asset_revisions').run(), /asset_revisions is append-only/);
+  assert.throws(() => reopened.db.prepare('DELETE FROM storage_objects').run(), /storage_objects is append-only/);
+  assert.throws(() => reopened.db.prepare('DELETE FROM provenance_records').run(), /provenance_records is append-only/);
+  reopened.close();
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('asset intake rejects a supplied hash mismatch and records a failed command', () => {
+  const { dbPath, directory } = tempDb();
+  const sourcePath = path.join(directory, 'wrong.txt');
+  fs.writeFileSync(sourcePath, 'actual', 'utf8');
+  const core = new CoreService({ dbPath, assetStorePath: path.join(directory, 'asset-store') });
+  const project = execute(core, 'CreateProject', { title: 'Hash guard', code: 'hash-guard' }, {}, 'hash-project');
+  const response = execute(core, 'ImportAsset', {
+    project_id: project.result.id, source_path: sourcePath, content_hash: '0'.repeat(64),
+  }, {}, 'hash-mismatch');
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, 'HASH_MISMATCH');
+  assert.equal(core.handle(request('query.library.assets')).result.assets.length, 0);
+  assert.equal(core.handle(request('query.audit.list')).result.records.at(0).outcome, 'FAILED');
+  assert.equal(fs.existsSync(path.join(directory, 'asset-store')), false);
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('reference intake keeps an external location explicit without copying or exposing its path', () => {
+  const { dbPath, directory } = tempDb();
+  const sourcePath = path.join(directory, 'external.png');
+  fs.writeFileSync(sourcePath, 'reference bytes', 'utf8');
+  const store = path.join(directory, 'asset-store');
+  const core = new CoreService({ dbPath, assetStorePath: store });
+  const response = execute(core, 'ImportAsset', {
+    source_path: sourcePath, storage_mode: 'REFERENCE', asset_type: 'IMAGE',
+  }, {}, 'external-reference');
+  assert.equal(response.ok, true);
+  const asset = response.result.asset;
+  assert.equal(asset.latest_revision.locations[0].location_type, 'EXTERNAL_PATH');
+  assert.equal(asset.latest_revision.locations[0].path_or_uri, 'file://[redacted]');
+  assert.equal(asset.latest_revision.storage_object.storage_class, 'EXTERNAL_REFERENCE');
+  assert.equal(fs.existsSync(store), false);
+  const details = core.handle(request('query.import.session', { import_session_id: response.result.import_session.id }));
+  assert.equal(details.ok, true);
+  assert.equal(details.result.session.source_root, 'file://[redacted]');
+  assert.equal(details.result.items[0].source_path_or_uri, 'file://[redacted]');
   core.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });

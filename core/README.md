@@ -11,10 +11,12 @@ The slice owns project truth in SQLite and provides:
 - local studio/actor bootstrap;
 - project create, metadata update, pause, archive, trash and restore;
 - task and shot records plus append-only project/task/shot notes;
+- local asset intake with SHA-256 verification, content-addressed object
+  storage, immutable revisions and redacted provenance-safe locations;
 - optimistic `row_version` checks and deterministic idempotency keys;
 - append-only `commands`, `domain_events`, and `audit_records` ledgers;
 - query projections for home, project workspace, health, activity, search,
-  storage and command history;
+  storage, library assets, import sessions and command history;
 - resumable event reads using `events.subscribe({after_seq})`;
 - a JSON-line process boundary for a desktop host;
 - a loopback HTTP adapter for the packaged desktop shell.
@@ -70,6 +72,11 @@ The desktop-facing routes are:
 | PATCH | `/v1/projects/{id}` | Update metadata with `row_version` or `expected_version` |
 | GET | `/v1/projects/{id}/workspace` | Project, tasks, shots and notes |
 | POST | `/v1/projects/{id}/production-items` | Create a production task |
+| GET | `/v1/projects/{id}/assets` | List project assets and latest immutable revisions |
+| POST | `/v1/projects/{id}/assets` | Hash and register a local file (copy by default) |
+| GET | `/v1/assets` | List assets across the studio |
+| POST | `/v1/assets` | Hash and register a studio-wide local file |
+| GET | `/v1/imports/{id}` | Read an import session and its item state |
 | POST | `/v1/projects/{id}/notes` | Add a project note |
 | POST | `/v1/decisions/{id}/ack` | Idempotent desktop acknowledgement receipt |
 | GET | `/v1/events?after_seq=N` | Replay domain activity after a cursor |
@@ -78,6 +85,36 @@ Advanced clients can use `POST /v1/commands` with the canonical command
 envelope. The HTTP adapter binds to loopback only. Pass `--token` (or set
 `CINEFORGE_CORE_TOKEN`) to require a bearer token on every HTTP request.
 
-The database path is user data, not an installer-owned file. Originals and
-future content-addressed objects must remain outside the SQLite database; this
-slice only persists the canonical project/workspace records.
+The database path is user data, not an installer-owned file. Imported bytes
+remain outside SQLite in a content-addressed `asset-store/objects/...` tree by
+default. `ImportAsset` hashes the source through a file descriptor, rejects
+symlinks/directories, verifies an optional caller hash, atomically stages the
+copy, and then registers the object, immutable asset revision, provenance
+record, location and import session in one Core command. The `REFERENCE` mode
+records an external file location without copying it; its path is redacted in
+public projections and the revision remains `UNREVIEWED` with security/decode
+warnings until later scanners provide evidence.
+
+Canonical JSON clients can call:
+
+```json
+{
+  "api_version": "1",
+  "method": "command.execute",
+  "params": {
+    "command_type": "ImportAsset",
+    "idempotency_key": "import-2026-001",
+    "payload": {
+      "project_id": "<project-id>",
+      "source_path": "C:/media/shot-010.png",
+      "asset_type": "IMAGE",
+      "semantic_role": "SHOT_REFERENCE",
+      "storage_mode": "COPY"
+    }
+  }
+}
+```
+
+An import succeeds only after the bytes have been read and SHA-256 verified;
+security scanning and media decode remain explicit `UNKNOWN` evidence rather
+than being represented as a false pass.

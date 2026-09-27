@@ -49,6 +49,51 @@ export interface ActivityItem {
   actionable?: boolean
 }
 
+export interface AssetSummary {
+  id: string
+  projectId?: string
+  name: string
+  assetType: string
+  originType: string
+  state: string
+  availability: string
+  revisionId?: string
+  hashAlgorithm?: string
+  contentHash?: string
+  byteSize: number
+  storageUri?: string
+  provenance?: { source_name?: string; [key: string]: unknown } | null
+  importSessionId?: string
+  importItemId?: string
+  warnings: string[]
+  latestRevision?: unknown
+}
+
+export interface ImportAssetInput {
+  sourcePath: string
+  projectId?: string
+  displayName?: string
+  assetType?: string
+  semanticRole?: string
+  storageMode?: 'COPY' | 'REFERENCE'
+  contentHash?: string
+  mimeType?: string
+  intentHint?: string
+}
+
+/**
+ * A project workspace is a read model owned by Core.  The UI keeps the
+ * contract deliberately small: tasks are rendered as production items and
+ * the other counts are informational until their dedicated views exist.
+ */
+export interface ProjectWorkspace {
+  projectId: string
+  productionItems: ProductionItem[]
+  shotsCount: number
+  notesCount: number
+  generatedAt?: string
+}
+
 export interface DashboardSnapshot {
   generatedAt: string
   projects: ProjectSummary[]
@@ -64,8 +109,14 @@ export interface DashboardSnapshot {
 }
 
 export interface CoreClient {
+  isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
   acknowledgeDecision(id: string): Promise<void>
   createProject(name: string): Promise<ProjectSummary>
   addProductionItem(projectId: string, title: string): Promise<ProductionItem>
+  /** Optional in older bridges; the HTTP Core implements both methods. */
+  getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
+  getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
+  getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  importAsset?(input: ImportAssetInput): Promise<AssetSummary>
 }

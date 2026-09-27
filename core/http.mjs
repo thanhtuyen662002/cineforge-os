@@ -6,7 +6,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['STALE_REVISION', 'EXPECTED_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'EXPECTED_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH'].includes(code)) return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
   if (response.error?.category === 'INTERNAL') return 500;
   return 400;
@@ -117,13 +118,85 @@ function mapProductionItem(source, title) {
   };
 }
 
+function mapActivity(source, index) {
+  const eventType = readString(source, 'event_type', 'eventType') ?? 'CORE_ACTIVITY';
+  const normalized = eventType.toUpperCase();
+  const state = readString(source, 'state')
+    ?? (normalized.includes('BLOCK') ? 'blocked' : normalized.includes('NEEDS_USER') ? 'needs_user' : 'complete');
+  const payload = source?.payload && typeof source.payload === 'object' ? source.payload : {};
+  return {
+    id: readString(source, 'id', 'event_id') ?? `activity-${index}`,
+    projectName: readString(source, 'project_name', 'projectName', 'project_id', 'projectId') ?? 'CineForge',
+    label: readString(source, 'label', 'title') ?? eventType,
+    detail: readString(source, 'detail', 'description') ?? `Core recorded ${eventType.toLowerCase()}`,
+    state,
+    milestone: readString(source, 'milestone', 'message') ?? readString(payload, 'display_name', 'title'),
+    updatedAt: readString(source, 'occurred_at', 'created_at', 'updated_at') ?? 'Vừa cập nhật',
+    actionable: Boolean(source?.human_state?.needs_user || source?.needs_user),
+  };
+}
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let scaled = bytes / 1024;
+  let unit = units[0];
+  for (let index = 0; scaled >= 1024 && index < units.length - 1; index += 1) {
+    scaled /= 1024;
+    unit = units[index + 1];
+  }
+  return `${scaled.toFixed(scaled >= 10 ? 0 : 1)} ${unit}`;
+}
+
+function mapAsset(source) {
+  const asset = source?.asset && typeof source.asset === 'object' ? source.asset : source;
+  const revision = asset?.latest_revision ?? source?.revision ?? null;
+  const storage = revision?.storage_object ?? null;
+  return {
+    id: readString(asset, 'id') ?? crypto.randomUUID(),
+    projectId: readString(asset, 'project_id', 'projectId'),
+    name: readString(asset, 'display_name', 'name') ?? 'Imported asset',
+    assetType: readString(asset, 'asset_type', 'assetType') ?? 'GENERIC',
+    originType: readString(asset, 'origin_type', 'originType') ?? 'IMPORTED',
+    state: readString(asset, 'lifecycle_state', 'state') ?? 'ACTIVE',
+    availability: readString(revision, 'availability_state', 'availability') ?? 'AVAILABLE',
+    revisionId: readString(revision, 'id', 'revision_id', 'revisionId'),
+    hashAlgorithm: readString(storage, 'hash_algorithm', 'hashAlgorithm'),
+    contentHash: readString(storage, 'content_hash', 'contentHash'),
+    byteSize: Number(storage?.byte_size ?? 0),
+    storageUri: readString(revision?.locations?.[0], 'path_or_uri', 'pathOrUri'),
+    provenance: revision?.provenance ?? null,
+    importSessionId: readString(source?.import_session, 'id'),
+    importItemId: readString(source?.import_item, 'id'),
+    warnings: Array.isArray(source?.warnings) ? source.warnings : [],
+    latestRevision: revision,
+  };
+}
+
+function mapAssetList(result) {
+  return {
+    generatedAt: result?.generated_at ?? new Date().toISOString(),
+    assets: Array.isArray(result?.assets) ? result.assets.map((asset) => mapAsset(asset)) : [],
+    projectionSeq: Number(result?.projection_seq ?? 0),
+  };
+}
+
 function mapDashboard(result) {
+  const health = result?.system_health ?? result?.systemHealth ?? {};
   return {
     generatedAt: result.generated_at ?? new Date().toISOString(),
     projects: Array.isArray(result.projects) ? result.projects.map(mapProject) : [],
     decisions: [],
-    activity: [],
-    system: { connected: true, offline: false, storageUsed: '—', storageTotal: '—', storageAttention: false },
+    activity: Array.isArray(result.activity) ? result.activity.map(mapActivity) : [],
+    system: {
+      connected: String(health.status ?? 'READY').toUpperCase() === 'READY',
+      offline: false,
+      storageUsed: formatBytes(Number(health.bytes ?? 0) + Number(health.object_store_bytes ?? health.objectStoreBytes ?? 0)),
+      storageTotal: '—',
+      storageAttention: String(health.status ?? 'READY').toUpperCase() !== 'READY',
+    },
   };
 }
 
@@ -172,11 +245,26 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && url.pathname === '/v1/dashboard') {
         const dashboard = query(core, request, 'query.home', {});
         result = dashboard.ok ? mapDashboard(dashboard.result) : dashboard;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'assets' && parts.length === 2) {
+        const assets = query(core, request, 'query.library.assets', {
+          limit: url.searchParams.get('limit') ?? 100,
+          include_trashed: url.searchParams.get('include_trashed') === 'true',
+        });
+        result = assets.ok ? mapAssetList(assets.result) : assets;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'assets' && parts.length === 2) {
+        const created = command(core, request, 'ImportAsset', body, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
+        result = created.ok ? mapAsset(created.result) : created;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
         result = query(core, request, 'query.project.list', { include_trashed: url.searchParams.get('include_trashed') === 'true' });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
         const created = command(core, request, 'CreateProject', { ...body, title: body.title ?? body.name }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
         result = created.ok ? mapProject(created.result) : created;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'assets') {
+        const assets = query(core, request, 'query.project.assets', {
+          project_id: parts[2], limit: url.searchParams.get('limit') ?? 100,
+          include_trashed: url.searchParams.get('include_trashed') === 'true',
+        });
+        result = assets.ok ? mapAssetList(assets.result) : assets;
       } else if (parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts.length === 3) {
         const projectId = parts[2];
         if (request.method === 'GET') result = query(core, request, 'query.project.get', { project_id: projectId });
@@ -192,6 +280,11 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'production-items') {
         const created = command(core, request, 'CreateTask', { ...body, project_id: parts[2] }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
         result = created.ok ? mapProductionItem(created.result, body.title) : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'assets') {
+        const created = command(core, request, 'ImportAsset', { ...body, project_id: parts[2] }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
+        result = created.ok ? mapAsset(created.result) : created;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'imports' && parts[2] && parts.length === 3) {
+        result = query(core, request, 'query.import.session', { import_session_id: parts[2] });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots') {
         result = command(core, request, 'CreateShot', { ...body, project_id: parts[2] }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'notes') {

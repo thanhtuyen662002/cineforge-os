@@ -1,6 +1,6 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -97,6 +97,147 @@ export function initializeDatabase(db) {
       created_at_utc_us INTEGER NOT NULL
     );
 
+    /*
+     * Asset/intake foundation.  The database records identity, provenance
+     * and references only; media bytes live in the content-addressed local
+     * object store managed by Core.  Asset revisions, storage objects and
+     * provenance records are immutable once registered.  A new import or
+     * transform creates a new row instead of replacing approved bytes.
+     */
+    CREATE TABLE IF NOT EXISTS storage_objects (
+      id TEXT PRIMARY KEY,
+      hash_algorithm TEXT NOT NULL CHECK (hash_algorithm IN ('SHA-256')),
+      content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
+      byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+      storage_class TEXT NOT NULL DEFAULT 'LOCAL_MANAGED',
+      verified_at_utc_us INTEGER NOT NULL,
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(hash_algorithm, content_hash)
+    );
+
+    CREATE TABLE IF NOT EXISTS storage_object_locations (
+      id TEXT PRIMARY KEY,
+      storage_object_id TEXT NOT NULL REFERENCES storage_objects(id),
+      storage_root TEXT NOT NULL,
+      relative_path TEXT NOT NULL,
+      location_role TEXT NOT NULL CHECK (location_role IN ('PRIMARY', 'MIRROR', 'BACKUP', 'STAGING_RECOVERED')),
+      state TEXT NOT NULL CHECK (state IN ('AVAILABLE', 'MISSING', 'CORRUPT', 'OFFLINE')),
+      last_verified_at_utc_us INTEGER,
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(storage_object_id, storage_root, relative_path)
+    );
+
+    CREATE TABLE IF NOT EXISTS provenance_records (
+      id TEXT PRIMARY KEY,
+      origin_type TEXT NOT NULL,
+      source_description TEXT NOT NULL DEFAULT '',
+      source_path_or_uri TEXT,
+      source_path_fingerprint TEXT,
+      source_metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS assets (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id),
+      asset_type TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      origin_type TEXT NOT NULL CHECK (origin_type IN ('IMPORTED', 'GENERATED', 'RECORDED', 'EXTERNAL_EDIT', 'HANDOFF_RETURN', 'SYSTEM')),
+      lifecycle_state TEXT NOT NULL DEFAULT 'ACTIVE'
+        CHECK (lifecycle_state IN ('ACTIVE', 'ARCHIVED', 'TRASHED')),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS assets_project_idx ON assets(project_id, created_at_utc_us DESC);
+
+    CREATE TABLE IF NOT EXISTS asset_revisions (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES assets(id),
+      revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+      storage_object_id TEXT NOT NULL REFERENCES storage_objects(id),
+      provenance_record_id TEXT NOT NULL REFERENCES provenance_records(id),
+      semantic_role TEXT NOT NULL DEFAULT 'UNCLASSIFIED',
+      availability_state TEXT NOT NULL CHECK (availability_state IN ('AVAILABLE', 'MISSING', 'CORRUPT', 'QUARANTINED')),
+      review_state TEXT NOT NULL DEFAULT 'UNREVIEWED'
+        CHECK (review_state IN ('UNREVIEWED', 'CANDIDATE', 'APPROVED', 'REJECTED')),
+      rebuildability TEXT NOT NULL DEFAULT 'ORIGINAL'
+        CHECK (rebuildability IN ('ORIGINAL', 'CANONICAL', 'REBUILDABLE', 'EPHEMERAL')),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(asset_id, revision_number)
+    );
+    CREATE INDEX IF NOT EXISTS asset_revisions_asset_idx ON asset_revisions(asset_id, revision_number DESC);
+
+    CREATE TABLE IF NOT EXISTS asset_locations (
+      id TEXT PRIMARY KEY,
+      asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+      location_type TEXT NOT NULL CHECK (location_type IN ('MANAGED_OBJECT', 'EXTERNAL_PATH', 'MIRROR', 'EXPORT')),
+      path_or_uri TEXT NOT NULL,
+      path_fingerprint TEXT,
+      status TEXT NOT NULL CHECK (status IN ('AVAILABLE', 'MISSING', 'CORRUPT', 'OFFLINE', 'UNVERIFIED')),
+      last_verified_at_utc_us INTEGER,
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(asset_revision_id, location_type, path_or_uri)
+    );
+    CREATE INDEX IF NOT EXISTS asset_locations_revision_idx ON asset_locations(asset_revision_id);
+
+    CREATE TABLE IF NOT EXISTS import_sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id),
+      actor_id TEXT NOT NULL REFERENCES actors(id),
+      state TEXT NOT NULL CHECK (state IN ('RECEIVED', 'SCANNING', 'READY', 'COMMITTED', 'FAILED', 'CANCELLED')),
+      source_kind TEXT NOT NULL,
+      source_root TEXT,
+      intent_hint TEXT,
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS import_sessions_project_idx ON import_sessions(project_id, created_at_utc_us DESC);
+
+    CREATE TABLE IF NOT EXISTS import_items (
+      id TEXT PRIMARY KEY,
+      import_session_id TEXT NOT NULL REFERENCES import_sessions(id),
+      original_name TEXT NOT NULL,
+      detected_mime TEXT,
+      byte_size INTEGER,
+      source_path_or_uri TEXT NOT NULL,
+      source_path_fingerprint TEXT,
+      ingest_state TEXT NOT NULL CHECK (ingest_state IN ('RECEIVED', 'HASHED', 'READY', 'COMMITTED', 'FAILED', 'CANCELLED')),
+      hash_algorithm TEXT,
+      content_hash TEXT,
+      decode_status TEXT NOT NULL DEFAULT 'UNKNOWN',
+      security_status TEXT NOT NULL DEFAULT 'UNKNOWN',
+      resulting_asset_id TEXT REFERENCES assets(id),
+      resulting_revision_id TEXT REFERENCES asset_revisions(id),
+      error_code TEXT,
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(import_session_id, source_path_fingerprint)
+    );
+    CREATE INDEX IF NOT EXISTS import_items_session_idx ON import_items(import_session_id, created_at_utc_us ASC);
+
+    CREATE TRIGGER IF NOT EXISTS storage_objects_no_update
+      BEFORE UPDATE ON storage_objects
+      BEGIN SELECT RAISE(ABORT, 'storage_objects is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS storage_objects_no_delete
+      BEFORE DELETE ON storage_objects
+      BEGIN SELECT RAISE(ABORT, 'storage_objects is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS asset_revisions_no_update
+      BEFORE UPDATE ON asset_revisions
+      BEGIN SELECT RAISE(ABORT, 'asset_revisions is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS asset_revisions_no_delete
+      BEFORE DELETE ON asset_revisions
+      BEGIN SELECT RAISE(ABORT, 'asset_revisions is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS provenance_records_no_update
+      BEFORE UPDATE ON provenance_records
+      BEGIN SELECT RAISE(ABORT, 'provenance_records is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS provenance_records_no_delete
+      BEFORE DELETE ON provenance_records
+      BEGIN SELECT RAISE(ABORT, 'provenance_records is append-only'); END;
+
     CREATE TABLE IF NOT EXISTS commands (
       id TEXT PRIMARY KEY,
       studio_id TEXT NOT NULL REFERENCES studios(id),
@@ -190,9 +331,14 @@ export function initializeDatabase(db) {
       BEGIN SELECT RAISE(ABORT, 'audit_records is append-only'); END;
   `);
 
-  const migration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(SCHEMA_VERSION);
-  if (!migration) {
-    db.prepare('INSERT INTO schema_migrations(version, applied_at_utc_us) VALUES (?, ?)').run(SCHEMA_VERSION, nowUtcUs());
+  // Keep a durable migration ledger.  The v2 tables above are idempotent so
+  // an interrupted upgrade can be resumed safely; recording v1 for a fresh
+  // installation preserves the historical baseline before recording v2.
+  const migrationVersions = new Set(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => Number(row.version)));
+  for (let version = 1; version <= SCHEMA_VERSION; version += 1) {
+    if (!migrationVersions.has(version)) {
+      db.prepare('INSERT INTO schema_migrations(version, applied_at_utc_us) VALUES (?, ?)').run(version, nowUtcUs());
+    }
   }
   const installation = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('installation_id');
   if (!installation) {

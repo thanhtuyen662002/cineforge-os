@@ -33,14 +33,21 @@ The shipped flow is real and persisted:
 
 1. Open Home and create a project.
 2. Open the project and add production items.
-3. Reload the dashboard or restart `CineForge.exe`.
-4. The project and items are read back from SQLite, with command, event, and
+3. Open Library & intake, paste a local file path, and submit it to Core. Core
+   verifies SHA-256, stores a content-addressed copy by default, and keeps
+   immutable revision/provenance records. The browser file picker is preview
+   only because browsers do not expose absolute paths; the explicit path field
+   is the import confirmation.
+4. Reload the dashboard or restart `CineForge.exe`.
+5. The project, production items, activity, and imported assets are read back
+   from SQLite/object storage, with command, event, and
    audit records retained by Core.
 
 The UI defaults to Vietnamese and includes an English toggle, dark/light theme,
-responsive navigation, search, loading/error/needs-user states, and an honest
-offline/demo fallback only when no Core endpoint is configured. The packaged
-build always configures the same-origin Core proxy.
+responsive navigation, search, loading/error/needs-user states, Activity,
+Library, Settings, and an honest offline/demo fallback only when no Core
+endpoint is configured. The packaged build always configures the same-origin
+Core proxy; the production import action stays disabled in the demo fallback.
 
 ## Verification
 
