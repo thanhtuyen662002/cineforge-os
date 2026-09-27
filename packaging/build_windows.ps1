@@ -162,6 +162,13 @@ if (Test-Path -LiteralPath $coreRoot) {
         # source Core makes the portable package independent of PATH/Node.js.
         Copy-Item -LiteralPath $coreRoot -Destination (Join-Path $runtimeRoot 'core') -Recurse -Force
         Copy-Item -LiteralPath $node -Destination (Join-Path $runtimeRoot 'node.exe') -Force
+        $nodeDirectory = Split-Path -Parent $node
+        foreach ($licenseName in @('LICENSE', 'README.md')) {
+            $licensePath = Join-Path $nodeDirectory $licenseName
+            if (Test-Path -LiteralPath $licensePath) {
+                Copy-Item -LiteralPath $licensePath -Destination (Join-Path $runtimeRoot ("Node-" + $licenseName)) -Force
+            }
+        }
         $coreMode = 'node-self-contained'
     }
     else {
