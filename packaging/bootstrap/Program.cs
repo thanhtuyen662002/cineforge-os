@@ -35,18 +35,19 @@ internal static class Program
         Directory.CreateDirectory(dataRoot);
         var logsRoot = Path.Combine(dataRoot, "logs");
         Directory.CreateDirectory(logsRoot);
+        var bootstrapLog = Path.Combine(logsRoot, "bootstrap.log");
+        Log(bootstrapLog, $"startup root={root}; data={dataRoot}; offline={options.AllowOffline}");
 
         var webRoot = ResolveWebRoot(root);
         if (!Directory.Exists(webRoot))
         {
-            Console.Error.WriteLine($"CineForge web bundle is missing: {webRoot}");
+            var message = $"CineForge web bundle is missing: {webRoot}";
+            Log(bootstrapLog, message);
+            Console.Error.WriteLine(message);
             Console.Error.WriteLine("Run packaging\\build_windows.ps1 first, or copy the Vite dist folder to web\\.");
             return 2;
         }
 
-        var corePort = PickPort(options.CorePort ?? DefaultCorePort);
-        var webPort = PickPort(options.WebPort ?? DefaultWebPort, corePort);
-        var coreBase = new Uri($"http://127.0.0.1:{corePort}");
         using var lifetime = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>
         {
@@ -57,19 +58,36 @@ internal static class Program
         CoreHost? core = null;
         try
         {
+            var corePort = PickPort(options.CorePort ?? DefaultCorePort);
+            var webPort = PickPort(options.WebPort ?? DefaultWebPort, corePort);
+            var coreBase = new Uri($"http://127.0.0.1:{corePort}");
             core = StartCore(root, dataRoot, corePort, logsRoot);
             if (core is null)
             {
-                Console.Error.WriteLine("CineForge Core was not found. The UI will open in offline/demo mode.");
+                Log(bootstrapLog, "Core was not found or could not be started.");
+                Console.Error.WriteLine("CineForge Core was not found or could not be started.");
+            }
+
+            var transport = core is not null ? await WaitForCoreAsync(core, coreBase, lifetime.Token) : CoreTransport.None;
+            if (transport == CoreTransport.None && !options.AllowOffline)
+            {
+                var message = "CineForge Core did not become ready. The packaged product refuses to open in demo mode; inspect logs\\bootstrap.log and logs\\core.log.";
+                Log(bootstrapLog, message);
+                Console.Error.WriteLine(message);
+                return 4;
             }
 
             using var listener = new HttpListener();
             var webPrefix = $"http://127.0.0.1:{webPort}/";
             listener.Prefixes.Add(webPrefix);
             listener.Start();
+            using var stopListener = lifetime.Token.Register(() =>
+            {
+                try { listener.Stop(); } catch (ObjectDisposedException) { }
+            });
 
-            var transport = core is not null ? await WaitForCoreAsync(core, coreBase, lifetime.Token) : CoreTransport.None;
-            var health = new HealthState(webRoot, transport, core);
+            var health = new HealthState(webRoot, transport, core, dataRoot);
+            Log(bootstrapLog, $"ready url={webPrefix}; transport={transport}; data={dataRoot}");
             Console.WriteLine($"CineForge is ready: {webPrefix}");
             Console.WriteLine($"Core: {(health.CoreReady ? transport.ToString().ToLowerInvariant() : "offline/demo")}; data: {dataRoot}");
             if (!options.NoBrowser)
@@ -79,20 +97,40 @@ internal static class Program
 
             while (!lifetime.IsCancellationRequested)
             {
-                var contextTask = listener.GetContextAsync();
-                var completed = await Task.WhenAny(contextTask, Task.Delay(250, lifetime.Token));
-                if (completed != contextTask) continue;
-                _ = HandleRequestAsync(await contextTask, webRoot, coreBase, health, lifetime.Token);
+                HttpListenerContext context;
+                try
+                {
+                    // Keep exactly one accept operation outstanding. Repeated
+                    // polling with GetContextAsync leaves abandoned requests
+                    // in HTTP.sys and can make a healthy host appear hung.
+                    context = await listener.GetContextAsync();
+                }
+                catch (HttpListenerException) when (lifetime.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (ObjectDisposedException) when (lifetime.IsCancellationRequested)
+                {
+                    break;
+                }
+                _ = HandleRequestAsync(context, webRoot, coreBase, health, bootstrapLog, lifetime.Token);
             }
         }
         catch (HttpListenerException ex)
         {
+            Log(bootstrapLog, $"web host failed: {ex}");
             Console.Error.WriteLine($"CineForge web host could not start: {ex.Message}");
             return 3;
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
             // Normal shutdown.
+        }
+        catch (Exception ex)
+        {
+            Log(bootstrapLog, $"startup failed: {ex}");
+            Console.Error.WriteLine($"CineForge startup failed: {ex.Message}");
+            return 5;
         }
         finally
         {
@@ -101,6 +139,18 @@ internal static class Program
         }
 
         return 0;
+    }
+
+    private static void Log(string path, string message)
+    {
+        try
+        {
+            File.AppendAllText(path, $"{DateTimeOffset.UtcNow:O} {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Diagnostics must never prevent the product from starting.
+        }
     }
 
     private static string ResolveWebRoot(string root)
@@ -140,6 +190,7 @@ internal static class Program
     {
         var database = Path.Combine(dataRoot, "cineforge.sqlite3");
         var runtimeRoot = Path.Combine(root, "runtime");
+        var hasPackagedRuntime = Directory.Exists(runtimeRoot);
         var nodeServerCandidates = new[]
         {
             Path.Combine(runtimeRoot, "core", "server.mjs"),
@@ -148,12 +199,20 @@ internal static class Program
         var nodeServer = nodeServerCandidates.FirstOrDefault(File.Exists);
         if (nodeServer is not null)
         {
+            var runtimePrefix = Path.GetFullPath(runtimeRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var nodeServerPath = Path.GetFullPath(nodeServer);
+            var isPackagedCore = nodeServerPath.StartsWith(runtimePrefix, StringComparison.OrdinalIgnoreCase);
             var bundledNode = new[]
             {
                 Path.Combine(runtimeRoot, "node.exe"),
                 Path.Combine(root, "node.exe"),
             }.FirstOrDefault(File.Exists);
-            var node = bundledNode ?? FindExecutableOnPath("node");
+            // A release bundle must be independent of the developer machine.
+            // When the Core lives under runtime/, do not silently fall back to
+            // an arbitrary PATH Node.js if the adjacent bundled runtime was
+            // removed or quarantined. Source-tree development may still use
+            // PATH Node.js when the Core lives under root/core/.
+            var node = bundledNode ?? (isPackagedCore ? null : FindExecutableOnPath("node"));
             if (node is not null)
             {
                 var nodeWorkingDirectory = Path.GetDirectoryName(nodeServer) ?? runtimeRoot;
@@ -166,6 +225,11 @@ internal static class Program
                 nodeStart.ArgumentList.Add(nodeServer);
                 AddServerArguments(nodeStart, database, port);
                 return StartProcess(nodeStart, logsRoot);
+            }
+            if (isPackagedCore)
+            {
+                AppendCoreLog(logsRoot, "Bundled Core was found, but runtime\\node.exe is missing; refusing PATH fallback.");
+                return null;
             }
             Console.Error.WriteLine("Core server.mjs was found, but Node.js is unavailable.");
         }
@@ -191,6 +255,11 @@ internal static class Program
         }
         else
         {
+            if (hasPackagedRuntime)
+            {
+                AppendCoreLog(logsRoot, "Packaged runtime exists, but no supported Core entrypoint was found; refusing machine-level fallback.");
+                return null;
+            }
             var python = FindPython();
             if (python is null) return null;
             start = new ProcessStartInfo(python.Value.FileName)
@@ -246,11 +315,17 @@ internal static class Program
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
+            AppendCoreLog(logsRoot, $"Could not start Core: {ex}");
             Console.Error.WriteLine($"Could not start Core: {ex.Message}");
             log.Dispose();
             process.Dispose();
             return null;
         }
+    }
+
+    private static void AppendCoreLog(string logsRoot, string message)
+    {
+        Log(Path.Combine(logsRoot, "core.log"), message);
     }
 
     private static string? FindExecutableOnPath(string name)
@@ -340,14 +415,22 @@ internal static class Program
         return CoreTransport.None;
     }
 
-    private static async Task HandleRequestAsync(HttpListenerContext context, string webRoot, Uri coreBase, HealthState health, CancellationToken cancellationToken)
+    private static async Task HandleRequestAsync(HttpListenerContext context, string webRoot, Uri coreBase, HealthState health, string bootstrapLog, CancellationToken cancellationToken)
     {
         try
         {
             var path = context.Request.Url?.AbsolutePath ?? "/";
+            Log(bootstrapLog, $"request {context.Request.HttpMethod} {path}");
             if (path.Equals("/healthz", StringComparison.OrdinalIgnoreCase))
             {
-                var payload = JsonSerializer.Serialize(new { status = "ok", core = health.CoreReady, web = Directory.Exists(health.WebRoot) });
+                var payload = JsonSerializer.Serialize(new
+                {
+                    status = health.CoreReady ? "ok" : "degraded",
+                    core = health.CoreReady,
+                    web = Directory.Exists(health.WebRoot),
+                    transport = health.Transport.ToString().ToLowerInvariant(),
+                    dataRoot = health.DataRoot,
+                });
                 await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes(payload), "application/json; charset=utf-8", 200);
             }
             else if (path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase) || path.Equals("/v1", StringComparison.OrdinalIgnoreCase))
@@ -364,6 +447,7 @@ internal static class Program
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            Log(bootstrapLog, $"request failed: {ex}");
             Console.Error.WriteLine($"Request failed: {ex.Message}");
             if (context.Response.OutputStream.CanWrite)
             {
@@ -372,6 +456,7 @@ internal static class Program
         }
         finally
         {
+            Log(bootstrapLog, "request complete");
             context.Response.Close();
         }
     }
@@ -602,16 +687,18 @@ internal static class Program
 
     private sealed class HealthState
     {
-        public HealthState(string webRoot, CoreTransport transport, CoreHost? core)
+        public HealthState(string webRoot, CoreTransport transport, CoreHost? core, string dataRoot)
         {
             WebRoot = webRoot;
             Transport = transport;
             Core = core;
+            DataRoot = dataRoot;
         }
 
         public string WebRoot { get; }
         public CoreTransport Transport { get; }
         public CoreHost? Core { get; }
+        public string DataRoot { get; }
         public bool CoreReady => Transport != CoreTransport.None;
     }
 
@@ -665,7 +752,7 @@ internal static class Program
         }
     }
 
-    private sealed record Options(string? Root, string? DataRoot, int? WebPort, int? CorePort, bool NoBrowser)
+    private sealed record Options(string? Root, string? DataRoot, int? WebPort, int? CorePort, bool NoBrowser, bool AllowOffline)
     {
         public static Options Parse(string[] args)
         {
@@ -674,6 +761,7 @@ internal static class Program
             int? web = null;
             int? core = null;
             var noBrowser = false;
+            var allowOffline = false;
             for (var i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -683,13 +771,14 @@ internal static class Program
                     case "--web-port" when i + 1 < args.Length && int.TryParse(args[++i], out var parsedWeb): web = parsedWeb; break;
                     case "--core-port" when i + 1 < args.Length && int.TryParse(args[++i], out var parsedCore): core = parsedCore; break;
                     case "--no-browser": noBrowser = true; break;
+                    case "--allow-offline": allowOffline = true; break;
                     case "--help" or "-h":
-                        Console.WriteLine("CineForge [--root DIR] [--data DIR] [--web-port PORT] [--core-port PORT] [--no-browser]");
+                        Console.WriteLine("CineForge [--root DIR] [--data DIR] [--web-port PORT] [--core-port PORT] [--no-browser] [--allow-offline]");
                         Environment.Exit(0);
                         break;
                 }
             }
-            return new Options(root, data, web, core, noBrowser);
+            return new Options(root, data, web, core, noBrowser, allowOffline);
         }
     }
 }

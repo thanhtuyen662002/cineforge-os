@@ -17,7 +17,7 @@ dist/CineForge/
   build-manifest.json    # source head, mode, hashes and explicit warnings
 ```
 
-The bootstrap binds only to `127.0.0.1`. It starts the packaged Core, exposes the UI on a loopback port, and proxies `/v1/*` to the Core. It stores the active local database and logs under `%LOCALAPPDATA%\CineForge\data` by default. Pass `--data DIR` to choose another data root. The bootstrap never accepts a remote bind address.
+The bootstrap binds only to `127.0.0.1`. It starts the packaged Core, exposes the UI on a loopback port, and proxies `/v1/*` to the Core. It stores the active local database and startup/Core logs under `%LOCALAPPDATA%\CineForge\data` by default. Pass `--data DIR` to choose another data root. The bootstrap never accepts a remote bind address. A packaged runtime refuses to open in offline/demo mode if the bundled Node/Core files are missing or unhealthy; this prevents a broken release from looking like a usable product. `--allow-offline` is an explicit development escape hatch and is not used by the production one-click path.
 
 ## Build commands
 
@@ -50,7 +50,7 @@ The portable build is the reliable fallback when the Rust toolchain is absent. W
 .\packaging\smoke_test.ps1 -ArtifactRoot .\dist\CineForge
 ```
 
-The smoke test starts the exact artifact, checks `/healthz`, verifies that the root document is HTML, and calls `/v1/dashboard` when Core is ready. Offline/demo mode is accepted only when the test is explicitly called with `-AllowOffline`; a production packaging run must have a ready Core.
+The launcher verifies the manifest hash and the adjacent web/Core runtime before starting the exact executable. The smoke test starts that artifact, checks `/healthz`, verifies that the root document is HTML, and calls `/v1/dashboard` when Core is ready. Offline/demo mode is accepted only when the test is explicitly called with `-AllowOffline`; a production packaging run must have a ready Core. If a launch fails, inspect `%LOCALAPPDATA%\CineForge\data\logs\bootstrap.log` and `core.log`.
 
 ## Release boundary
 

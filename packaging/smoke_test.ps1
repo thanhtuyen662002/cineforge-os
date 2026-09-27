@@ -37,6 +37,7 @@ $stdout = Join-Path $dataRoot 'bootstrap.stdout.log'
 $stderr = Join-Path $dataRoot 'bootstrap.stderr.log'
 $quote = { param([string]$value) '"' + $value.Replace('"', '\"') + '"' }
 $arguments = '--no-browser --root ' + (& $quote $resolvedRoot) + ' --data ' + (& $quote $dataRoot) + " --web-port $webPort --core-port $corePort"
+if ($AllowOffline) { $arguments += ' --allow-offline' }
 $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $resolvedRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 $passed = $false
 
@@ -73,8 +74,13 @@ try {
         }
     }
     if ($null -eq $health) { throw "CineForge health endpoint did not respond within $StartupTimeoutSeconds seconds." }
-    if ($health.status -ne 'ok' -or -not $health.web) { throw 'CineForge health endpoint reported an invalid web state.' }
-    if (-not $AllowOffline -and -not $health.core) { throw 'CineForge Core did not become ready; a production portable build must include a working Core.' }
+    if (-not $health.web) { throw 'CineForge health endpoint reported an invalid web state.' }
+    if ($AllowOffline) {
+        if ($health.status -notin @('ok', 'degraded')) { throw 'CineForge health endpoint reported an invalid status.' }
+    }
+    elseif ($health.status -ne 'ok' -or -not $health.core) {
+        throw 'CineForge Core did not become ready; a production portable build must include a working Core.'
+    }
 
     $html = (Invoke-WebRequest -Uri "http://127.0.0.1:$webPort/" -UseBasicParsing -TimeoutSec 5).Content
     if ($html -notmatch '<html') { throw 'CineForge root page did not return HTML.' }
