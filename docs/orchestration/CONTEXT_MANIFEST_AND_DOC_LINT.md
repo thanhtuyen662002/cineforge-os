@@ -212,6 +212,12 @@ The gate has a standard-library negative-fixture smoke suite:
 python docs/orchestration/doc_lint_selftest.py
 ```
 
+Control-event grammar and reconciliation are checked separately with:
+
+```text
+python docs/orchestration/control_event_selftest.py
+```
+
 It first proves the current tree passes, then copies the tree to a temporary
 directory and verifies that duplicate IDs, broken references, stable-ID
 collisions, coverage-count drift, missing P0 owners and malformed/incomplete
@@ -228,6 +234,14 @@ ledger shape only. It also checks that `CHAOS_TEST_PLAN.md` contains exactly
 and that ledger references resolve to real cases. A green result does not
 prove runtime implementation or empirical chaos success.
 
+The gate also requires the canonical `CONTROL_EVENT_CONTRACTS.json` schema and
+its normative Markdown companion. The control-event self-test covers strict
+ASCII keys, duplicate/unknown fields, unknown versions, bounded values,
+malformed hashes, cross-field lease/review rules, idempotent retries,
+conflicting event IDs, stale head/base bindings, CI producer provenance and
+`UNKNOWN_OUTCOME` merge fencing. These are contract checks; they do not
+authenticate GitHub authors or query live refs.
+
 # 17. Lane #3 bootstrap gate
 
 The first promotion slice for the exploration PR is the control-plane and
@@ -238,6 +252,9 @@ documentation-integrity gate. Its bounded evidence surface is:
 - Context Manifest routing and size budgets;
 - `doc_lint.py` pass/fail behavior;
 - `doc_lint_selftest.py` baseline plus fail-closed negative fixtures;
+- canonical event grammar and fail-closed reconciliation fixtures in
+  `CONTROL_EVENT_CONTRACTS.json`, `control_event_lint.py` and
+  `control_event_selftest.py`;
 - chaos specifications `CT-01` through `CT-09` for claim, lease, event and CI
   provenance controls.
 

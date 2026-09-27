@@ -162,6 +162,14 @@ def mutate_control_registry_evidence(fixture: Path) -> None:
     write_text(path, text.replace("maturity: SPECIFIED", "maturity: IMPLEMENTED", 1))
 
 
+def mutate_control_event_schema(fixture: Path) -> None:
+    path = fixture / "docs" / "orchestration" / "CONTROL_EVENT_CONTRACTS.json"
+    schema = read_json(path)
+    assert isinstance(schema, dict)
+    del schema["events"]["MERGE_OUTCOME_V1"]
+    write_json(path, schema)
+
+
 def mutate_p0_owner(fixture: Path) -> None:
     path = fixture / "docs" / "orchestration" / "findings" / "COVERAGE.json"
     coverage = read_json(path)
@@ -214,6 +222,7 @@ def main() -> int:
         ("source path traversal", mutate_source_path_traversal, "source path escapes repository"),
         ("control registry duplicate", mutate_control_registry_duplicate, "duplicate control IDs"),
         ("control registry evidence", mutate_control_registry_evidence, "claims IMPLEMENTED without evidence"),
+        ("control event schema drift", mutate_control_event_schema, "event schema set drifted"),
         ("missing P0 owner", mutate_p0_owner, "has no exact control owner"),
         ("unknown chaos case", mutate_chaos_case_reference, "malformed chaos reference"),
         ("incomplete chaos case", mutate_chaos_field, "missing fields"),

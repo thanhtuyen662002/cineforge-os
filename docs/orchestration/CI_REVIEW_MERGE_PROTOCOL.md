@@ -60,6 +60,11 @@ ATTEMPT
 RESULT
 ```
 
+The machine representation is `CI_VERIFICATION_V1` in
+[`CONTROL_EVENT_CONTRACTS.md`](docs/orchestration/CONTROL_EVENT_CONTRACTS.md#CTRL-EVENT-PAYLOADS).
+The producer identity, workflow path/revision and runner trust class are
+mandatory fields, not optional annotations.
+
 Generic old green status is historical only.
 
 # 5. CI throughput
@@ -129,6 +134,10 @@ When GitHub Merge Queue is not authoritative:
 This closes the race where two Integrators validate against one base then merge concurrently.
 
 If Merge Queue is enabled and configured to test queued merge state, it replaces manual merge serialization.
+
+`MERGE_LEASE_V1` is defined by the same canonical event contract.  A merge API
+timeout produces `MERGE_OUTCOME_V1` with `UNKNOWN_OUTCOME`; the integrator
+must reconcile the PR and base directly before any dependent merge mutation.
 
 # 10. Review after author push
 

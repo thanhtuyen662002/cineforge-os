@@ -77,10 +77,21 @@ If required assurance is unavailable, mark an explicit external/manual blocker. 
 
 The Capacity Plan Issue body is bootstrap/display metadata only.
 
-Live capacity plans are appended as CAPACITY_PLAN_V2 comments:
+Live capacity plans are appended as canonical `CAPACITY_PLAN_V2` events.  The
+exact envelope, field formats and hash computation are defined in
+[`CONTROL_EVENT_CONTRACTS.md`](docs/orchestration/CONTROL_EVENT_CONTRACTS.md#CTRL-EVENT-PAYLOADS)
+and `CONTROL_EVENT_CONTRACTS.json`; the payload below lists the required
+fields for orientation:
 
 ```text
-CAPACITY_PLAN_V2
+EVENT_SCHEMA=CAPACITY_PLAN_V2
+CONTROL_EVENT_ID=<stable-before-send-id>
+CONTROL_EPOCH=<n>
+PREV_EVENT_COMMENT_ID=<id|none>
+PREV_EVENT_HASH=<sha256:...|none>
+EVENT_HASH_ALGORITHM=SHA-256
+EVENT_HASH=<canonical-sha256>
+TRUSTED_AUTHOR=<trusted-github-login>
 PLAN_VERSION=<n>
 PREV_PLAN_COMMENT_ID=<id|none>
 PRIMARY_PLANNER=<agent>
@@ -89,7 +100,14 @@ PRIMARY_INTEGRATOR=<agent>
 SLOT_COUNT=<n>
 SLOT_BINDINGS=<...>
 STAGGER_OFFSETS=<...>
-GLOBAL_WIP_LIMITS=<...>
+CI_RUNNER_CAPACITY=<n>
+REVIEW_CAPACITY=<n>
+MAX_ACTIVE_IMPLEMENTATION=<n>
+MAX_CI_IN_FLIGHT=<n>
+MAX_WAITING_REVIEW=<n>
+MAX_PARKED_TOTAL=<n>
+CURRENT_CRITICAL_PATH=<...>
+CURRENT_HOTSPOTS=<...>
 UPDATED_BY=<agent>
 ```
 
@@ -341,16 +359,17 @@ Do not “fight” by continually appending newer sibling events.
 
 Structured control streams use hash chaining within an epoch where practical.
 
-Each machine event includes:
-- EVENT_SCHEMA
-- EVENT_ID / GitHub comment identity
-- CONTROL_EPOCH
-- PREV_EVENT_COMMENT_ID
-- PREV_EVENT_HASH
-- EVENT_HASH_ALGORITHM
-- EVENT_HASH
+Each machine event uses the exact envelope in
+[`CONTROL_EVENT_CONTRACTS.md`](docs/orchestration/CONTROL_EVENT_CONTRACTS.md#CTRL-EVENT-ENVELOPE):
+`EVENT_SCHEMA`, `CONTROL_EVENT_ID`, `CONTROL_EPOCH`,
+`PREV_EVENT_COMMENT_ID`, `PREV_EVENT_HASH`, `EVENT_HASH_ALGORITHM=SHA-256`,
+`EVENT_HASH` and `TRUSTED_AUTHOR`.  `CONTROL_EVENT_ID` is the stable
+before-send idempotency key; GitHub's comment ID remains external evidence and
+is not substituted for it.
 
-Canonical event hashing uses the same strict canonical JSON principles as task contracts.
+Canonical event hashing uses the sorted `KEY=VALUE` UTF-8 algorithm in
+[`CONTROL_EVENT_CONTRACTS.md`](docs/orchestration/CONTROL_EVENT_CONTRACTS.md#CTRL-EVENT-HASH);
+it is deliberately separate from task-contract canonical JSON hashing.
 
 If:
 - predecessor comment is missing/deleted;
@@ -462,10 +481,10 @@ Task claim under partial failure uses a two-stage protocol.
 1. claimant appends trusted `CLAIM_INTENT_V1`:
    - CONTROL_EVENT_ID
    - CLAIM_INTENT_ID
-   - issue
-   - attempt
-   - task_contract_hash
-   - agent/slot/run
+   - ISSUE
+   - ATTEMPT
+   - TASK_CONTRACT_HASH
+   - AGENT_INSTANCE_ID/SLOT_ID/RUN_ID
 2. after a complete direct read of trusted claim intents for the attempt, lowest valid GitHub comment ID wins;
 3. only winner creates exact branch `agent/i<issue>-a<attempt>`;
 4. claim marker records winning CLAIM_INTENT_ID/comment ID;

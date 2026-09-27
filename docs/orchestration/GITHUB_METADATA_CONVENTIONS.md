@@ -2,6 +2,12 @@
 
 Metadata helps agents scan quickly but is not a substitute for authoritative Issue/PR/CI facts.
 
+All structured events use the exact, case-sensitive grammar in
+[`CONTROL_EVENT_CONTRACTS.md`](docs/orchestration/CONTROL_EVENT_CONTRACTS.md#CTRL-EVENT-GRAMMAR)
+and `CONTROL_EVENT_CONTRACTS.json`.  The payload blocks in this document are
+field lists for readability; they are not complete machine events unless the
+canonical envelope, hash and trust checks are added.
+
 # 1. Recommended labels
 
 If labels are provisioned, use namespaces:
@@ -145,12 +151,21 @@ Required evidence tuple is:
 
 ```text
 HEAD_SHA
-BASE_SHA or MERGE_BASE_SHA
-optional SYNTHETIC_MERGE_SHA
-WORKFLOW/CHECK_ID
+BASE_SHA
+SYNTHETIC_MERGE_SHA=<sha|none>
+WORKFLOW_CHECK_ID
+CHECK_PRODUCER_IDENTITY
+WORKFLOW_PATH
+WORKFLOW_REVISION
+RUNNER_TRUST_CLASS
 ATTEMPT
 RESULT
 ```
+
+The machine form is `CI_VERIFICATION_V1`.  `WORKFLOW_PATH`,
+`WORKFLOW_REVISION`, `CHECK_PRODUCER_IDENTITY` and `RUNNER_TRUST_CLASS` are
+required; a human-readable check name or a green result from an unexpected
+producer is insufficient.
 
 If GitHub Actions runs tests on a pull-request synthetic merge commit, record that merge context.
 If tests run directly on branch HEAD, Integrator must separately evaluate base drift before merge.
@@ -228,6 +243,25 @@ Use:
 - MERGE_LEASE_V1
 
 All structured control events are valid only from trusted GitHub authors and valid registered logical identities.
+
+`MERGE_LEASE_V1` has this exact payload contract:
+
+```text
+REPOSITORY=<owner/repository>
+MERGE_OPERATION_ID=<stable-before-send-id>
+AGENT_INSTANCE_ID=<integrator>
+RUN_ID=<run>
+ACTION=ACQUIRE|RENEW|RELEASE|TAKEOVER
+LEASE_EPOCH=<positive-integer>
+TTL_SECONDS=<positive-integer, or 0 for RELEASE>
+EXPECTED_MAIN_SHA=<current main commit>
+EXPECTED_PR_HEAD_SHA=<current PR head commit>
+REASON=<bounded explanation>
+```
+
+The merge operation creates its identity before the API call.  An unknown API
+outcome is recorded as `MERGE_OUTCOME_V1` and blocks subsequent acquire or
+takeover mutations for that operation until direct GitHub reconciliation.
 
 # 12. Trust filter
 

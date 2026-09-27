@@ -34,6 +34,22 @@ REGISTRY_PATH = Path("docs/orchestration/findings/REGISTRY.json")
 CONTROL_REGISTRY_PATH = Path("docs/design/CONTROL_REGISTRY.yaml")
 MIGRATION_PATH = Path("docs/orchestration/findings/AUTHORITATIVE_SECTION_ID_MIGRATION.md")
 CHAOS_PATH = Path("docs/orchestration/CHAOS_TEST_PLAN.md")
+CONTROL_EVENT_SCHEMA_PATH = Path("docs/orchestration/CONTROL_EVENT_CONTRACTS.json")
+CONTROL_EVENT_DOC_PATH = Path("docs/orchestration/CONTROL_EVENT_CONTRACTS.md")
+CONTROL_EVENT_SCHEMAS = {
+    "AGENT_STATE_V1",
+    "AGENT_TAKEOVER_V1",
+    "AGENT_REVIEW_V1",
+    "TASK_CONTRACT_REVISION_V1",
+    "ORPHAN_OBSERVED_V1",
+    "CLAIM_INTENT_V1",
+    "CAPACITY_PLAN_V2",
+    "SLOT_LEASE_V1",
+    "CONTROL_ROLE_LEASE_V1",
+    "MERGE_LEASE_V1",
+    "CI_VERIFICATION_V1",
+    "MERGE_OUTCOME_V1",
+}
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 ANCHOR_RE = re.compile(r"\{#([A-Za-z0-9_.:-]+)\}\s*$")
@@ -227,6 +243,91 @@ def lint_chaos_plan(root: Path) -> tuple[list[str], set[str]]:
         if duplicate_fields:
             errors.append(f"{identifier} at line {line_number} repeats fields: {','.join(duplicate_fields)}")
     return errors, set(ids)
+
+
+def lint_control_event_schema(root: Path, sections: dict[str, dict[str, list[int]]]) -> list[str]:
+    """Validate the machine-readable control-event contract index.
+
+    The executable parser performs the detailed field validation.  This
+    lightweight repository gate catches accidental deletion, event-set drift,
+    malformed regex metadata and loss of the normative companion document
+    before the parser is ever invoked by a runtime caller.
+    """
+    schema_path = root / CONTROL_EVENT_SCHEMA_PATH
+    doc_path = root / CONTROL_EVENT_DOC_PATH
+    errors: list[str] = []
+    if not schema_path.exists():
+        errors.append(f"missing control-event schema: {CONTROL_EVENT_SCHEMA_PATH.as_posix()}")
+        return errors
+    if not doc_path.exists():
+        errors.append(f"missing control-event contract document: {CONTROL_EVENT_DOC_PATH.as_posix()}")
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return errors + [f"invalid control-event schema JSON: {exc}"]
+    if not isinstance(schema, dict):
+        return errors + ["control-event schema root must be an object"]
+    if schema.get("schema_id") != "cineforge-control-event-contracts":
+        errors.append("control-event schema has unsupported schema_id")
+    if schema.get("schema_version") != 1:
+        errors.append("control-event schema_version must be 1")
+    if schema.get("encoding") != "UTF-8":
+        errors.append("control-event schema encoding must be UTF-8")
+    if schema.get("machine_key_pattern") != r"^[A-Z][A-Z0-9_]{0,63}$":
+        errors.append("control-event schema machine_key_pattern is unsupported")
+    if schema.get("max_event_bytes") != 32768 or schema.get("max_line_bytes") != 4096:
+        errors.append("control-event schema size limits drifted from the bounded grammar")
+    hashing = schema.get("hashing")
+    if not isinstance(hashing, dict) or hashing.get("algorithm") != "SHA-256":
+        errors.append("control-event schema must use SHA-256")
+    envelope = schema.get("envelope")
+    envelope_fields = envelope.get("fields") if isinstance(envelope, dict) else None
+    envelope_required = envelope.get("required") if isinstance(envelope, dict) else None
+    expected_envelope = {
+        "EVENT_SCHEMA",
+        "CONTROL_EVENT_ID",
+        "CONTROL_EPOCH",
+        "PREV_EVENT_COMMENT_ID",
+        "PREV_EVENT_HASH",
+        "EVENT_HASH_ALGORITHM",
+        "EVENT_HASH",
+        "TRUSTED_AUTHOR",
+    }
+    if not isinstance(envelope_fields, dict) or set(envelope_fields) != expected_envelope:
+        errors.append("control-event envelope fields drifted")
+    if not isinstance(envelope_required, list) or set(envelope_required) != expected_envelope:
+        errors.append("control-event envelope required fields drifted")
+    events = schema.get("events")
+    if not isinstance(events, dict) or set(events) != CONTROL_EVENT_SCHEMAS:
+        errors.append("control-event event schema set drifted")
+    else:
+        for event_name, definition in events.items():
+            if not isinstance(definition, dict):
+                errors.append(f"control-event {event_name} definition is not an object")
+                continue
+            required = definition.get("required")
+            fields = definition.get("fields")
+            if not isinstance(required, list) or not isinstance(fields, dict) or set(required) != set(fields):
+                errors.append(f"control-event {event_name} required/fields mismatch")
+            if any(not isinstance(field, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", field) for field in fields or {}):
+                errors.append(f"control-event {event_name} has a non-ASCII/invalid field key")
+            if isinstance(fields, dict):
+                for field, rule in fields.items():
+                    if not isinstance(rule, dict) or ("format" not in rule and "enum" not in rule):
+                        errors.append(f"control-event {event_name} field {field} has no validation rule")
+    required_doc_sections = {
+        "CTRL-EVENT-GRAMMAR",
+        "CTRL-EVENT-ENVELOPE",
+        "CTRL-EVENT-HASH",
+        "CTRL-EVENT-PAYLOADS",
+        "CTRL-EVENT-RECONCILIATION",
+        "CTRL-EVENT-VALIDATION-BOUNDARY",
+    }
+    document_sections = sections.get(CONTROL_EVENT_DOC_PATH.as_posix(), {})
+    for identifier in sorted(required_doc_sections):
+        if len(document_sections.get(identifier, [])) != 1:
+            errors.append(f"control-event contract document is missing unique section {identifier}")
+    return errors
 
 
 def lint_source_evidence(root: Path, records: list[dict]) -> list[str]:
@@ -557,6 +658,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     errors.extend(lint_references(root, sections))
     chaos_errors, chaos_ids = lint_chaos_plan(root)
     errors.extend(chaos_errors)
+    errors.extend(lint_control_event_schema(root, sections))
     errors.extend(lint_control_registry(root, sections))
     errors.extend(lint_registry_and_coverage(root, sections, chaos_ids))
     if errors:
