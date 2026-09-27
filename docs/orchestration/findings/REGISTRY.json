@@ -56,7 +56,7 @@
       "severity": "P1",
       "source_section": "12. Newly uncovered findings requiring hardening",
       "source_line": 269,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-55AED564D5F1",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -78,7 +78,7 @@
       "severity": "P0",
       "source_section": "12. Newly uncovered findings requiring hardening",
       "source_line": 279,
-      "domain": "REL",
+      "domain": "ORCH",
       "stable_id": "CFRT-DBC58E6BAB45",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -89,7 +89,7 @@
       "severity": "P0",
       "source_section": "12. Newly uncovered findings requiring hardening",
       "source_line": 284,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-87A850FB66E3",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -166,7 +166,7 @@
       "severity": "P0",
       "source_section": "12. Newly uncovered findings requiring hardening",
       "source_line": 319,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-43EA66EE73D0",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -232,7 +232,7 @@
       "severity": "P1",
       "source_section": "12. Newly uncovered findings requiring hardening",
       "source_line": 349,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-3EBBE298A789",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -276,7 +276,7 @@
       "severity": "P1",
       "source_section": "16. Additional findings",
       "source_line": 462,
-      "domain": "GEN",
+      "domain": "BUILD",
       "stable_id": "CFRT-5E92819AC38D",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -386,7 +386,7 @@
       "severity": "P1",
       "source_section": "16. Additional findings",
       "source_line": 515,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-C0B2976CA1C3",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -408,7 +408,7 @@
       "severity": "P1",
       "source_section": "16. Additional findings",
       "source_line": 526,
-      "domain": "DATA",
+      "domain": "CAP",
       "stable_id": "CFRT-219BC842AF46",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -441,7 +441,7 @@
       "severity": "P1",
       "source_section": "18. Third-wave findings",
       "source_line": 607,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-AF4FCD3E7BA8",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -518,7 +518,7 @@
       "severity": "P0",
       "source_section": "18. Third-wave findings",
       "source_line": 637,
-      "domain": "PRIV",
+      "domain": "SEC",
       "stable_id": "CFRT-23E963D082F9",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -639,7 +639,7 @@
       "severity": "P0/P1",
       "source_section": "18. Further findings",
       "source_line": 717,
-      "domain": "PLAT",
+      "domain": "DATA",
       "stable_id": "CFRT-7A3D6092393F",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -683,7 +683,7 @@
       "severity": "P1",
       "source_section": "18. Further findings",
       "source_line": 743,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-C1A2A2D0C2C1",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -738,7 +738,7 @@
       "severity": "P1",
       "source_section": "20. Privacy/key findings",
       "source_line": 815,
-      "domain": "REC",
+      "domain": "PRIV",
       "stable_id": "CFRT-E27AF14633A4",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -760,7 +760,7 @@
       "severity": "P1",
       "source_section": "20. Privacy/key findings",
       "source_line": 836,
-      "domain": "PRIV",
+      "domain": "REC",
       "stable_id": "CFRT-F708E58CCAFA",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -771,7 +771,7 @@
       "severity": "P1",
       "source_section": "20. Privacy/key findings",
       "source_line": 848,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-C0D04158D6C1",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -804,7 +804,7 @@
       "severity": "P1",
       "source_section": "20. Privacy/key findings",
       "source_line": 875,
-      "domain": "STOR",
+      "domain": "PRIV",
       "stable_id": "CFRT-4150333CE3F8",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -881,7 +881,7 @@
       "severity": "P1",
       "source_section": "22. Fifth-wave findings",
       "source_line": 971,
-      "domain": "GEN",
+      "domain": "BUILD",
       "stable_id": "CFRT-9FC75F3570A6",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -914,7 +914,7 @@
       "severity": "P1",
       "source_section": "22. Fifth-wave findings",
       "source_line": 986,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-BAC851FDB2C6",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -980,7 +980,7 @@
       "severity": "P0/P1",
       "source_section": "18. Third-wave findings",
       "source_line": 1083,
-      "domain": "PRIV",
+      "domain": "SEC",
       "stable_id": "CFRT-11290F589C31",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1079,7 +1079,7 @@
       "severity": "P1",
       "source_section": "18. Third-wave findings",
       "source_line": 1138,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-FD70D62DBFC5",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1112,7 +1112,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 1187,
-      "domain": "GEN",
+      "domain": "INGEST",
       "stable_id": "CFRT-C7F27E348801",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1123,7 +1123,7 @@
       "severity": "P0/P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 1196,
-      "domain": "DATA",
+      "domain": "SEC",
       "stable_id": "CFRT-4FF2D99DD0A2",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1145,7 +1145,7 @@
       "severity": "P0/P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 1212,
-      "domain": "MEDIA",
+      "domain": "SEC",
       "stable_id": "CFRT-4372DA233003",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1156,7 +1156,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 1222,
-      "domain": "PRIV",
+      "domain": "SEC",
       "stable_id": "CFRT-AC6624DC7108",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1167,7 +1167,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 1226,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-B4ED10BAFED5",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1288,7 +1288,7 @@
       "severity": "P1",
       "source_section": "22. Fifth-wave findings",
       "source_line": 1348,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-50C254AB4887",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1299,7 +1299,7 @@
       "severity": "P0/P1",
       "source_section": "22. Fifth-wave findings",
       "source_line": 1355,
-      "domain": "GEN",
+      "domain": "STOR",
       "stable_id": "CFRT-CCCE4FA21533",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1376,7 +1376,7 @@
       "severity": "P0/P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 1442,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-6F6F2237CF17",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1431,7 +1431,7 @@
       "severity": "P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 1477,
-      "domain": "PRIV",
+      "domain": "SEC",
       "stable_id": "CFRT-0C4640ACA2B3",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1442,7 +1442,7 @@
       "severity": "P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 1481,
-      "domain": "BUILD",
+      "domain": "ORCH",
       "stable_id": "CFRT-51D0E8EE6BAE",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1563,7 +1563,7 @@
       "severity": "P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 1613,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-723ED58B4D18",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1574,7 +1574,7 @@
       "severity": "P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 1622,
-      "domain": "PRIV",
+      "domain": "ORCH",
       "stable_id": "CFRT-61300C4F1D1A",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1640,7 +1640,7 @@
       "severity": "P1",
       "source_section": "18. Findings from third wave",
       "source_line": 1711,
-      "domain": "SEC",
+      "domain": "MEDIA",
       "stable_id": "CFRT-C7ECD13205F1",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1651,7 +1651,7 @@
       "severity": "P0/P1",
       "source_section": "18. Findings from third wave",
       "source_line": 1714,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-41A01BC7BC15",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1662,7 +1662,7 @@
       "severity": "P1",
       "source_section": "18. Findings from third wave",
       "source_line": 1721,
-      "domain": "OBS",
+      "domain": "PRIV",
       "stable_id": "CFRT-3051FBB31D31",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1882,7 +1882,7 @@
       "severity": "P0/P1",
       "source_section": "19. New fourth-wave findings",
       "source_line": 1967,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-D1450AF9158D",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -1970,7 +1970,7 @@
       "severity": "P1 UX",
       "source_section": "19. New fourth-wave findings",
       "source_line": 2008,
-      "domain": "REC",
+      "domain": "ORCH",
       "stable_id": "CFRT-5B827541E826",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2113,7 +2113,7 @@
       "severity": "P0/P1",
       "source_section": "18. Third-wave findings",
       "source_line": 2132,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-30E1C509191E",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2168,7 +2168,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 2188,
-      "domain": "OBS",
+      "domain": "TIME",
       "stable_id": "CFRT-F7A95A2D4C4C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2190,7 +2190,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 2210,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-21768D6D215A",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2256,7 +2256,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 2238,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-A64A8786FBE8",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2289,7 +2289,7 @@
       "severity": "P1",
       "source_section": "22. Fifth-wave findings",
       "source_line": 2288,
-      "domain": "PRIV",
+      "domain": "DATA",
       "stable_id": "CFRT-7AE2DB0E7209",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2355,7 +2355,7 @@
       "severity": "P1",
       "source_section": "22. Fifth-wave findings",
       "source_line": 2320,
-      "domain": "GEN",
+      "domain": "PRIV",
       "stable_id": "CFRT-AEAAF3BABB91",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2443,7 +2443,7 @@
       "severity": "P0/P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 2408,
-      "domain": "PRIV",
+      "domain": "GEN",
       "stable_id": "CFRT-87746A5C97E7",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2542,7 +2542,7 @@
       "severity": "P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 2534,
-      "domain": "GEN",
+      "domain": "INGEST",
       "stable_id": "CFRT-9B487908E658",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2652,7 +2652,7 @@
       "severity": "P0/P1",
       "source_section": "18. New findings from third wave",
       "source_line": 2661,
-      "domain": "SEC",
+      "domain": "INGEST",
       "stable_id": "CFRT-CD668F0251F2",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2685,7 +2685,7 @@
       "severity": "P1",
       "source_section": "18. New findings from third wave",
       "source_line": 2681,
-      "domain": "SEC",
+      "domain": "INGEST",
       "stable_id": "CFRT-824583986F1C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2718,7 +2718,7 @@
       "severity": "P0",
       "source_section": "18. New findings from third wave",
       "source_line": 2700,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-9977E80C824A",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2751,7 +2751,7 @@
       "severity": "P1",
       "source_section": "18. New findings from third wave",
       "source_line": 2720,
-      "domain": "GEN",
+      "domain": "INGEST",
       "stable_id": "CFRT-AAA3C2A0DDDB",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -2960,7 +2960,7 @@
       "severity": "P0/P1",
       "source_section": "24. Physical durability findings",
       "source_line": 2982,
-      "domain": "STOR",
+      "domain": "REC",
       "stable_id": "CFRT-5D24EE65B170",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3081,7 +3081,7 @@
       "severity": "P1",
       "source_section": "26. Identity/offboarding findings",
       "source_line": 3114,
-      "domain": "PRIV",
+      "domain": "SEC",
       "stable_id": "CFRT-C7427804884F",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3103,7 +3103,7 @@
       "severity": "P0",
       "source_section": "26. Identity/offboarding findings",
       "source_line": 3131,
-      "domain": "PRIV",
+      "domain": "SEC",
       "stable_id": "CFRT-846F0D78B8D4",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3147,7 +3147,7 @@
       "severity": "P1",
       "source_section": "28. Rights/learning findings",
       "source_line": 3199,
-      "domain": "REL",
+      "domain": "PRIV",
       "stable_id": "CFRT-4B3C72505EA3",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3202,7 +3202,7 @@
       "severity": "P1",
       "source_section": "28. Rights/learning findings",
       "source_line": 3244,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-C1EC80F482D9",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3224,7 +3224,7 @@
       "severity": "P1",
       "source_section": "28. Rights/learning findings",
       "source_line": 3268,
-      "domain": "REL",
+      "domain": "STOR",
       "stable_id": "CFRT-E9EE23F60B4D",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3246,7 +3246,7 @@
       "severity": "P0/P1",
       "source_section": "30. Installation/library clone findings",
       "source_line": 3323,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-B532579AC513",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3257,7 +3257,7 @@
       "severity": "P1",
       "source_section": "30. Installation/library clone findings",
       "source_line": 3331,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-194944E30516",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3268,7 +3268,7 @@
       "severity": "P1",
       "source_section": "30. Installation/library clone findings",
       "source_line": 3342,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-D7FDD699A75C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3279,7 +3279,7 @@
       "severity": "P0/P1",
       "source_section": "30. Installation/library clone findings",
       "source_line": 3350,
-      "domain": "PLAT",
+      "domain": "DATA",
       "stable_id": "CFRT-91770B935F44",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3290,7 +3290,7 @@
       "severity": "P1",
       "source_section": "30. Installation/library clone findings",
       "source_line": 3360,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-FF0874462556",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3323,7 +3323,7 @@
       "severity": "P0",
       "source_section": "30. Installation/library clone findings",
       "source_line": 3377,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-3B212AF58E0A",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3378,7 +3378,7 @@
       "severity": "P0/P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 3472,
-      "domain": "GEN",
+      "domain": "PRIV",
       "stable_id": "CFRT-85641B60C283",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3389,7 +3389,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 3479,
-      "domain": "GEN",
+      "domain": "PRIV",
       "stable_id": "CFRT-C1455CA27F7D",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3400,7 +3400,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 3488,
-      "domain": "PLAT",
+      "domain": "SEC",
       "stable_id": "CFRT-0988DB8EA268",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3422,7 +3422,7 @@
       "severity": "P1",
       "source_section": "20. Fourth-wave findings",
       "source_line": 3506,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-2F116A3E0BFF",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3642,7 +3642,7 @@
       "severity": "P2",
       "source_section": "24. Sixth-wave findings",
       "source_line": 3753,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-7DF5B0D72CBC",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3664,7 +3664,7 @@
       "severity": "P0/P1",
       "source_section": "22. Findings from fifth-wave authority confusion",
       "source_line": 3819,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-1702A9EC1AA3",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3675,7 +3675,7 @@
       "severity": "P0/P1",
       "source_section": "22. Findings from fifth-wave authority confusion",
       "source_line": 3830,
-      "domain": "GEN",
+      "domain": "CAP",
       "stable_id": "CFRT-A1EFF766B521",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3686,7 +3686,7 @@
       "severity": "P0/P1",
       "source_section": "22. Findings from fifth-wave authority confusion",
       "source_line": 3841,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-80E369F9700A",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3697,7 +3697,7 @@
       "severity": "P1",
       "source_section": "22. Findings from fifth-wave authority confusion",
       "source_line": 3850,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-04A72165BB13",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3752,7 +3752,7 @@
       "severity": "P0/P1",
       "source_section": "22. Findings from fifth-wave authority confusion",
       "source_line": 3899,
-      "domain": "GEN",
+      "domain": "SEC",
       "stable_id": "CFRT-9DF804717E30",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3796,7 +3796,7 @@
       "severity": "P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 3980,
-      "domain": "REC",
+      "domain": "PRIV",
       "stable_id": "CFRT-19E380F84FBA",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3807,7 +3807,7 @@
       "severity": "P1",
       "source_section": "24. Sixth-wave findings",
       "source_line": 3983,
-      "domain": "PLAT",
+      "domain": "BUILD",
       "stable_id": "CFRT-844374225A55",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3972,7 +3972,7 @@
       "severity": "P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 4112,
-      "domain": "GEN",
+      "domain": "DATA",
       "stable_id": "CFRT-FCDA1F0F69B0",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -3994,7 +3994,7 @@
       "severity": "P0/P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 4177,
-      "domain": "DATA",
+      "domain": "BUILD",
       "stable_id": "CFRT-34505524AF6D",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4005,7 +4005,7 @@
       "severity": "P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 4180,
-      "domain": "DATA",
+      "domain": "SEC",
       "stable_id": "CFRT-8FEBBF26C01B",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4082,7 +4082,7 @@
       "severity": "P1",
       "source_section": "26. Seventh-wave findings",
       "source_line": 4201,
-      "domain": "PRIV",
+      "domain": "MEDIA",
       "stable_id": "CFRT-421E03AA0894",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4214,7 +4214,7 @@
       "severity": "P0/P1",
       "source_section": "26. Seventh-wave AI model/runtime findings",
       "source_line": 4394,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-7AEB22F91423",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4280,7 +4280,7 @@
       "severity": "P1",
       "source_section": "26. Seventh-wave AI model/runtime findings",
       "source_line": 4459,
-      "domain": "PLAT",
+      "domain": "ML",
       "stable_id": "CFRT-DE3E1AFDA01A",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4346,7 +4346,7 @@
       "severity": "P0/P1",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4571,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-412F8BE8ED22",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4357,7 +4357,7 @@
       "severity": "P0/P1",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4582,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-19EEE6E65E6D",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4368,7 +4368,7 @@
       "severity": "P0/P1",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4597,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-2F1411980A00",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4379,7 +4379,7 @@
       "severity": "P1",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4608,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-66452E0669F6",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4401,7 +4401,7 @@
       "severity": "P1",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4626,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-CD658CDDE997",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4412,7 +4412,7 @@
       "severity": "P0 residual",
       "source_section": "29. Eighth-wave process containment findings",
       "source_line": 4636,
-      "domain": "PLAT",
+      "domain": "GEN",
       "stable_id": "CFRT-26453D1378A0",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4478,7 +4478,7 @@
       "severity": "P1",
       "source_section": "32. Ninth-wave cinematic findings",
       "source_line": 4785,
-      "domain": "MEDIA",
+      "domain": "ORCH",
       "stable_id": "CFRT-2D5B5AE78A56",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4544,7 +4544,7 @@
       "severity": "P1",
       "source_section": "35. Tenth-wave observability findings",
       "source_line": 4929,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-91AE2B7B65B0",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4555,7 +4555,7 @@
       "severity": "P1",
       "source_section": "35. Tenth-wave observability findings",
       "source_line": 4941,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-9FB53BC84D0E",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4577,7 +4577,7 @@
       "severity": "P1",
       "source_section": "35. Tenth-wave observability findings",
       "source_line": 4963,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-E25B6D9C796C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4588,7 +4588,7 @@
       "severity": "P1",
       "source_section": "35. Tenth-wave observability findings",
       "source_line": 4974,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-4DF2D36C5B98",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4599,7 +4599,7 @@
       "severity": "P1",
       "source_section": "35. Tenth-wave observability findings",
       "source_line": 4987,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-A915C7E5E977",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4610,7 +4610,7 @@
       "severity": "P2/P1",
       "source_section": "35. Tenth-wave observability findings",
       "source_line": 4996,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-EF215A0FC05C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4621,7 +4621,7 @@
       "severity": "P1",
       "source_section": "35. Tenth-wave observability findings",
       "source_line": 5004,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-B248DD1F6B41",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4643,7 +4643,7 @@
       "severity": "P0",
       "source_section": "24. Supply-chain findings",
       "source_line": 5102,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-26D5C240EA21",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4665,7 +4665,7 @@
       "severity": "P0",
       "source_section": "24. Supply-chain findings",
       "source_line": 5121,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-577AF04E52CD",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4676,7 +4676,7 @@
       "severity": "P0",
       "source_section": "24. Supply-chain findings",
       "source_line": 5132,
-      "domain": "BUILD",
+      "domain": "PLAT",
       "stable_id": "CFRT-70BFFE816322",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4687,7 +4687,7 @@
       "severity": "P1",
       "source_section": "24. Supply-chain findings",
       "source_line": 5141,
-      "domain": "BUILD",
+      "domain": "PLAT",
       "stable_id": "CFRT-AD4F2AAA7818",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4698,7 +4698,7 @@
       "severity": "P0",
       "source_section": "24. Supply-chain findings",
       "source_line": 5152,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-00D1A9A2D333",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4709,7 +4709,7 @@
       "severity": "P0",
       "source_section": "24. Supply-chain findings",
       "source_line": 5165,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-C5AFC1BA1E80",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4720,7 +4720,7 @@
       "severity": "P0/P1",
       "source_section": "24. Supply-chain findings",
       "source_line": 5170,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-EB375813B36A",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4753,7 +4753,7 @@
       "severity": "P1",
       "source_section": "24. Supply-chain findings",
       "source_line": 5194,
-      "domain": "BUILD",
+      "domain": "PRIV",
       "stable_id": "CFRT-228A4C2F79A1",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4775,7 +4775,7 @@
       "severity": "P1",
       "source_section": "24. Supply-chain findings",
       "source_line": 5213,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-CB756658A8DE",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4797,7 +4797,7 @@
       "severity": "P0/P1",
       "source_section": "26. Data-residue/isolation findings",
       "source_line": 5291,
-      "domain": "DATA",
+      "domain": "SEC",
       "stable_id": "CFRT-F3C2EF56A9CC",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4819,7 +4819,7 @@
       "severity": "P0/P1",
       "source_section": "26. Data-residue/isolation findings",
       "source_line": 5314,
-      "domain": "DATA",
+      "domain": "GEN",
       "stable_id": "CFRT-7D8AB0457B37",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4874,7 +4874,7 @@
       "severity": "P0",
       "source_section": "26. Data-residue/isolation findings",
       "source_line": 5361,
-      "domain": "DATA",
+      "domain": "GEN",
       "stable_id": "CFRT-1BA7388E519C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4907,7 +4907,7 @@
       "severity": "P1",
       "source_section": "26. Data-residue/isolation findings",
       "source_line": 5385,
-      "domain": "DATA",
+      "domain": "GEN",
       "stable_id": "CFRT-1B9B766F5D94",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4929,7 +4929,7 @@
       "severity": "P1",
       "source_section": "26. Data-residue/isolation findings",
       "source_line": 5404,
-      "domain": "DATA",
+      "domain": "GEN",
       "stable_id": "CFRT-30C5226217A9",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -4940,7 +4940,7 @@
       "severity": "P1",
       "source_section": "28. Collaboration findings",
       "source_line": 5453,
-      "domain": "COLLAB",
+      "domain": "ORCH",
       "stable_id": "CFRT-9A969164AE69",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5050,7 +5050,7 @@
       "severity": "P1",
       "source_section": "28. Collaboration findings",
       "source_line": 5545,
-      "domain": "COLLAB",
+      "domain": "SEC",
       "stable_id": "CFRT-DA82CB0D73F5",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5292,7 +5292,7 @@
       "severity": "P1",
       "source_section": "32. Complexity-control findings",
       "source_line": 5844,
-      "domain": "GEN",
+      "domain": "ORCH",
       "stable_id": "CFRT-4A817B63C6D0",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5325,7 +5325,7 @@
       "severity": "P1",
       "source_section": "32. Complexity-control findings",
       "source_line": 5869,
-      "domain": "GEN",
+      "domain": "CAP",
       "stable_id": "CFRT-2121F6683815",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5578,7 +5578,7 @@
       "severity": "P1",
       "source_section": "36. ML/QC hardening findings",
       "source_line": 6183,
-      "domain": "ML",
+      "domain": "BUILD",
       "stable_id": "CFRT-27754FA75174",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5699,7 +5699,7 @@
       "severity": "P1",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6333,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-992B4783A3C1",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5710,7 +5710,7 @@
       "severity": "P1",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6343,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-2AEB18426736",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5721,7 +5721,7 @@
       "severity": "P1",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6353,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-920898C37FAB",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5743,7 +5743,7 @@
       "severity": "P0/P1 correctness",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6372,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-3C960343127C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5754,7 +5754,7 @@
       "severity": "P1",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6379,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-C119E5888375",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5765,7 +5765,7 @@
       "severity": "P1",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6387,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-B8DCD098E6F3",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5776,7 +5776,7 @@
       "severity": "P0/P1",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6397,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-E2916300CFEC",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5787,7 +5787,7 @@
       "severity": "P1",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6407,
-      "domain": "PRIV",
+      "domain": "SEC",
       "stable_id": "CFRT-BB4DF44FED1C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5798,7 +5798,7 @@
       "severity": "P1",
       "source_section": "38. Provenance/authenticity findings",
       "source_line": 6417,
-      "domain": "REL",
+      "domain": "SEC",
       "stable_id": "CFRT-22AC0483F733",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5853,7 +5853,7 @@
       "severity": "P1",
       "source_section": "40. Editorial-time/container findings",
       "source_line": 6494,
-      "domain": "MEDIA",
+      "domain": "GEN",
       "stable_id": "CFRT-29C532547796",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5875,7 +5875,7 @@
       "severity": "P1",
       "source_section": "40. Editorial-time/container findings",
       "source_line": 6513,
-      "domain": "MEDIA",
+      "domain": "CAP",
       "stable_id": "CFRT-68FF7F68359F",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5897,7 +5897,7 @@
       "severity": "P1",
       "source_section": "40. Editorial-time/container findings",
       "source_line": 6534,
-      "domain": "MEDIA",
+      "domain": "GEN",
       "stable_id": "CFRT-F416859CFB9D",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5941,7 +5941,7 @@
       "severity": "P1",
       "source_section": "24. Build/source-tree findings",
       "source_line": 6619,
-      "domain": "BUILD",
+      "domain": "STOR",
       "stable_id": "CFRT-9E8CECDD31FF",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -5974,7 +5974,7 @@
       "severity": "P0/P1",
       "source_section": "24. Build/source-tree findings",
       "source_line": 6647,
-      "domain": "BUILD",
+      "domain": "SEC",
       "stable_id": "CFRT-EEBBAF17B3A4",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6106,7 +6106,7 @@
       "severity": "P1",
       "source_section": "26. Learning/evaluation findings",
       "source_line": 6795,
-      "domain": "ML",
+      "domain": "STOR",
       "stable_id": "CFRT-B0ABDA4D80AA",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6458,7 +6458,7 @@
       "severity": "P1",
       "source_section": "30. Document-ingest findings",
       "source_line": 7161,
-      "domain": "SEC",
+      "domain": "INGEST",
       "stable_id": "CFRT-EC3F420AD03D",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6557,7 +6557,7 @@
       "severity": "P1",
       "source_section": "32. Film-production findings",
       "source_line": 7307,
-      "domain": "MEDIA",
+      "domain": "REC",
       "stable_id": "CFRT-3160C04B6712",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6612,7 +6612,7 @@
       "severity": "P1",
       "source_section": "32. Film-production findings",
       "source_line": 7353,
-      "domain": "MEDIA",
+      "domain": "CAP",
       "stable_id": "CFRT-64048754CC1C",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6700,7 +6700,7 @@
       "severity": "P1",
       "source_section": "34. Collaboration findings",
       "source_line": 7489,
-      "domain": "COLLAB",
+      "domain": "ORCH",
       "stable_id": "CFRT-8A347129964E",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6788,7 +6788,7 @@
       "severity": "P1",
       "source_section": "36. Scale/performance findings",
       "source_line": 7620,
-      "domain": "OBS",
+      "domain": "GEN",
       "stable_id": "CFRT-2A094B5BB549",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6887,7 +6887,7 @@
       "severity": "P1",
       "source_section": "36. Scale/performance findings",
       "source_line": 7704,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-F1586650E6F7",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6920,7 +6920,7 @@
       "severity": "P1",
       "source_section": "36. Scale/performance findings",
       "source_line": 7730,
-      "domain": "GEN",
+      "domain": "BUILD",
       "stable_id": "CFRT-62598658C2A1",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6953,7 +6953,7 @@
       "severity": "P2/P1",
       "source_section": "36. Scale/performance findings",
       "source_line": 7748,
-      "domain": "GEN",
+      "domain": "PLAT",
       "stable_id": "CFRT-0CE39E49C648",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -6986,7 +6986,7 @@
       "severity": "P0",
       "source_section": "38. Capability Fabric findings",
       "source_line": 7852,
-      "domain": "CAP",
+      "domain": "SEC",
       "stable_id": "CFRT-E1B216F93912",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -7107,7 +7107,7 @@
       "severity": "P1",
       "source_section": "38. Capability Fabric findings",
       "source_line": 7946,
-      "domain": "CAP",
+      "domain": "STOR",
       "stable_id": "CFRT-8E5E442079B2",
       "registry_state": "IDENTIFIED",
       "coverage_state": "NEEDS_COVERAGE_REVIEW"
@@ -7290,5 +7290,7 @@
     }
   ],
   "registry_revision": 2,
-  "identity_note": "Canonical finding identity is independent from severity/domain classification so reclassification cannot renumber findings."
+  "identity_note": "Canonical finding identity is independent from severity/domain classification so reclassification cannot renumber findings.",
+  "classification_revision": 2,
+  "classification_note": "Domain is mutable metadata; revision 2 uses title-first semantic heuristics. stable_id is unchanged."
 }
