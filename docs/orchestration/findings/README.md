@@ -10,15 +10,16 @@ The raw red-team corpus contains hundreds of unique findings but later attack wa
 Canonical identity is:
 
 ```text
-CFRT-<DOMAIN>-<deterministic title hash>
+CFRT-<deterministic title hash>
 ```
 
-Adding new findings does not renumber existing findings.
+Adding new findings or reclassifying domain/severity does not renumber existing findings.
 
 ## Rules
 
-- `stable_id` is canonical.
+- `stable_id` is canonical and does not contain mutable classification metadata.
 - `legacy_id` is historical display metadata only.
+- `domain` and `severity` are mutable classifications and may be corrected without changing `stable_id`.
 - Raw stress-test file is evidence, not implementation contract.
 - `docs/design/EXTREME_HARDENING_CONTRACTS.md` is the implementation-contract owner for promoted controls.
 - A finding becomes COVERED only after explicit owner mapping and negative/chaos-test requirement.
