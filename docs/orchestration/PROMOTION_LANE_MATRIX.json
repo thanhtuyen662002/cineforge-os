@@ -960,36 +960,56 @@
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#F1",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#F2",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#F3",
-        "docs/design/EXTREME_HARDENING_CONTRACTS.md#N9",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#G1",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#G2",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#H4",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#J1",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#BI",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#BM",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#N10",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#O2",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#Q1",
         "docs/design/EXTREME_HARDENING_CONTRACTS.md#Q2",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#T3",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#BB",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#BC",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#BG",
+        "docs/design/EXTREME_HARDENING_CONTRACTS.md#OL",
         "docs/architecture/FINAL_ARCHITECTURE.md#14",
         "docs/architecture/FINAL_ARCHITECTURE.md#15",
         "docs/architecture/FINAL_ARCHITECTURE.md#30",
+        "docs/architecture/FINAL_ARCHITECTURE.md#39",
+        "docs/design/API_CONTRACTS.md#72",
+        "docs/design/API_CONTRACTS.md#116",
         "docs/design/API_CONTRACTS.md#102",
-        "docs/design/API_CONTRACTS.md#85",
         "docs/design/API_CONTRACTS.md#API-MONEY-01",
+        "docs/design/API_CONTRACTS.md#API-PAID-DISPATCH-BUDGET-ADDITIONS",
         "docs/design/API_CONTRACTS.md#API-LARGE-FANOUT-INVALIDATION",
-        "docs/design/EXTREME_HARDENING_CONTRACTS.md#C6"
+        "docs/design/API_CONTRACTS.md#API-SCHEDULER-RETRY-COORDINATION"
       ],
       "required_layers": [
-        "resource admission and deadlock prevention",
-        "transactional cost/budget reservation",
-        "bounded dispatch batches and invalidation fanout",
-        "capture-session privacy/ownership",
-        "provider result materialization and durable progress"
+        "atomic resource/cost reservation and unknown exposure accounting",
+        "bounded worker restart/backoff and poison quarantine",
+        "revision-pinned staged fanout with item and exposure caps",
+        "manual lock/current revision stale-candidate fencing",
+        "publication idempotency, unknown-outcome reconciliation and compensation",
+        "supplemental capture ownership/device/session binding fixture"
       ],
       "required_external_evidence": [
-        "resource starvation/deadlock tests",
-        "paid-dispatch idempotency and budget tests",
-        "large-fanout containment benchmark",
-        "capture crash/resume and privacy tests",
-        "executed CT-25..CT-28 and CT-39 chaos cases"
+        "executed CT-25 resource/cost reservation chaos case",
+        "executed CT-26 worker crash-loop quarantine chaos case",
+        "executed CT-27 pinned-revision bounded fanout chaos case",
+        "executed CT-28 manual-lock stale-candidate chaos case",
+        "executed CT-39 publication unknown-outcome reconciliation chaos case",
+        "capture fixture evidence remains supplemental and cannot satisfy CT-25..CT-39"
       ],
       "excluded": [
-        "provider pricing stability",
+        "real GPU/VRAM or operating-system resource lease proof",
+        "real worker process-tree or crash/power-loss recovery proof",
+        "real provider/publication or destination postcondition proof",
+        "real camera/browser hardware and permission matrix",
         "performance SLO claim",
-        "real camera/browser hardware matrix"
+        "provider pricing stability"
       ],
       "finding_ids": [
         "CFRT-00B64A09330E",
@@ -1193,55 +1213,63 @@
       "status": "CONTRACT_GATE_IMPLEMENTED",
       "promotion_state": "PARKED_EXPLORATION_ONLY",
       "runtime_status": "NOT_IMPLEMENTED_IN_REPOSITORY",
+      "implementation_artifact": {
+        "manifest": "docs/orchestration/L6_RUNTIME_CONTRACT_MANIFEST.json",
+        "source": "docs/orchestration/l6_runtime_contract.py",
+        "selftest": "docs/orchestration/l6_runtime_selftest.py",
+        "gate": "docs/orchestration/l6_runtime_gate.py",
+        "gate_selftest": "docs/orchestration/l6_runtime_gate_selftest.py",
+        "implementation_class": "REFERENCE_HARNESS_ONLY"
+      },
       "evidence_policy": "Contract lint and negative fixtures may PASS; runtime/chaos evidence remains NOT_RUN until an implementation and independent verifier exist.",
       "control_assertions": [
         {
-          "id": "L6-ASSERT-COST-RESERVATION",
-          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#F1",
+          "id": "L6-ASSERT-RESOURCE-COST-RESERVATION",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#Q1",
           "chaos_ids": [
             "CT-25"
           ],
-          "negative_test": "duplicate/over-budget paid dispatch is rejected before provider call",
+          "negative_test": "multi-resource admission, paid exposure, duplicate retry and unknown reservation state fail closed without partial allocation",
           "fail_closed": true,
           "status": "DESIGNED_UNVERIFIED"
         },
         {
-          "id": "L6-ASSERT-DEADLOCK-ADMISSION",
-          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#N9",
-          "chaos_ids": [
-            "CT-27"
-          ],
-          "negative_test": "resource admission cannot hold partial reservations indefinitely",
-          "fail_closed": true,
-          "status": "DESIGNED_UNVERIFIED"
-        },
-        {
-          "id": "L6-ASSERT-FANOUT-BATCH",
-          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#F3",
-          "chaos_ids": [
-            "CT-28"
-          ],
-          "negative_test": "large invalidation/fanout is bounded, resumable and idempotent",
-          "fail_closed": true,
-          "status": "DESIGNED_UNVERIFIED"
-        },
-        {
-          "id": "L6-ASSERT-CAPTURE-SESSION",
-          "owner_ref": "docs/design/API_CONTRACTS.md#102",
-          "chaos_ids": [
-            "CT-39"
-          ],
-          "negative_test": "capture ownership/recovery prevents cross-user or stale-session writes",
-          "fail_closed": true,
-          "status": "DESIGNED_UNVERIFIED"
-        },
-        {
-          "id": "L6-ASSERT-MATERIALIZATION",
-          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C6",
+          "id": "L6-ASSERT-WORKER-CRASH-QUARANTINE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#H4",
           "chaos_ids": [
             "CT-26"
           ],
-          "negative_test": "provider success without durable verified materialization remains non-ready",
+          "negative_test": "restart backoff is bounded, a retry claim is single-use and a poison crash loop is quarantined without replaying completed effects",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L6-ASSERT-PINNED-FANOUT",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#F3",
+          "chaos_ids": [
+            "CT-27"
+          ],
+          "negative_test": "wrong identity/revision blocks planning, sample-first approval precedes bounded dispatch and invalidation cannot rebind a stale batch",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L6-ASSERT-MANUAL-REVISION-FENCE",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#G1",
+          "chaos_ids": [
+            "CT-28"
+          ],
+          "negative_test": "manual lock, current revision and lock epoch keep a late AI result as a stale candidate rather than overwriting human work",
+          "fail_closed": true,
+          "status": "DESIGNED_UNVERIFIED"
+        },
+        {
+          "id": "L6-ASSERT-PUBLICATION-UNKNOWN-OUTCOME",
+          "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#BG",
+          "chaos_ids": [
+            "CT-39"
+          ],
+          "negative_test": "lost publication responses remain UNKNOWN until destination/request/version/evidence proof authorizes delivery, compensation or a fresh retry identity",
           "fail_closed": true,
           "status": "DESIGNED_UNVERIFIED"
         }

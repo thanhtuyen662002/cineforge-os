@@ -292,6 +292,24 @@ prove a production release.  L5 therefore remains `DESIGNED_UNVERIFIED` and
 `PARKED_EXPLORATION_ONLY` until an independent product implementation,
 provider/security verifier and executed chaos evidence exist.
 
+The L6 slice adds a bounded reference harness for resource and cost
+reservation, worker crash-loop quarantine, revision-pinned fanout, manual
+revision fencing and publication unknown-outcome reconciliation:
+
+```text
+python docs/orchestration/l6_runtime_selftest.py
+python docs/orchestration/l6_runtime_gate.py
+python docs/orchestration/l6_runtime_gate_selftest.py
+```
+
+These fixtures cover CT-25, CT-26, CT-27, CT-28 and CT-39.  Capture
+ownership/device/session binding is supplemental and cannot be used as CT-39
+publication evidence.  The module is explicitly `REFERENCE_HARNESS_ONLY`:
+it does not reserve a real GPU, start a worker process, access a camera, call
+a provider or publish externally.  L6 remains `DESIGNED_UNVERIFIED` and
+`PARKED_EXPLORATION_ONLY` until independent runtime, verifier and executed
+chaos evidence exist.
+
 # 17. Lane #3 bootstrap gate
 
 The first promotion slice for the exploration PR is the control-plane and

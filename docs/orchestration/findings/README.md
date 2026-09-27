@@ -118,6 +118,20 @@ prove production security.  Passing fixtures remain `DESIGNED_UNVERIFIED`,
 and L5 promotion remains parked until the product implementation,
 independent verifier and executed chaos evidence exist.
 
+L6 has a bounded reference harness for resource/cost admission, worker crash
+loops, pinned fanout, manual revision fences and publication unknown outcomes:
+`docs/orchestration/l6_runtime_contract.py` and
+`docs/orchestration/L6_RUNTIME_CONTRACT_MANIFEST.json`.  Run
+`python docs/orchestration/l6_runtime_selftest.py`, then
+`python docs/orchestration/l6_runtime_gate.py`; gate metadata fixtures run
+with `python docs/orchestration/l6_runtime_gate_selftest.py`.  The exact chaos
+slice is CT-25, CT-26, CT-27, CT-28 and CT-39.  Capture ownership/device
+binding is a supplemental fixture only and is not publication evidence.  The
+module is explicitly `REFERENCE_HARNESS_ONLY`: it does not reserve a real GPU,
+start a worker process, access a camera, call a provider or publish externally.
+Passing fixtures remain `DESIGNED_UNVERIFIED`, and L6 promotion remains parked
+until independent runtime, verifier and executed chaos evidence exist.
+
 ## Next gate
 
 Before this PR can become review-ready:

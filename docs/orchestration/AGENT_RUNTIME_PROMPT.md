@@ -51,6 +51,13 @@ For an L5 untrusted-input/IPC/parser/supply-chain contract slice, also run
 keep runtime evidence parked until an independent product implementation and
 verifier exist.
 
+For an L6 resource/fanout/publication contract slice, also run
+`l6_runtime_selftest.py`, `l6_runtime_gate.py` and
+`l6_runtime_gate_selftest.py`; these are reference fixtures only and must keep
+runtime evidence parked.  The exact chaos mapping is CT-25/26/27/28/39.  The
+capture-session fixture is supplemental and cannot satisfy CT-39 publication
+evidence.
+
 TASK SELECTION:
 - choose highest-value READY task compatible with your role;
 - prefer critical path / downstream-unblock value;
