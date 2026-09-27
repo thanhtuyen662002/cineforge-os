@@ -218,6 +218,13 @@ Control-event grammar and reconciliation are checked separately with:
 python docs/orchestration/control_event_selftest.py
 ```
 
+Promotion lanes #3--#7 use a generated, overlap-aware finding/chaos mapping:
+
+```text
+python docs/orchestration/promotion_lane_gate.py
+python docs/orchestration/promotion_lane_selftest.py
+```
+
 It first proves the current tree passes, then copies the tree to a temporary
 directory and verifies that duplicate IDs, broken references, stable-ID
 collisions, coverage-count drift, missing P0 owners and malformed/incomplete
@@ -242,6 +249,13 @@ conflicting event IDs, stale head/base bindings, CI producer provenance and
 `UNKNOWN_OUTCOME` merge fencing. These are contract checks; they do not
 authenticate GitHub authors or query live refs.
 
+`PROMOTION_LANE_MATRIX.json` freezes the CT-to-finding selection for each lane,
+resolves every required control/owner reference and records the evidence
+boundary.  Lane overlap is intentional for cross-boundary findings.  All five
+lanes are contract-gate complete, while their runtime status remains
+`NOT_IMPLEMENTED_IN_REPOSITORY` and their promotion state remains
+`PARKED_EXPLORATION_ONLY`.
+
 # 17. Lane #3 bootstrap gate
 
 The first promotion slice for the exploration PR is the control-plane and
@@ -255,6 +269,7 @@ documentation-integrity gate. Its bounded evidence surface is:
 - canonical event grammar and fail-closed reconciliation fixtures in
   `CONTROL_EVENT_CONTRACTS.json`, `control_event_lint.py` and
   `control_event_selftest.py`;
+- promotion-lane matrix/gate and negative fixtures for lanes #3--#7;
 - chaos specifications `CT-01` through `CT-09` for claim, lease, event and CI
   provenance controls.
 

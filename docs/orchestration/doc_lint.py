@@ -36,6 +36,7 @@ MIGRATION_PATH = Path("docs/orchestration/findings/AUTHORITATIVE_SECTION_ID_MIGR
 CHAOS_PATH = Path("docs/orchestration/CHAOS_TEST_PLAN.md")
 CONTROL_EVENT_SCHEMA_PATH = Path("docs/orchestration/CONTROL_EVENT_CONTRACTS.json")
 CONTROL_EVENT_DOC_PATH = Path("docs/orchestration/CONTROL_EVENT_CONTRACTS.md")
+PROMOTION_MATRIX_PATH = Path("docs/orchestration/PROMOTION_LANE_MATRIX.json")
 CONTROL_EVENT_SCHEMAS = {
     "AGENT_STATE_V1",
     "AGENT_TAKEOVER_V1",
@@ -50,6 +51,7 @@ CONTROL_EVENT_SCHEMAS = {
     "CI_VERIFICATION_V1",
     "MERGE_OUTCOME_V1",
 }
+PROMOTION_LANES = {"L3", "L4", "L5", "L6", "L7"}
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 ANCHOR_RE = re.compile(r"\{#([A-Za-z0-9_.:-]+)\}\s*$")
@@ -327,6 +329,47 @@ def lint_control_event_schema(root: Path, sections: dict[str, dict[str, list[int
     for identifier in sorted(required_doc_sections):
         if len(document_sections.get(identifier, [])) != 1:
             errors.append(f"control-event contract document is missing unique section {identifier}")
+    return errors
+
+
+def lint_promotion_lane_matrix(root: Path) -> list[str]:
+    """Check the lane matrix bootstrap identity before the deeper lane gate."""
+    path = root / PROMOTION_MATRIX_PATH
+    if not path.exists():
+        return [f"missing promotion lane matrix: {PROMOTION_MATRIX_PATH.as_posix()}"]
+    try:
+        matrix = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return [f"invalid promotion lane matrix JSON: {exc}"]
+    if not isinstance(matrix, dict):
+        return ["promotion lane matrix root must be an object"]
+    errors: list[str] = []
+    if matrix.get("schema_version") != 1 or matrix.get("matrix_id") != "cineforge-promotion-lane-matrix":
+        errors.append("promotion lane matrix identity/version is unsupported")
+    lanes = matrix.get("lanes")
+    if not isinstance(lanes, list):
+        return errors + ["promotion lane matrix lanes must be an array"]
+    lane_ids = [lane.get("lane_id") for lane in lanes if isinstance(lane, dict)]
+    if len(lane_ids) != len(lanes) or set(lane_ids) != PROMOTION_LANES or len(lane_ids) != len(set(lane_ids)):
+        errors.append("promotion lane matrix must contain unique L3..L7 lanes")
+    for lane in lanes:
+        if not isinstance(lane, dict):
+            continue
+        if lane.get("status") != "CONTRACT_GATE_IMPLEMENTED":
+            errors.append(f"promotion lane {lane.get('lane_id')} has unsupported status")
+        if lane.get("promotion_state") != "PARKED_EXPLORATION_ONLY":
+            errors.append(f"promotion lane {lane.get('lane_id')} is not parked exploration-only")
+        if lane.get("runtime_status") != "NOT_IMPLEMENTED_IN_REPOSITORY":
+            errors.append(f"promotion lane {lane.get('lane_id')} has an unsafe runtime status")
+        assertions = lane.get("control_assertions")
+        if not isinstance(assertions, list) or len(assertions) < 4:
+            errors.append(f"promotion lane {lane.get('lane_id')} lacks control assertions")
+        else:
+            for assertion in assertions:
+                if not isinstance(assertion, dict) or assertion.get("fail_closed") is not True:
+                    errors.append(f"promotion lane {lane.get('lane_id')} has a non-fail-closed assertion")
+                elif assertion.get("status") != "DESIGNED_UNVERIFIED":
+                    errors.append(f"promotion lane {lane.get('lane_id')} assertion claims runtime evidence")
     return errors
 
 
@@ -659,6 +702,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     chaos_errors, chaos_ids = lint_chaos_plan(root)
     errors.extend(chaos_errors)
     errors.extend(lint_control_event_schema(root, sections))
+    errors.extend(lint_promotion_lane_matrix(root))
     errors.extend(lint_control_registry(root, sections))
     errors.extend(lint_registry_and_coverage(root, sections, chaos_ids))
     if errors:

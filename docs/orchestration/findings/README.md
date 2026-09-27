@@ -82,6 +82,12 @@ Cross-layer precedence and contradiction handling is indexed in
 the single authoritative owner for each behavior.
 Run `python docs/orchestration/doc_lint_selftest.py` to exercise the
 fail-closed documentation-gate fixtures without modifying the checkout.
+Run `python docs/orchestration/control_event_selftest.py` for the canonical
+control-event grammar/hash/reconciliation fixtures.  Promotion lanes #3--#7
+are routed by
+`docs/orchestration/PROMOTION_LANE_MATRIX.json`; validate its owner, control,
+chaos and stable-ID mappings with
+`python docs/orchestration/promotion_lane_gate.py`.
 
 ## Next gate
 
@@ -90,3 +96,8 @@ Before this PR can become review-ready:
 2. map a required negative/chaos test;
 3. mark residual/external limitations explicitly;
 4. no P0 finding may remain `NEEDS_COVERAGE_REVIEW`.
+
+The bounded contract gates for lanes #3--#7 are now present, but their matrix
+keeps runtime evidence `NOT_IMPLEMENTED_IN_REPOSITORY` and promotion
+`PARKED_EXPLORATION_ONLY` until the product implementation and independent
+verification lanes exist.
