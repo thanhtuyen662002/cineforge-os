@@ -308,7 +308,11 @@ try {
         if (-not (Test-Path -LiteralPath $backupManifest -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $backupArtifactRoot 'cineforge.sqlite') -PathType Leaf)) { throw 'Packaged verified backup artifact is incomplete.' }
 
         $backupReplay = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers $backupHeaders -ContentType 'application/json' -Body $backupCreateBody -TimeoutSec 20
-        if (-not $backupReplay.idempotent_replay -or [string]$backupReplay.result.backup.id -ne $backupId) { throw 'Packaged backup command retry was not an idempotent replay.' }
+        $backupReplayIsIdempotent = ($backupReplay.PSObject.Properties.Name -contains 'idempotent_replay' -and [bool]$backupReplay.idempotent_replay)
+        if (-not $backupReplayIsIdempotent -and $null -ne $backupReplay.result) {
+            $backupReplayIsIdempotent = ($backupReplay.result.PSObject.Properties.Name -contains 'idempotent_replay' -and [bool]$backupReplay.result.idempotent_replay)
+        }
+        if (-not $backupReplayIsIdempotent -or [string]$backupReplay.result.backup.id -ne $backupId) { throw 'Packaged backup command retry was not an idempotent replay.' }
 
         $backupList = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/backups" -TimeoutSec 5
         $backupItems = @()
