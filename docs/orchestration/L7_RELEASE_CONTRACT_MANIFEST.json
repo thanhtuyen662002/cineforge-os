@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "manifest_id": "cineforge-l7-release-contract",
+  "lane_id": "L7",
+  "implementation_class": "REFERENCE_HARNESS_ONLY",
+  "runtime_status": "NOT_IMPLEMENTED_IN_REPOSITORY",
+  "promotion_state": "PARKED_EXPLORATION_ONLY",
+  "source_artifact": "docs/orchestration/l7_release_contract.py",
+  "selftest_artifact": "docs/orchestration/l7_release_selftest.py",
+  "gate_artifact": "docs/orchestration/l7_release_gate.py",
+  "gate_selftest_artifact": "docs/orchestration/l7_release_gate_selftest.py",
+  "required_chaos_ids": [
+    "CT-29",
+    "CT-30",
+    "CT-31",
+    "CT-32",
+    "CT-33",
+    "CT-34",
+    "CT-38",
+    "CT-40"
+  ],
+  "required_control_ids": [
+    "CF-CTRL-RIGHTS-PRIVACY",
+    "CF-CTRL-RELEASE-PROVENANCE"
+  ],
+  "owner_refs": [
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#G1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#G2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#I1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#J1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#J2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#J3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#K",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N5",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N6",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N7",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#O1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#O4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#S1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#S2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#AX",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#EL",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#EI",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#EJ",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#NI",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#OR",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#GB",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#GG",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#AB",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#HS",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#Y3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#Y4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#DQ",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#CA",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZHX",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZHY",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#FC2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#FD",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#FF",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#FG",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#FI",
+    "docs/architecture/FINAL_ARCHITECTURE.md#21",
+    "docs/architecture/FINAL_ARCHITECTURE.md#23",
+    "docs/architecture/FINAL_ARCHITECTURE.md#30",
+    "docs/design/API_CONTRACTS.md#API-PRIVACY-PURGE",
+    "docs/design/API_CONTRACTS.md#API-FORWARD-REVOCATION-RECOVERY",
+    "docs/design/API_CONTRACTS.md#API-ARCHIVE-READ-ONLY",
+    "docs/design/API_CONTRACTS.md#API-RELEASE-ARTIFACT-PROVENANCE",
+    "docs/design/API_CONTRACTS.md#API-ARTIFACT-PROVENANCE-RESOLUTION",
+    "docs/design/API_CONTRACTS.md#API-RELEASE-TRIGGER-AUTHORIZATION",
+    "docs/design/API_CONTRACTS.md#API-COLLABORATION-OFFLINE",
+    "docs/design/API_CONTRACTS.md#API-RECONNECT-REBASE",
+    "docs/design/API_CONTRACTS.md#API-COLLABORATION-AUTHORITY-REVALIDATION",
+    "docs/design/API_CONTRACTS.md#API-OFFLINE-IRREVERSIBLE-ACTION",
+    "docs/design/API_CONTRACTS.md#API-DEPLOYMENT-01",
+    "docs/design/API_CONTRACTS.md#API-MOVE-RESTORE-01",
+    "docs/design/API_CONTRACTS.md#API-SIDE-EFFECT-BINDING-01",
+    "docs/design/API_CONTRACTS.md#API-FORK-RECONCILE-01",
+    "docs/design/API_CONTRACTS.md#116",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#D4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZIH",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZIL",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#BA",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#DU",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#NP",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZJA",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#CT",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#CS",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#HY",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#IB",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZHZ",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#DP",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#IE",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#JN",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZLW",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#CW",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#EC",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#LX",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#AC",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#MF",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#AM",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#HQ",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#FJ",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#FK",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZIZ",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZJE",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#ZJF"
+  ],
+  "invariants": [
+    {
+      "id": "L7-INV-RIGHTS-CACHE-FENCE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#O1",
+      "negative_fixture": "rights generation or project scope drift makes a derived cache stale and blocks read/use/export before purge"
+    },
+    {
+      "id": "L7-INV-FORWARD-RESTORE-PURGE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#S2",
+      "negative_fixture": "a forward tombstone dominates a pre-delete backup restore and legal hold blocks destructive purge"
+    },
+    {
+      "id": "L7-INV-KEY-REVOCATION-FRESHNESS",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#I1",
+      "negative_fixture": "revoked or stale revocation evidence blocks package activation without unsigned fallback or downgrade"
+    },
+    {
+      "id": "L7-INV-CI-ARTIFACT-PROVENANCE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#Y3",
+      "negative_fixture": "artifact digest, producer, run, SBOM, source commit, workflow revision, runner trust or cache identity drift quarantines a poisoned artifact even when its display name matches"
+    },
+    {
+      "id": "L7-INV-CLEAN-RELEASE-CLOSURE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#N4",
+      "negative_fixture": "dirty, generated, stale, source-manifest, dependency-lock or colliding source closure blocks release packaging"
+    },
+    {
+      "id": "L7-INV-SIGNER-DIGEST-FENCE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#Y4",
+      "negative_fixture": "signing accepts only the exact approved manifest/artifact/final-byte tuple and rejects filename or latest-success substitution"
+    },
+    {
+      "id": "L7-INV-OFFLINE-AUTHORITY",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#AX",
+      "negative_fixture": "offline edits remain inspectable/importable while revoked authority blocks canonical mutation and irreversible replay"
+    },
+    {
+      "id": "L7-INV-DEPLOYMENT-SPLIT-BRAIN",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#FC2",
+      "negative_fixture": "one deployment is canonical ACTIVE and a partitioned duplicate is fenced with explicit fork/compensation state"
+    },
+    {
+      "id": "L7-INV-ARCHIVE-SUPPLEMENTAL",
+      "owner_ref": "docs/design/API_CONTRACTS.md#API-ARCHIVE-READ-ONLY",
+      "negative_fixture": "an archive restore fixture yields a working/restored state without changing the immutable archive bytes"
+    }
+  ],
+  "forbidden_claims": [
+    "real rights/legal/erasure enforcement proof",
+    "real backup, disk, database or operating-system restore proof",
+    "real signing-key, CI runner or supply-chain provenance proof",
+    "real project isolation, offline authority or deployment singleton proof",
+    "real provider/publication/compensation proof",
+    "production release or chaos coverage proof",
+    "coverage_state=VERIFIED"
+  ],
+  "inherited_control_ids": [
+    "CF-CTRL-RECOVERY-EPOCH",
+    "CF-CTRL-BACKUP-CONSISTENCY",
+    "CF-CTRL-UPDATE-SUPPLY-CHAIN"
+  ],
+  "inherited_control_sources": {
+    "CF-CTRL-RECOVERY-EPOCH": [
+      "L4"
+    ],
+    "CF-CTRL-BACKUP-CONSISTENCY": [
+      "L4"
+    ],
+    "CF-CTRL-UPDATE-SUPPLY-CHAIN": [
+      "L4",
+      "L5"
+    ]
+  },
+  "supplemental_control_ids": [
+    "CF-CTRL-COLLAB-BRANCH",
+    "CF-CTRL-COLLAB-AUTH",
+    "CF-CTRL-HIGH-SECURE-ERASURE"
+  ],
+  "control_scope_note": "L7 directly requires V1 rights/privacy and release-provenance controls. Recovery, backup and update supply-chain controls are inherited from L4 (update supply-chain is also covered by L5). Collaboration and high-secure erasure controls are compatibility/profile supplements; they are not V1 closure prerequisites until their applicability rule activates."
+}

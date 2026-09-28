@@ -1,0 +1,12 @@
+{
+  "issue": 11,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-decision-inbox",
+  "run_id_at_claim": "WORK-decision-inbox-20260928-A1",
+  "slot_id": "WORK-decision-inbox",
+  "claim_base_sha": "a14a4ff16fe345b27f80f92b2bebc8da320dcbf7",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:89199faaa55fb8dc1b59ca60d7ad45e921ca62c7a1241f83def7c47df48f9d9e",
+  "context_base_sha": "a14a4ff16fe345b27f80f92b2bebc8da320dcbf7",
+  "bootstrap_only": false
+}

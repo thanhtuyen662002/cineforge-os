@@ -1,0 +1,9 @@
+# Generated local build and runtime output.
+/dist/
+/.packaging/
+/app/node_modules/
+/app/dist/
+/packaging/bootstrap/bin/
+/packaging/bootstrap/obj/
+/.tmp-core-http.sqlite*
+/.cineforge/*.sqlite*

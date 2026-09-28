@@ -1,0 +1,12 @@
+{
+  "issue": 17,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-backup-baseline",
+  "run_id": "WORK-backup-baseline-20260928-A1",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:89ade9ac98bf30571c57241cb5708cb875bff7c539a0ac7f011d3784e591b28b",
+  "base_sha": "8f6c22b1818fad69f57a1e147c8e77c6a136090b",
+  "context_base_sha": "8f6c22b1818fad69f57a1e147c8e77c6a136090b",
+  "claimed_at_utc": "2026-09-28T11:31:00Z",
+  "status": "CLAIMED"
+}
