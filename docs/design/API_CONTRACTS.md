@@ -191,6 +191,8 @@ Common query methods:
 - `query.media_profile.workspace`
 - `query.timeline.list`
 - `query.timeline.workspace`
+- `query.review.list`
+- `query.review.get`
 - `query.connections`
 - `query.connection.detail`
 - `query.jobs`
@@ -348,7 +350,9 @@ not raw unrestricted user filesystem permissions.
 - CreateTimelineRevision
 - TransitionTimelineRevision
 
-For Issue #21, the five commands above are the bounded executable contract.
+For Issue #21, the five timeline commands above are the bounded executable
+timeline contract. Issue #23 adds the two review commands below without opening
+an editor, playback, render or export surface.
 The working-session, edit-operation and undo/redo commands remain deferred and
 must not be advertised as available runtime commands until their own
 implementation evidence exists.
@@ -666,19 +670,69 @@ Timeline op response includes impacted dependent domains:
 
 # 17. Review API detail
 
-`review.open` must specify:
-- subject revision;
-- representation revision;
-- review policy.
+## Issue #23 project-scoped timeline review baseline
 
-`review.submit` includes:
-- decision;
-- reason codes;
-- notes;
-- issue markers;
-- expected subject dependency hash.
+The executable Core command names are `OpenReview` and `SubmitReview`. The
+loopback adapter exposes them as:
 
-If dependency hash changed while reviewer watched, submit returns STALE_REVIEW rather than silently approving old state.
+- `GET /v1/projects/{project_id}/reviews?state=&limit=`
+- `GET /v1/projects/{project_id}/reviews/{review_session_id}`
+- `POST /v1/projects/{project_id}/reviews`
+- `POST /v1/projects/{project_id}/reviews/{review_session_id}/submit`
+
+`OpenReview` requires:
+
+```json
+{
+  "project_id": "project-id",
+  "subject_type": "TIMELINE_REVISION",
+  "subject_revision_id": "timeline-revision-id",
+  "expected_versions": {"REVISION": 2}
+}
+```
+
+The response returns the exact review session, subject projection, timeline,
+pinned media-profile revision and `{hash,current_hash,stale}` snapshot view.
+The command is audited and idempotent. An OPEN/IN_PROGRESS session already
+exists for the subject, the revision is not a DRAFT_CHECKPOINT/CANDIDATE, or the
+revision version is stale, Core returns a typed conflict without mutation.
+
+`SubmitReview` requires the current review row version and records exactly one
+immutable human decision:
+
+```json
+{
+  "project_id": "project-id",
+  "review_session_id": "review-session-id",
+  "decision": "APPROVE",
+  "notes": "Checkpoint matches the intended cut.",
+  "reason_codes": [],
+  "expected_versions": {"REVIEW_SESSION": 1}
+}
+```
+
+Allowed decisions are `APPROVE`, `REJECT`, `REPAIR` and `ABSTAIN`. Core
+recomputes the dependency snapshot before inserting the append-only fact. A
+hash/content mismatch, superseded/approved subject, or stale row returns
+`STALE_REVIEW`; no old evidence can be submitted. `APPROVE` additionally
+requires timeline readiness `READY`. Once submitted, the decision cannot be
+edited or replaced.
+
+`TransitionTimelineRevision` to `APPROVED` now requires
+`review_session_id`. Core verifies that the session belongs to the same project
+and revision, is `SUBMITTED`, contains decision `APPROVE`, and still matches the
+current dependency/content hashes. Missing, non-APPROVE or stale review evidence
+is a `409 CONFLICT` with `needs_user=true`. The existing profile, asset, rights
+and exact-pin gates still run after this review gate.
+
+The UI Review workspace is metadata-first: it shows checkpoint identity,
+rational duration, track summary, readiness, exact hashes and human decision
+controls. It deliberately has no player or fake progress indicator. A stale
+workspace explains the recovery step (open a review for the current checkpoint)
+and disables submit/approve controls.
+
+If dependency hash changed while a reviewer watched, submit returns
+`STALE_REVIEW` rather than silently approving old state.
 
 # 18. Storage API detail
 

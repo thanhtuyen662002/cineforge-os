@@ -59,6 +59,13 @@ function Stop-Tree([System.Diagnostics.Process]$Target) {
     try { $Target.Dispose() } catch { }
 }
 
+function Get-OptionalProperty($Object, [string]$Name) {
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
 try {
     $health = $null
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
@@ -186,6 +193,104 @@ try {
         if ([string]$resolvedDecisionRecord.state -ne 'RESOLVED' -or [string]$resolvedDecisionRecord.resolved_choice_id -ne 'continue') { throw 'DecisionRequest did not resolve to the selected choice.' }
         $resolvedReplay = Invoke-RestMethod -Uri $decisionResolveUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-decision-resolve'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ choice_id = 'continue'; expected_decision_version = [int]$decisionRecord.decision_version } | ConvertTo-Json) -TimeoutSec 5
         if (-not $resolvedReplay.result.idempotent_replay) { throw 'DecisionRequest resolve retry was not an idempotent replay.' }
+
+        # Exercise the metadata-first review gate through the packaged
+        # bootstrap.  A timeline revision cannot become APPROVED until an
+        # exact, current APPROVE review has been submitted for it.  This keeps
+        # the one-click artifact aligned with the canonical Core invariants:
+        # project scope, optimistic versions, idempotent commands, and stale
+        # review rejection are all checked on the real loopback boundary.
+        $profileUri = "http://127.0.0.1:{0}/v1/projects/{1}/media-profile" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $profileHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-profile'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $profileEnvelope = Invoke-RestMethod -Uri $profileUri -Method Post -Headers $profileHeaders -ContentType 'application/json' -Body (@{
+            timeline_rate = @{ num = 24; den = 1 }
+            time_base = @{ num = 1; den = 24 }
+            width = 1920
+            height = 1080
+            pixel_aspect = @{ num = 1; den = 1 }
+            working_color_space = 'sRGB'
+            transfer_function = 'SDR'
+            hdr_policy = 'NONE'
+            audio_sample_rate = 48000
+            audio_channel_layout = 'STEREO'
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        $profileCandidate = @($profileEnvelope.result.candidateRevisions) | Select-Object -First 1
+        if ($null -eq $profileCandidate -or [string]::IsNullOrWhiteSpace([string]$profileCandidate.id) -or [int]$profileCandidate.rowVersion -ne 1) { throw 'Review smoke media profile creation returned no candidate revision at version 1.' }
+        $profileApproveUri = "{0}/revisions/{1}/transition" -f $profileUri, [Uri]::EscapeDataString([string]$profileCandidate.id)
+        $profileApproved = Invoke-RestMethod -Uri $profileApproveUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-profile-approve'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ next_state = 'APPROVED'; expected_version = [int]$profileCandidate.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        $approvedProfile = $profileApproved.result.approvedRevision
+        if ($null -eq $approvedProfile -or [string]$approvedProfile.state -ne 'APPROVED') { throw 'Review smoke media profile did not reach APPROVED.' }
+
+        $timelineUri = "http://127.0.0.1:{0}/v1/projects/{1}/timelines" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $timelineEnvelope = Invoke-RestMethod -Uri $timelineUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-timeline'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            code = 'REVIEW'
+            title = 'Review smoke timeline'
+            media_profile_revision_id = [string]$approvedProfile.id
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        $timelineResult = $timelineEnvelope.result
+        $timelineRecord = Get-OptionalProperty $timelineResult 'timeline'
+        if ($null -eq $timelineRecord) { $timelineRecord = $timelineResult }
+        if ($null -eq $timelineRecord -or [string]::IsNullOrWhiteSpace([string]$timelineRecord.id) -or [int]$timelineRecord.rowVersion -ne 1) { throw 'Review smoke timeline creation returned an invalid timeline.' }
+        $timelineId = [Uri]::EscapeDataString([string]$timelineRecord.id)
+        $checkpointUri = "{0}/{1}/revisions" -f $timelineUri, $timelineId
+        $checkpointEnvelope = Invoke-RestMethod -Uri $checkpointUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-checkpoint'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            expected_version = [int]$timelineRecord.rowVersion
+            media_profile_revision_id = [string]$approvedProfile.id
+            duration = @{ num = 24; den = 1 }
+            tracks = @(@{ track_type = 'VIDEO'; order_index = 0; name = 'Picture'; clips = @(
+                @{ timeline_in = @{ num = 0; den = 1 }; timeline_out = @{ num = 12; den = 1 } }
+                @{ timeline_in = @{ num = 12; den = 1 }; timeline_out = @{ num = 24; den = 1 } }
+            ) })
+            markers = @(@{ time = @{ num = 6; den = 1 }; marker_type = 'NOTE'; label = 'Review gate' })
+        } | ConvertTo-Json -Depth 15) -TimeoutSec 5
+        $checkpointResult = $checkpointEnvelope.result
+        $checkpointRevision = Get-OptionalProperty $checkpointResult 'currentRevision'
+        if ($null -eq $checkpointRevision) { $checkpointRevision = Get-OptionalProperty $checkpointResult 'revision' }
+        if ($null -eq $checkpointRevision -or [string]::IsNullOrWhiteSpace([string]$checkpointRevision.id) -or [string]$checkpointRevision.state -ne 'DRAFT_CHECKPOINT' -or [int]$checkpointRevision.rowVersion -ne 1) { throw 'Review smoke checkpoint did not return the expected DRAFT_CHECKPOINT revision.' }
+        $revisionId = [Uri]::EscapeDataString([string]$checkpointRevision.id)
+        $candidateUri = "{0}/{1}/transition" -f $checkpointUri, $revisionId
+        $candidateEnvelope = Invoke-RestMethod -Uri $candidateUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-candidate'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ next_state = 'CANDIDATE'; expected_version = [int]$checkpointRevision.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        $candidateResult = $candidateEnvelope.result
+        $candidateRevision = Get-OptionalProperty $candidateResult 'currentRevision'
+        if ($null -eq $candidateRevision) { $candidateRevision = Get-OptionalProperty $candidateResult 'revision' }
+        if ($null -eq $candidateRevision -or [string]$candidateRevision.state -ne 'CANDIDATE' -or [int]$candidateRevision.rowVersion -ne 2) { throw 'Review smoke checkpoint did not transition to CANDIDATE at version 2.' }
+
+        $reviewsUri = "http://127.0.0.1:{0}/v1/projects/{1}/reviews" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $openReviewBody = @{
+            subject_type = 'TIMELINE_REVISION'
+            subject_revision_id = [string]$candidateRevision.id
+            expected_version = [int]$candidateRevision.rowVersion
+        } | ConvertTo-Json -Depth 10
+        $openReviewHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-open'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $openReviewEnvelope = Invoke-RestMethod -Uri $reviewsUri -Method Post -Headers $openReviewHeaders -ContentType 'application/json' -Body $openReviewBody -TimeoutSec 5
+        $reviewRecord = $openReviewEnvelope.result.review
+        if ($null -eq $reviewRecord -or [string]::IsNullOrWhiteSpace([string]$reviewRecord.id) -or [string]$reviewRecord.state -ne 'OPEN' -or [int]$reviewRecord.rowVersion -ne 1) { throw 'Review smoke OpenReview did not return an OPEN session at version 1.' }
+        $openReviewReplay = Invoke-RestMethod -Uri $reviewsUri -Method Post -Headers $openReviewHeaders -ContentType 'application/json' -Body $openReviewBody -TimeoutSec 5
+        $openReviewReplayFlag = Get-OptionalProperty $openReviewReplay 'idempotent_replay'
+        if ($null -eq $openReviewReplayFlag) { $openReviewReplayFlag = Get-OptionalProperty $openReviewReplay.result 'idempotent_replay' }
+        if (($null -ne $openReviewReplayFlag -and -not $openReviewReplayFlag) -or [string]$openReviewReplay.result.review.id -ne [string]$reviewRecord.id) { throw 'OpenReview retry was not an idempotent replay of the same session.' }
+
+        $reviewId = [Uri]::EscapeDataString([string]$reviewRecord.id)
+        $submitReviewUri = "$reviewsUri/$reviewId/submit"
+        $submitReviewBody = @{ decision = 'APPROVE'; notes = 'Packaged metadata review passed.'; reason_codes = @('SMOKE_PASS'); expected_version = [int]$reviewRecord.rowVersion } | ConvertTo-Json -Depth 10
+        $submitReviewHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-submit'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $submittedReviewEnvelope = Invoke-RestMethod -Uri $submitReviewUri -Method Post -Headers $submitReviewHeaders -ContentType 'application/json' -Body $submitReviewBody -TimeoutSec 5
+        $submittedReview = $submittedReviewEnvelope.result.review
+        if ($null -eq $submittedReview -or [string]$submittedReview.state -ne 'SUBMITTED' -or [string]$submittedReview.humanReview.decision -ne 'APPROVE' -or [int]$submittedReview.rowVersion -ne 2) { throw 'SubmitReview did not return a SUBMITTED APPROVE review at version 2.' }
+        $submitReviewReplay = Invoke-RestMethod -Uri $submitReviewUri -Method Post -Headers $submitReviewHeaders -ContentType 'application/json' -Body $submitReviewBody -TimeoutSec 5
+        $submitReviewReplayFlag = Get-OptionalProperty $submitReviewReplay 'idempotent_replay'
+        if ($null -eq $submitReviewReplayFlag) { $submitReviewReplayFlag = Get-OptionalProperty $submitReviewReplay.result 'idempotent_replay' }
+        if (($null -ne $submitReviewReplayFlag -and -not $submitReviewReplayFlag) -or [string]$submitReviewReplay.result.review.id -ne [string]$reviewRecord.id) { throw 'SubmitReview retry was not an idempotent replay of the same review.' }
+
+        $approveTimeline = Invoke-RestMethod -Uri $candidateUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-approve'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ next_state = 'APPROVED'; expected_version = [int]$candidateRevision.rowVersion; review_session_id = [string]$reviewRecord.id } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        $approvedTimelineResult = $approveTimeline.result
+        $approvedTimelineRevision = Get-OptionalProperty $approvedTimelineResult 'currentRevision'
+        if ($null -eq $approvedTimelineRevision) { $approvedTimelineRevision = Get-OptionalProperty $approvedTimelineResult 'revision' }
+        if ($null -eq $approvedTimelineRevision -or [string]$approvedTimelineRevision.state -ne 'APPROVED' -or [int]$approvedTimelineRevision.rowVersion -ne 3) { throw 'Timeline did not become APPROVED through the submitted review gate.' }
+        $reviewList = Invoke-RestMethod -Uri $reviewsUri -TimeoutSec 5
+        if (@($reviewList.result.reviews | Where-Object { $_.id -eq $reviewRecord.id -and $_.state -eq 'SUBMITTED' -and $_.humanReview.decision -eq 'APPROVE' }).Count -ne 1) { throw 'Submitted APPROVE review was missing from the packaged project review list.' }
+        $reviewDetail = Invoke-RestMethod -Uri "$reviewsUri/$reviewId" -TimeoutSec 5
+        if ([string]$reviewDetail.result.review.state -ne 'SUBMITTED' -or [string]$reviewDetail.result.subject.state -ne 'APPROVED') { throw 'Packaged review detail did not reflect the approved timeline subject.' }
 
         # Exercise the user-facing asset path through the packaged bootstrap.
         # The source is deliberately created inside the temporary data root so

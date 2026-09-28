@@ -434,7 +434,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 10);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 11);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -573,7 +573,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 10);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 11);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -724,7 +724,7 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(fs.existsSync(persisted.snapshot_path), true);
   const manifest = JSON.parse(fs.readFileSync(persisted.manifest_path, 'utf8'));
   assert.equal(manifest.format_version, 1);
-  assert.equal(manifest.schema_version, 10);
+  assert.equal(manifest.schema_version, 11);
   assert.equal(manifest.objects.length, 1);
   assert.equal(manifest.objects[0].materialization, 'COPIED');
   assert.equal(fs.existsSync(path.join(persisted.destination_path, manifest.objects[0].relative_path)), true);
@@ -1074,14 +1074,54 @@ test('canonical timeline pins an approved media profile and stores immutable rat
   assert.equal(execute(core, 'TransitionTimelineRevision', {
     project_id: projectId, timeline_revision_id: revisionId, next_state: 'CANDIDATE',
   }, { REVISION: 1 }, 'timeline-candidate').ok, true);
+  const reviewRequired = execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: revisionId, next_state: 'APPROVED',
+  }, { REVISION: 2 }, 'timeline-approve-without-review');
+  assert.equal(reviewRequired.ok, false);
+  assert.equal(reviewRequired.error.code, 'REVIEW_REQUIRED_FOR_APPROVAL');
+  const review = execute(core, 'OpenReview', {
+    project_id: projectId, subject_type: 'TIMELINE_REVISION', subject_revision_id: revisionId,
+  }, { REVISION: 2 }, 'timeline-review-open');
+  assert.equal(review.ok, true, JSON.stringify(review));
+  assert.equal(review.result.review.review_state, 'OPEN');
+  assert.equal(execute(core, 'OpenReview', {
+    project_id: projectId, subject_type: 'TIMELINE_REVISION', subject_revision_id: revisionId,
+  }, { REVISION: 2 }, 'timeline-review-open-duplicate').error.code, 'REVIEW_ALREADY_OPEN');
+  const staleReviewSubmit = execute(core, 'SubmitReview', {
+    project_id: projectId, review_session_id: review.result.review.id, decision: 'APPROVE',
+  }, { REVIEW_SESSION: 2 }, 'timeline-review-submit-stale');
+  assert.equal(staleReviewSubmit.ok, false);
+  assert.equal(staleReviewSubmit.error.code, 'STALE_REVIEW');
+  const submittedReview = execute(core, 'SubmitReview', {
+    project_id: projectId, review_session_id: review.result.review.id, decision: 'APPROVE',
+  }, { REVIEW_SESSION: 1 }, 'timeline-review-submit');
+  assert.equal(submittedReview.ok, true, JSON.stringify(submittedReview));
+  assert.equal(submittedReview.result.review.human_review.decision, 'APPROVE');
   const approved = execute(core, 'TransitionTimelineRevision', {
     project_id: projectId, timeline_revision_id: revisionId, next_state: 'APPROVED',
+    review_session_id: review.result.review.id,
   }, { REVISION: 2 }, 'timeline-approve');
   assert.equal(approved.ok, true, JSON.stringify(approved));
   assert.equal(approved.result.revision.lifecycle_state, 'APPROVED');
+  const immutableReview = execute(core, 'SubmitReview', {
+    project_id: projectId, review_session_id: review.result.review.id, decision: 'REJECT',
+  }, { REVIEW_SESSION: 2 }, 'timeline-review-submit-after-approval');
+  assert.equal(immutableReview.ok, false);
+  assert.equal(immutableReview.error.code, 'REVIEW_DECISION_IMMUTABLE');
+  const reviewList = core.handle(request('query.review.list', { project_id: projectId }, 'timeline-review-list'));
+  assert.equal(reviewList.ok, true);
+  assert.equal(reviewList.result.items.length, 1);
+  assert.equal(reviewList.result.items[0].human_review.decision, 'APPROVE');
+  const reviewDetails = core.handle(request('query.review.get', { project_id: projectId, review_session_id: review.result.review.id }, 'timeline-review-get'));
+  assert.equal(reviewDetails.ok, true);
+  assert.equal(reviewDetails.result.review.id, review.result.review.id);
   assert.throws(
     () => core.db.prepare('UPDATE timeline_revisions SET duration_num = ? WHERE id = ?').run(99, revisionId),
     /timeline_revision content is immutable/,
+  );
+  assert.throws(
+    () => core.db.prepare('UPDATE human_reviews SET notes = ? WHERE id = ?').run('tampered', submittedReview.result.review.human_review.id),
+    /human_reviews are append-only/,
   );
   const workspace = core.handle(request('query.timeline.workspace', { project_id: projectId, timeline_id: timelineId }));
   assert.equal(workspace.ok, true, JSON.stringify(workspace));
@@ -1112,8 +1152,17 @@ test('canonical timeline pins an approved media profile and stores immutable rat
   assert.equal(execute(core, 'TransitionTimelineRevision', {
     project_id: projectId, timeline_revision_id: secondRevisionId, next_state: 'CANDIDATE',
   }, { REVISION: 1 }, 'timeline-candidate-second').ok, true);
+  const secondReview = execute(core, 'OpenReview', {
+    project_id: projectId, subject_type: 'TIMELINE_REVISION', subject_revision_id: secondRevisionId,
+  }, { REVISION: 2 }, 'timeline-review-open-second');
+  assert.equal(secondReview.ok, true, JSON.stringify(secondReview));
+  const secondSubmittedReview = execute(core, 'SubmitReview', {
+    project_id: projectId, review_session_id: secondReview.result.review.id, decision: 'APPROVE',
+  }, { REVIEW_SESSION: 1 }, 'timeline-review-submit-second');
+  assert.equal(secondSubmittedReview.ok, true, JSON.stringify(secondSubmittedReview));
   const secondApproved = execute(core, 'TransitionTimelineRevision', {
     project_id: projectId, timeline_revision_id: secondRevisionId, next_state: 'APPROVED',
+    review_session_id: secondReview.result.review.id,
   }, { REVISION: 2 }, 'timeline-approve-second');
   assert.equal(secondApproved.ok, true, JSON.stringify(secondApproved));
   assert.equal(core.db.prepare('SELECT lifecycle_state FROM timeline_revisions WHERE id = ?').get(revisionId).lifecycle_state, 'SUPERSEDED');

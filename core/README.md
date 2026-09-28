@@ -35,6 +35,12 @@ bounded Issue #21 slice. Core owns the project-scoped profile, timeline and
 immutable checkpoint rows; every mutation goes through the audited command
 boundary and every read is a redacted projection.
 
+The Issue #23 review baseline is executable as a separate Core-owned aggregate.
+`review_sessions` pin an exact timeline revision and dependency snapshot;
+`human_reviews` are append-only decisions. Timeline approval requires an exact
+submitted `APPROVE` review whose content and dependency hashes still match. A
+stale or missing review cannot be used as approval evidence.
+
 ## Timeline checkpoint baseline status
 
 The executable commands are:
@@ -44,17 +50,26 @@ The executable commands are:
 - `CreateTimeline`
 - `CreateTimelineRevision`
 - `TransitionTimelineRevision`
+- `OpenReview`
+- `SubmitReview`
 
 The executable queries are `query.media_profile.workspace`,
-`query.timeline.list` and `query.timeline.workspace`. The loopback adapter
+`query.timeline.list`, `query.timeline.workspace`, `query.review.list` and
+`query.review.get`. The loopback adapter
 exposes media-profile setup/read plus project-scoped timeline list, workspace,
-create, checkpoint and lifecycle-transition routes. The baseline validates
+create, checkpoint, lifecycle-transition and review routes. The baseline validates
 bounded positive rationals with exact cross multiplication, rejects overlap and
 out-of-bounds clips, pins an approved profile revision, and fail-closes on
 cross-project, unavailable, unverified, externally referenced or rights-
 blocked assets. Checkpoint content is canonicalized and hashed before the
 immutable revision is written; retries are idempotent and stale versions are
 rejected.
+
+Review commands are audited and idempotent. `OpenReview` records the exact
+subject/dependency snapshot. `SubmitReview` recomputes it and returns
+`STALE_REVIEW` on any mismatch; `APPROVE` additionally requires `READY`
+readiness. The desktop Review workspace shows metadata and honest state without
+claiming playback or render capability.
 
 The timeline working session, autosave, undo/redo, collaboration, playback,
 render, external-editor handoff, export and release surfaces remain explicitly
