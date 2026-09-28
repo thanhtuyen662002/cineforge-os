@@ -253,3 +253,194 @@ test('HTTP task, shot and note routes preserve scope, optimistic concurrency and
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('HTTP DecisionRequest routes expose canonical choices and stale-safe resolution', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-decisions-'));
+  const core = new CoreService({ dbPath: path.join(directory, 'cineforge.sqlite') });
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, {
+      ...options,
+      headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+    });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const project = await jsonRequest('/v1/projects', { method: 'POST', headers: { 'idempotency-key': 'decision-http-project' }, body: JSON.stringify({ title: 'Decision HTTP' }) });
+    assert.equal(project.response.status, 200);
+    const projectId = project.payload.id;
+    const created = await jsonRequest('/v1/commands', {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-create' },
+      body: JSON.stringify({ command_type: 'CreateDecisionRequest', payload: {
+        project_id: projectId, decision_type: 'RIGHTS_REVIEW', title_key: 'rights.title', reason_key: 'rights.reason',
+        blocking_scope_type: 'PROJECT', blocking_scope_id: projectId, severity: 'HIGH',
+        choices: [{ id: 'allow', label_key: 'rights.allow', recommended: true }, { id: 'hold', label_key: 'rights.hold' }],
+      } }),
+    });
+    assert.equal(created.response.status, 200);
+    const decision = created.payload.result.decision ?? created.payload.result;
+    assert.equal(decision.state, 'OPEN');
+    assert.equal(decision.decision_version, 1);
+    assert.equal(decision.choices.length, 2);
+
+    const dashboard = await (await fetch(`${base}/v1/dashboard`)).json();
+    assert.equal(dashboard.decisions.length, 1);
+    assert.equal(dashboard.decisions[0].id, decision.id);
+    const list = await jsonRequest('/v1/decisions');
+    assert.equal(list.response.status, 200);
+    assert.equal(list.payload.result.items.length, 1);
+    const detail = await jsonRequest(`/v1/decisions/${encodeURIComponent(decision.id)}`);
+    assert.equal(detail.response.status, 200);
+    assert.equal(detail.payload.result.id, decision.id);
+
+    const stale = await jsonRequest(`/v1/decisions/${encodeURIComponent(decision.id)}/resolve`, {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-stale' },
+      body: JSON.stringify({ choice_id: 'allow', expected_decision_version: 2 }),
+    });
+    assert.equal(stale.response.status, 409);
+    assert.equal(stale.payload.error.code, 'STALE_DECISION');
+
+    const resolved = await jsonRequest(`/v1/decisions/${encodeURIComponent(decision.id)}/resolve`, {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-resolve' },
+      body: JSON.stringify({ choice_id: 'allow', expected_decision_version: 1 }),
+    });
+    assert.equal(resolved.response.status, 200);
+    assert.equal((resolved.payload.result.decision ?? resolved.payload.result).state, 'RESOLVED');
+    const replay = await jsonRequest(`/v1/decisions/${encodeURIComponent(decision.id)}/resolve`, {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-resolve' },
+      body: JSON.stringify({ choice_id: 'allow', expected_decision_version: 1 }),
+    });
+    assert.equal(replay.response.status, 200);
+    assert.equal(replay.payload.result.idempotent_replay, true);
+    const empty = await jsonRequest('/v1/decisions');
+    assert.equal(empty.payload.result.items.length, 0);
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('HTTP DecisionRequest routes expose canonical Needs You state and stale-safe resolution', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-decisions-'));
+  const dbPath = path.join(directory, 'cineforge.sqlite');
+  const core = new CoreService({ dbPath });
+  let listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = () => `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base()}${pathName}`, {
+      ...options,
+      headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+    });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const projectResponse = await jsonRequest('/v1/projects', {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-project' }, body: JSON.stringify({ title: 'Decision HTTP' }),
+    });
+    const projectId = projectResponse.payload.id;
+    const created = await jsonRequest('/v1/commands', {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-create' }, body: JSON.stringify({
+        command_type: 'CreateDecisionRequest',
+        payload: {
+          project_id: projectId,
+          decision_type: 'CREATIVE_REVIEW',
+          title_key: 'decisions.creative.title',
+          reason_key: 'decisions.creative.reason',
+          blocking_scope_type: 'PROJECT',
+          blocking_scope_id: projectId,
+          severity: 'CRITICAL',
+          choices: [
+            { id: 'accept', label_key: 'decisions.choice.accept', recommended: true },
+            { id: 'wait', label_key: 'decisions.choice.wait' },
+          ],
+        },
+      }),
+    });
+    assert.equal(created.response.status, 200);
+    assert.equal(created.payload.result.state, 'OPEN');
+    const decisionId = created.payload.result.id;
+
+    const dashboard = await jsonRequest('/v1/dashboard');
+    assert.equal(dashboard.response.status, 200);
+    assert.equal(dashboard.payload.decisions.length, 1);
+    assert.equal(dashboard.payload.decisions[0].projectId, projectId);
+    assert.equal(dashboard.payload.decisions[0].priority, 'high');
+    assert.equal(dashboard.payload.decisions[0].choices[0].id, 'accept');
+
+    const listed = await jsonRequest('/v1/decisions?project_id=' + encodeURIComponent(projectId));
+    assert.equal(listed.response.status, 200);
+    assert.equal(listed.payload.ok, true);
+    assert.equal(listed.payload.result.items.length, 1);
+    assert.equal(listed.payload.result.items[0].id, decisionId);
+    assert.equal(listed.payload.result.items[0].decisionVersion, 1);
+
+    const found = await jsonRequest(`/v1/decisions/${decisionId}`);
+    assert.equal(found.response.status, 200);
+    assert.equal(found.payload.result.reason, 'decisions.creative.reason');
+
+    const invalidChoice = await jsonRequest(`/v1/decisions/${decisionId}/resolve`, {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-invalid' },
+      body: JSON.stringify({ choice_id: 'missing', expected_decision_version: 1 }),
+    });
+    assert.equal(invalidChoice.response.status, 409);
+    assert.equal(invalidChoice.payload.error.code, 'INVALID_DECISION_CHOICE');
+
+    const stale = await jsonRequest(`/v1/decisions/${decisionId}/resolve`, {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-stale' },
+      body: JSON.stringify({ choice_id: 'accept', expected_decision_version: 2 }),
+    });
+    assert.equal(stale.response.status, 409);
+    assert.equal(stale.payload.error.code, 'STALE_DECISION');
+
+    const resolved = await jsonRequest(`/v1/decisions/${decisionId}/resolve`, {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-resolve' },
+      body: JSON.stringify({ choice_id: 'accept', expected_decision_version: 1 }),
+    });
+    assert.equal(resolved.response.status, 200);
+    assert.equal(resolved.payload.result.state, 'RESOLVED');
+    assert.equal(resolved.payload.result.resolved_choice_id, 'accept');
+    const replay = await jsonRequest(`/v1/decisions/${decisionId}/resolve`, {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-resolve' },
+      body: JSON.stringify({ choice_id: 'accept', expected_decision_version: 1 }),
+    });
+    assert.equal(replay.response.status, 200);
+    assert.equal(replay.payload.result.idempotent_replay, true);
+    const open = await jsonRequest('/v1/decisions');
+    assert.equal(open.payload.result.items.length, 0);
+    const resolvedList = await jsonRequest('/v1/decisions?state=RESOLVED');
+    assert.equal(resolvedList.payload.result.items.length, 1);
+
+    const second = await jsonRequest('/v1/commands', {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-second' }, body: JSON.stringify({
+        command_type: 'CreateDecisionRequest',
+        payload: {
+          project_id: projectId, decision_type: 'WAIT', title_key: 'decisions.wait.title', reason_key: 'decisions.wait.reason',
+          blocking_scope_type: 'PROJECT', blocking_scope_id: projectId,
+          choices: [{ id: 'dismiss', label_key: 'decisions.choice.dismiss' }],
+        },
+      }),
+    });
+    const secondId = second.payload.result.id;
+    const dismissed = await jsonRequest(`/v1/decisions/${secondId}/dismiss`, {
+      method: 'POST', headers: { 'idempotency-key': 'decision-http-dismiss' }, body: JSON.stringify({ expected_decision_version: 1 }),
+    });
+    assert.equal(dismissed.response.status, 200);
+    assert.equal(dismissed.payload.result.state, 'DISMISSED');
+
+    await new Promise((resolve) => listener.server.close(resolve));
+    core.close();
+    const reopened = new CoreService({ dbPath });
+    listener = await listenCoreHttp(reopened, { host: '127.0.0.1', port: 0 });
+    const afterRestart = await jsonRequest('/v1/decisions?state=RESOLVED');
+    assert.equal(afterRestart.response.status, 200);
+    assert.equal(afterRestart.payload.result.items[0].state, 'RESOLVED');
+    await new Promise((resolve) => listener.server.close(resolve));
+    reopened.close();
+  } finally {
+    if (listener?.server?.listening) await new Promise((resolve) => listener.server.close(resolve));
+    try { core.close(); } catch { /* already closed after restart */ }
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

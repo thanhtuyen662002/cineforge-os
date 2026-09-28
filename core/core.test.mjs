@@ -310,6 +310,135 @@ test('invalid project is recorded as a failed command rather than corrupting sta
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const project = execute(core, 'CreateProject', { title: 'Decision film', code: 'decision-film' }, {}, 'decision-project');
+  const projectId = project.result.id;
+  const task = execute(core, 'CreateTask', { project_id: projectId, title: 'Rights check' }, {}, 'decision-task');
+  const created = execute(core, 'CreateDecisionRequest', {
+    project_id: projectId,
+    decision_type: 'RIGHTS_REVIEW',
+    title_key: 'decisions.rights.title',
+    reason_key: 'decisions.rights.reason',
+    reason_args: { asset_count: 2 },
+    blocking_scope_type: 'TASK',
+    blocking_scope_id: task.result.id,
+    severity: 'HIGH',
+    affected_entities: [{ entity_type: 'TASK', entity_id: task.result.id }],
+    evidence: [{ kind: 'RIGHTS_SUMMARY', status: 'UNKNOWN' }],
+    default_behavior: { action: 'DO_NOTHING', label_key: 'decisions.default_do_nothing' },
+    choices: [
+      { id: 'approve-internal', label_key: 'decisions.choice.internal', recommended: true, consequence_summary: { scope: 'INTERNAL' } },
+      { id: 'dismiss-rights', label_key: 'decisions.choice.dismiss', command_template: { kind: 'NOOP' } },
+    ],
+  }, {}, 'decision-create');
+  assert.equal(created.ok, true);
+  const decision = created.result;
+  assert.equal(decision.state, 'OPEN');
+  assert.equal(decision.decision_version, 1);
+  assert.equal(decision.created_by_event_seq, created.result.event_seq);
+  assert.equal(decision.project_id, projectId);
+  assert.equal(decision.choices.length, 2);
+  assert.equal(decision.choices[0].recommended, true);
+  assert.deepEqual(decision.evidence, [{ kind: 'RIGHTS_SUMMARY', status: 'UNKNOWN' }]);
+
+  const home = core.handle(request('query.home', {}, 'decision-home'));
+  assert.equal(home.ok, true);
+  assert.equal(home.result.needs_you.length, 1);
+  assert.equal(home.result.needs_you[0].id, decision.id);
+  const scopedList = core.handle(request('query.needs_you.list', { project_id: projectId }, 'decision-list'));
+  assert.equal(scopedList.result.items.length, 1);
+  assert.equal(core.handle(request('query.needs_you.get', { decision_request_id: decision.id })).result.id, decision.id);
+
+  const invalidChoice = execute(core, 'ResolveDecisionRequest', {
+    decision_request_id: decision.id, choice_id: 'missing', expected_decision_version: 1,
+  }, { DECISION_REQUEST: 1 }, 'decision-invalid-choice');
+  assert.equal(invalidChoice.ok, false);
+  assert.equal(invalidChoice.error.code, 'INVALID_DECISION_CHOICE');
+  const stale = execute(core, 'ResolveDecisionRequest', {
+    decision_request_id: decision.id, choice_id: 'approve-internal', expected_decision_version: 2,
+  }, { DECISION_REQUEST: 2 }, 'decision-stale');
+  assert.equal(stale.ok, false);
+  assert.equal(stale.error.code, 'STALE_DECISION');
+
+  const resolved = execute(core, 'ResolveDecisionRequest', {
+    decision_request_id: decision.id, choice_id: 'approve-internal', expected_decision_version: 1,
+  }, { DECISION_REQUEST: 1 }, 'decision-resolve');
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.result.state, 'RESOLVED');
+  assert.equal(resolved.result.resolved_choice_id, 'approve-internal');
+  const replay = execute(core, 'ResolveDecisionRequest', {
+    decision_request_id: decision.id, choice_id: 'approve-internal', expected_decision_version: 1,
+  }, { DECISION_REQUEST: 1 }, 'decision-resolve');
+  assert.equal(replay.ok, true);
+  assert.equal(replay.result.idempotent_replay, true);
+  assert.equal(core.handle(request('query.needs_you.list')).result.items.length, 0);
+
+  const second = execute(core, 'CreateDecisionRequest', {
+    project_id: projectId,
+    decision_type: 'EDITORIAL_REVIEW',
+    title_key: 'decisions.editorial.title',
+    reason_key: 'decisions.editorial.reason',
+    blocking_scope_type: 'PROJECT',
+    blocking_scope_id: projectId,
+    choices: [{ id: 'dismiss', label_key: 'decisions.choice.dismiss' }],
+  }, {}, 'decision-second');
+  const dismissed = execute(core, 'DismissDecisionRequest', {
+    decision_request_id: second.result.id, expected_decision_version: 1,
+  }, { DECISION_REQUEST: 1 }, 'decision-dismiss');
+  assert.equal(dismissed.ok, true);
+  assert.equal(dismissed.result.state, 'DISMISSED');
+
+  const systemDecision = execute(core, 'CreateDecisionRequest', {
+    decision_type: 'SYSTEM_MAINTENANCE', title_key: 'decisions.system.title', reason_key: 'decisions.system.reason',
+    blocking_scope_type: 'SYSTEM', choices: [{ id: 'continue-system', label_key: 'decisions.choice.continue' }],
+  }, {}, 'decision-system');
+  const systemScopeConflict = execute(core, 'DismissDecisionRequest', {
+    decision_request_id: systemDecision.result.id, project_id: projectId, expected_decision_version: 1,
+  }, { DECISION_REQUEST: 1 }, 'decision-system-conflict');
+  assert.equal(systemScopeConflict.ok, false);
+  assert.equal(systemScopeConflict.error.code, 'ENTITY_SCOPE_MISMATCH');
+  const systemCommand = core.db.prepare(`SELECT project_id FROM commands WHERE command_type = 'DismissDecisionRequest' ORDER BY created_at_utc_us DESC LIMIT 1`).get();
+  assert.equal(systemCommand.project_id, null);
+
+  const third = execute(core, 'CreateDecisionRequest', {
+    project_id: projectId,
+    decision_type: 'STALE_TEST', title_key: 'decisions.stale.title', reason_key: 'decisions.stale.reason',
+    blocking_scope_type: 'PROJECT', blocking_scope_id: projectId,
+    choices: [{ id: 'continue', label_key: 'decisions.choice.continue' }],
+  }, {}, 'decision-third');
+  const obsolete = execute(core, 'ObsoleteDecisionRequest', {
+    decision_request_id: third.result.id, expected_decision_version: 1,
+  }, { DECISION_REQUEST: 1 }, 'decision-obsolete');
+  assert.equal(obsolete.ok, true);
+  assert.equal(obsolete.result.state, 'OBSOLETE');
+  const obsoleteResolve = execute(core, 'ResolveDecisionRequest', {
+    decision_request_id: third.result.id, choice_id: 'continue', expected_decision_version: 2,
+  }, { DECISION_REQUEST: 2 }, 'decision-obsolete-resolve');
+  assert.equal(obsoleteResolve.ok, false);
+  assert.equal(obsoleteResolve.error.code, 'STALE_DECISION');
+
+  assert.throws(
+    () => core.db.prepare('UPDATE decision_choices SET label_key = ? WHERE id = ?').run('tampered', 'approve-internal'),
+    /decision_choices are append-only/,
+  );
+  assert.throws(
+    () => core.db.prepare('DELETE FROM decision_choices WHERE id = ?').run('approve-internal'),
+    /decision_choices are append-only/,
+  );
+  const activity = core.handle(request('query.project.activity', { project_id: projectId }, 'decision-activity'));
+  assert.ok(activity.result.events.some((event) => event.event_type === 'DECISION_REQUEST_RESOLVED'));
+  core.close();
+  const reopened = new CoreService({ dbPath });
+  const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
+  assert.equal(persisted.ok, true);
+  assert.equal(persisted.result.state, 'RESOLVED');
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 4);
+  reopened.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
 test('asset intake hashes bytes, stages a durable object and preserves redacted provenance', () => {
   const { dbPath, directory } = tempDb();
   const assetStorePath = path.join(directory, 'asset-store');

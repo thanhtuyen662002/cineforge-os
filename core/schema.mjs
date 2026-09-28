@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -97,6 +97,61 @@ export function initializeDatabase(db) {
       created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
       created_at_utc_us INTEGER NOT NULL
     );
+
+    /*
+     * Canonical human decision inbox.  A DecisionRequest is durable domain
+     * state, not a presentation notification: its choices and evidence are
+     * immutable, while the request state advances through Core commands with
+     * optimistic decision-version checks.  JSON fields carry structured,
+     * locale-neutral arguments and evidence references; they are never
+     * interpreted as executable commands by this table.
+     */
+    CREATE TABLE IF NOT EXISTS decision_requests (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id),
+      decision_type TEXT NOT NULL,
+      title_key TEXT NOT NULL,
+      reason_key TEXT NOT NULL,
+      reason_args_json TEXT NOT NULL DEFAULT '{}',
+      blocking_scope_type TEXT NOT NULL
+        CHECK (blocking_scope_type IN ('TASK', 'SHOT', 'SCENE', 'PROJECT', 'RELEASE', 'SYSTEM')),
+      blocking_scope_id TEXT,
+      affected_entities_json TEXT NOT NULL DEFAULT '[]',
+      evidence_json TEXT NOT NULL DEFAULT '[]',
+      default_behavior_json TEXT NOT NULL DEFAULT '{}',
+      severity TEXT NOT NULL DEFAULT 'NORMAL'
+        CHECK (severity IN ('LOW', 'NORMAL', 'HIGH', 'CRITICAL')),
+      state TEXT NOT NULL DEFAULT 'OPEN'
+        CHECK (state IN ('OPEN', 'RESOLVED', 'DISMISSED', 'EXPIRED', 'OBSOLETE')),
+      recommended_choice_id TEXT,
+      deadline_at_utc_us INTEGER,
+      required_authority TEXT NOT NULL DEFAULT 'LOCAL_ACTOR',
+      created_by_event_seq INTEGER NOT NULL,
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1,
+      resolved_choice_id TEXT,
+      resolved_by_actor_id TEXT REFERENCES actors(id),
+      resolved_at_utc_us INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS decision_requests_project_state_idx
+      ON decision_requests(project_id, state, severity, created_at_utc_us DESC);
+    CREATE INDEX IF NOT EXISTS decision_requests_scope_idx
+      ON decision_requests(blocking_scope_type, blocking_scope_id, state);
+
+    CREATE TABLE IF NOT EXISTS decision_choices (
+      id TEXT PRIMARY KEY,
+      decision_request_id TEXT NOT NULL REFERENCES decision_requests(id),
+      label_key TEXT NOT NULL,
+      command_template_json TEXT NOT NULL DEFAULT '{}',
+      consequence_summary_json TEXT NOT NULL DEFAULT '{}',
+      recommended INTEGER NOT NULL DEFAULT 0 CHECK (recommended IN (0, 1)),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(decision_request_id, sort_order)
+    );
+    CREATE INDEX IF NOT EXISTS decision_choices_request_idx
+      ON decision_choices(decision_request_id, sort_order, id);
 
     /*
      * Asset/intake foundation.  The database records identity, provenance
@@ -337,6 +392,15 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS notes_no_delete
       BEFORE DELETE ON notes
       BEGIN SELECT RAISE(ABORT, 'notes are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS decision_requests_no_delete
+      BEFORE DELETE ON decision_requests
+      BEGIN SELECT RAISE(ABORT, 'decision_requests are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS decision_choices_no_update
+      BEFORE UPDATE ON decision_choices
+      BEGIN SELECT RAISE(ABORT, 'decision_choices are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS decision_choices_no_delete
+      BEFORE DELETE ON decision_choices
+      BEGIN SELECT RAISE(ABORT, 'decision_choices are append-only'); END;
   `);
 
   // v3 adds a durable request binding for idempotency keys.  CREATE TABLE IF
@@ -363,9 +427,9 @@ export function initializeDatabase(db) {
     }
   }
 
-  // Keep a durable migration ledger.  The v2 tables above are idempotent so
-  // an interrupted upgrade can be resumed safely; recording v1/v2 for a fresh
-  // installation preserves the historical baseline before recording v3.
+  // Keep a durable migration ledger.  The v2/v4 tables above are idempotent so
+  // an interrupted upgrade can be resumed safely; recording every historical
+  // version for a fresh installation preserves the baseline.
   const migrationVersions = new Set(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => Number(row.version)));
   for (let version = 1; version <= SCHEMA_VERSION; version += 1) {
     if (!migrationVersions.has(version)) {

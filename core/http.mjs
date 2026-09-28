@@ -7,7 +7,7 @@ function statusFor(response) {
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
   if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'EXPECTED_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH'].includes(code)) return 409;
+  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN'].includes(code)) return 409;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
   if (response.error?.category === 'INTERNAL') return 500;
@@ -112,6 +112,46 @@ function mapProject(source) {
   };
 }
 
+function mapDecision(source) {
+  const value = source && typeof source === 'object' ? source : {};
+  const projectId = readString(value, 'project_id', 'projectId');
+  const projectName = readString(value, 'project_title', 'project_name', 'projectName') ?? (projectId ? projectId : 'CineForge');
+  const title = readString(value, 'title') ?? readString(value, 'title_key') ?? 'Decision request';
+  const reason = readString(value, 'reason') ?? readString(value, 'reason_key') ?? '';
+  const severity = (readString(value, 'severity') ?? 'NORMAL').toUpperCase();
+  const choices = Array.isArray(value.choices) ? value.choices.map((choice) => {
+    const item = choice && typeof choice === 'object' ? choice : {};
+    return {
+      ...item,
+      id: readString(item, 'id', 'choice_id') ?? crypto.randomUUID(),
+      label_key: readString(item, 'label_key', 'label') ?? 'decision.choice',
+      label: readString(item, 'label') ?? readString(item, 'label_key') ?? 'Choose',
+      command_template: item.command_template ?? item.commandTemplate ?? {},
+      consequence_summary: item.consequence_summary ?? item.consequenceSummary ?? {},
+      recommended: Boolean(item.recommended),
+    };
+  }) : [];
+  const recommended = choices.find((choice) => choice.recommended) ?? choices[0];
+  const decisionVersion = Number(value.decision_version ?? value.decisionVersion ?? value.row_version ?? 1);
+  return {
+    ...value,
+    id: readString(value, 'id') ?? crypto.randomUUID(),
+    project_id: projectId,
+    projectId,
+    project_title: projectName,
+    projectName,
+    title,
+    detail: readString(value, 'detail') ?? reason,
+    reason,
+    age: readString(value, 'age') ?? readString(value, 'created_at', 'createdAt') ?? '—',
+    priority: severity === 'CRITICAL' || severity === 'HIGH' ? 'high' : 'normal',
+    actionLabel: readString(value, 'action_label', 'actionLabel') ?? recommended?.label ?? 'Review',
+    decision_version: Number.isSafeInteger(decisionVersion) && decisionVersion > 0 ? decisionVersion : 1,
+    decisionVersion: Number.isSafeInteger(decisionVersion) && decisionVersion > 0 ? decisionVersion : 1,
+    choices,
+  };
+}
+
 function mapProductionItem(source, title) {
   return {
     id: readString(source, 'id') ?? readString(source, 'task_id') ?? crypto.randomUUID(),
@@ -190,10 +230,13 @@ function mapAssetList(result) {
 
 function mapDashboard(result) {
   const health = result?.system_health ?? result?.systemHealth ?? {};
+  const needsYou = Array.isArray(result?.needs_you)
+    ? result.needs_you
+    : Array.isArray(result?.needs_you?.items) ? result.needs_you.items : [];
   return {
     generatedAt: result.generated_at ?? new Date().toISOString(),
     projects: Array.isArray(result.projects) ? result.projects.map(mapProject) : [],
-    decisions: [],
+    decisions: needsYou.map(mapDecision),
     activity: Array.isArray(result.activity) ? result.activity.map(mapActivity) : [],
     system: {
       connected: String(health.status ?? 'READY').toUpperCase() === 'READY',
@@ -388,11 +431,45 @@ export function createCoreHttpServer(core, options = {}) {
         result = command(core, request, body.command_type, body.payload ?? {}, body.expected_versions ?? {}, commandKey(request, body));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'commands' && parts[2] && parts[3] === 'cancel') {
         result = core.handle({ request_id: requestId(request), api_version: '1', method: 'command.cancel', params: { command_id: parts[2] } });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'decisions' && parts.length === 2) {
+        const listed = query(core, request, 'query.decisions.list', {
+          project_id: url.searchParams.get('project_id') ?? undefined,
+          state: url.searchParams.get('state') ?? 'OPEN',
+          severity: url.searchParams.get('severity') ?? undefined,
+          limit: url.searchParams.get('limit') ?? 100,
+        });
+        result = listed.ok ? { ...listed, result: { ...listed.result, items: listed.result.items.map(mapDecision) } } : listed;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'decisions' && parts[2] && parts.length === 3) {
+        const found = query(core, request, 'query.needs_you.get', { decision_request_id: parts[2] });
+        result = found.ok ? { ...found, result: mapDecision(found.result) } : found;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'decisions' && parts[2] && parts[3] === 'resolve' && parts.length === 4) {
+        const decisionId = parts[2];
+        const expected = body.expected_versions ?? body.expectedVersions ?? (body.expected_decision_version ?? body.expectedDecisionVersion ?? body.decision_version ?? body.decisionVersion
+          ? { DECISION_REQUEST: body.expected_decision_version ?? body.expectedDecisionVersion ?? body.decision_version ?? body.decisionVersion } : {});
+        result = command(core, request, 'ResolveDecisionRequest', {
+          ...body, decision_request_id: decisionId, expected_decision_version: body.expected_decision_version ?? body.expectedDecisionVersion ?? body.decision_version ?? body.decisionVersion,
+        }, expected, commandKey(request, body));
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'decisions' && parts[2] && parts[3] === 'dismiss' && parts.length === 4) {
+        const decisionId = parts[2];
+        const expected = body.expected_versions ?? body.expectedVersions ?? (body.expected_decision_version ?? body.expectedDecisionVersion ?? body.decision_version ?? body.decisionVersion
+          ? { DECISION_REQUEST: body.expected_decision_version ?? body.expectedDecisionVersion ?? body.decision_version ?? body.decisionVersion } : {});
+        result = command(core, request, 'DismissDecisionRequest', {
+          ...body, decision_request_id: decisionId, expected_decision_version: body.expected_decision_version ?? body.expectedDecisionVersion ?? body.decision_version ?? body.decisionVersion,
+        }, expected, commandKey(request, body));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'decisions' && parts[2] && parts[3] === 'ack') {
-        // Decision acknowledgements are intentionally idempotent at this
-        // presentation boundary. Decision records will be wired to the full
-        // DecisionRequest aggregate in the next product slice.
-        result = { ok: true, decision_id: parts[2], status: 'ACKNOWLEDGED' };
+        // Legacy presentation clients may still send /ack. Keep the route
+        // stable while directing known records through the canonical dismiss
+        // command; unknown IDs retain the old idempotent acknowledgement
+        // response until those clients migrate to /dismiss.
+        const found = query(core, request, 'query.needs_you.get', { decision_request_id: parts[2] });
+        if (found.ok) {
+          const currentVersion = Number(found.result.decision_version ?? found.result.row_version ?? 1);
+          result = command(core, request, 'DismissDecisionRequest', {
+            ...body, decision_request_id: parts[2], expected_decision_version: body.expected_decision_version ?? currentVersion,
+          }, { DECISION_REQUEST: body.expected_decision_version ?? currentVersion }, commandKey(request, body));
+        } else {
+          result = { ok: true, decision_id: parts[2], status: 'ACKNOWLEDGED' };
+        }
       } else {
         result = errorBody('NOT_FOUND', 'errors.route_not_found', { path: url.pathname });
       }

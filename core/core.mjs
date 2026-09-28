@@ -19,6 +19,9 @@ const PROJECT_STATES = new Set(['ACTIVE', 'PAUSED', 'ARCHIVED', 'TRASHED']);
 const TASK_STATES = new Set(['PLANNED', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED']);
 const SHOT_STATES = new Set(['ACTIVE', 'PAUSED', 'ARCHIVED', 'TRASHED']);
 const NOTE_ENTITY_TYPES = new Set(['PROJECT', 'TASK', 'SHOT']);
+const DECISION_STATES = new Set(['OPEN', 'RESOLVED', 'DISMISSED', 'EXPIRED', 'OBSOLETE']);
+const DECISION_SCOPE_TYPES = new Set(['TASK', 'SHOT', 'SCENE', 'PROJECT', 'RELEASE', 'SYSTEM']);
+const DECISION_SEVERITIES = new Set(['LOW', 'NORMAL', 'HIGH', 'CRITICAL']);
 const ASSET_ORIGIN_TYPES = new Set(['IMPORTED', 'GENERATED', 'RECORDED', 'EXTERNAL_EDIT', 'HANDOFF_RETURN', 'SYSTEM']);
 const ASSET_STORAGE_MODES = new Set(['COPY', 'REFERENCE']);
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
@@ -114,6 +117,50 @@ function optionalString(value, field, maxLength = 10000, fallback = '') {
   return value;
 }
 
+function structuredValue(value, field, fallback, expectedKind, maxBytes = 128 * 1024) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== expectedKind || Array.isArray(value) !== (expectedKind === 'object' && Array.isArray(value))) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  }
+  let encoded;
+  try { encoded = JSON.stringify(value); } catch {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  }
+  if (Buffer.byteLength(encoded, 'utf8') > maxBytes) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.field_too_large', { field, max_bytes: maxBytes });
+  }
+  return value;
+}
+
+function objectValue(value, field, fallback = {}) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  }
+  return structuredValue(value, field, fallback, 'object');
+}
+
+function arrayValue(value, field, fallback = []) {
+  if (value === undefined || value === null) return fallback;
+  if (!Array.isArray(value)) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  }
+  return structuredValue(value, field, fallback, 'object');
+}
+
+function utcUsValue(value, field) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) {
+    const numeric = Number(value);
+    if (Number.isSafeInteger(numeric) && numeric >= 0) return numeric;
+  }
+  if (typeof value === 'string') {
+    const millis = Date.parse(value);
+    if (Number.isFinite(millis) && millis >= 0 && Number.isSafeInteger(millis * 1000)) return millis * 1000;
+  }
+  throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+}
+
 function slugify(value) {
   return value.normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -155,6 +202,60 @@ function publicShot(row) {
 function publicNote(row) {
   const out = rowObject(row);
   if (out?.created_at_utc_us !== undefined) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  return out;
+}
+
+function publicDecisionChoice(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.command_template = parseJson(out.command_template_json, {});
+  out.consequence_summary = parseJson(out.consequence_summary_json, {});
+  out.recommended = Boolean(Number(out.recommended));
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) {
+    out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  }
+  delete out.command_template_json;
+  delete out.consequence_summary_json;
+  delete out.created_at_utc_us;
+  return out;
+}
+
+function publicDecision(row, choices = [], projectTitle = null) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.reason_args = parseJson(out.reason_args_json, {});
+  out.affected_entities = parseJson(out.affected_entities_json, []);
+  out.evidence = parseJson(out.evidence_json, []);
+  out.default_behavior = parseJson(out.default_behavior_json, {});
+  out.title = out.title_key;
+  out.reason = out.reason_key;
+  out.project_title = projectTitle ?? null;
+  out.decision_version = Number(out.row_version);
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) {
+    out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  }
+  if (out.updated_at_utc_us !== undefined && out.updated_at_utc_us !== null) {
+    out.updated_at = rfc3339FromUs(out.updated_at_utc_us);
+  }
+  if (out.deadline_at_utc_us !== undefined && out.deadline_at_utc_us !== null) {
+    out.deadline_at = rfc3339FromUs(out.deadline_at_utc_us);
+  } else {
+    out.deadline_at = null;
+  }
+  if (out.resolved_at_utc_us !== undefined && out.resolved_at_utc_us !== null) {
+    out.resolved_at = rfc3339FromUs(out.resolved_at_utc_us);
+  } else {
+    out.resolved_at = null;
+  }
+  out.choices = choices.map(publicDecisionChoice).filter(Boolean);
+  delete out.reason_args_json;
+  delete out.affected_entities_json;
+  delete out.evidence_json;
+  delete out.default_behavior_json;
+  delete out.created_at_utc_us;
+  delete out.updated_at_utc_us;
+  delete out.deadline_at_utc_us;
+  delete out.resolved_at_utc_us;
   return out;
 }
 
@@ -354,6 +455,26 @@ export class CoreService {
     const row = this.db.prepare('SELECT * FROM shots WHERE id = ?').get(shotId);
     if (!row) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.shot_not_found', { shot_id: shotId });
     return row;
+  }
+
+  _decision(decisionRequestId) {
+    const id = requiredString(decisionRequestId, 'decision_request_id');
+    const row = this.db.prepare('SELECT * FROM decision_requests WHERE id = ?').get(id);
+    if (!row) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.decision_request_not_found', { decision_request_id: id });
+    return row;
+  }
+
+  _decisionChoices(decisionRequestId) {
+    return this.db.prepare(`SELECT * FROM decision_choices
+      WHERE decision_request_id = ? ORDER BY sort_order ASC, id ASC`).all(decisionRequestId);
+  }
+
+  _publicDecision(row) {
+    if (!row) return null;
+    const projectTitle = row.project_id
+      ? this.db.prepare('SELECT title FROM projects WHERE id = ?').get(row.project_id)?.title ?? row.project_id
+      : null;
+    return publicDecision(row, this._decisionChoices(row.id), projectTitle);
   }
 
   _asset(assetId) {
@@ -658,9 +779,10 @@ export class CoreService {
         const operation = this._applyCommand(commandType, payload, expectedVersions, commandId);
         const eventSeq = this._insertEvent(operation.event, commandId, this.actorId, input.correlation_id ?? null, input.causation_id ?? null);
         this._insertAudit(operation.audit, commandId, this.actorId, 'SUCCEEDED');
-        const canonicalKey = commandType.includes('Note') || commandType === 'AddNote' ? 'note'
-          : commandType.includes('Task') ? 'task'
-            : commandType.includes('Shot') ? 'shot' : null;
+        const canonicalKey = commandType.includes('Decision') ? 'decision'
+          : commandType.includes('Note') || commandType === 'AddNote' ? 'note'
+            : commandType.includes('Task') ? 'task'
+              : commandType.includes('Shot') ? 'shot' : null;
         const result = {
           ...operation.result,
           ...(canonicalKey ? { [canonicalKey]: operation.result } : {}),
@@ -701,6 +823,13 @@ export class CoreService {
     const entityId = payload.entity_id ?? payload.entityId;
     const derivesTask = ['UpdateTask', 'AddTaskNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'TASK');
     const derivesShot = ['UpdateShot', 'AddShotNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'SHOT');
+    if (['ResolveDecisionRequest', 'DismissDecisionRequest', 'ObsoleteDecisionRequest'].includes(commandType)) {
+      const decisionId = payload.decision_request_id ?? payload.decisionRequestId;
+      if (decisionId) {
+        const decision = this.db.prepare('SELECT project_id FROM decision_requests WHERE id = ?').get(decisionId);
+        if (decision) return decision.project_id ?? null;
+      }
+    }
     if (derivesTask) {
       const taskId = commandType === 'AddNote'
         ? entityId
@@ -755,6 +884,10 @@ export class CoreService {
       case 'UpdateTask': return this._updateTask(payload, expectedVersions);
       case 'CreateShot': return this._createShot(payload);
       case 'UpdateShot': return this._updateShot(payload, expectedVersions);
+      case 'CreateDecisionRequest': return this._createDecisionRequest(payload);
+      case 'ResolveDecisionRequest': return this._resolveDecisionRequest(payload, expectedVersions);
+      case 'DismissDecisionRequest': return this._dismissDecisionRequest(payload, expectedVersions);
+      case 'ObsoleteDecisionRequest': return this._obsoleteDecisionRequest(payload, expectedVersions);
       case 'ImportAsset':
       case 'RegisterAsset':
       case 'ImportLocalAsset': return this._importAsset(payload);
@@ -948,6 +1081,274 @@ export class CoreService {
       result: publicShot(shot),
       event: { aggregateType: 'SHOT', aggregateId: shotId, aggregateVersion: version, eventType: 'SHOT_UPDATED', payload: publicShot(shot) },
       audit: { actionType: 'shot.update', targetType: 'SHOT', targetId: shotId, payload: { row_version: version } },
+    };
+  }
+
+  _decisionExpectedVersion(payload, expectedVersions, current) {
+    let expected = payload.expected_decision_version ?? payload.expectedDecisionVersion;
+    if (expected === undefined || expected === null) {
+      for (const key of ['DECISION_REQUEST', 'DECISION', 'decision_request', 'decision', current.id]) {
+        if (Object.prototype.hasOwnProperty.call(expectedVersions ?? {}, key)) {
+          expected = expectedVersions[key];
+          break;
+        }
+      }
+    }
+    if (expected === undefined || expected === null) {
+      throw new CoreError('EXPECTED_VERSION_REQUIRED', 'CONFLICT', 'errors.expected_decision_version_required', {
+        decision_request_id: current.id,
+      }, { needsUser: true });
+    }
+    const numeric = Number(expected);
+    if (!Number.isSafeInteger(numeric) || numeric < 1) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_decision_version', {
+        decision_request_id: current.id,
+      });
+    }
+    if (numeric !== Number(current.row_version)) {
+      throw new CoreError('STALE_DECISION', 'CONFLICT', 'errors.stale_decision', {
+        decision_request_id: current.id, expected: numeric, current: Number(current.row_version),
+      }, { needsUser: true });
+    }
+  }
+
+  _assertDecisionAuthority(current) {
+    const actor = this.db.prepare('SELECT actor_type, status FROM actors WHERE id = ?').get(this.actorId);
+    if (!actor || actor.status !== 'ACTIVE') {
+      throw new CoreError('AUTH_REQUIRED', 'AUTH_REQUIRED', 'errors.actor_disabled', {}, { needsUser: true });
+    }
+    const authority = String(current.required_authority ?? 'LOCAL_ACTOR').trim().toUpperCase();
+    // V1 has one local human actor and no role/authority registry yet.  Keep
+    // the gate explicit: known local authorities are accepted, while a
+    // request that requires an unavailable role remains actionable and safe.
+    if (!['LOCAL_ACTOR', 'HUMAN', 'ANY'].includes(authority) || actor.actor_type !== 'HUMAN') {
+      throw new CoreError('AUTHORITY_REQUIRED', 'AUTH_REQUIRED', 'errors.decision_authority_required', {
+        required_authority: current.required_authority,
+      }, { needsUser: true });
+    }
+  }
+
+  _assertDecisionOpen(current) {
+    if (current.state === 'OBSOLETE' || current.state === 'EXPIRED') {
+      throw new CoreError('STALE_DECISION', 'CONFLICT', 'errors.stale_decision', {
+        decision_request_id: current.id, state: current.state,
+      }, { needsUser: true });
+    }
+    if (current.state !== 'OPEN') {
+      throw new CoreError('DECISION_NOT_OPEN', 'CONFLICT', 'errors.decision_not_open', {
+        decision_request_id: current.id, state: current.state,
+      }, { needsUser: true });
+    }
+  }
+
+  _decisionProject(current, payload) {
+    if (!current.project_id) {
+      const suppliedProjectId = payload?.project_id ?? payload?.projectId;
+      if (suppliedProjectId !== undefined && suppliedProjectId !== null) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+          entity_type: 'DECISION_REQUEST', entity_id: current.id, project_id: suppliedProjectId, actual_project_id: null,
+        }, { needsUser: true });
+      }
+      return null;
+    }
+    const project = this._project(current.project_id);
+    this._assertPayloadProjectScope(payload, project.id, 'DECISION_REQUEST', current.id);
+    return project;
+  }
+
+  _createDecisionRequest(payload) {
+    const decisionType = requiredString(payload.decision_type ?? payload.decisionType ?? 'HUMAN_DECISION', 'decision_type', 120).toUpperCase();
+    const titleKey = requiredString(payload.title_key ?? payload.title, 'title_key', 500);
+    const reasonKey = requiredString(payload.reason_key ?? payload.reason, 'reason_key', 500);
+    const scopeType = String(payload.blocking_scope_type ?? payload.blockingScopeType ?? 'SYSTEM').trim().toUpperCase();
+    if (!DECISION_SCOPE_TYPES.has(scopeType)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_decision_scope', { blocking_scope_type: scopeType });
+    }
+    const scopeId = payload.blocking_scope_id ?? payload.blockingScopeId ?? null;
+    if (scopeType !== 'SYSTEM' && (typeof scopeId !== 'string' || scopeId.trim().length === 0)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.decision_scope_id_required', { blocking_scope_type: scopeType });
+    }
+    const severity = String(payload.severity ?? 'NORMAL').trim().toUpperCase();
+    if (!DECISION_SEVERITIES.has(severity)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_decision_severity', { severity });
+    }
+    const projectIdFromPayload = payload.project_id ?? payload.projectId ?? null;
+    let project = projectIdFromPayload ? this._project(projectIdFromPayload) : null;
+    if (scopeType === 'PROJECT') {
+      if (!project) project = this._project(scopeId);
+      if (scopeId !== project.id) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+          entity_type: 'PROJECT', entity_id: scopeId, project_id: project.id,
+        }, { needsUser: true });
+      }
+    }
+    if (scopeType === 'TASK') {
+      const task = this._task(scopeId);
+      if (project && task.project_id !== project.id) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+          entity_type: 'TASK', entity_id: scopeId, project_id: project.id, actual_project_id: task.project_id,
+        }, { needsUser: true });
+      }
+      project = this._project(task.project_id);
+    }
+    if (scopeType === 'SHOT') {
+      const shot = this._shot(scopeId);
+      if (project && shot.project_id !== project.id) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+          entity_type: 'SHOT', entity_id: scopeId, project_id: project.id, actual_project_id: shot.project_id,
+        }, { needsUser: true });
+      }
+      project = this._project(shot.project_id);
+    }
+    if (project) this._assertProjectWritable(project);
+
+    const choicesInput = payload.choices;
+    if (!Array.isArray(choicesInput) || choicesInput.length < 1 || choicesInput.length > 32) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.decision_choices_required', {});
+    }
+    const choices = [];
+    const choiceIds = new Set();
+    let recommendedId = payload.recommended_choice_id ?? payload.recommendedChoiceId ?? null;
+    for (let index = 0; index < choicesInput.length; index += 1) {
+      const input = choicesInput[index];
+      if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_decision_choice', { index });
+      }
+      const id = requiredString(input.id ?? input.choice_id ?? uuidv7(), 'choice_id', 200);
+      if (choiceIds.has(id)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.duplicate_decision_choice', { choice_id: id });
+      choiceIds.add(id);
+      const labelKey = requiredString(input.label_key ?? input.label, 'label_key', 500);
+      const commandTemplate = objectValue(input.command_template ?? input.commandTemplate, 'command_template', {});
+      const consequenceSummary = objectValue(input.consequence_summary ?? input.consequenceSummary, 'consequence_summary', {});
+      const recommended = Boolean(input.recommended);
+      if (recommended && recommendedId === null) recommendedId = id;
+      choices.push({ id, labelKey, commandTemplate, consequenceSummary, recommended, sortOrder: index });
+    }
+    if (recommendedId !== null && (!choiceIds.has(recommendedId) || typeof recommendedId !== 'string')) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_recommended_choice', { choice_id: recommendedId });
+    }
+    const recommendedCount = choices.filter((choice) => choice.recommended).length;
+    if (recommendedCount > 1 && recommendedId === null) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.multiple_recommended_choices', {});
+    }
+    if (recommendedId !== null) {
+      for (const choice of choices) choice.recommended = choice.id === recommendedId;
+    }
+
+    const reasonArgs = objectValue(payload.reason_args ?? payload.reasonArgs, 'reason_args', {});
+    const affectedEntities = arrayValue(payload.affected_entities ?? payload.affectedEntities, 'affected_entities', []);
+    const evidence = arrayValue(payload.evidence, 'evidence', []);
+    const defaultBehavior = objectValue(payload.default_behavior ?? payload.defaultBehavior, 'default_behavior', { action: 'DO_NOTHING' });
+    const deadline = utcUsValue(payload.deadline_at_utc_us ?? payload.deadlineAtUtcUs ?? payload.deadline_at ?? payload.deadlineAt, 'deadline_at');
+    const requiredAuthority = requiredString(payload.required_authority ?? payload.requiredAuthority ?? 'LOCAL_ACTOR', 'required_authority', 120).toUpperCase();
+    const projectId = project?.id ?? projectIdFromPayload;
+    if (projectId && !project) project = this._project(projectId);
+    const decisionId = uuidv7();
+    const created = nowUtcUs();
+    // Core is the single writer; the next event sequence is deterministic
+    // inside this transaction and is recorded as the creation provenance.
+    const createdByEventSeq = Number(this.db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM domain_events').get().seq) + 1;
+    this.db.prepare(`INSERT INTO decision_requests
+      (id, project_id, decision_type, title_key, reason_key, reason_args_json,
+       blocking_scope_type, blocking_scope_id, affected_entities_json, evidence_json,
+       default_behavior_json, severity, state, recommended_choice_id,
+       deadline_at_utc_us, required_authority, created_by_event_seq,
+       created_at_utc_us, updated_at_utc_us, row_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, 1)`).run(
+      decisionId, projectId ?? null, decisionType, titleKey, reasonKey, json(reasonArgs),
+      scopeType, scopeType === 'SYSTEM' ? null : scopeId, json(affectedEntities), json(evidence),
+      json(defaultBehavior), severity, recommendedId, deadline, requiredAuthority,
+      createdByEventSeq, created, created,
+    );
+    const insertChoice = this.db.prepare(`INSERT INTO decision_choices
+      (id, decision_request_id, label_key, command_template_json, consequence_summary_json,
+       recommended, sort_order, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const choice of choices) {
+      insertChoice.run(choice.id, decisionId, choice.labelKey, json(choice.commandTemplate), json(choice.consequenceSummary), choice.recommended ? 1 : 0, choice.sortOrder, created);
+    }
+    const decision = this.db.prepare('SELECT * FROM decision_requests WHERE id = ?').get(decisionId);
+    const publicView = this._publicDecision(decision);
+    return {
+      projectId: projectId ?? null,
+      decision: publicView,
+      result: publicView,
+      event: { aggregateType: 'DECISION_REQUEST', aggregateId: decisionId, aggregateVersion: 1, eventType: 'DECISION_REQUEST_CREATED', payload: publicView },
+      audit: { actionType: 'decision.create', targetType: 'DECISION_REQUEST', targetId: decisionId, payload: { project_id: projectId ?? null, decision_type: decisionType, severity } },
+    };
+  }
+
+  _resolveDecisionRequest(payload, expectedVersions) {
+    const decisionId = payload.decision_request_id ?? payload.decisionRequestId;
+    const current = this._decision(decisionId);
+    const project = this._decisionProject(current, payload);
+    this._decisionExpectedVersion(payload, expectedVersions, current);
+    this._assertDecisionOpen(current);
+    this._assertDecisionAuthority(current);
+    const choiceId = requiredString(payload.choice_id ?? payload.choiceId, 'choice_id', 200);
+    const choice = this.db.prepare('SELECT * FROM decision_choices WHERE id = ? AND decision_request_id = ?').get(choiceId, current.id);
+    if (!choice) {
+      throw new CoreError('INVALID_DECISION_CHOICE', 'CONFLICT', 'errors.invalid_decision_choice', {
+        decision_request_id: current.id, choice_id: choiceId,
+      }, { needsUser: true });
+    }
+    const resolvedAt = nowUtcUs();
+    const version = Number(current.row_version) + 1;
+    this.db.prepare(`UPDATE decision_requests SET state = 'RESOLVED', resolved_choice_id = ?,
+      resolved_by_actor_id = ?, resolved_at_utc_us = ?, updated_at_utc_us = ?, row_version = ?
+      WHERE id = ?`).run(choiceId, this.actorId, resolvedAt, resolvedAt, version, current.id);
+    const updated = this.db.prepare('SELECT * FROM decision_requests WHERE id = ?').get(current.id);
+    const publicView = this._publicDecision(updated);
+    return {
+      projectId: project?.id ?? current.project_id ?? null,
+      decision: publicView,
+      result: publicView,
+      event: { aggregateType: 'DECISION_REQUEST', aggregateId: current.id, aggregateVersion: version, eventType: 'DECISION_REQUEST_RESOLVED', payload: { ...publicView, choice_id: choiceId } },
+      audit: { actionType: 'decision.resolve', targetType: 'DECISION_REQUEST', targetId: current.id, payload: { choice_id: choiceId, decision_version: version } },
+    };
+  }
+
+  _dismissDecisionRequest(payload, expectedVersions) {
+    const decisionId = payload.decision_request_id ?? payload.decisionRequestId;
+    const current = this._decision(decisionId);
+    const project = this._decisionProject(current, payload);
+    this._decisionExpectedVersion(payload, expectedVersions, current);
+    this._assertDecisionOpen(current);
+    this._assertDecisionAuthority(current);
+    const resolvedAt = nowUtcUs();
+    const version = Number(current.row_version) + 1;
+    this.db.prepare(`UPDATE decision_requests SET state = 'DISMISSED', resolved_choice_id = NULL,
+      resolved_by_actor_id = ?, resolved_at_utc_us = ?, updated_at_utc_us = ?, row_version = ?
+      WHERE id = ?`).run(this.actorId, resolvedAt, resolvedAt, version, current.id);
+    const updated = this.db.prepare('SELECT * FROM decision_requests WHERE id = ?').get(current.id);
+    const publicView = this._publicDecision(updated);
+    return {
+      projectId: project?.id ?? current.project_id ?? null,
+      decision: publicView,
+      result: publicView,
+      event: { aggregateType: 'DECISION_REQUEST', aggregateId: current.id, aggregateVersion: version, eventType: 'DECISION_REQUEST_DISMISSED', payload: publicView },
+      audit: { actionType: 'decision.dismiss', targetType: 'DECISION_REQUEST', targetId: current.id, payload: { decision_version: version } },
+    };
+  }
+
+  _obsoleteDecisionRequest(payload, expectedVersions) {
+    const decisionId = payload.decision_request_id ?? payload.decisionRequestId;
+    const current = this._decision(decisionId);
+    const project = this._decisionProject(current, payload);
+    this._decisionExpectedVersion(payload, expectedVersions, current);
+    this._assertDecisionOpen(current);
+    const changedAt = nowUtcUs();
+    const version = Number(current.row_version) + 1;
+    this.db.prepare(`UPDATE decision_requests SET state = 'OBSOLETE', updated_at_utc_us = ?, row_version = ?
+      WHERE id = ?`).run(changedAt, version, current.id);
+    const updated = this.db.prepare('SELECT * FROM decision_requests WHERE id = ?').get(current.id);
+    const publicView = this._publicDecision(updated);
+    return {
+      projectId: project?.id ?? current.project_id ?? null,
+      decision: publicView,
+      result: publicView,
+      event: { aggregateType: 'DECISION_REQUEST', aggregateId: current.id, aggregateVersion: version, eventType: 'DECISION_REQUEST_OBSOLETED', payload: publicView },
+      audit: { actionType: 'decision.obsolete', targetType: 'DECISION_REQUEST', targetId: current.id, payload: { decision_version: version } },
     };
   }
 
@@ -1311,6 +1712,7 @@ export class CoreService {
     if (aggregateType === 'TASK') return this.db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'SHOT') return this.db.prepare('SELECT project_id FROM shots WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'NOTE') return this.db.prepare('SELECT project_id FROM notes WHERE id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'DECISION_REQUEST') return this.db.prepare('SELECT project_id FROM decision_requests WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'ASSET_REVISION') return this.db.prepare(`SELECT a.project_id FROM asset_revisions r JOIN assets a ON a.id = r.asset_id WHERE r.id = ?`).get(aggregateId)?.project_id ?? null;
     return null;
   }
@@ -1393,7 +1795,7 @@ export class CoreService {
   query(method, params = {}) {
     switch (method) {
       case 'query.home':
-        return { projects: this._queryProjects(params), needs_you: [], activity: this._dashboardActivity(params), system_health: this._systemHealth(), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+        return { projects: this._queryProjects(params), needs_you: this._decisions({ ...params, state: 'OPEN' }), activity: this._dashboardActivity(params), system_health: this._systemHealth(), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
       case 'query.project.list':
       case 'query.projects':
         return { projects: this._queryProjects(params), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
@@ -1418,7 +1820,10 @@ export class CoreService {
       case 'query.entity.history': return this._entityHistory(params);
       case 'query.search': return this._search(params);
       case 'query.storage.summary': return this._storageSummary();
-      case 'query.needs_you.list': return { items: [], projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+      case 'query.needs_you.list': return this._needsYou(params);
+      case 'query.needs_you.get': return this._publicDecision(this._decision(params.decision_request_id ?? params.decisionRequestId ?? params.id));
+      case 'query.decisions.list': return { items: this._decisions(params), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+      case 'query.decisions.get': return this._publicDecision(this._decision(params.decision_request_id ?? params.decisionRequestId ?? params.id));
       case 'query.system.health':
       case 'health': return this._systemHealth();
       default: throw new CoreError('UNSUPPORTED_QUERY', 'VALIDATION', 'errors.unsupported_query', { method });
@@ -1508,6 +1913,37 @@ export class CoreService {
     return this.db.prepare('SELECT * FROM notes WHERE project_id = ? ORDER BY created_at_utc_us DESC, id DESC LIMIT ?').all(projectId, limit).map(publicNote);
   }
 
+  _decisions(params = {}) {
+    const projectId = params.project_id ?? params.projectId ?? null;
+    if (projectId) this._project(projectId);
+    const stateInput = params.state ?? params.states;
+    const state = stateInput === undefined || stateInput === null || stateInput === '' ? 'OPEN' : String(stateInput).trim().toUpperCase();
+    if (!DECISION_STATES.has(state)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_decision_state', { state });
+    }
+    const severity = params.severity === undefined || params.severity === null || params.severity === ''
+      ? null : String(params.severity).trim().toUpperCase();
+    if (severity !== null && !DECISION_SEVERITIES.has(severity)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_decision_severity', { severity });
+    }
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = this.db.prepare(`SELECT * FROM decision_requests
+      WHERE (? IS NULL OR project_id = ?)
+        AND state = ?
+        AND (? IS NULL OR severity = ?)
+      ORDER BY CASE severity
+        WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'NORMAL' THEN 2 ELSE 3 END,
+        CASE WHEN deadline_at_utc_us IS NULL THEN 1 ELSE 0 END,
+        deadline_at_utc_us ASC, created_at_utc_us DESC, id ASC LIMIT ?`)
+      .all(projectId, projectId, state, severity, severity, limit);
+    return rows.map((row) => this._publicDecision(row));
+  }
+
+  _needsYou(params = {}) {
+    const items = this._decisions({ ...params, state: 'OPEN' });
+    return { items, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
   _activity(projectId, params = {}) {
     this._project(projectId);
     const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 500);
@@ -1516,8 +1952,9 @@ export class CoreService {
         SELECT id FROM tasks WHERE project_id = ?
         UNION SELECT id FROM shots WHERE project_id = ?
         UNION SELECT id FROM notes WHERE project_id = ?
-        UNION SELECT id FROM asset_revisions WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?)
-      ) ORDER BY seq DESC LIMIT ?`).all(projectId, projectId, projectId, projectId, projectId, limit);
+       UNION SELECT id FROM asset_revisions WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?)
+       UNION SELECT id FROM decision_requests WHERE project_id = ?
+      ) ORDER BY seq DESC LIMIT ?`).all(projectId, projectId, projectId, projectId, projectId, projectId, limit);
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
