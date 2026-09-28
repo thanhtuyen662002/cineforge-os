@@ -777,7 +777,10 @@ function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: Da
   const records = snapshot.projects.flatMap((project) => (project.productionItems ?? []).map((item) => ({ project, item })))
 
   useEffect(() => {
-    if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
+    if (!projectId && snapshot.projects[0]) {
+      projectIdRef.current = snapshot.projects[0].id
+      setProjectId(snapshot.projects[0].id)
+    }
   }, [projectId, snapshot.projects])
 
   const loadAssets = useCallback(async (signal?: AbortSignal) => {
@@ -911,8 +914,18 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
   const [revisionPending, setRevisionPending] = useState(false)
   const createIntentRef = useRef<{ fingerprint: string; key: string } | null>(null)
   const revisionIntentRef = useRef<{ fingerprint: string; key: string } | null>(null)
+  const projectIdRef = useRef(projectId)
+  const selectedIdRef = useRef<string | null>(selectedId)
   const characterLoadGenerationRef = useRef(0)
   const workspaceLoadGenerationRef = useRef(0)
+
+  useEffect(() => {
+    projectIdRef.current = projectId
+  }, [projectId])
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
 
   useEffect(() => {
     if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
@@ -931,7 +944,11 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
       const next = await client.getCharacters(projectId || undefined, signal)
       if (signal?.aborted || generation !== characterLoadGenerationRef.current) return
       setCharacters(next)
-      setSelectedId((current) => current && next.some((item) => item.id === current) ? current : next[0]?.id ?? null)
+      setSelectedId((current) => {
+        const nextId = current && next.some((item) => item.id === current) ? current : next[0]?.id ?? null
+        selectedIdRef.current = nextId
+        return nextId
+      })
     } catch (cause) {
       if ((cause instanceof DOMException && cause.name === 'AbortError') || generation !== characterLoadGenerationRef.current) return
       setError(workspaceErrorMessage(cause, locale))
@@ -950,6 +967,7 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
 
   const loadWorkspace = useCallback(async (characterId: string, signal?: AbortSignal) => {
     const generation = ++workspaceLoadGenerationRef.current
+    selectedIdRef.current = characterId
     setSelectedId(characterId)
     if (!client.getCharacterWorkspace) {
       setWorkspace(characters.find((item) => item.id === characterId) ?? null)
@@ -973,6 +991,7 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
 
   useEffect(() => {
     if (!selectedId) {
+      selectedIdRef.current = null
       workspaceLoadGenerationRef.current += 1
       setWorkspace(null)
       setWorkspaceError(null)
@@ -987,17 +1006,24 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
     event.preventDefault()
     const cleanName = name.trim()
     if (!cleanName || !projectId || !client.createCharacter || creating) return
+    const requestedProjectId = projectId
     setCreating(true)
     setCreateError(null)
     setCreateNeedsUser(false)
-    const createFingerprint = `${projectId}\u001f${cleanName}\u001f${stableCode.trim()}`
+    const createFingerprint = `${requestedProjectId}\u001f${cleanName}\u001f${stableCode.trim()}`
     if (!createIntentRef.current || createIntentRef.current.fingerprint !== createFingerprint) {
       createIntentRef.current = { fingerprint: createFingerprint, key: `character-create:${crypto.randomUUID()}` }
     }
     try {
-      const created = await client.createCharacter(projectId, cleanName, stableCode.trim() || undefined, createIntentRef.current.key)
-      setCharacters((current) => [created, ...current.filter((item) => item.id !== created.id)])
-      setSelectedId(created.id)
+      const created = await client.createCharacter(requestedProjectId, cleanName, stableCode.trim() || undefined, createIntentRef.current.key)
+      // The user may switch projects while Core is processing the command.
+      // Only merge the result into a still-compatible list; the next project
+      // refresh owns the list for any other selection.
+      if (projectIdRef.current === requestedProjectId || projectIdRef.current === '') {
+        setCharacters((current) => [created, ...current.filter((item) => item.id !== created.id)])
+        selectedIdRef.current = created.id
+        setSelectedId(created.id)
+      }
       setName('')
       setStableCode('')
       createIntentRef.current = null
@@ -1013,6 +1039,7 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
   const createRevision = async (event: FormEvent) => {
     event.preventDefault()
     if (!selectedId || !revisionDescription.trim() || revisionPending) return
+    const requestedCharacterId = selectedId
     const action = revisionKind === 'visual' ? client.createVisualIdentityRevision : revisionKind === 'voice' ? client.createVoiceIdentityRevision : client.createPerformanceBibleRevision
     if (!action) {
       setWorkspaceError(locale === 'vi' ? 'Core chưa cung cấp command revision này.' : 'Core does not expose this revision command yet.')
@@ -1028,12 +1055,17 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
       if (!revisionIntentRef.current || revisionIntentRef.current.fingerprint !== revisionFingerprint) {
         revisionIntentRef.current = { fingerprint: revisionFingerprint, key: `character-${revisionKind}-revision:${crypto.randomUUID()}` }
       }
-      await action(selectedId, input, revisionIntentRef.current.key)
-      setRevisionDescription('')
-      revisionIntentRef.current = null
-      await loadWorkspace(selectedId)
+      await action(requestedCharacterId, input, revisionIntentRef.current.key)
+      // Keep a completion from an old selection from changing the current
+      // character or clearing a draft the user has started elsewhere.
+      if (selectedIdRef.current === requestedCharacterId) {
+        setRevisionDescription('')
+        revisionIntentRef.current = null
+        await loadWorkspace(requestedCharacterId)
+      }
       onToast(locale === 'vi' ? 'Đã lưu revision. Revision mới vẫn cần bước phê duyệt riêng.' : 'Revision saved. Approval remains a separate step.')
     } catch (cause) {
+      if (selectedIdRef.current !== requestedCharacterId) return
       const needsUser = cause instanceof CoreClientError && cause.needsUser
       setWorkspaceError(needsUser
         ? (locale === 'vi' ? 'Core cần bạn bổ sung quyền hoặc xử lý xung đột trước khi lưu.' : 'Core needs your rights or conflict decision before it can save this revision.')
@@ -1058,7 +1090,7 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
     <div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'CANON' : 'CANON'}</p><h1>{locale === 'vi' ? 'Nhân vật' : 'Characters'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Identity, visual, voice và performance được giữ thành các revision tách biệt do Core quản lý.' : 'Identity, visual, voice and performance remain separate Core-owned revisions.'}</p></div><div className="page-heading-actions"><button className="subtle-button tiny" onClick={() => void loadCharacters()}><RefreshCw size={13} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip"><UserRound size={15} />{characters.length}</span></div></div>
     {!connected && <div className="inline-state warning"><CloudOff size={14} /><span>{locale === 'vi' ? 'Core đang offline. Bạn có thể xem snapshot cục bộ; thay đổi canonical cần kết nối Core.' : 'Core is offline. You can view the local snapshot; canonical changes require Core.'}</span></div>}
      <div className="characters-grid">
-      <section className="workspace-panel characters-list-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><UserRound size={16} /></span><div><h2>{locale === 'vi' ? 'Danh sách nhân vật' : 'Character list'}</h2><p>{locale === 'vi' ? 'Chọn project để xem canon.' : 'Choose a project to view canon.'}</p></div></div><select className="character-project-select" value={projectId} onChange={(event) => { setProjectId(event.target.value); setSelectedId(null); setWorkspace(null); setWorkspaceError(null); setCreateError(null); setCreateNeedsUser(false) }} aria-label={locale === 'vi' ? 'Project nhân vật' : 'Character project'}><option value="">{locale === 'vi' ? 'Toàn workspace' : 'All projects'}</option>{snapshot.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></div>{loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc nhân vật từ Core…' : 'Reading characters from Core…'} /> : error ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button className="subtle-button tiny" onClick={() => void loadCharacters()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : characters.length === 0 ? <EmptyState icon={UserRound} title={locale === 'vi' ? 'Chưa có nhân vật' : 'No characters yet'} detail={locale === 'vi' ? 'Tạo CharacterIdentity đầu tiên. Các package sẽ được thêm bằng revision riêng.' : 'Create the first CharacterIdentity. Packages are added as separate revisions.'} /> : <div className="workspace-record-list">{characters.map((character) => <button type="button" className={`character-row ${selectedId === character.id ? 'active' : ''}`} key={character.id} onClick={() => setSelectedId(character.id)}><span className="character-avatar"><UserRound size={15} /></span><span className="workspace-record-main"><strong>{character.displayName}</strong><small>{character.stableCode ?? character.id} · {character.lifecycleState}</small></span><span className="record-code">v{character.rowVersion}</span><ArrowRight size={14} /></button>)}</div>}
+      <section className="workspace-panel characters-list-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><UserRound size={16} /></span><div><h2>{locale === 'vi' ? 'Danh sách nhân vật' : 'Character list'}</h2><p>{locale === 'vi' ? 'Chọn project để xem canon.' : 'Choose a project to view canon.'}</p></div></div><select className="character-project-select" value={projectId} onChange={(event) => { projectIdRef.current = event.target.value; selectedIdRef.current = null; setProjectId(event.target.value); setSelectedId(null); setWorkspace(null); setWorkspaceError(null); setCreateError(null); setCreateNeedsUser(false) }} aria-label={locale === 'vi' ? 'Project nhân vật' : 'Character project'}><option value="">{locale === 'vi' ? 'Toàn workspace' : 'All projects'}</option>{snapshot.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></div>{loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc nhân vật từ Core…' : 'Reading characters from Core…'} /> : error ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button className="subtle-button tiny" onClick={() => void loadCharacters()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : characters.length === 0 ? <EmptyState icon={UserRound} title={locale === 'vi' ? 'Chưa có nhân vật' : 'No characters yet'} detail={locale === 'vi' ? 'Tạo CharacterIdentity đầu tiên. Các package sẽ được thêm bằng revision riêng.' : 'Create the first CharacterIdentity. Packages are added as separate revisions.'} /> : <div className="workspace-record-list">{characters.map((character) => <button type="button" className={`character-row ${selectedId === character.id ? 'active' : ''}`} key={character.id} onClick={() => { selectedIdRef.current = character.id; setSelectedId(character.id) }}><span className="character-avatar"><UserRound size={15} /></span><span className="workspace-record-main"><strong>{character.displayName}</strong><small>{character.stableCode ?? character.id} · {character.lifecycleState}</small></span><span className="record-code">v{character.rowVersion}</span><ArrowRight size={14} /></button>)}</div>}
          <form className="workspace-form character-create-form" onSubmit={create}><div className="form-grid two"><label>{locale === 'vi' ? 'Tên nhân vật' : 'Character name'}<input value={name} onChange={(event) => setName(event.target.value)} placeholder={locale === 'vi' ? 'Ví dụ: Mai' : 'For example: Mai'} disabled={!connected || creating} /></label><label>{locale === 'vi' ? 'Mã ổn định (tuỳ chọn)' : 'Stable code (optional)'}<input value={stableCode} onChange={(event) => setStableCode(event.target.value)} placeholder="MAYA" disabled={!connected || creating} /></label></div><button className="primary-button small" type="submit" disabled={!connected || !projectId || !name.trim() || creating || !client.createCharacter}>{creating ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Tạo CharacterIdentity' : 'Create CharacterIdentity'}</button>{createError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{createError}</span>{createNeedsUser && <small>{locale === 'vi' ? 'Danh sách hiện tại vẫn được giữ nguyên; xử lý mục cần bạn rồi thử lại.' : 'The current list stays intact; resolve the requested action and retry.'}</small>}</div>}</form>
       </section>
       <section className="workspace-panel character-detail-card">{!selected ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một nhân vật' : 'Select a character'} detail={locale === 'vi' ? 'Workspace chi tiết sẽ xuất hiện sau khi Core xác nhận identity.' : 'The detailed workspace appears after Core confirms the identity.'} /> : <><div className="production-card-heading"><div><p className="eyebrow">{selected.stableCode ?? 'CHARACTER'}</p><h2>{selected.displayName}</h2><p>{selected.lifecycleState} · v{selected.rowVersion}</p></div><span className="state-label"><ShieldCheck size={13} />{locale === 'vi' ? 'Core-owned' : 'Core-owned'}</span></div>{workspaceLoading && <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc workspace…' : 'Reading workspace…'}</div>}{workspaceError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{workspaceError}</span><button className="subtle-button tiny" onClick={() => void loadWorkspace(selected.id)}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{selected.needsYou.length > 0 && <div className="inline-state warning"><UserRound size={14} /><span>{locale === 'vi' ? `Core cần bạn xử lý ${selected.needsYou.length} mục trước khi tiếp tục.` : `Core needs you to resolve ${selected.needsYou.length} item${selected.needsYou.length === 1 ? '' : 's'} before continuing.`}</span></div>}<div className="character-package-grid">{packageRows.map(({ key, label, package: packageValue }) => <div className="character-package" key={key}><div className="character-package-heading"><strong>{label}</strong><span>{packageValue?.candidateRevisions.length ?? 0} {locale === 'vi' ? 'candidate' : 'candidates'}</span></div>{packageValue?.approvedRevision && <div className="revision-row approved"><CheckCircle2 size={13} /><span><strong>{locale === 'vi' ? 'Đã duyệt' : 'Approved'}</strong><small>{packageValue.approvedRevision.id} · {characterRevisionMeta(packageValue.approvedRevision, locale)}</small></span></div>}{packageValue?.candidateRevisions.map((revision) => <div className="revision-row" key={revision.id}><CircleDot size={13} /><span><strong>{revision.id}</strong><small>{characterRevisionMeta(revision, locale)}</small></span></div>)}{!packageValue?.approvedRevision && !packageValue?.candidateRevisions.length && <span className="character-package-empty">{locale === 'vi' ? 'Chưa có revision' : 'No revision yet'}</span>}</div>)}</div><form className="workspace-form character-revision-form" onSubmit={createRevision}><div className="form-grid two"><label>{locale === 'vi' ? 'Loại revision' : 'Revision type'}<select value={revisionKind} onChange={(event) => setRevisionKind(event.target.value as CharacterRevisionKind)} disabled={!connected || revisionPending}><option value="visual">Visual identity</option><option value="voice">Voice identity</option><option value="performance">Performance bible</option></select></label>{revisionKind === 'voice' && <label>{locale === 'vi' ? 'Ngôn ngữ chuẩn' : 'Canonical language'}<input value={revisionLanguage} onChange={(event) => setRevisionLanguage(event.target.value)} disabled={!connected || revisionPending} /></label>}</div><label>{locale === 'vi' ? 'Mô tả semantic' : 'Semantic description'}<textarea value={revisionDescription} onChange={(event) => setRevisionDescription(event.target.value)} rows={3} placeholder={locale === 'vi' ? 'Mô tả có thể kiểm tra; không chèn provider id.' : 'Bounded, reviewable description; do not enter provider ids.'} disabled={!connected || revisionPending} /></label><button className="primary-button small" type="submit" disabled={!connected || !revisionDescription.trim() || revisionPending}>{revisionPending ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Lưu revision nháp' : 'Save draft revision'}</button></form><p className="workspace-boundary"><Info size={14} />{locale === 'vi' ? 'Revision nháp không tự động được approve, bind voice, generate hay pin vào shot.' : 'Draft revisions are not auto-approved, voice-bound, generated, or pinned to a shot.'}</p></>}</section>
