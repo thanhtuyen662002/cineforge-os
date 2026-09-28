@@ -193,6 +193,8 @@ Common query methods:
 - `query.timeline.workspace`
 - `query.review.list`
 - `query.review.get`
+- `query.handoff.list`
+- `query.handoff.get`
 - `query.connections`
 - `query.connection.detail`
 - `query.jobs`
@@ -382,6 +384,7 @@ implementation evidence exists.
 ## Delivery
 - CreateExport
 - CreateHandoff
+- CreateHandoffManifest
 - RegisterExternalEdit
 - CreateReleaseCandidate
 - ApproveRelease
@@ -735,6 +738,90 @@ and disables submit/approve controls.
 
 If dependency hash changed while a reviewer watched, submit returns
 `STALE_REVIEW` rather than silently approving old state.
+
+# 17A. Issue #25 project-scoped handoff-manifest API
+
+The Issue #25 baseline adds a metadata-only handoff preflight. It is deliberately
+separate from the later media export, release and publication commands. The
+executable command is `CreateHandoffManifest`; the older catalog name
+`CreateHandoff` remains a future capability and must not be treated as evidence
+that a render or external-editor package exists.
+
+The loopback adapter exposes project-scoped routes:
+
+- `GET /v1/projects/{project_id}/handoffs?state=&limit=`
+- `GET /v1/projects/{project_id}/handoffs/{handoff_id}`
+- `POST /v1/projects/{project_id}/handoffs`
+
+The POST body is explicit and contains no destination path or provider command:
+
+```json
+{
+  "timeline_revision_id": "approved-revision-id",
+  "review_session_id": "submitted-review-id",
+  "dependency_snapshot_hash": "64-lowercase-hex-sha256",
+  "target_editor": "GENERIC",
+  "target_version": "1",
+  "target_profile": "GENERIC_INTERCHANGE",
+  "expected_versions": {
+    "REVISION": 3,
+    "REVIEW_SESSION": 2,
+    "MEDIA_PROFILE_REVISION": 1
+  }
+}
+```
+
+The project path is authoritative scope. The Core verifies that the named
+timeline revision, review session, media profile and every pinned asset belong
+to that project. It requires the revision lifecycle `APPROVED`, one immutable
+submitted `APPROVE` decision for the exact subject, the caller-supplied
+well-formed 64-hex dependency hash, and an exact recomputation of both the
+dependency snapshot and timeline content hash. The media profile must be the
+approved revision pinned by the timeline. Materialization/readiness and current
+rights are rechecked at creation time; `UNKNOWN` is never promoted to `PASS`.
+Cross-project IDs, malformed hashes, stale row versions, missing review
+evidence, changed content, unready/unavailable assets and restricted/unknown
+rights return a typed `400` validation or `409` conflict/rights response and
+write no session or manifest.
+
+The successful response is a normal Core envelope whose result includes:
+
+- `export_session`: project and exact timeline/review/profile IDs, state
+  `PREFLIGHT`, exact dependency/content hashes, target and `next_step`;
+- `handoff_manifest`: immutable ID, canonical `manifest_hash`, parsed artifact
+  allowlist, compatibility report and sanitization report;
+- `needs_user`, `stale` and human-readable next-step information when relevant.
+
+The manifest hash is SHA-256 over deterministic canonical JSON (UTF-8, sorted
+object keys, deterministic array order and normalized rationals). The hash input
+contains only the explicit allowlist: exact asset-revision IDs/digests, safe
+media metadata, timeline timing, profile fingerprint and the bound review/
+dependency/content fingerprints. It excludes absolute paths, usernames,
+temp/cache locations, API endpoints, credentials, prompts, diagnostics,
+provider-specific fields, writable CAS aliases and unrelated private IDs. Any
+removed value is listed in the sanitization report with the policy version.
+Public projections return the parsed safe fields and never expose `storage_uri`
+or raw local paths.
+
+Compatibility is a feature-level report with statuses `NATIVE`,
+`APPROXIMATED`, `UNSUPPORTED` or `UNKNOWN`, plus a conservative editable claim.
+An unknown or unverified target editor/version cannot inherit an editable-project
+claim. The baseline does not create media bytes, render, play, transcode,
+process audio/subtitles, call a provider, publish externally or sign a release.
+
+All mutating routes accept `Idempotency-Key` (or the canonical command
+`idempotency_key`). Equivalent retries replay the same session/manifest and
+hash. Reusing the actor/command key with a different payload or expected
+versions returns `IDEMPOTENCY_KEY_REUSE_CONFLICT` without another event. The
+manifest remains immutable; later changes create a new timeline/review and a new
+handoff preflight rather than editing old evidence.
+
+The queries `query.handoff.list` and `query.handoff.get` are side-effect free,
+project-scoped projections. They include `projection_seq`, `generated_at`, row
+versions, current/stale status, exact source hashes, allowlist, compatibility,
+sanitization and `next_step`. They do not enumerate unrelated database rows or
+filesystem contents. A missing project-scoped handoff is `404`; stale data is
+visible for audit and clearly marked rather than silently refreshed to `latest`.
 
 # 18. Storage API detail
 

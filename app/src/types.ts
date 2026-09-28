@@ -309,6 +309,97 @@ export interface ReviewWorkspace {
   generatedAt?: string
 }
 
+export type HandoffSessionState = 'PLANNED' | 'PREFLIGHT' | 'BUILDING' | 'VALIDATING' | 'VERIFIED' | 'COMPLETED' | 'BLOCKED_RIGHTS' | 'BLOCKED_MEDIA' | 'FAILED' | 'CANCELLED' | string
+export type HandoffCompatibilityStatus = 'NATIVE' | 'APPROXIMATED' | 'UNSUPPORTED' | 'UNKNOWN'
+
+export interface HandoffCompatibilityEntry {
+  feature: string
+  status: HandoffCompatibilityStatus
+  detail: string
+}
+
+export interface HandoffCompatibilityReport {
+  profileVersion?: string
+  targetEditor?: string
+  targetVersion?: string
+  editableClaim: boolean
+  entries: HandoffCompatibilityEntry[]
+  counts?: Record<string, number>
+  nextStep?: string
+}
+
+export interface HandoffArtifact {
+  assetRevisionId?: string
+  assetId?: string
+  semanticRole?: string
+  rebuildability?: string
+  hashAlgorithm?: string
+  contentHash?: string
+  byteSize: number
+  availabilityState?: string
+  reviewState?: string
+  availabilityEvidenceState?: string
+}
+
+export interface HandoffSanitizationReport {
+  policy?: string
+  recorded: boolean
+  removedFields: string[]
+  nextStep?: string
+}
+
+export interface HandoffManifest {
+  id?: string
+  exportSessionId?: string
+  projectId?: string
+  targetEditor?: string
+  targetVersion?: string
+  compatibilityProfileVersion?: string
+  manifestHash?: string
+  manifest?: Record<string, unknown>
+  artifactAllowlist: HandoffArtifact[]
+  compatibility: HandoffCompatibilityReport
+  sanitizationReport: HandoffSanitizationReport
+  createdAt?: string
+}
+
+export interface HandoffSession {
+  id?: string
+  projectId?: string
+  timelineRevisionId?: string
+  deliverableType: string
+  targetProfile?: string
+  targetEditor?: string
+  targetVersion?: string
+  state: HandoffSessionState
+  outputManifestId?: string
+  commandId?: string
+  reviewSessionId?: string
+  dependencySnapshotHash?: string
+  subjectContentHash?: string
+  mediaProfileRevisionId?: string
+  nextStep?: string
+  rowVersion: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface HandoffWorkspace {
+  exportSession: HandoffSession | null
+  handoffManifest: HandoffManifest | null
+  manifestHash?: string
+  compatibilityReport: HandoffCompatibilityReport
+  sanitizationReport?: HandoffSanitizationReport
+  nextStep?: string
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export interface HandoffListItem {
+  exportSession: HandoffSession
+  handoffManifest: HandoffManifest
+}
+
 export interface TimelineInput {
   title: string
   code?: string
@@ -504,4 +595,7 @@ export interface CoreClient {
   getReview?(projectId: string, reviewSessionId: string, signal?: AbortSignal): Promise<ReviewWorkspace>
   openReview?(projectId: string, subjectRevisionId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReviewWorkspace>
   submitReview?(projectId: string, reviewSessionId: string, decision: HumanReviewDecision, expectedVersion: number, notes?: string, reasonCodes?: string[], idempotencyKey?: string): Promise<ReviewWorkspace>
+  getHandoffs?(projectId: string, state?: string, signal?: AbortSignal): Promise<HandoffListItem[]>
+  getHandoff?(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace>
+  createHandoffManifest?(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey?: string): Promise<HandoffWorkspace>
 }

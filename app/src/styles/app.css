@@ -307,3 +307,28 @@ h3 { font-size: 13px; font-weight: 600; }
 .warning-text { color: var(--amber) !important; }
 @media (max-width: 950px) { .review-grid { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .review-candidate-picker .card-heading { align-items: stretch; flex-direction: column; }.review-candidate-picker select { max-width: none; width: 100%; }.review-grid .timeline-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.handoff-grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(360px, 1.1fr); gap: 18px; align-items: start; }
+.handoff-list-card, .handoff-detail-card { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); padding: 21px; background: var(--panel); }
+.handoff-detail-card { min-height: 500px; }
+.handoff-create-panel, .handoff-section { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.handoff-create-panel h3, .handoff-section h3 { margin: 0; color: var(--text-soft); font-size: 11px; }
+.handoff-create-panel p, .handoff-section p { margin-top: 4px; color: var(--text-muted); font-size: 9px; line-height: 1.4; }
+.handoff-evidence { display: grid; gap: 7px; margin: 10px 0 14px; }
+.handoff-evidence span { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 9px; background: var(--canvas-raised); }
+.handoff-evidence strong { color: var(--text-muted); font-size: 9px; font-weight: 600; }
+.handoff-evidence code, .handoff-hash, .artifact-row code, .sanitization-list code { min-width: 0; overflow: hidden; color: var(--text-soft); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.compatibility-list, .artifact-list { display: flex; flex-direction: column; margin-top: 10px; }
+.compatibility-row, .artifact-row { display: grid; grid-template-columns: minmax(90px, .7fr) auto minmax(0, 1.5fr); align-items: center; gap: 9px; border-top: 1px solid var(--line); padding: 9px 0; color: var(--text-soft); font-size: 9px; }
+.compatibility-row small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.compatibility-status { border-radius: 999px; padding: 3px 6px; font-size: 8px; font-weight: 700; letter-spacing: .03em; }
+.compatibility-status.native { color: var(--green); background: var(--green-dim); }
+.compatibility-status.approximated { color: var(--amber); background: var(--amber-dim); }
+.compatibility-status.unsupported, .compatibility-status.unknown { color: var(--red); background: var(--red-dim); }
+.artifact-row { grid-template-columns: minmax(0, 1fr) minmax(100px, .8fr); }
+.artifact-row span { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.artifact-row strong { overflow: hidden; color: var(--text-soft); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-row small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.sanitization-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sanitization-list code { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; color: var(--text-muted); background: var(--canvas-raised); }
+@media (max-width: 950px) { .handoff-grid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .handoff-grid .timeline-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.handoff-evidence span { align-items: flex-start; flex-direction: column; gap: 4px; }.compatibility-row { grid-template-columns: 1fr auto; }.compatibility-row small { grid-column: 1 / -1; white-space: normal; }.artifact-row { grid-template-columns: 1fr; } }

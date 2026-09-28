@@ -292,6 +292,56 @@ try {
         $reviewDetail = Invoke-RestMethod -Uri "$reviewsUri/$reviewId" -TimeoutSec 5
         if ([string]$reviewDetail.result.review.state -ne 'SUBMITTED' -or [string]$reviewDetail.result.subject.state -ne 'APPROVED') { throw 'Packaged review detail did not reflect the approved timeline subject.' }
 
+        # Handoff is a metadata-only, immutable boundary. It must bind the
+        # exact approved revision/review/snapshot, remain conservative for an
+        # unknown editor target, and be safe to replay with the same command
+        # key without leaking paths or media bytes.
+        $handoffUri = "http://127.0.0.1:{0}/v1/projects/{1}/handoffs" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $handoffBody = @{
+            timeline_revision_id = [string]$approvedTimelineRevision.id
+            review_session_id = [string]$reviewRecord.id
+            dependency_snapshot_hash = [string]$reviewRecord.dependencySnapshotHash
+            target_editor = 'UNKNOWN_EDITOR'
+            target_version = '1'
+            target_profile = 'GENERIC_INTERCHANGE'
+            expected_version = [int]$approvedTimelineRevision.rowVersion
+        } | ConvertTo-Json -Depth 10
+        $handoffHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-handoff'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $handoffEnvelope = Invoke-RestMethod -Uri $handoffUri -Method Post -Headers $handoffHeaders -ContentType 'application/json' -Body $handoffBody -TimeoutSec 5
+        $handoffResult = $handoffEnvelope.result
+        $handoffSession = Get-OptionalProperty $handoffResult 'exportSession'
+        if ($null -eq $handoffSession) { $handoffSession = Get-OptionalProperty $handoffResult 'export_session' }
+        $handoffManifest = Get-OptionalProperty $handoffResult 'handoffManifest'
+        if ($null -eq $handoffManifest) { $handoffManifest = Get-OptionalProperty $handoffResult 'handoff_manifest' }
+        if ($null -eq $handoffSession -or [string]::IsNullOrWhiteSpace([string]$handoffSession.id) -or [string]$handoffSession.state -ne 'PREFLIGHT') { throw 'Packaged handoff creation did not return a PREFLIGHT export session.' }
+        $handoffManifestHash = Get-OptionalProperty $handoffManifest 'manifestHash'
+        if ($null -eq $handoffManifestHash) { $handoffManifestHash = Get-OptionalProperty $handoffManifest 'manifest_hash' }
+        $handoffTargetEditor = Get-OptionalProperty $handoffManifest 'targetEditor'
+        if ($null -eq $handoffTargetEditor) { $handoffTargetEditor = Get-OptionalProperty $handoffManifest 'target_editor' }
+        $handoffTargetVersion = Get-OptionalProperty $handoffManifest 'targetVersion'
+        if ($null -eq $handoffTargetVersion) { $handoffTargetVersion = Get-OptionalProperty $handoffManifest 'target_version' }
+        if ($null -eq $handoffManifest -or [string]$handoffManifestHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Packaged handoff did not return an exact manifest SHA-256.' }
+        if ([string]$handoffTargetEditor -ne 'UNKNOWN_EDITOR' -or [string]$handoffTargetVersion -ne '1') { throw 'Packaged handoff target metadata did not persist.' }
+        $handoffCompatibility = Get-OptionalProperty $handoffManifest 'compatibility'
+        if ($null -eq $handoffCompatibility) { $handoffCompatibility = Get-OptionalProperty $handoffManifest 'compatibilityReport' }
+        $handoffSanitization = Get-OptionalProperty $handoffManifest 'sanitizationReport'
+        if ($null -eq $handoffSanitization) { $handoffSanitization = Get-OptionalProperty $handoffManifest 'sanitization' }
+        if ([bool](Get-OptionalProperty $handoffCompatibility 'editableClaim')) { throw 'Unknown handoff target incorrectly claimed editable output.' }
+        if (@((Get-OptionalProperty $handoffCompatibility 'entries') | Where-Object { $_.status -eq 'UNKNOWN' -or $_.status -eq 'UNSUPPORTED' }).Count -eq 0) { throw 'Unknown handoff target did not report conservative compatibility.' }
+        if (@((Get-OptionalProperty $handoffSanitization 'removedFields') | Where-Object { $_ -eq 'absolute_local_paths' -or $_ -eq 'credentials_and_secrets' }).Count -lt 2) { throw 'Handoff sanitization report did not record path and credential removal.' }
+        $handoffReplay = Invoke-RestMethod -Uri $handoffUri -Method Post -Headers $handoffHeaders -ContentType 'application/json' -Body $handoffBody -TimeoutSec 5
+        $handoffReplayManifest = Get-OptionalProperty $handoffReplay.result 'handoffManifest'
+        if ($null -eq $handoffReplayManifest) { $handoffReplayManifest = Get-OptionalProperty $handoffReplay.result 'handoff_manifest' }
+        $handoffReplayHash = Get-OptionalProperty $handoffReplay.result 'manifestHash'
+        if ($null -eq $handoffReplayHash) { $handoffReplayHash = Get-OptionalProperty $handoffReplay.result 'manifest_hash' }
+        if ([string]$handoffReplayManifest.id -ne [string]$handoffManifest.id -or [string]$handoffReplayHash -ne [string]$handoffManifestHash) { throw 'Handoff retry returned a different immutable manifest.' }
+        $handoffList = Invoke-RestMethod -Uri $handoffUri -TimeoutSec 5
+        if (@($handoffList.result.items | Where-Object { $_.exportSession.id -eq $handoffSession.id -and $_.handoffManifest.manifestHash -eq $handoffManifestHash }).Count -ne 1) { throw 'Packaged handoff list did not expose the created manifest.' }
+        $handoffDetail = Invoke-RestMethod -Uri "$handoffUri/$([Uri]::EscapeDataString([string]$handoffSession.id))" -TimeoutSec 5
+        if ([string]$handoffDetail.result.exportSession.timelineRevisionId -ne [string]$approvedTimelineRevision.id -or [string]$handoffDetail.result.handoffManifest.manifestHash -ne [string]$handoffManifestHash) { throw 'Packaged handoff detail did not preserve exact revision/hash evidence.' }
+        $handoffJson = $handoffDetail | ConvertTo-Json -Depth 30
+        if ($handoffJson.Contains($dataRoot) -or $handoffJson -match '(?i)"(provider_path|storage_uri|local_path|credentials|prompt_payload|media_bytes)"\s*:') { throw 'Packaged handoff response leaked paths, credentials, prompts, or media bytes.' }
+
         # Exercise the user-facing asset path through the packaged bootstrap.
         # The source is deliberately created inside the temporary data root so
         # this test also proves that COPY materializes bytes into the managed

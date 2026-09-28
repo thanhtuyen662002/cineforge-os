@@ -434,7 +434,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 11);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 12);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -573,7 +573,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 11);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 12);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -724,7 +724,7 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(fs.existsSync(persisted.snapshot_path), true);
   const manifest = JSON.parse(fs.readFileSync(persisted.manifest_path, 'utf8'));
   assert.equal(manifest.format_version, 1);
-  assert.equal(manifest.schema_version, 11);
+  assert.equal(manifest.schema_version, 12);
   assert.equal(manifest.objects.length, 1);
   assert.equal(manifest.objects[0].materialization, 'COPIED');
   assert.equal(fs.existsSync(path.join(persisted.destination_path, manifest.objects[0].relative_path)), true);
@@ -1183,6 +1183,101 @@ test('canonical timeline pins an approved media profile and stores immutable rat
   }, {}, 'timeline-unapproved-profile');
   assert.equal(invalidProfile.ok, false);
   assert.equal(invalidProfile.error.code, 'MEDIA_PROFILE_NOT_APPROVED');
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('handoff manifest binds exact approval, sanitizes metadata, and stays conservative for unknown targets', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const project = execute(core, 'CreateProject', { title: 'Handoff film', code: 'handoff-film' }, {}, 'handoff-project');
+  const projectId = project.result.id;
+  const profile = execute(core, 'CreateMediaProfileRevision', {
+    project_id: projectId, timeline_rate: { num: 24, den: 1 }, time_base: { num: 1, den: 24 },
+    width: 1920, height: 1080, pixel_aspect: { num: 1, den: 1 }, working_color_space: 'sRGB',
+    transfer_function: 'SDR', hdr_policy: 'NONE', audio_sample_rate: 48000, audio_channel_layout: 'STEREO',
+  }, {}, 'handoff-profile');
+  const profileCandidate = profile.result.candidate_revisions[0];
+  const approvedProfile = execute(core, 'TransitionMediaProfileRevision', {
+    project_id: projectId, revision_id: profileCandidate.id, next_state: 'APPROVED',
+  }, { REVISION: 1 }, 'handoff-profile-approve');
+  const profileId = approvedProfile.result.approved_revision.id;
+  const timeline = execute(core, 'CreateTimeline', {
+    project_id: projectId, code: 'MAIN', title: 'Handoff timeline', media_profile_revision_id: profileId,
+  }, {}, 'handoff-timeline');
+  const timelineId = timeline.result.timeline.id;
+  const checkpoint = execute(core, 'CreateTimelineRevision', {
+    project_id: projectId, timeline_id: timelineId, media_profile_revision_id: profileId,
+    duration: { num: 24, den: 1 }, tracks: [{ track_type: 'VIDEO', order_index: 0, name: 'Picture', clips: [] }],
+    markers: [{ time: { num: 6, den: 1 }, marker_type: 'NOTE', label: 'Export marker', payload: { prompt: 'must not leak' } }],
+  }, { TIMELINE: 1 }, 'handoff-checkpoint');
+  const revisionId = checkpoint.result.revision.id;
+  assert.equal(execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: revisionId, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'handoff-candidate').ok, true);
+  const opened = execute(core, 'OpenReview', {
+    project_id: projectId, subject_revision_id: revisionId, subject_type: 'TIMELINE_REVISION',
+  }, { REVISION: 2 }, 'handoff-review-open');
+  const submitted = execute(core, 'SubmitReview', {
+    project_id: projectId, review_session_id: opened.result.review.id, decision: 'APPROVE',
+  }, { REVIEW_SESSION: 1 }, 'handoff-review-submit');
+  const snapshotHash = submitted.result.review.dependency_snapshot_hash;
+  assert.equal(execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: revisionId, next_state: 'APPROVED',
+    review_session_id: opened.result.review.id, dependency_snapshot_hash: snapshotHash,
+  }, { REVISION: 2 }, 'handoff-approve').ok, true);
+
+  const missingSnapshot = execute(core, 'CreateHandoffManifest', {
+    project_id: projectId, timeline_revision_id: revisionId, review_session_id: opened.result.review.id,
+    target_editor: 'UNKNOWN_EDITOR', target_version: '9', target_profile: 'GENERIC_INTERCHANGE',
+  }, { REVISION: 3 }, 'handoff-missing-snapshot');
+  assert.equal(missingSnapshot.ok, false);
+  assert.equal(missingSnapshot.error.code, 'HANDOFF_SNAPSHOT_REQUIRED');
+
+  const created = execute(core, 'CreateHandoffManifest', {
+    project_id: projectId, timeline_revision_id: revisionId, review_session_id: opened.result.review.id,
+    dependency_snapshot_hash: snapshotHash, target_editor: 'UNKNOWN_EDITOR', target_version: '9',
+    target_profile: 'GENERIC_INTERCHANGE',
+  }, { REVISION: 3 }, 'handoff-create');
+  assert.equal(created.ok, true, JSON.stringify(created));
+  const session = created.result.export_session;
+  const manifest = created.result.handoff_manifest;
+  assert.equal(session.state, 'PREFLIGHT');
+  assert.equal(manifest.compatibility.editable_claim, false);
+  assert.ok(manifest.compatibility.entries.every((entry) => ['UNKNOWN', 'UNSUPPORTED'].includes(entry.status)));
+  assert.equal(manifest.sanitizationReport.recorded, true);
+  assert.ok(manifest.sanitizationReport.removedFields.includes('absolute_local_paths'));
+  assert.equal(Object.hasOwn(manifest.manifest, 'manifest_id'), false);
+  assert.equal(Object.hasOwn(manifest.manifest, 'export_session_id'), false);
+  assert.equal(JSON.stringify(manifest.manifest), JSON.stringify(JSON.parse(JSON.stringify(manifest.manifest))));
+  assert.equal(created.result.manifest_hash, crypto.createHash('sha256').update(JSON.stringify(manifest.manifest), 'utf8').digest('hex'));
+  const serialized = JSON.stringify(manifest);
+  assert.equal(serialized.includes('storage_uri'), false);
+  assert.equal(serialized.includes('file://'), false);
+  assert.equal(serialized.includes('must not leak'), false);
+
+  const replay = execute(core, 'CreateHandoffManifest', {
+    project_id: projectId, timeline_revision_id: revisionId, review_session_id: opened.result.review.id,
+    dependency_snapshot_hash: snapshotHash, target_editor: 'UNKNOWN_EDITOR', target_version: '9',
+    target_profile: 'GENERIC_INTERCHANGE',
+  }, { REVISION: 3 }, 'handoff-create');
+  assert.equal(replay.ok, true);
+  assert.equal(replay.result.idempotent_replay, true);
+  assert.equal(replay.result.handoff_manifest.manifest_hash, manifest.manifest_hash);
+  const listed = core.handle(request('query.handoff.list', { project_id: projectId }, 'handoff-list'));
+  assert.equal(listed.ok, true);
+  assert.equal(listed.result.items.length, 1);
+  const details = core.handle(request('query.handoff.get', { project_id: projectId, handoff_id: session.id }, 'handoff-get'));
+  assert.equal(details.ok, true);
+  assert.equal(details.result.handoff_manifest.manifest_hash, manifest.manifest_hash);
+  assert.throws(
+    () => core.db.prepare('UPDATE handoff_manifests SET manifest_json = ? WHERE id = ?').run('{}', manifest.id),
+    /handoff_manifests are append-only/,
+  );
+  assert.throws(
+    () => core.db.prepare('DELETE FROM export_sessions WHERE id = ?').run(session.id),
+    /export_sessions are append-only/,
+  );
   core.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });

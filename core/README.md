@@ -41,7 +41,7 @@ The Issue #23 review baseline is executable as a separate Core-owned aggregate.
 submitted `APPROVE` review whose content and dependency hashes still match. A
 stale or missing review cannot be used as approval evidence.
 
-## Timeline checkpoint baseline status
+## Timeline, review and handoff baseline status
 
 The executable commands are:
 
@@ -52,12 +52,14 @@ The executable commands are:
 - `TransitionTimelineRevision`
 - `OpenReview`
 - `SubmitReview`
+- `CreateHandoffManifest`
 
 The executable queries are `query.media_profile.workspace`,
-`query.timeline.list`, `query.timeline.workspace`, `query.review.list` and
-`query.review.get`. The loopback adapter
-exposes media-profile setup/read plus project-scoped timeline list, workspace,
-create, checkpoint, lifecycle-transition and review routes. The baseline validates
+`query.timeline.list`, `query.timeline.workspace`, `query.review.list`,
+`query.review.get`, `query.handoff.list` and `query.handoff.get`. The loopback
+adapter exposes media-profile setup/read plus project-scoped timeline list,
+workspace, create, checkpoint, lifecycle-transition, review and handoff routes.
+The baseline validates
 bounded positive rationals with exact cross multiplication, rejects overlap and
 out-of-bounds clips, pins an approved profile revision, and fail-closes on
 cross-project, unavailable, unverified, externally referenced or rights-
@@ -73,11 +75,48 @@ exact 64-hex dependency snapshot hash from the submitted review. The desktop
 Review workspace shows metadata and honest state without claiming playback or
 render capability.
 
+Issue #25 adds a separate, metadata-only handoff preflight. `CreateHandoffManifest`
+requires an explicitly approved timeline revision, the exact submitted
+`APPROVE` review/session, the caller-supplied dependency snapshot hash, the
+approved media profile and current materialized/rights-allowed asset revisions.
+Core writes an immutable, deterministic, SHA-256-addressed manifest containing
+only an explicit safe artifact allowlist plus compatibility and sanitization
+reports. Unknown or unverified target versions never receive an editable
+project claim, and `UNKNOWN` rights/readiness never becomes `PASS`.
+
 The timeline working session, autosave, undo/redo, collaboration, playback,
-render, external-editor handoff, export and release surfaces remain explicitly
-deferred. The desktop workspace states that boundary and never reports media
-progress without Core evidence. These deferred surfaces must receive their own
-contracts before they are added to the UI.
+render, media-byte export, external-editor round-trip, release, publish,
+release signing and arbitrary provider execution remain explicitly deferred.
+The desktop workspace states that boundary and never reports media progress
+without Core evidence. These later surfaces must receive their own contracts
+before they are added to the UI.
+
+## Handoff manifest preflight status
+
+The executable Core queries are `query.handoff.list` and `query.handoff.get`.
+The loopback HTTP adapter exposes:
+
+- `GET /v1/projects/{id}/handoffs?state=&limit=` — list project-scoped
+  preflight sessions and immutable manifests;
+- `GET /v1/projects/{id}/handoffs/{handoffId}` — read one redacted manifest;
+- `POST /v1/projects/{id}/handoffs` — execute the audited,
+  idempotency-safe `CreateHandoffManifest` command.
+
+The successful session state is `PREFLIGHT`; it is not a rendered/exported
+file. The projection includes exact source/review/dependency/content/profile
+hashes, pinned asset revision IDs/digests, a compatibility report with
+`NATIVE`, `APPROXIMATED`, `UNSUPPORTED` or `UNKNOWN`, a sanitization report,
+`needs_user` and `next_step`. Public responses redact absolute paths,
+usernames, temp/cache locations, endpoints, credentials, prompts, diagnostics,
+provider fields and unrelated private IDs. No recursive database/workdir sweep
+or writable CAS alias is admitted to the artifact list.
+
+An equivalent `Idempotency-Key` retry returns the same session/manifest and
+hash; changing the payload under that key returns a conflict without a second
+event. Stale/cross-project/malformed review or hash input, unknown rights,
+unready/unmaterialized assets and changed timeline content fail closed without
+partial output. This baseline performs no playback, render, transcode,
+audio/subtitle processing, generation, external publish or release signing.
 
 ## Requirements
 
@@ -144,6 +183,16 @@ The desktop-facing routes are:
 | POST | `/v1/projects/{id}/tasks/{taskId}/notes` | Add a note to one task |
 | GET | `/v1/projects/{id}/shots/{shotId}/notes` | List notes attached to one shot |
 | POST | `/v1/projects/{id}/shots/{shotId}/notes` | Add a note to one shot |
+| GET | `/v1/projects/{id}/media-profile` | Read project media-profile revisions and blockers |
+| GET | `/v1/projects/{id}/timelines` | List project timeline identities and revisions |
+| GET | `/v1/projects/{id}/timelines/{timelineId}/workspace` | Read a project timeline checkpoint workspace |
+| GET | `/v1/projects/{id}/reviews` | List project timeline review sessions |
+| GET | `/v1/projects/{id}/reviews/{reviewId}` | Read one review session and immutable decision |
+| POST | `/v1/projects/{id}/reviews` | Open an exact timeline review |
+| POST | `/v1/projects/{id}/reviews/{reviewId}/submit` | Submit one immutable review decision |
+| GET | `/v1/projects/{id}/handoffs` | List project-scoped handoff preflight sessions |
+| GET | `/v1/projects/{id}/handoffs/{handoffId}` | Read one immutable, redacted handoff manifest |
+| POST | `/v1/projects/{id}/handoffs` | Create an exact-hash handoff manifest preflight |
 | GET | `/v1/projects/{id}/assets` | List project assets and latest immutable revisions |
 | POST | `/v1/projects/{id}/assets` | Hash and register a local file (copy by default) |
 | GET | `/v1/assets` | List assets across the studio |

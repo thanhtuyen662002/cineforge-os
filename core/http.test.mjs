@@ -1026,3 +1026,68 @@ test('HTTP review routes expose exact timeline evidence and typed approval comma
     await new Promise((resolve) => listener.server.close(resolve));
   }
 });
+
+test('HTTP handoff routes preserve exact hashes and conservative compatibility', async () => {
+  const calls = [];
+  const handoff = {
+    id: 'handoff-1', export_session_id: 'export-1', project_id: 'project-1', target_editor: 'UNKNOWN_EDITOR', target_version: '9',
+    compatibility_profile_version: 'HANDOFF_COMPATIBILITY_V1', manifest_hash: 'c'.repeat(64),
+    manifest: {
+      manifest_type: 'CINEFORGE_TIMELINE_HANDOFF', manifest_schema_version: 1,
+      source: { project_id: 'project-1', timeline_revision_id: 'revision-1', content_hash: 'a'.repeat(64), provider_path: 'C:/secret' },
+      target: { editor: 'UNKNOWN_EDITOR', version: '9' },
+    },
+    artifact_allowlist: [{ asset_revision_id: 'asset-revision-1', content_hash: 'd'.repeat(64), storage_uri: 'object://private' }],
+    compatibility_report: { editable_claim: false, entries: [{ feature: 'editable_project_claim', status: 'UNKNOWN', detail: 'Unknown target' }] },
+    sanitization_report: { policy: 'EXPLICIT_ALLOWLIST_V1', recorded: true, removed_fields: ['absolute_local_paths'] },
+  };
+  const session = {
+    id: 'export-1', project_id: 'project-1', timeline_revision_id: 'revision-1', deliverable_type: 'TIMELINE_INTERCHANGE',
+    target_profile: 'GENERIC_INTERCHANGE', target_editor: 'UNKNOWN_EDITOR', target_version: '9', state: 'PREFLIGHT',
+    output_manifest_id: 'handoff-1', review_session_id: 'review-1', dependency_snapshot_hash: 'b'.repeat(64),
+    subject_content_hash: 'a'.repeat(64), media_profile_revision_id: 'profile-1', row_version: 2,
+    next_step: 'Use a certified adapter', provider_path: 'C:/secret',
+  };
+  const core = {
+    handle(request) {
+      calls.push(request);
+      if (request.method === 'query.handoff.list') return { ok: true, result: { items: [{ export_session: session, handoff_manifest: handoff }], projection_seq: 4 } };
+      if (request.method === 'query.handoff.get') return { ok: true, result: { export_session: session, handoff_manifest: handoff, projection_seq: 4 } };
+      if (request.method === 'command.execute' && request.params.command_type === 'CreateHandoffManifest') return { ok: true, result: { export_session: session, handoff_manifest: handoff, manifest_hash: handoff.manifest_hash } };
+      return { ok: false, error: { code: 'NOT_FOUND', category: 'VALIDATION' } };
+    },
+  };
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, { ...options, headers: { 'content-type': 'application/json', ...(options.headers ?? {}) } });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const listed = await jsonRequest('/v1/projects/project-1/handoffs?state=PREFLIGHT');
+    assert.equal(listed.response.status, 200);
+    assert.equal(listed.payload.result.items[0].exportSession.state, 'PREFLIGHT');
+    assert.equal(listed.payload.result.items[0].handoffManifest.manifestHash, 'c'.repeat(64));
+    assert.equal(listed.payload.result.items[0].handoffManifest.compatibility.editableClaim, false);
+    assert.equal(Object.hasOwn(listed.payload.result.items[0].exportSession, 'providerPath'), false);
+    assert.equal(Object.hasOwn(listed.payload.result.items[0].handoffManifest.manifest.source, 'provider_path'), false);
+    assert.equal(Object.hasOwn(listed.payload.result.items[0].handoffManifest.artifactAllowlist[0], 'storage_uri'), false);
+
+    const details = await jsonRequest('/v1/projects/project-1/handoffs/export-1');
+    assert.equal(details.response.status, 200);
+    assert.equal(details.payload.result.exportSession.dependencySnapshotHash, 'b'.repeat(64));
+
+    const created = await jsonRequest('/v1/projects/project-1/handoffs', {
+      method: 'POST', headers: { 'idempotency-key': 'handoff-create' },
+      body: JSON.stringify({ timeline_revision_id: 'revision-1', review_session_id: 'review-1', dependency_snapshot_hash: 'b'.repeat(64), target_editor: 'UNKNOWN_EDITOR', target_version: '9', expected_version: 3 }),
+    });
+    assert.equal(created.response.status, 200);
+    assert.equal(created.payload.result.handoffManifest.manifestHash, 'c'.repeat(64));
+    const command = calls.find((call) => call.method === 'command.execute');
+    assert.equal(command.params.command_type, 'CreateHandoffManifest');
+    assert.equal(command.params.payload.project_id, 'project-1');
+    assert.equal(command.params.expected_versions.REVISION, 3);
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+  }
+});
