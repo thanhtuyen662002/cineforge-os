@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "manifest_id": "cineforge-l4-recovery-contract",
+  "lane_id": "L4",
+  "implementation_class": "REFERENCE_HARNESS_ONLY",
+  "runtime_status": "NOT_IMPLEMENTED_IN_REPOSITORY",
+  "promotion_state": "PARKED_EXPLORATION_ONLY",
+  "source_artifact": "docs/orchestration/l4_recovery_contract.py",
+  "selftest_artifact": "docs/orchestration/l4_recovery_selftest.py",
+  "gate_artifact": "docs/orchestration/l4_recovery_gate.py",
+  "gate_selftest_artifact": "docs/orchestration/l4_recovery_gate_selftest.py",
+  "required_chaos_ids": [
+    "CT-10",
+    "CT-11",
+    "CT-12",
+    "CT-13",
+    "CT-14",
+    "CT-15",
+    "CT-16"
+  ],
+  "owner_refs": [
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#B1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#B2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#B3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#B4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#F2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#K",
+    "docs/design/API_CONTRACTS.md#API-DB-RECOVERY-01",
+    "docs/design/API_CONTRACTS.md#API-BACKUP-RPO-RTO",
+    "docs/design/API_CONTRACTS.md#API-INSTALLER-UPDATE-PLAN"
+  ],
+  "invariants": [
+    {
+      "id": "L4-INV-RECOVERY-EPOCH",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B1",
+      "negative_fixture": "stale callback and old outbox cannot become canonical"
+    },
+    {
+      "id": "L4-INV-SINGLE-WRITER",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B2",
+      "negative_fixture": "old fencing token cannot mutate after takeover"
+    },
+    {
+      "id": "L4-INV-WAL-PRESSURE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B3",
+      "negative_fixture": "read-only safe pressure rejects writes and protected deletion"
+    },
+    {
+      "id": "L4-INV-RESOURCE-RESERVATION",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#F2",
+      "negative_fixture": "aggregate temporary reservation overcommit is rejected atomically"
+    },
+    {
+      "id": "L4-INV-MIGRATION-CHECKPOINT",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#B4",
+      "negative_fixture": "failed migration cannot activate a mixed binary/schema pair"
+    },
+    {
+      "id": "L4-INV-BACKUP-RESTORE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#K",
+      "negative_fixture": "DB/object/rights or manifest mismatch enters recovery"
+    },
+    {
+      "id": "L4-INV-UPDATE-ROLLBACK",
+      "owner_ref": "docs/design/API_CONTRACTS.md#API-INSTALLER-UPDATE-PLAN",
+      "negative_fixture": "unsigned, bad-digest, incompatible or below-floor package is rejected"
+    }
+  ],
+  "forbidden_claims": [
+    "production restore proof",
+    "real signing-key verification",
+    "OS-level exclusive-lock proof",
+    "power-loss or hardware-failure proof",
+    "coverage_state=VERIFIED"
+  ]
+}
