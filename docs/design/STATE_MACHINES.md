@@ -586,6 +586,70 @@ Exits:
 
 File existence after BUILDING is not completion; VALIDATING must decode/probe/check manifest.
 
+The generic export lifecycle above remains the contract for a future media
+export. Issue #25 implements only the explicit metadata preflight boundary:
+`PLANNED → PREFLIGHT`. A `PREFLIGHT` session contains no rendered bytes and
+must not be displayed as `BUILDING`, `VERIFIED` or `COMPLETED`.
+
+# 24A. Issue #25 handoff-manifest preflight
+
+`CreateHandoffManifest` is a bounded, project-scoped command with no external
+side effect. Its state projection is:
+
+```text
+PLANNED
+  → PREFLIGHT
+```
+
+Fail-closed exits are:
+
+- `BLOCKED_RIGHTS` — current rights/consent is restricted, expired, revoked or
+  unknown;
+- `BLOCKED_MEDIA` — a pinned asset is missing, unmaterialized, unavailable,
+  corrupt, quarantined or otherwise `UNKNOWN`;
+- `FAILED` — validation or persistence failed without a safe result;
+- `CANCELLED` — a plan is abandoned before persistence.
+
+The transition is allowed only when all of these guards hold at the same time:
+
+1. the named timeline revision is project-owned and `APPROVED`;
+2. the named review session is for that exact revision/project, is `SUBMITTED`
+   and has one immutable `APPROVE` decision;
+3. the caller supplies a well-formed 64-hex dependency snapshot hash and Core
+   recomputes the same current hash and exact timeline content hash;
+4. the pinned media-profile revision is the approved profile named by the
+   timeline revision;
+5. every pinned asset revision is materialized/readiness-verified and passes
+   the current effective rights/consent gate.
+
+Any missing, malformed, cross-project, stale, superseded or mismatched value
+leaves the source revision untouched. `UNKNOWN` is never treated as `PASS`.
+The command records the exact review, dependency, content and profile
+references in the `export_session`; it never resolves `latest`.
+
+On success Core constructs one immutable, SHA-256-addressed handoff manifest
+from an explicit allowlist. Canonical JSON uses UTF-8, sorted object keys,
+deterministic array ordering and normalized rationals. The allowlist contains
+only exact pinned asset-revision IDs/digests, safe media metadata, timeline
+timing, the profile fingerprint and the bound evidence hashes. Absolute paths,
+usernames, temp/cache locations, endpoints, credentials, prompts, diagnostics,
+provider-specific fields, writable aliases and unrelated private IDs are
+excluded; every removed field and the sanitization policy/version are recorded.
+
+The compatibility projection has one of `NATIVE`, `APPROXIMATED`,
+`UNSUPPORTED` or `UNKNOWN` for each feature. Unknown or unverified target
+editor/version is conservative and sets no editable-project claim. A
+`PREFLIGHT` manifest does not render, play, transcode, process audio/subtitles,
+invoke generation, publish externally or sign a release. Export, release and
+publish remain separate state machines and approval boundaries.
+
+The UI must show the durable preflight state, exact source/review hashes,
+allowlist, compatibility/loss entries, sanitization, `needs_user` and
+`next_step`. It must not show percentage progress or imply that a media file
+exists. Repeating the same idempotency key replays the same immutable session
+and manifest; changing the payload under that key fails with an idempotency
+conflict.
+
 # 25. Release candidate
 
 ```text

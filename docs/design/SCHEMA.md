@@ -1409,22 +1409,94 @@ Legal identity scope distinct from content hash.
 ## export_sessions
 - id PK
 - project_id FK
-- timeline_revision_id nullable
+- timeline_revision_id FK
 - deliverable_type
 - target_profile
 - state
-- output_manifest_id nullable
+- output_manifest_id nullable FK handoff_manifests
 - command_id FK
+- review_session_id FK
+- dependency_snapshot_hash (SHA-256, exact submitted review snapshot)
+- subject_content_hash (SHA-256, exact timeline revision content)
+- media_profile_revision_id FK
+- target_editor
+- target_version
+- next_step
+- row_version
+- created_at_utc_us
+- updated_at_utc_us
+
+For the Issue #25 executable baseline, `deliverable_type` is the bounded
+`TIMELINE_INTERCHANGE` value and the session is project-scoped. `state` starts
+at `PLANNED` in the command plan and is durably recorded as `PREFLIGHT` when a
+manifest is created. The later `BUILDING`, `VALIDATING`, `VERIFIED` and
+`COMPLETED` stages belong to the real export slice; they must not be inferred
+from a preflight row. `BLOCKED_RIGHTS`, `BLOCKED_MEDIA`, `FAILED` and
+`CANCELLED` are explicit exits. The session keeps the exact review and
+dependency hashes so a handoff can never be re-resolved from a latest/current
+pointer.
 
 ## handoff_manifests
 - id PK
+- export_session_id FK
 - project_id FK
 - target_editor
+- target_version
 - compatibility_profile_version
 - reference_render_asset_revision_id nullable
 - timeline_interchange_asset_revision_id nullable
 - manifest_json
+- manifest_hash (SHA-256, UNIQUE)
+- artifact_allowlist_json
+- compatibility_report_json
+- sanitization_report_json
+- created_by_actor_id FK
 - created_at_utc_us
+
+`handoff_manifests` are immutable after insertion. `manifest_hash` is computed
+over the canonical UTF-8 JSON representation of the allowlisted manifest
+(lexicographically ordered object keys, deterministic array ordering and
+normalized rational values). Volatile row timestamps and the database row ID
+are not part of the hashed representation. An equivalent idempotent retry
+returns the original session and manifest; a reused idempotency key with a
+different canonical payload is rejected before another row or event is written.
+
+### Issue #25 executable handoff-manifest baseline
+
+`CreateHandoffManifest` may create a manifest only for one explicitly named,
+project-owned `APPROVED` timeline revision. The command requires the exact
+submitted `APPROVE` `review_session`/`human_reviews` evidence, the caller-
+supplied 64-hex `dependency_snapshot_hash`, the exact subject content hash and
+the approved media-profile revision. Core recomputes the dependency snapshot
+and content hash in the same command. Missing, malformed, cross-project,
+superseded or stale evidence is a typed conflict; `UNKNOWN` rights/readiness,
+unmaterialized or unavailable assets and any rights restriction fail closed.
+No partial manifest/session output is committed on a failed preflight.
+
+The manifest JSON is built from an explicit allowlist, never from a recursive
+database/work-directory sweep. It may contain only the project/timeline
+identity needed to interpret the handoff, exact pinned asset-revision IDs and
+SHA-256 digests, safe media metadata, rational clip/track timing, the media
+profile fingerprint, and the review/dependency/content fingerprints. It must
+not contain absolute paths, usernames, temp/cache locations, API endpoints,
+credentials, prompts, diagnostics, arbitrary provider fields, writable CAS
+aliases or unrelated private IDs. Any removed or redacted field is recorded
+in `sanitization_report_json` with the policy/version used. Originals,
+approved canon and rights/provenance references remain protected; a handoff
+manifest is a reference package, not a permission to delete or rewrite them.
+
+`compatibility_report_json` is a per-feature report with only
+`NATIVE`, `APPROXIMATED`, `UNSUPPORTED` or `UNKNOWN` outcomes. An unknown or
+unverified target editor/version stays conservative: it cannot inherit an
+editable-project claim, and media bytes cannot be reported as rendered. The
+Issue #25 row is metadata-only and has no playback, render, transcode, audio,
+subtitle, generation, external publish or release-signing side effect. Export,
+release and publish remain separate aggregates and approval boundaries.
+
+The project index covers `(project_id, state, created_at_utc_us)` and the
+manifest index covers `(project_id, created_at_utc_us)` and
+`manifest_hash`. Public projections return parsed allowlist, compatibility and
+sanitization data and redact storage locations and internal database details.
 
 ## external_edits
 - id PK

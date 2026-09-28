@@ -617,10 +617,12 @@ evidence. vi-VN remains the default locale and en-US the secondary locale.
 
 Working-session editing, autosave, undo/redo, collaboration, playback,
 thumbnail/waveform generation, audio/caption/transition editing, render,
-external-editor handoff, export and release are explicitly deferred. The
-baseline therefore does not show play/pause controls, a fake editor lease or
-controls that imply those capabilities exist. Unsupported data is explained as
-unavailable in this baseline rather than silently omitted.
+media export and release are explicitly deferred. Issue #25 adds a separate
+metadata-only handoff preflight described below; it does not create media bytes
+or an editable external project. The baseline therefore does not show
+play/pause controls, a fake editor lease or controls that imply those
+capabilities exist. Unsupported data is explained as unavailable rather than
+silently omitted.
 
 ## Issue #23 executable Review workspace
 
@@ -642,6 +644,40 @@ using durable Core responses. A stale session is still visible for audit but its
 submit and approve controls are disabled; the recovery text tells the user to
 open a new review for the current checkpoint. vi-VN is the default locale and
 en-US is the secondary locale.
+
+## Issue #25 Handoff workspace
+
+The Handoff workspace is a project-scoped metadata preflight, not an editor or
+export monitor. It contains:
+
+- project, approved timeline revision and target editor/version selectors;
+- the exact submitted review ID, dependency snapshot hash, timeline content
+  hash and media-profile revision used by the preflight;
+- the immutable `PREFLIGHT` session and manifest hash after Core confirms it;
+- an explicit artifact allowlist showing only pinned asset-revision IDs,
+  SHA-256 digests and safe metadata;
+- a feature-level compatibility/loss report using `Giữ nguyên`, `Chuyển gần
+  đúng`, `Không hỗ trợ` and `Chưa xác định` for `NATIVE`, `APPROXIMATED`,
+  `UNSUPPORTED` and `UNKNOWN`;
+- the sanitization policy and removed-field summary, with paths, usernames,
+  endpoints, secrets, prompts and diagnostics omitted from the view;
+- durable `loading`, `empty`, `offline`, `validation`, `needs_user`, `stale`,
+  `blocked` and successful preflight states with a human-readable `next_step`.
+
+The primary action is `CreateHandoffManifest` and is enabled only when Core
+reports an exact approved revision, submitted `APPROVE` review, matching
+caller-supplied dependency hash, approved profile, materialized assets and
+allowed rights. The UI never guesses readiness from cached rows and never
+resolves `latest`. A changed dependency, stale review, unknown rights or
+unavailable asset disables creation and explains how to open a fresh review or
+resolve the blocker. Repeating an idempotency key shows the same manifest
+rather than a second session.
+
+The workspace deliberately has no play/pause, render, transcode, audio or
+subtitle controls, destination path picker, provider dispatch, percentage
+progress or editable-project promise. `PREFLIGHT` is not `BUILDING`,
+`VERIFIED` or `COMPLETED`; later media export, external-editor round-trip,
+release and publish each require their own state and approval contract.
 
 ## TimelineCanvas
 The full editor target (deferred beyond Issue #21) must support:
@@ -671,7 +707,11 @@ Wizard:
 5. export progress;
 6. manifest summary.
 
-Never claim editable round-trip features unsupported by target.
+The Issue #25 workspace implements only the target/compatibility/package
+metadata portion as an immutable preflight manifest. Destination selection,
+media bytes, export progress and external-editor round-trip remain future
+surfaces. Never claim editable round-trip features unsupported by target, and
+never turn an unknown target version into an editable claim.
 
 # 19. Audio workspace
 
@@ -2549,6 +2589,13 @@ show features as:
 Never advertise “editable project” as one binary capability.
 
 Unknown/unverified target version produces a conservative compatibility report.
+
+In the Issue #25 preflight, this report is persisted in the immutable manifest
+with one of `NATIVE`, `APPROXIMATED`, `UNSUPPORTED` or `UNKNOWN` per feature.
+The report also shows the exact target version and an explicit
+`editable_claim: false` when the target is unknown or unverified. A report is
+metadata evidence only; it does not mean media bytes were rendered or a target
+project was written.
 
 # UI-EXTERNAL-EDIT-RETURN-RECONCILE. External edit return reconcile UI
 
