@@ -1413,7 +1413,8 @@ Legal identity scope distinct from content hash.
 - deliverable_type
 - target_profile
 - state
-- output_manifest_id nullable FK handoff_manifests
+- output_manifest_id nullable handoff_manifests.id reference (bound by the
+  Core transaction; no circular SQLite FK)
 - command_id FK
 - review_session_id FK
 - dependency_snapshot_hash (SHA-256, exact submitted review snapshot)
