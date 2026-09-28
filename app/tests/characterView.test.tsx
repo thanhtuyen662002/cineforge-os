@@ -84,4 +84,20 @@ describe('CharactersView', () => {
     expect(alert.textContent).toContain('Danh sách hiện tại vẫn được giữ nguyên')
     expect(screen.getAllByText('Maya').length).toBeGreaterThan(0)
   })
+
+  it('humanizes a revision command failure instead of showing an internal error key', async () => {
+    const createVisualIdentityRevision = vi.fn().mockRejectedValue(new CoreClientError('errors.invalid_argument', {
+      code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: false,
+    }))
+    const core = client({ createVisualIdentityRevision })
+    render(<CharactersView snapshot={snapshot} locale="vi" client={core} onToast={vi.fn()} />)
+
+    await screen.findAllByText('Maya')
+    fireEvent.change(screen.getByLabelText('Mô tả semantic'), { target: { value: 'Áo đỏ, tóc ngắn' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu revision nháp' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Thông tin nhập chưa hợp lệ')
+    expect(alert.textContent).not.toContain('errors.invalid_argument')
+  })
 })

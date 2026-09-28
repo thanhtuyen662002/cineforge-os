@@ -1035,7 +1035,9 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
       onToast(locale === 'vi' ? 'Đã lưu revision. Revision mới vẫn cần bước phê duyệt riêng.' : 'Revision saved. Approval remains a separate step.')
     } catch (cause) {
       const needsUser = cause instanceof CoreClientError && cause.needsUser
-      setWorkspaceError(needsUser ? (locale === 'vi' ? 'Core cần bạn bổ sung quyền hoặc xử lý xung đột trước khi lưu.' : 'Core needs your rights or conflict decision before it can save this revision.') : cause instanceof Error ? cause.message : (locale === 'vi' ? 'Không lưu được revision.' : 'Revision could not be saved.'))
+      setWorkspaceError(needsUser
+        ? (locale === 'vi' ? 'Core cần bạn bổ sung quyền hoặc xử lý xung đột trước khi lưu.' : 'Core needs your rights or conflict decision before it can save this revision.')
+        : workspaceErrorMessage(cause, locale))
     } finally {
       setRevisionPending(false)
     }
