@@ -1282,8 +1282,8 @@ export class CoreService {
     const decisionId = payload.decision_request_id ?? payload.decisionRequestId;
     const current = this._decision(decisionId);
     const project = this._decisionProject(current, payload);
-    this._decisionExpectedVersion(payload, expectedVersions, current);
     this._assertDecisionOpen(current);
+    this._decisionExpectedVersion(payload, expectedVersions, current);
     this._assertDecisionAuthority(current);
     const choiceId = requiredString(payload.choice_id ?? payload.choiceId, 'choice_id', 200);
     const choice = this.db.prepare('SELECT * FROM decision_choices WHERE id = ? AND decision_request_id = ?').get(choiceId, current.id);
@@ -1312,8 +1312,8 @@ export class CoreService {
     const decisionId = payload.decision_request_id ?? payload.decisionRequestId;
     const current = this._decision(decisionId);
     const project = this._decisionProject(current, payload);
-    this._decisionExpectedVersion(payload, expectedVersions, current);
     this._assertDecisionOpen(current);
+    this._decisionExpectedVersion(payload, expectedVersions, current);
     this._assertDecisionAuthority(current);
     const resolvedAt = nowUtcUs();
     const version = Number(current.row_version) + 1;
