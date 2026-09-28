@@ -30,6 +30,10 @@ const RIGHTS_SUBJECT_TYPES = /^[A-Z][A-Z0-9_.-]{0,63}$/;
 const RIGHTS_TYPE = /^[A-Z][A-Z0-9_.-]{0,63}$/;
 const DEFAULT_RIGHT_TYPE = 'SOURCE_USE';
 const DEFAULT_CONSENT_TYPE = 'SOURCE_USE';
+const BACKUP_DURABILITY_CLASSES = new Set(['LOCAL_WRITABLE', 'SEPARATE_VOLUME', 'OFFLINE', 'IMMUTABLE_REMOTE']);
+const BACKUP_STATES = new Set(['CREATED', 'VERIFIED', 'FAILED', 'QUARANTINED']);
+const BACKUP_FORMAT_VERSION = 1;
+const DEFAULT_BACKUP_RESERVE_BYTES = 64 * 1024 * 1024;
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 const MAX_ASSET_METADATA_BYTES = 64 * 1024;
 const STAGING_STATES = new Set(['WRITING', 'COMPLETE', 'VERIFIED', 'REGISTERED', 'ORPHANED', 'QUARANTINED', 'FAILED']);
@@ -112,6 +116,17 @@ function rowObject(row) {
 function asInt(value, fallback = 0) {
   const number = Number(value);
   return Number.isSafeInteger(number) ? number : fallback;
+}
+
+function pathKey(value) {
+  const resolved = path.resolve(String(value));
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function pathIsWithin(candidate, parent) {
+  const childKey = pathKey(candidate);
+  const parentKey = pathKey(parent);
+  return childKey === parentKey || childKey.startsWith(`${parentKey}${path.sep}`);
 }
 
 function requiredString(value, field, maxLength = 500) {
@@ -470,6 +485,32 @@ function publicRightsEvaluation(value) {
   delete out.evaluated_at_utc_us;
   out.blockers = Array.isArray(out.blockers) ? out.blockers : [];
   out.evidence = Array.isArray(out.evidence) ? out.evidence : [];
+  return out;
+}
+
+function publicBackup(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const [source, target] of [['created_at_utc_us', 'created_at'], ['completed_at_utc_us', 'completed_at']]) {
+    if (out[source] !== undefined && out[source] !== null) out[target] = rfc3339FromUs(out[source]);
+    delete out[source];
+  }
+  if (out.destination_path) out.destination_name = path.basename(String(out.destination_path));
+  if (out.manifest_path) out.manifest_name = path.basename(String(out.manifest_path));
+  if (out.snapshot_path) out.snapshot_name = path.basename(String(out.snapshot_path));
+  delete out.destination_path;
+  delete out.manifest_path;
+  delete out.snapshot_path;
+  return out;
+}
+
+function publicBackupVerification(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.details = parseJson(out.details_json, {});
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  delete out.details_json;
+  delete out.created_at_utc_us;
   return out;
 }
 
@@ -932,6 +973,415 @@ export class CoreService {
       result: { revocation: result, evaluation: this._evaluateRights(identity.id, { right_type: rightType ?? DEFAULT_RIGHT_TYPE, consent_type: consentType ?? DEFAULT_CONSENT_TYPE, at_utc_us: effectiveAt }) },
       event: { aggregateType: 'RIGHTS_REVOCATION', aggregateId: revocationId, aggregateVersion: Number(this.db.prepare('SELECT COUNT(*) AS count FROM revocations WHERE rights_identity_id = ?').get(identity.id).count), eventType: 'RIGHTS_REVOKED', payload: { ...result, project_id: identity.project_id ?? null } },
       audit: { actionType: 'rights.revoke', targetType: 'RIGHTS_IDENTITY', targetId: identity.id, payload: { revocation_id: revocationId, right_type: rightType, consent_type: consentType } },
+    };
+  }
+
+  _backupRow(backupId) {
+    const id = requiredString(backupId, 'backup_id');
+    const row = this.db.prepare('SELECT * FROM backups WHERE id = ?').get(id);
+    if (!row) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.backup_not_found', { backup_id: id });
+    return row;
+  }
+
+  _backupRoot(payload = {}) {
+    const defaultRoot = this.dbPath === ':memory:'
+      ? path.resolve(process.cwd(), '.cineforge', 'backups')
+      : path.join(path.dirname(path.resolve(this.dbPath)), 'backups');
+    const requestedDestination = payload.destination_path ?? payload.destinationPath;
+    let root;
+    if (requestedDestination === undefined || requestedDestination === null || requestedDestination === '') {
+      root = path.resolve(defaultRoot);
+    } else {
+      if (typeof requestedDestination !== 'string' || requestedDestination.trim().length === 0 || requestedDestination.length > 4096 || /[\u0000-\u001f\u007f]/.test(requestedDestination)) {
+        throw new CoreError('INVALID_BACKUP_DESTINATION', 'VALIDATION', 'errors.invalid_backup_destination', {}, { needsUser: true });
+      }
+      root = path.resolve(requestedDestination.trim());
+    }
+    const assetRoot = path.resolve(this.assetStorePath);
+    if (pathIsWithin(root, assetRoot)) {
+      throw new CoreError('INVALID_BACKUP_DESTINATION', 'VALIDATION', 'errors.invalid_backup_destination', {}, { needsUser: true });
+    }
+    if (this.dbPath !== ':memory:' && pathKey(root) === pathKey(this.dbPath)) {
+      throw new CoreError('INVALID_BACKUP_DESTINATION', 'VALIDATION', 'errors.invalid_backup_destination', {}, { needsUser: true });
+    }
+    if (fs.existsSync(root)) {
+      let entry;
+      try { entry = fs.lstatSync(root); } catch {
+        throw new CoreError('INVALID_BACKUP_DESTINATION', 'VALIDATION', 'errors.invalid_backup_destination', {}, { needsUser: true });
+      }
+      if (entry.isSymbolicLink() || !entry.isDirectory()) {
+        throw new CoreError('INVALID_BACKUP_DESTINATION', 'VALIDATION', 'errors.invalid_backup_destination', {}, { needsUser: true });
+      }
+    }
+    return root;
+  }
+
+  _backupProbePath(root) {
+    let probe = root;
+    while (!fs.existsSync(probe)) {
+      const parent = path.dirname(probe);
+      if (parent === probe) break;
+      probe = parent;
+    }
+    return probe;
+  }
+
+  _availableBytes(root) {
+    try {
+      const stat = fs.statfsSync(this._backupProbePath(root));
+      const available = Number(stat.bavail) * Number(stat.bsize);
+      return Number.isSafeInteger(available) && available >= 0 ? available : null;
+    } catch {
+      return null;
+    }
+  }
+
+  _backupObjectRows() {
+    return this.db.prepare(`SELECT so.id, so.hash_algorithm, so.content_hash, so.byte_size, so.storage_class,
+        sol.storage_root, sol.relative_path, sol.state
+      FROM storage_objects so
+      LEFT JOIN storage_object_locations sol ON sol.id = (
+        SELECT sol2.id FROM storage_object_locations sol2
+        WHERE sol2.storage_object_id = so.id AND sol2.location_role = 'PRIMARY'
+        ORDER BY CASE WHEN sol2.state = 'AVAILABLE' THEN 0 ELSE 1 END, sol2.id ASC LIMIT 1
+      )
+      ORDER BY so.hash_algorithm ASC, so.content_hash ASC, so.id ASC`).all();
+  }
+
+  _hashBackupFile(filePath, expectedSize = null) {
+    const absolute = path.resolve(filePath);
+    let descriptor;
+    let stat;
+    try {
+      const link = fs.lstatSync(absolute);
+      if (link.isSymbolicLink() || !link.isFile()) throw new CoreError('BACKUP_OBJECT_INVALID', 'CONFLICT', 'errors.backup_object_invalid', { file_name: path.basename(absolute) }, { needsUser: true });
+      stat = link;
+      descriptor = fs.openSync(absolute, fs.constants.O_RDONLY);
+      const digest = crypto.createHash('sha256');
+      const buffer = Buffer.allocUnsafe(1024 * 1024);
+      let total = 0;
+      while (true) {
+        const read = fs.readSync(descriptor, buffer, 0, buffer.length, total);
+        if (read <= 0) break;
+        digest.update(buffer.subarray(0, read));
+        total += read;
+      }
+      if (expectedSize !== null && Number(expectedSize) !== total) throw new CoreError('BACKUP_SIZE_MISMATCH', 'CONFLICT', 'errors.backup_size_mismatch', { file_name: path.basename(absolute) }, { needsUser: true });
+      if (Number(stat.size) !== total) throw new CoreError('BACKUP_OBJECT_CHANGED', 'CONFLICT', 'errors.backup_object_changed', { file_name: path.basename(absolute) }, { needsUser: true });
+      return { sha256: digest.digest('hex'), byte_size: total };
+    } catch (error) {
+      if (error instanceof CoreError) throw error;
+      throw new CoreError('BACKUP_FILE_UNREADABLE', 'CONFLICT', 'errors.backup_file_unreadable', { file_name: path.basename(absolute) }, { needsUser: true, technicalDetails: { message: String(error?.message ?? error) } });
+    } finally {
+      if (descriptor !== undefined) { try { fs.closeSync(descriptor); } catch { /* preserve primary error */ } }
+    }
+  }
+
+  _backupDirectoryBytes(root) {
+    let total = 0;
+    const visit = (current) => {
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        const candidate = path.join(current, entry.name);
+        if (entry.isSymbolicLink()) throw new CoreError('BACKUP_REPARSE_REJECTED', 'CONFLICT', 'errors.backup_reparse_rejected', { file_name: entry.name }, { needsUser: true });
+        if (entry.isDirectory()) visit(candidate);
+        else if (entry.isFile()) total += Number(fs.statSync(candidate).size);
+      }
+    };
+    visit(root);
+    return total;
+  }
+
+  _backupAdmission(payload, root, objectRows) {
+    const durabilityClass = enumValue(payload.durability_class ?? payload.durabilityClass, 'durability_class', /^[A-Z_]{3,32}$/, 'LOCAL_WRITABLE');
+    if (!BACKUP_DURABILITY_CLASSES.has(durabilityClass)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'durability_class' });
+    if (durabilityClass !== 'LOCAL_WRITABLE') {
+      throw new CoreError('DURABILITY_PROFILE_UNAVAILABLE', 'CONFLICT', 'errors.durability_profile_unavailable', { durability_class: durabilityClass }, { needsUser: true });
+    }
+    const failureDomain = optionalString(payload.failure_domain ?? payload.failureDomain, 'failure_domain', 200, 'LOCAL_MACHINE');
+    const addBytes = (sum, value) => {
+      const number = Number(value);
+      const next = sum + number;
+      if (!Number.isSafeInteger(number) || number < 0 || !Number.isSafeInteger(next)) {
+        throw new CoreError('STORAGE_CAPACITY_UNKNOWN', 'STORAGE_PRESSURE', 'errors.storage_capacity_unknown', {}, { needsUser: true, retryable: true });
+      }
+      return next;
+    };
+    let dbBytes = 0;
+    if (this.dbPath !== ':memory:') {
+      for (const suffix of ['', '-wal', '-shm']) {
+        try { dbBytes = addBytes(dbBytes, fs.statSync(`${this.dbPath}${suffix}`).size); } catch (error) {
+          if (error instanceof CoreError) throw error;
+          // SQLite sidecars are optional and may disappear between probes.
+        }
+      }
+    }
+    const objectBytes = objectRows.reduce((sum, row) => addBytes(sum, row.byte_size ?? 0), 0);
+    const manifestEstimate = 16 * 1024 + objectRows.length * 512;
+    const reserveInput = payload.reserve_bytes ?? payload.reserveBytes;
+    let reserve = DEFAULT_BACKUP_RESERVE_BYTES;
+    if (reserveInput !== undefined && reserveInput !== null) {
+      const reserveNumber = typeof reserveInput === 'number'
+        ? reserveInput
+        : (typeof reserveInput === 'string' && /^\d+$/.test(reserveInput.trim()) ? Number(reserveInput) : NaN);
+      if (!Number.isSafeInteger(reserveNumber) || reserveNumber < 0) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'reserve_bytes' });
+      }
+      reserve = reserveNumber;
+    }
+    const estimatedBytes = addBytes(addBytes(addBytes(dbBytes, objectBytes), manifestEstimate), reserve);
+    const configuredMax = payload.max_backup_bytes ?? payload.maxBackupBytes;
+    if (configuredMax !== undefined && configuredMax !== null) {
+      const maxBytes = typeof configuredMax === 'number'
+        ? configuredMax
+        : (typeof configuredMax === 'string' && /^\d+$/.test(configuredMax.trim()) ? Number(configuredMax) : NaN);
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'max_backup_bytes' });
+      if (estimatedBytes > maxBytes) throw new CoreError('STORAGE_PRESSURE', 'STORAGE_PRESSURE', 'errors.storage_pressure', { estimated_bytes: estimatedBytes, max_bytes: maxBytes }, { needsUser: true, retryable: true });
+    }
+    const availableBytes = this._availableBytes(root);
+    if (availableBytes === null) {
+      throw new CoreError('STORAGE_CAPACITY_UNKNOWN', 'STORAGE_PRESSURE', 'errors.storage_capacity_unknown', {}, { needsUser: true, retryable: true });
+    }
+    if (availableBytes < estimatedBytes) {
+      throw new CoreError('STORAGE_PRESSURE', 'STORAGE_PRESSURE', 'errors.storage_pressure', { estimated_bytes: estimatedBytes, available_bytes: availableBytes }, { needsUser: true, retryable: true });
+    }
+    return { durabilityClass, failureDomain, dbBytes, objectBytes, estimatedBytes, availableBytes, reserve };
+  }
+
+  _writeBackupJson(filePath, value) {
+    const temporary = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    const descriptor = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+    try {
+      fs.writeFileSync(descriptor, bytes);
+      fs.fsyncSync(descriptor);
+    } finally {
+      try { fs.closeSync(descriptor); } catch { /* preserve primary error */ }
+    }
+    fs.renameSync(temporary, filePath);
+    return bytes;
+  }
+
+  _backupSqlLiteral(value) {
+    return String(value).replace(/'/g, "''");
+  }
+
+  _verifyBackupArtifact(spec) {
+    const root = path.resolve(spec.root);
+    this._assertNoReparsePath(root);
+    const manifestAbsolute = path.resolve(spec.manifestPath);
+    const snapshotAbsolute = path.resolve(spec.snapshotPath);
+    if (!pathIsWithin(manifestAbsolute, root) || !pathIsWithin(snapshotAbsolute, root)
+      || pathKey(manifestAbsolute) === pathKey(root) || pathKey(snapshotAbsolute) === pathKey(root)) {
+      throw new CoreError('BACKUP_PATH_ESCAPE', 'CONFLICT', 'errors.backup_path_escape', {}, { needsUser: true });
+    }
+    let manifestStat;
+    try { manifestStat = fs.lstatSync(manifestAbsolute); } catch {
+      throw new CoreError('BACKUP_FILE_UNREADABLE', 'CONFLICT', 'errors.backup_file_unreadable', { file_name: 'manifest.json' }, { needsUser: true });
+    }
+    if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) {
+      throw new CoreError('BACKUP_OBJECT_INVALID', 'CONFLICT', 'errors.backup_object_invalid', { file_name: 'manifest.json' }, { needsUser: true });
+    }
+    const manifestBytes = fs.readFileSync(manifestAbsolute);
+    const manifestHash = crypto.createHash('sha256').update(manifestBytes).digest('hex');
+    if (spec.manifestSha256 && manifestHash !== String(spec.manifestSha256).toLowerCase()) {
+      throw new CoreError('BACKUP_MANIFEST_TAMPERED', 'CONFLICT', 'errors.backup_manifest_tampered', {}, { needsUser: true });
+    }
+    let manifest;
+    try { manifest = JSON.parse(manifestBytes.toString('utf8')); } catch {
+      throw new CoreError('BACKUP_MANIFEST_INVALID', 'CONFLICT', 'errors.backup_manifest_invalid', {}, { needsUser: true });
+    }
+    if (manifest.format_version !== BACKUP_FORMAT_VERSION
+      || manifest.backup_type !== 'FULL_LOCAL'
+      || (spec.expectedBackupId && String(manifest.backup_id) !== String(spec.expectedBackupId))
+      || manifest.database?.file !== 'cineforge.sqlite'
+      || !Number.isSafeInteger(Number(manifest.schema_version))
+      || !SHA256_HEX.test(String(manifest.database?.sha256 ?? ''))) {
+      throw new CoreError('BACKUP_MANIFEST_INVALID', 'CONFLICT', 'errors.backup_manifest_invalid', {}, { needsUser: true });
+    }
+    const dbHash = this._hashBackupFile(snapshotAbsolute, manifest.database.byte_size);
+    if (dbHash.sha256 !== String(manifest.database.sha256).toLowerCase()) throw new CoreError('BACKUP_DATABASE_TAMPERED', 'CONFLICT', 'errors.backup_database_tampered', {}, { needsUser: true });
+    let snapshot;
+    try {
+      snapshot = new DatabaseSync(snapshotAbsolute);
+      const integrity = String(snapshot.prepare('PRAGMA integrity_check').get().integrity_check ?? '').toLowerCase();
+      if (integrity !== 'ok') throw new CoreError('BACKUP_DATABASE_CORRUPT', 'CONFLICT', 'errors.backup_database_corrupt', { integrity }, { needsUser: true });
+      const installation = snapshot.prepare('SELECT value FROM app_meta WHERE key = ?').get('installation_id')?.value;
+      if (manifest.installation_id && installation !== manifest.installation_id) throw new CoreError('BACKUP_INSTALLATION_MISMATCH', 'CONFLICT', 'errors.backup_installation_mismatch', {}, { needsUser: true });
+      const snapshotSchema = Number(snapshot.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get().version);
+      if (snapshotSchema !== Number(manifest.schema_version)) throw new CoreError('BACKUP_SCHEMA_MISMATCH', 'CONFLICT', 'errors.backup_schema_mismatch', {}, { needsUser: true });
+    } finally {
+      try { snapshot?.close(); } catch { /* preserve primary error */ }
+    }
+    const seen = new Set();
+    let copiedCount = 0;
+    let externalCount = 0;
+    for (const object of Array.isArray(manifest.objects) ? manifest.objects : []) {
+      const relative = String(object.relative_path ?? '');
+      // External references intentionally have no copied path.  Use the
+      // immutable object id for duplicate detection so multiple external
+      // objects do not collapse into the same empty-string key.
+      const seenKey = object.materialization === 'EXTERNAL_REFERENCE'
+        ? `external:${String(object.id ?? '')}` : relative;
+      if (!String(object.id ?? '').trim() || seen.has(seenKey)) {
+        throw new CoreError('BACKUP_MANIFEST_INVALID', 'CONFLICT', 'errors.backup_manifest_invalid', {}, { needsUser: true });
+      }
+      seen.add(seenKey);
+      if (object.materialization === 'EXTERNAL_REFERENCE') { externalCount += 1; continue; }
+      if (object.materialization !== 'COPIED' || !relative || path.isAbsolute(relative)) throw new CoreError('BACKUP_MANIFEST_INVALID', 'CONFLICT', 'errors.backup_manifest_invalid', {}, { needsUser: true });
+      const objectPath = path.resolve(root, relative);
+      if (!pathIsWithin(objectPath, root) || pathKey(objectPath) === pathKey(root)) throw new CoreError('BACKUP_PATH_ESCAPE', 'CONFLICT', 'errors.backup_path_escape', {}, { needsUser: true });
+      const digest = this._hashBackupFile(objectPath, object.byte_size);
+      if (digest.sha256 !== String(object.sha256).toLowerCase() || digest.sha256 !== String(object.content_hash).toLowerCase()) throw new CoreError('BACKUP_OBJECT_TAMPERED', 'CONFLICT', 'errors.backup_object_tampered', { content_hash: object.content_hash }, { needsUser: true });
+      copiedCount += 1;
+    }
+    return { manifest, manifestSha256: manifestHash, dbSha256: dbHash.sha256, copiedCount, externalCount, objectCount: seen.size, byteSize: this._backupDirectoryBytes(root) };
+  }
+
+  _prepareBackup(payload, commandId) {
+    const root = this._backupRoot(payload);
+    const objectRows = this._backupObjectRows();
+    const admission = this._backupAdmission(payload, root, objectRows);
+    const backupId = uuidv7();
+    const finalPath = path.join(root, backupId);
+    const partialPath = path.join(root, `.${backupId}.partial`);
+    if (fs.existsSync(finalPath) || fs.existsSync(partialPath)) throw new CoreError('BACKUP_ALREADY_EXISTS', 'CONFLICT', 'errors.backup_already_exists', { backup_id: backupId });
+    const snapshotPath = path.join(partialPath, 'cineforge.sqlite');
+    const manifestPath = path.join(partialPath, 'manifest.json');
+    const objectRoot = path.join(partialPath, 'objects');
+    const eventSeqCheckpoint = this._projectionSeq();
+    const installationId = this._getMeta('installation_id');
+    const rootExisted = fs.existsSync(root);
+    try {
+      fs.mkdirSync(root, { recursive: true });
+      this._assertNoReparsePath(root);
+      fs.mkdirSync(partialPath, { recursive: false, mode: 0o700 });
+      if (this.dbPath !== ':memory:') this.db.exec(`VACUUM INTO '${this._backupSqlLiteral(snapshotPath)}'`);
+      else {
+        const memoryDump = this.db.prepare('SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY type, name').all();
+        throw new CoreError('BACKUP_MEMORY_UNSUPPORTED', 'CONFLICT', 'errors.backup_memory_unsupported', { statement_count: memoryDump.length }, { needsUser: true });
+      }
+      const databaseDigest = this._hashBackupFile(snapshotPath);
+      const manifestObjects = [];
+      let externalCount = 0;
+      fs.mkdirSync(objectRoot, { recursive: true, mode: 0o700 });
+      for (const row of objectRows) {
+        const base = { id: row.id, hash_algorithm: row.hash_algorithm, content_hash: row.content_hash, byte_size: Number(row.byte_size), storage_class: row.storage_class };
+        if (row.storage_class === 'EXTERNAL_REFERENCE') {
+          externalCount += 1;
+          manifestObjects.push({ ...base, materialization: 'EXTERNAL_REFERENCE', relative_path: null, sha256: null });
+          continue;
+        }
+        if (!row.relative_path || row.state !== 'AVAILABLE') throw new CoreError('BACKUP_OBJECT_MISSING', 'CONFLICT', 'errors.backup_object_missing', { content_hash: row.content_hash }, { needsUser: true });
+        const sourcePath = path.resolve(this.assetStorePath, row.relative_path);
+        if (!pathIsWithin(sourcePath, this.assetStorePath) || pathKey(sourcePath) === pathKey(this.assetStorePath)) throw new CoreError('BACKUP_PATH_ESCAPE', 'INTERNAL', 'errors.backup_path_escape', {}, { needsUser: false });
+        const sourceDigest = this._hashBackupFile(sourcePath, Number(row.byte_size));
+        if (sourceDigest.sha256 !== String(row.content_hash).toLowerCase()) throw new CoreError('BACKUP_OBJECT_TAMPERED', 'CONFLICT', 'errors.backup_object_tampered', { content_hash: row.content_hash }, { needsUser: true });
+        const relativePath = path.join('objects', String(row.hash_algorithm).toLowerCase(), String(row.content_hash).slice(0, 2), String(row.content_hash)).split(path.sep).join('/');
+        const destinationPath = path.resolve(partialPath, relativePath);
+        fs.mkdirSync(path.dirname(destinationPath), { recursive: true, mode: 0o700 });
+        fs.copyFileSync(sourcePath, destinationPath, fs.constants.COPYFILE_EXCL);
+        const copiedDigest = this._hashBackupFile(destinationPath, Number(row.byte_size));
+        if (copiedDigest.sha256 !== sourceDigest.sha256) throw new CoreError('BACKUP_OBJECT_TAMPERED', 'CONFLICT', 'errors.backup_object_tampered', { content_hash: row.content_hash }, { needsUser: true });
+        manifestObjects.push({ ...base, materialization: 'COPIED', relative_path: relativePath, sha256: copiedDigest.sha256 });
+      }
+      const manifest = {
+        format_version: BACKUP_FORMAT_VERSION,
+        backup_id: backupId,
+        backup_type: 'FULL_LOCAL',
+        durability_class: admission.durabilityClass,
+        failure_domain: admission.failureDomain,
+        installation_id: installationId,
+        schema_version: SCHEMA_VERSION,
+        event_seq_checkpoint: eventSeqCheckpoint,
+        command_id: commandId,
+        database: { file: 'cineforge.sqlite', sha256: databaseDigest.sha256, byte_size: databaseDigest.byte_size },
+        objects: manifestObjects,
+        created_at: new Date().toISOString(),
+      };
+      const manifestBytes = this._writeBackupJson(manifestPath, manifest);
+      const manifestSha256 = crypto.createHash('sha256').update(manifestBytes).digest('hex');
+      const verification = this._verifyBackupArtifact({ root: partialPath, snapshotPath, manifestPath, manifestSha256, expectedBackupId: backupId });
+      if (verification.objectCount !== manifestObjects.length) throw new CoreError('BACKUP_MANIFEST_INVALID', 'CONFLICT', 'errors.backup_manifest_invalid', {}, { needsUser: true });
+      fs.renameSync(partialPath, finalPath);
+      return {
+        id: backupId, root: finalPath, snapshotPath: path.join(finalPath, 'cineforge.sqlite'), manifestPath: path.join(finalPath, 'manifest.json'),
+        manifestSha256, dbSha256: databaseDigest.sha256, byteSize: verification.byteSize, objectCount: manifestObjects.length,
+        externalObjectCount: externalCount, eventSeqCheckpoint, installationId, schemaVersion: SCHEMA_VERSION,
+        durabilityClass: admission.durabilityClass, failureDomain: admission.failureDomain, verification,
+      };
+    } catch (error) {
+      try { fs.rmSync(partialPath, { recursive: true, force: true }); } catch { /* preserve primary error */ }
+      try { fs.rmSync(finalPath, { recursive: true, force: true }); } catch { /* preserve primary error */ }
+      if (!rootExisted) {
+        try {
+          if (fs.existsSync(root) && fs.readdirSync(root).length === 0) fs.rmSync(root, { recursive: true, force: true });
+        } catch { /* preserve primary error */ }
+      }
+      throw error;
+    }
+  }
+
+  _createBackup(payload, commandId) {
+    const reservation = payload.__backup_reservation;
+    if (!reservation) throw new CoreError('BACKUP_RESERVATION_MISSING', 'INTERNAL', 'errors.backup_reservation_missing', {}, { needsUser: false });
+    const created = nowUtcUs();
+    this.db.prepare(`INSERT INTO backups
+      (id, backup_type, durability_class, failure_domain, destination_path, destination_fingerprint, manifest_path, snapshot_path,
+       installation_id, schema_version, event_seq_checkpoint, state, db_sha256, manifest_sha256, byte_size, object_count,
+       external_object_count, created_by_actor_id, command_id, created_at_utc_us, completed_at_utc_us, row_version)
+      VALUES (?, 'FULL_LOCAL', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VERIFIED', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+      reservation.id, reservation.durabilityClass, reservation.failureDomain, reservation.root, this._pathFingerprint(reservation.root),
+      reservation.manifestPath, reservation.snapshotPath, reservation.installationId, reservation.schemaVersion, reservation.eventSeqCheckpoint,
+      reservation.dbSha256, reservation.manifestSha256, reservation.byteSize, reservation.objectCount, reservation.externalObjectCount,
+      this.actorId, commandId, created, created,
+    );
+    const verificationId = uuidv7();
+    this.db.prepare(`INSERT INTO backup_verifications
+      (id, backup_id, outcome, integrity_state, manifest_sha256, object_count, byte_size, details_json, command_id, actor_id, created_at_utc_us)
+      VALUES (?, ?, 'VERIFIED', 'PASS', ?, ?, ?, ?, ?, ?, ?)`).run(
+      verificationId, reservation.id, reservation.manifestSha256, reservation.objectCount, reservation.byteSize,
+      json({ db_sha256: reservation.dbSha256, external_object_count: reservation.externalObjectCount }), commandId, this.actorId, created,
+    );
+    const row = this.db.prepare('SELECT * FROM backups WHERE id = ?').get(reservation.id);
+    return {
+      projectId: null,
+      result: { backup: publicBackup(row), verification: { id: verificationId, outcome: 'VERIFIED', integrity_state: 'PASS', object_count: reservation.objectCount, byte_size: reservation.byteSize } },
+      event: { aggregateType: 'BACKUP', aggregateId: reservation.id, aggregateVersion: 1, eventType: 'BACKUP_CREATED', payload: { backup_id: reservation.id, state: 'VERIFIED', schema_version: reservation.schemaVersion, event_seq_checkpoint: reservation.eventSeqCheckpoint, manifest_sha256: reservation.manifestSha256, object_count: reservation.objectCount, external_object_count: reservation.externalObjectCount } },
+      audit: { actionType: 'storage.backup.create', targetType: 'BACKUP', targetId: reservation.id, payload: { state: 'VERIFIED', durability_class: reservation.durabilityClass, object_count: reservation.objectCount, byte_size: reservation.byteSize } },
+    };
+  }
+
+  _verifyBackup(payload, commandId) {
+    const current = this._backupRow(payload.backup_id ?? payload.backupId ?? payload.id);
+    const started = nowUtcUs();
+    let outcome = 'VERIFIED';
+    let integrityState = 'PASS';
+    let details = {};
+    let verification;
+    try {
+      verification = this._verifyBackupArtifact({ root: current.destination_path, snapshotPath: current.snapshot_path, manifestPath: current.manifest_path, manifestSha256: current.manifest_sha256, expectedBackupId: current.id });
+      details = { db_sha256: verification.dbSha256, copied_object_count: verification.copiedCount, external_object_count: verification.externalCount };
+    } catch (error) {
+      outcome = 'FAILED';
+      integrityState = 'FAIL';
+      details = { code: error?.code ?? 'BACKUP_VERIFY_FAILED' };
+    }
+    const updatedAt = nowUtcUs();
+    const state = outcome === 'VERIFIED' ? 'VERIFIED' : 'FAILED';
+    this.db.prepare(`UPDATE backups SET state = ?, completed_at_utc_us = ?, error_code = ?, row_version = row_version + 1 WHERE id = ?`).run(state, updatedAt, outcome === 'VERIFIED' ? null : details.code, current.id);
+    const verificationId = uuidv7();
+    this.db.prepare(`INSERT INTO backup_verifications
+      (id, backup_id, outcome, integrity_state, manifest_sha256, object_count, byte_size, details_json, command_id, actor_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      verificationId, current.id, outcome, integrityState, outcome === 'VERIFIED' ? current.manifest_sha256 : null,
+      Number(verification?.objectCount ?? 0), Number(verification?.byteSize ?? 0), json(details), commandId, this.actorId, started,
+    );
+    const row = this.db.prepare('SELECT * FROM backups WHERE id = ?').get(current.id);
+    return {
+      projectId: null,
+      result: { backup: publicBackup(row), verification: { id: verificationId, outcome, integrity_state: integrityState, details } },
+      event: { aggregateType: 'BACKUP', aggregateId: current.id, aggregateVersion: Number(row.row_version), eventType: 'BACKUP_VERIFIED', payload: { backup_id: current.id, outcome, integrity_state: integrityState, details } },
+      audit: { actionType: 'storage.backup.verify', targetType: 'BACKUP', targetId: current.id, payload: { outcome, integrity_state: integrityState, details } },
     };
   }
 
@@ -1421,6 +1871,18 @@ export class CoreService {
     return input;
   }
 
+  _commandPayloadForStorage(commandType, payload) {
+    if (commandType !== 'CreateBackup') return payload;
+    const out = { ...payload };
+    const destination = out.destination_path ?? out.destinationPath;
+    if (destination !== undefined && destination !== null) {
+      try { out.destination_name = path.basename(path.resolve(String(destination))); } catch { /* keep the audit record usable */ }
+    }
+    delete out.destination_path;
+    delete out.destinationPath;
+    return out;
+  }
+
   _findIdempotent(commandType, key) {
     if (!key) return null;
     return this.db.prepare(`SELECT * FROM commands
@@ -1496,12 +1958,14 @@ export class CoreService {
          idempotency_fingerprint, created_at_utc_us)
         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'RECEIVED', ?, ?, ?)`).run(
         commandId, this.studioId, projectId, this.actorId, commandType,
-        projectId ? 'PROJECT' : 'SYSTEM', projectId, json(payload), json(expectedVersions),
+        projectId ? 'PROJECT' : 'SYSTEM', projectId, json(this._commandPayloadForStorage(commandType, payload)), json(expectedVersions),
         this._reversibility(commandType), idempotencyKey, requestFingerprint, created,
       );
     });
 
     let stagingReservation = null;
+    let backupReservation = null;
+    let externalCommandPrepared = false;
     try {
       // COPY imports reserve and populate a durable staging row before the
       // canonical command transaction starts.  If the process stops during
@@ -1510,10 +1974,23 @@ export class CoreService {
       const importCommand = ['ImportAsset', 'RegisterAsset', 'ImportLocalAsset'].includes(commandType);
       const storageMode = String(payload.storage_mode ?? payload.storageMode ?? 'COPY').trim().toUpperCase();
       if (importCommand && storageMode === 'COPY') stagingReservation = this._reserveImportStaging(payload, commandId);
+      if (commandType === 'CreateBackup') {
+        // VACUUM INTO cannot run inside a SQLite transaction.  Mark the
+        // command executing first, create and verify the external artifact,
+        // then atomically register its immutable manifest below.
+        this._transaction(() => this.db.prepare('UPDATE commands SET status = ?, started_at_utc_us = ? WHERE id = ?')
+          .run('EXECUTING', nowUtcUs(), commandId));
+        externalCommandPrepared = true;
+        backupReservation = this._prepareBackup(payload, commandId);
+      }
       const applied = this._transaction(() => {
-        this.db.prepare('UPDATE commands SET status = ?, started_at_utc_us = ? WHERE id = ?')
-          .run('EXECUTING', nowUtcUs(), commandId);
-        const executionPayload = stagingReservation ? { ...payload, __staging_id: stagingReservation.id } : payload;
+        if (!externalCommandPrepared) {
+          this.db.prepare('UPDATE commands SET status = ?, started_at_utc_us = ? WHERE id = ?')
+            .run('EXECUTING', nowUtcUs(), commandId);
+        }
+        const executionPayload = stagingReservation
+          ? { ...payload, __staging_id: stagingReservation.id }
+          : backupReservation ? { ...payload, __backup_reservation: backupReservation } : payload;
         const operation = this._applyCommand(commandType, executionPayload, expectedVersions, commandId);
         const eventSeq = this._insertEvent(operation.event, commandId, this.actorId, input.correlation_id ?? null, input.causation_id ?? null);
         this._insertAudit(operation.audit, commandId, this.actorId, 'SUCCEEDED');
@@ -1546,6 +2023,9 @@ export class CoreService {
             if (['WRITING', 'COMPLETE', 'VERIFIED'].includes(current.state)) this._setStagingState(stagingReservation.id, 'ORPHANED');
           });
         } catch { /* preserve command failure; evidence remains queryable */ }
+      }
+      if (backupReservation?.root) {
+        try { fs.rmSync(backupReservation.root, { recursive: true, force: true }); } catch { /* preserve command failure */ }
       }
       this._transaction(() => {
         this.db.prepare(`UPDATE commands SET status = 'FAILED', finished_at_utc_us = ?, error_code = ?, error_details_json = ? WHERE id = ?`)
@@ -1629,6 +2109,7 @@ export class CoreService {
     if (['TrashProject', 'ArchiveProject'].includes(commandType)) return 'COMPENSATABLE';
     if (['ResolveDecisionRequest', 'DismissDecisionRequest', 'ObsoleteDecisionRequest'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateRightsIdentity', 'CreateRightsRecord', 'RecordConsent', 'RevokeRights'].includes(commandType)) return 'COMPENSATABLE';
+    if (['CreateBackup', 'VerifyBackup'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -1656,6 +2137,8 @@ export class CoreService {
       case 'CreateRightsRecord': return this._createRightsRecord(payload);
       case 'RecordConsent': return this._recordConsent(payload);
       case 'RevokeRights': return this._revokeRights(payload, commandId);
+      case 'CreateBackup': return this._createBackup(payload, commandId);
+      case 'VerifyBackup': return this._verifyBackup(payload, commandId);
       case 'AddNote':
       case 'AddTaskNote':
       case 'AddShotNote': return this._addNote(payload, commandType);
@@ -2576,11 +3059,30 @@ export class CoreService {
         SELECT 1 FROM storage_object_locations sol
         WHERE sol.storage_object_id = so.id AND sol.location_role = 'PRIMARY' AND sol.state = 'AVAILABLE'
       )`).get().bytes);
+    const latestBackup = this.db.prepare(`SELECT state, completed_at_utc_us
+      FROM backups ORDER BY created_at_utc_us DESC, id DESC LIMIT 1`).get() ?? null;
+    let storagePressure = false;
+    let backupAvailableBytes = null;
+    let backupEstimatedBytes = null;
+    try {
+      const admission = this._backupAdmission({}, this._backupRoot({}), this._backupObjectRows());
+      backupAvailableBytes = admission.availableBytes;
+      backupEstimatedBytes = admission.estimatedBytes;
+    } catch (error) {
+      storagePressure = ['STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN'].includes(error?.code)
+        || error?.category === 'STORAGE_PRESSURE';
+      if (error?.messageArgs?.available_bytes !== undefined) backupAvailableBytes = Number(error.messageArgs.available_bytes);
+      if (error?.messageArgs?.estimated_bytes !== undefined) backupEstimatedBytes = Number(error.messageArgs.estimated_bytes);
+    }
+    const degradedReasons = [];
+    if (integrity !== 'ok') degradedReasons.push('INTEGRITY_CHECK_FAILED');
+    if (journalMode !== 'WAL') degradedReasons.push('WAL_DISABLED');
+    if (storagePressure) degradedReasons.push('STORAGE_PRESSURE');
     return {
       core_version: CORE_VERSION,
       api_version: API_VERSION,
       schema_version: SCHEMA_VERSION,
-      status: integrity === 'ok' && journalMode === 'WAL' && foreignKeys === 1 ? 'READY' : 'DEGRADED',
+      status: integrity === 'ok' && journalMode === 'WAL' && foreignKeys === 1 && !storagePressure ? 'READY' : 'DEGRADED',
       freshness: 'FRESH',
       db_path: this.dbPath,
       journal_mode: journalMode,
@@ -2596,9 +3098,14 @@ export class CoreService {
       installation_id: this._getMeta('installation_id'),
       studio_id: this.studioId,
       actor_id: this.actorId,
+      backup_state: latestBackup?.state ?? 'MISSING',
+      last_backup_at: latestBackup?.completed_at_utc_us ? rfc3339FromUs(latestBackup.completed_at_utc_us) : null,
+      storage_pressure: storagePressure,
+      backup_available_bytes: backupAvailableBytes,
+      backup_estimated_bytes: backupEstimatedBytes,
       projection_seq: this._projectionSeq(),
       generated_at: new Date().toISOString(),
-      degraded_reasons: integrity !== 'ok' ? ['INTEGRITY_CHECK_FAILED'] : journalMode !== 'WAL' ? ['WAL_DISABLED'] : [],
+      degraded_reasons: degradedReasons,
     };
   }
 
@@ -2633,6 +3140,9 @@ export class CoreService {
       case 'query.entity.history': return this._entityHistory(params);
       case 'query.search': return this._search(params);
       case 'query.storage.summary': return this._storageSummary();
+      case 'query.backup.list': return this._backups(params);
+      case 'query.backup.get': return this._backupDetails(params.backup_id ?? params.backupId ?? params.id);
+      case 'query.storage.admission': return this._backupAdmissionQuery(params);
       case 'query.storage.staging_orphans': return this._stagingObjects(params);
       case 'query.needs_you.list': return this._needsYou(params);
       case 'query.needs_you.get': return this._publicDecision(this._decision(params.decision_request_id ?? params.decisionRequestId ?? params.id));
@@ -2819,6 +3329,62 @@ export class CoreService {
         WHERE sol.storage_object_id = so.id AND sol.location_role = 'PRIMARY' AND sol.state = 'AVAILABLE'
       )`).get().bytes);
     return { db_path: this.dbPath, bytes, object_store_bytes: objectStoreBytes, object_store_path: this.assetStorePath, cache_bytes: 0, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _backups(params = {}) {
+    const stateInput = params.state ?? params.states ?? null;
+    const state = stateInput === null || stateInput === undefined || stateInput === ''
+      ? null : String(stateInput).trim().toUpperCase();
+    if (state !== null && !BACKUP_STATES.has(state)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_backup_state', { state });
+    }
+    const durabilityInput = params.durability_class ?? params.durabilityClass ?? null;
+    const durabilityClass = durabilityInput === null || durabilityInput === undefined || durabilityInput === ''
+      ? null : enumValue(durabilityInput, 'durability_class', /^[A-Z_]{3,32}$/);
+    if (durabilityClass !== null && !BACKUP_DURABILITY_CLASSES.has(durabilityClass)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'durability_class' });
+    }
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = this.db.prepare(`SELECT * FROM backups
+      WHERE (? IS NULL OR state = ?)
+        AND (? IS NULL OR durability_class = ?)
+      ORDER BY created_at_utc_us DESC, id DESC LIMIT ?`).all(state, state, durabilityClass, durabilityClass, limit);
+    return {
+      backups: rows.map(publicBackup),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _backupDetails(backupId) {
+    const row = this._backupRow(backupId);
+    const verifications = this.db.prepare(`SELECT * FROM backup_verifications
+      WHERE backup_id = ? ORDER BY created_at_utc_us DESC, id DESC`).all(row.id);
+    return {
+      backup: publicBackup(row),
+      verifications: verifications.map(publicBackupVerification),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _backupAdmissionQuery(params = {}) {
+    const root = this._backupRoot(params);
+    const objectRows = this._backupObjectRows();
+    const admission = this._backupAdmission(params, root, objectRows);
+    return {
+      destination_name: path.basename(root),
+      durability_class: admission.durabilityClass,
+      failure_domain: admission.failureDomain,
+      database_bytes: admission.dbBytes,
+      object_bytes: admission.objectBytes,
+      estimated_bytes: admission.estimatedBytes,
+      available_bytes: admission.availableBytes,
+      reserve_bytes: admission.reserve,
+      object_count: objectRows.length,
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
   }
 
   _stagingObjects(params = {}) {

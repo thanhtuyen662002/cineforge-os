@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -551,6 +551,122 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS decision_choices_no_delete
       BEFORE DELETE ON decision_choices
       BEGIN SELECT RAISE(ABORT, 'decision_choices are append-only'); END;
+  `);
+
+  // v7 backup metadata is created after the command/audit tables so its
+  // command references are valid even on a fresh database.  The artifact
+  // bytes and object copies live outside SQLite; these rows bind the immutable
+  // manifest/digest and the append-only verification measurements.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS backups (
+      id TEXT PRIMARY KEY,
+      backup_type TEXT NOT NULL CHECK (backup_type IN ('FULL_LOCAL')),
+      durability_class TEXT NOT NULL CHECK (durability_class IN ('LOCAL_WRITABLE', 'SEPARATE_VOLUME', 'OFFLINE', 'IMMUTABLE_REMOTE')),
+      failure_domain TEXT NOT NULL,
+      destination_path TEXT NOT NULL,
+      destination_fingerprint TEXT NOT NULL,
+      manifest_path TEXT NOT NULL,
+      snapshot_path TEXT NOT NULL,
+      installation_id TEXT NOT NULL,
+      schema_version INTEGER NOT NULL,
+      event_seq_checkpoint INTEGER NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('CREATED', 'VERIFIED', 'FAILED', 'QUARANTINED')),
+      db_sha256 TEXT NOT NULL CHECK (length(db_sha256) = 64),
+      manifest_sha256 TEXT NOT NULL CHECK (length(manifest_sha256) = 64),
+      byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+      object_count INTEGER NOT NULL CHECK (object_count >= 0),
+      external_object_count INTEGER NOT NULL DEFAULT 0 CHECK (external_object_count >= 0),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      command_id TEXT NOT NULL REFERENCES commands(id),
+      created_at_utc_us INTEGER NOT NULL,
+      completed_at_utc_us INTEGER,
+      error_code TEXT,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1)
+    );
+    CREATE INDEX IF NOT EXISTS backups_state_idx ON backups(state, created_at_utc_us DESC);
+    CREATE INDEX IF NOT EXISTS backups_created_idx ON backups(created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS backup_verifications (
+      id TEXT PRIMARY KEY,
+      backup_id TEXT NOT NULL REFERENCES backups(id),
+      outcome TEXT NOT NULL CHECK (outcome IN ('VERIFIED', 'FAILED')),
+      integrity_state TEXT NOT NULL CHECK (integrity_state IN ('PASS', 'FAIL', 'UNKNOWN')),
+      manifest_sha256 TEXT,
+      object_count INTEGER NOT NULL DEFAULT 0 CHECK (object_count >= 0),
+      byte_size INTEGER NOT NULL DEFAULT 0 CHECK (byte_size >= 0),
+      details_json TEXT NOT NULL DEFAULT '{}',
+      command_id TEXT NOT NULL REFERENCES commands(id),
+      actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS backup_verifications_backup_idx
+      ON backup_verifications(backup_id, created_at_utc_us DESC, id DESC);
+    CREATE TRIGGER IF NOT EXISTS backup_verifications_no_update
+      BEFORE UPDATE ON backup_verifications
+      BEGIN SELECT RAISE(ABORT, 'backup_verifications are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS backup_verifications_no_delete
+      BEFORE DELETE ON backup_verifications
+      BEGIN SELECT RAISE(ABORT, 'backup_verifications are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS backups_no_delete
+      BEFORE DELETE ON backups
+      BEGIN SELECT RAISE(ABORT, 'backups are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS backups_identity_no_update
+      BEFORE UPDATE ON backups
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.backup_type IS NOT OLD.backup_type
+        OR NEW.durability_class IS NOT OLD.durability_class
+        OR NEW.failure_domain IS NOT OLD.failure_domain
+        OR NEW.destination_path IS NOT OLD.destination_path
+        OR NEW.destination_fingerprint IS NOT OLD.destination_fingerprint
+        OR NEW.manifest_path IS NOT OLD.manifest_path
+        OR NEW.snapshot_path IS NOT OLD.snapshot_path
+        OR NEW.installation_id IS NOT OLD.installation_id
+        OR NEW.schema_version IS NOT OLD.schema_version
+        OR NEW.event_seq_checkpoint IS NOT OLD.event_seq_checkpoint
+        OR NEW.db_sha256 IS NOT OLD.db_sha256
+        OR NEW.manifest_sha256 IS NOT OLD.manifest_sha256
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'backup identity is immutable'); END;
+  `);
+
+  // Recreate the v7 append-only protections on every open so an interrupted
+  // upgrade cannot leave a pre-v7 installation with weaker backup history
+  // guarantees.  Drops are safe because the tables are created above.
+  db.exec(`
+    DROP TRIGGER IF EXISTS backup_verifications_no_update;
+    DROP TRIGGER IF EXISTS backup_verifications_no_delete;
+    DROP TRIGGER IF EXISTS backups_no_delete;
+    DROP TRIGGER IF EXISTS backups_identity_no_update;
+    CREATE TRIGGER backup_verifications_no_update
+      BEFORE UPDATE ON backup_verifications
+      BEGIN SELECT RAISE(ABORT, 'backup_verifications are append-only'); END;
+    CREATE TRIGGER backup_verifications_no_delete
+      BEFORE DELETE ON backup_verifications
+      BEGIN SELECT RAISE(ABORT, 'backup_verifications are append-only'); END;
+    CREATE TRIGGER backups_no_delete
+      BEFORE DELETE ON backups
+      BEGIN SELECT RAISE(ABORT, 'backups are append-only'); END;
+    CREATE TRIGGER backups_identity_no_update
+      BEFORE UPDATE ON backups
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.backup_type IS NOT OLD.backup_type
+        OR NEW.durability_class IS NOT OLD.durability_class
+        OR NEW.failure_domain IS NOT OLD.failure_domain
+        OR NEW.destination_path IS NOT OLD.destination_path
+        OR NEW.destination_fingerprint IS NOT OLD.destination_fingerprint
+        OR NEW.manifest_path IS NOT OLD.manifest_path
+        OR NEW.snapshot_path IS NOT OLD.snapshot_path
+        OR NEW.installation_id IS NOT OLD.installation_id
+        OR NEW.schema_version IS NOT OLD.schema_version
+        OR NEW.event_seq_checkpoint IS NOT OLD.event_seq_checkpoint
+        OR NEW.db_sha256 IS NOT OLD.db_sha256
+        OR NEW.manifest_sha256 IS NOT OLD.manifest_sha256
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'backup identity is immutable'); END;
   `);
 
   // v3 adds a durable request binding for idempotency keys.  CREATE TABLE IF
