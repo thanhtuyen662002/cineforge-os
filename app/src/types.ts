@@ -23,7 +23,45 @@ export interface ProductionItem {
   id: string
   title: string
   detail: string
-  state: 'todo' | 'in_progress' | 'done'
+  state: 'todo' | 'in_progress' | 'blocked' | 'cancelled' | 'done'
+}
+
+export type TaskStatus = 'PLANNED' | 'IN_PROGRESS' | 'BLOCKED' | 'DONE' | 'CANCELLED'
+export type ShotLifecycleState = 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'TRASHED'
+export type WorkspaceNoteEntityType = 'PROJECT' | 'TASK' | 'SHOT'
+
+/** First-class planning records. A task is not a shot and a planning shot is
+ * not evidence that media has been generated, reviewed, or approved. */
+export interface TaskSummary {
+  id: string
+  projectId: string
+  title: string
+  description: string
+  status: TaskStatus
+  priority: number
+  rowVersion: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ShotSummary {
+  id: string
+  projectId: string
+  code: string
+  title: string
+  lifecycleState: ShotLifecycleState
+  rowVersion: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface NoteSummary {
+  id: string
+  projectId: string
+  entityType: WorkspaceNoteEntityType
+  entityId: string
+  body: string
+  createdAt?: string
 }
 
 export interface DecisionRequest {
@@ -59,6 +97,7 @@ export interface AssetSummary {
   originType: string
   state: string
   availability: string
+  readinessState: 'UNKNOWN' | 'READY' | 'REVIEW_REQUIRED'
   revisionId?: string
   hashAlgorithm?: string
   contentHash?: string
@@ -94,15 +133,19 @@ export interface ImportAssetInput {
 }
 
 /**
- * A project workspace is a read model owned by Core.  The UI keeps the
- * contract deliberately small: tasks are rendered as production items and
- * the other counts are informational until their dedicated views exist.
+ * A project workspace is a Core-owned read model. Tasks, planning shots, and
+ * append-only notes remain separate canonical records; productionItems is a
+ * compact compatibility projection for older dashboard surfaces.
  */
 export interface ProjectWorkspace {
   projectId: string
   productionItems: ProductionItem[]
+  tasks: TaskSummary[]
+  shots: ShotSummary[]
+  notes: NoteSummary[]
   shotsCount: number
   notesCount: number
+  projectionSeq?: number
   generatedAt?: string
 }
 
@@ -126,6 +169,11 @@ export interface CoreClient {
   acknowledgeDecision(id: string): Promise<void>
   createProject(name: string): Promise<ProjectSummary>
   addProductionItem(projectId: string, title: string): Promise<ProductionItem>
+  createTask?(projectId: string, title: string, options?: { description?: string; priority?: number; idempotencyKey?: string }): Promise<TaskSummary>
+  updateTask?(taskId: string, patch: { title?: string; description?: string; priority?: number; status?: TaskStatus }, expectedVersion: number, idempotencyKey?: string): Promise<TaskSummary>
+  createShot?(projectId: string, code: string, title: string, idempotencyKey?: string): Promise<ShotSummary>
+  updateShot?(shotId: string, patch: { title?: string; lifecycleState?: ShotLifecycleState }, expectedVersion: number, idempotencyKey?: string): Promise<ShotSummary>
+  addNote?(projectId: string, target: { entityType: WorkspaceNoteEntityType; entityId: string }, body: string, idempotencyKey?: string): Promise<NoteSummary>
   /** Optional in older bridges; the HTTP Core implements both methods. */
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>

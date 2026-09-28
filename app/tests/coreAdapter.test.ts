@@ -48,13 +48,75 @@ describe('local Core adapter', () => {
 
     expect(workspace?.projectId).toBe(project.id)
     expect(workspace?.productionItems).toEqual(project.productionItems)
-    expect(workspace?.shotsCount).toBe(project.productionItems?.length)
+    expect(workspace?.tasks.map((task) => task.title)).toEqual(project.productionItems?.map((item) => item.title))
+    expect(workspace?.shotsCount).toBe(0)
+    expect(workspace?.shots).toEqual([])
+    expect(workspace?.notes).toEqual([])
   })
 
   it('keeps activity reads empty for an unknown local project', async () => {
     const client = createCoreClient()
 
     await expect(client.getProjectActivity?.('missing-project')).resolves.toEqual([])
+  })
+
+  it('keeps task, planning shot, and append-only note records separate in the local workspace', async () => {
+    const client = createCoreClient()
+    const project = (await client.getDashboard()).projects[0]
+    const task = await client.createTask?.(project.id, 'Lock shot list', { description: 'Review with director' })
+    const shot = await client.createShot?.(project.id, 'SH010', 'Door opens')
+    const note = await client.addNote?.(project.id, { entityType: 'SHOT', entityId: shot!.id }, 'Keep the prop on the left.')
+    const workspace = await client.getProjectWorkspace?.(project.id)
+
+    expect(task?.status).toBe('PLANNED')
+    expect(shot?.lifecycleState).toBe('ACTIVE')
+    expect(note?.entityType).toBe('SHOT')
+    expect(workspace?.tasks.some((candidate) => candidate.id === task?.id)).toBe(true)
+    expect(workspace?.shots.some((candidate) => candidate.id === shot?.id)).toBe(true)
+    expect(workspace?.notes[0].body).toBe('Keep the prop on the left.')
+  })
+
+  it('replays local mutating commands by idempotency key without duplicating records', async () => {
+    const client = createCoreClient()
+    const project = (await client.getDashboard()).projects[0]
+
+    const task = await client.createTask!(project.id, 'Idempotent task', { idempotencyKey: 'local-task-create' })
+    const taskReplay = await client.createTask!(project.id, 'Idempotent task', { idempotencyKey: 'local-task-create' })
+    expect(taskReplay).toEqual(task)
+
+    const shot = await client.createShot!(project.id, 'SH020', 'Idempotent shot', 'local-shot-create')
+    const shotReplay = await client.createShot!(project.id, 'SH020', 'Idempotent shot', 'local-shot-create')
+    expect(shotReplay).toEqual(shot)
+
+    const note = await client.addNote!(project.id, { entityType: 'SHOT', entityId: shot.id }, 'Keep one copy.', 'local-note-create')
+    const noteReplay = await client.addNote!(project.id, { entityType: 'SHOT', entityId: shot.id }, 'Keep one copy.', 'local-note-create')
+    expect(noteReplay).toEqual(note)
+
+    const taskUpdate = await client.updateTask!(task.id, { status: 'IN_PROGRESS' }, task.rowVersion, 'local-task-update')
+    const taskUpdateReplay = await client.updateTask!(task.id, { status: 'IN_PROGRESS' }, task.rowVersion, 'local-task-update')
+    expect(taskUpdateReplay).toEqual(taskUpdate)
+
+    const shotUpdate = await client.updateShot!(shot.id, { lifecycleState: 'PAUSED' }, shot.rowVersion, 'local-shot-update')
+    const shotUpdateReplay = await client.updateShot!(shot.id, { lifecycleState: 'PAUSED' }, shot.rowVersion, 'local-shot-update')
+    expect(shotUpdateReplay).toEqual(shotUpdate)
+
+    const workspace = await client.getProjectWorkspace!(project.id)
+    expect(workspace.tasks.filter((candidate) => candidate.id === task.id)).toHaveLength(1)
+    expect(workspace.shots.filter((candidate) => candidate.id === shot.id)).toHaveLength(1)
+    expect(workspace.notes.filter((candidate) => candidate.id === note.id)).toHaveLength(1)
+    expect(workspace.tasks.find((candidate) => candidate.id === task.id)?.rowVersion).toBe(task.rowVersion + 1)
+    expect(workspace.shots.find((candidate) => candidate.id === shot.id)?.rowVersion).toBe(shot.rowVersion + 1)
+  })
+
+  it('binds failed local keys and rejects reuse with a different payload', async () => {
+    const client = createCoreClient()
+    const project = (await client.getDashboard()).projects[0]
+    const first = await client.createShot!(project.id, 'SH030', 'Existing code', 'local-shot-conflict')
+
+    await expect(client.createShot!(project.id, 'SH030', 'Different title', 'local-shot-duplicate')).rejects.toMatchObject({ code: 'DUPLICATE_SHOT_CODE' })
+    await expect(client.createShot!(project.id, 'SH030', 'Different title', 'local-shot-duplicate')).rejects.toMatchObject({ code: 'DUPLICATE_SHOT_CODE' })
+    await expect(client.createShot!(project.id, 'SH031', 'Different code', 'local-shot-duplicate')).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSE_CONFLICT' })
+    expect(first.code).toBe('SH030')
   })
 
   it('maps HTTP asset records and sends a Core import command', async () => {
@@ -89,6 +151,62 @@ describe('local Core adapter', () => {
       expect(fetchMock).toHaveBeenCalledTimes(3)
       expect(String(fetchMock.mock.calls[2][0])).toContain('/v1/projects/project-1/assets')
       expect((fetchMock.mock.calls[2][1]?.headers as Record<string, string>)['Idempotency-Key']).toBe('stable-import-key')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('maps first-class workspace records and sends expected row versions for stale-safe updates', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/workspace')) {
+        return new Response(JSON.stringify({ ok: true, result: { tasks: [{ id: 'task-1', project_id: 'project-1', title: 'Task', description: '', status: 'PLANNED', priority: 1, row_version: 3 }], shots: [{ id: 'shot-1', project_id: 'project-1', code: 'SH010', title: 'Shot', lifecycle_state: 'ACTIVE', row_version: 2 }], notes: [{ id: 'note-1', project_id: 'project-1', entity_type: 'SHOT', entity_id: 'shot-1', body: 'Keep left.' }], counts: { shots: 1, notes: 1 }, projection_seq: 8 } }), { status: 200 })
+      }
+      expect(init?.method).toBe('POST')
+      const body = JSON.parse(String(init?.body)) as { expected_versions: { TASK: number } }
+      expect(body.command_type).toBe('UpdateTask')
+      expect(body.expected_versions.TASK).toBe(3)
+      expect((init?.headers as Record<string, string>)['Idempotency-Key']).toBe('task-update-1')
+      return new Response(JSON.stringify({ ok: true, result: { id: 'task-1', project_id: 'project-1', title: 'Task', description: '', status: 'IN_PROGRESS', priority: 1, row_version: 4 } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const workspace = await client.getProjectWorkspace?.('project-1')
+      expect(workspace?.tasks[0].rowVersion).toBe(3)
+      expect(workspace?.shots[0].code).toBe('SH010')
+      expect(workspace?.notes[0].entityType).toBe('SHOT')
+      const task = await client.updateTask?.('task-1', { status: 'IN_PROGRESS' }, 3, 'task-update-1')
+      expect(task?.status).toBe('IN_PROGRESS')
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('creates a live task from the canonical nested command result without local dashboard state', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toContain('/v1/projects/project-live/tasks')
+      expect((init?.headers as Record<string, string>)['Idempotency-Key']).toBe('task-create-1')
+      const body = JSON.parse(String(init?.body)) as { title: string; priority: number }
+      expect(body).toMatchObject({ title: 'Live task', priority: 5 })
+      return new Response(JSON.stringify({ ok: true, result: { id: 'command-1', status: 'SUCCEEDED', task: { id: 'task-live', project_id: 'project-live', title: body.title, description: 'From Core', status: 'IN_PROGRESS', priority: 5, row_version: 1 } } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const task = await client.createTask?.('project-live', 'Live task', { description: 'From Core', priority: 5, idempotencyKey: 'task-create-1' })
+      expect(task).toMatchObject({ id: 'task-live', projectId: 'project-live', status: 'IN_PROGRESS', priority: 5, rowVersion: 1 })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('preserves structured stale errors for conflict-aware UI', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false, error: { code: 'STALE_REVISION', category: 'STALE_REVISION', user_message_key: 'errors.stale_revision', needs_user: true, retryable: false, technical_details: { current: 4 } } }), { status: 409 })))
+    try {
+      const client = new HttpCoreClient('http://core')
+      await expect(client.updateTask?.('task-1', { status: 'DONE' }, 3, 'stale-key')).rejects.toMatchObject({ code: 'STALE_REVISION', needsUser: true, technicalDetails: { current: 4 } })
     } finally {
       vi.unstubAllGlobals()
     }

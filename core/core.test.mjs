@@ -88,6 +88,133 @@ test('tasks, shots, and notes are first-class project workspace records', () => 
   assert.equal(workspace.result.shots.length, 1);
   assert.equal(workspace.result.notes.length, 2);
   assert.equal(workspace.result.notes[0].body, 'Ánh sáng ấm, giữ đạo cụ.');
+  assert.throws(
+    () => core.db.prepare('UPDATE notes SET body = ? WHERE id = ?').run('tampered', shotNote.result.id),
+    /notes are append-only/,
+  );
+  assert.throws(
+    () => core.db.prepare('DELETE FROM notes WHERE id = ?').run(taskNote.result.id),
+    /notes are append-only/,
+  );
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('task and shot state transitions reject terminal resurrection and unsafe archive restore', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const project = execute(core, 'CreateProject', { title: 'State machine', code: 'state-machine' }, {}, 'state-project');
+  const projectId = project.result.id;
+  const task = execute(core, 'CreateTask', { project_id: projectId, title: 'Render' }, {}, 'state-task');
+  const taskId = task.result.id;
+  const active = execute(core, 'UpdateTask', { task_id: taskId, status: 'IN_PROGRESS' }, { TASK: 1 }, 'state-task-active');
+  assert.equal(active.ok, true);
+  const done = execute(core, 'UpdateTask', { task_id: taskId, status: 'DONE' }, { TASK: 2 }, 'state-task-done');
+  assert.equal(done.ok, true);
+  const resurrect = execute(core, 'UpdateTask', { task_id: taskId, status: 'IN_PROGRESS' }, { TASK: 3 }, 'state-task-resurrect');
+  assert.equal(resurrect.ok, false);
+  assert.equal(resurrect.error.code, 'INVALID_STATE_TRANSITION');
+
+  const shot = execute(core, 'CreateShot', { project_id: projectId, code: 'SH010', title: 'Door' }, {}, 'state-shot');
+  const shotId = shot.result.id;
+  const archived = execute(core, 'UpdateShot', { shot_id: shotId, lifecycle_state: 'ARCHIVED' }, { SHOT: 1 }, 'state-shot-archive');
+  assert.equal(archived.ok, true);
+  const unsafeRestore = execute(core, 'UpdateShot', { shot_id: shotId, lifecycle_state: 'ACTIVE' }, { SHOT: 2 }, 'state-shot-restore');
+  assert.equal(unsafeRestore.ok, false);
+  assert.equal(unsafeRestore.error.code, 'INVALID_STATE_TRANSITION');
+  assert.equal(core.handle(request('query.shot.list', { project_id: projectId })).result[0].lifecycle_state, 'ARCHIVED');
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('dashboard health reflects blocked canonical tasks and project lifecycle', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const project = execute(core, 'CreateProject', { title: 'Health projection', code: 'health-projection' }, {}, 'health-project');
+  const projectId = project.result.id;
+  const task = execute(core, 'CreateTask', { project_id: projectId, title: 'Waiting on rights' }, {}, 'health-task');
+  const blocked = execute(core, 'UpdateTask', { task_id: task.result.id, status: 'BLOCKED' }, { TASK: 1 }, 'health-block');
+  assert.equal(blocked.ok, true);
+  const dashboard = core.handle(request('query.home', {}, 'health-dashboard'));
+  const summary = dashboard.result.projects.find((candidate) => candidate.id === projectId);
+  assert.equal(summary.health_state, 'AT_RISK');
+  assert.equal(summary.completion.done, 0);
+  assert.equal(summary.completion.total, 1);
+  const health = core.handle(request('query.project.health', { project_id: projectId }, 'health-detail'));
+  assert.equal(health.result.health_state, 'AT_RISK');
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('project commands reject conflicting entity claims before mutation', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const first = execute(core, 'CreateProject', { title: 'First', code: 'first-claim' }, {}, 'claim-first');
+  const second = execute(core, 'CreateProject', { title: 'Second', code: 'second-claim' }, {}, 'claim-second');
+  const conflict = execute(core, 'UpdateProjectMetadata', {
+    project_id: first.result.id,
+    entity_type: 'PROJECT',
+    entity_id: second.result.id,
+    title: 'Must fail',
+  }, { PROJECT: 1 }, 'claim-conflict');
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.error.code, 'ENTITY_SCOPE_MISMATCH');
+  assert.equal(core.handle(request('query.project.get', { project_id: first.result.id }, 'claim-first-read')).result.title, 'First');
+  assert.equal(core.handle(request('query.project.get', { project_id: second.result.id }, 'claim-second-read')).result.title, 'Second');
+  const command = core.db.prepare(`SELECT project_id, status FROM commands
+    WHERE command_type = 'UpdateProjectMetadata' ORDER BY created_at_utc_us DESC LIMIT 1`).get();
+  assert.equal(command.project_id, second.result.id);
+  assert.equal(command.status, 'FAILED');
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('entity-scoped commands reject conflicting project claims and bind failed metadata to the target project', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const first = execute(core, 'CreateProject', { title: 'Target', code: 'target-project' }, {}, 'scope-target-project');
+  const second = execute(core, 'CreateProject', { title: 'Claim', code: 'claim-project' }, {}, 'scope-claim-project');
+  const targetProjectId = first.result.id;
+  const conflictingProjectId = second.result.id;
+  const task = execute(core, 'CreateTask', { project_id: targetProjectId, title: 'Scoped task' }, {}, 'scope-task');
+  const shot = execute(core, 'CreateShot', { project_id: targetProjectId, code: 'SH010', title: 'Scoped shot' }, {}, 'scope-shot');
+
+  const taskUpdate = execute(core, 'UpdateTask', {
+    task_id: task.result.id, project_id: conflictingProjectId, title: 'Should fail',
+  }, { TASK: 1 }, 'scope-task-update');
+  assert.equal(taskUpdate.ok, false);
+  assert.equal(taskUpdate.error.code, 'ENTITY_SCOPE_MISMATCH');
+
+  const shotUpdate = execute(core, 'UpdateShot', {
+    shot_id: shot.result.id, project_id: conflictingProjectId, title: 'Should fail',
+  }, { SHOT: 1 }, 'scope-shot-update');
+  assert.equal(shotUpdate.ok, false);
+  assert.equal(shotUpdate.error.code, 'ENTITY_SCOPE_MISMATCH');
+
+  const taskNote = execute(core, 'AddTaskNote', {
+    task_id: task.result.id, project_id: conflictingProjectId, body: 'Should fail',
+  }, {}, 'scope-task-note');
+  assert.equal(taskNote.ok, false);
+  assert.equal(taskNote.error.code, 'ENTITY_SCOPE_MISMATCH');
+
+  const mixedTaskNote = execute(core, 'AddTaskNote', {
+    task_id: task.result.id, entity_id: shot.result.id, body: 'Target IDs must agree',
+  }, {}, 'scope-mixed-note');
+  assert.equal(mixedTaskNote.ok, false);
+  assert.equal(mixedTaskNote.error.code, 'ENTITY_SCOPE_MISMATCH');
+
+  const shotNote = execute(core, 'AddShotNote', {
+    shot_id: shot.result.id, project_id: conflictingProjectId, body: 'Should fail',
+  }, {}, 'scope-shot-note');
+  assert.equal(shotNote.ok, false);
+  assert.equal(shotNote.error.code, 'ENTITY_SCOPE_MISMATCH');
+
+  const failed = core.db.prepare(`SELECT command_type, project_id, status FROM commands
+    WHERE command_type IN ('UpdateTask', 'UpdateShot', 'AddTaskNote', 'AddShotNote')
+    ORDER BY created_at_utc_us ASC`).all();
+  assert.equal(failed.length, 5);
+  assert.deepEqual([...new Set(failed.map((row) => row.project_id))], [targetProjectId]);
+  assert.ok(failed.every((row) => row.status === 'FAILED'));
   core.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -119,6 +246,54 @@ test('idempotency, plans, event cursor, and append-only ledgers are fail-closed'
   assert.throws(() => core.db.prepare('DELETE FROM domain_events').run(), /append-only/);
   assert.throws(() => core.db.prepare('DELETE FROM audit_records').run(), /append-only/);
   core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('idempotency keys bind canonical payload and expected versions across restart', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const first = execute(core, 'CreateProject', { title: 'Canonical request', code: 'canonical-request' }, {}, 'bound-key');
+  assert.equal(first.ok, true);
+  const stored = core.db.prepare(`SELECT idempotency_fingerprint FROM commands
+    WHERE id = ?`).get(first.result.command_id);
+  assert.match(stored.idempotency_fingerprint, /^[a-f0-9]{64}$/);
+
+  // Object insertion order is irrelevant to the canonical request hash, so a
+  // semantically identical retry remains a replay.
+  const reordered = execute(core, 'CreateProject', { code: 'canonical-request', title: 'Canonical request' }, {}, 'bound-key');
+  assert.equal(reordered.ok, true);
+  assert.equal(reordered.result.idempotent_replay, true);
+  assert.equal(reordered.result.id, first.result.id);
+
+  const changedPayload = execute(core, 'CreateProject', { title: 'Different request', code: 'canonical-request' }, {}, 'bound-key');
+  assert.equal(changedPayload.ok, false);
+  assert.equal(changedPayload.error.code, 'IDEMPOTENCY_KEY_REUSE_CONFLICT');
+  assert.equal(changedPayload.error.category, 'CONFLICT');
+  assert.equal(changedPayload.error.needs_user, true);
+  assert.equal(changedPayload.error.user_message_key, 'errors.idempotency_key_reuse_conflict');
+
+  const changedPrecondition = execute(core, 'CreateProject', { code: 'canonical-request', title: 'Canonical request' }, { PROJECT: 1 }, 'bound-key');
+  assert.equal(changedPrecondition.ok, false);
+  assert.equal(changedPrecondition.error.code, 'IDEMPOTENCY_KEY_REUSE_CONFLICT');
+  assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM commands').get().count, 1);
+  core.close();
+
+  // Simulate a v2 row that had the new nullable column introduced after the
+  // original command was written.  Reopening must backfill it before replay.
+  const legacy = new CoreService({ dbPath });
+  legacy.db.prepare('UPDATE commands SET idempotency_fingerprint = NULL WHERE id = ?').run(first.result.command_id);
+  legacy.close();
+  const reopened = new CoreService({ dbPath });
+  const backfilled = reopened.db.prepare(`SELECT idempotency_fingerprint FROM commands
+    WHERE id = ?`).get(first.result.command_id);
+  assert.match(backfilled.idempotency_fingerprint, /^[a-f0-9]{64}$/);
+  const replayAfterRestart = execute(reopened, 'CreateProject', { title: 'Canonical request', code: 'canonical-request' }, {}, 'bound-key');
+  assert.equal(replayAfterRestart.ok, true);
+  assert.equal(replayAfterRestart.result.idempotent_replay, true);
+  const conflictAfterRestart = execute(reopened, 'CreateProject', { title: 'Different after restart', code: 'canonical-request' }, {}, 'bound-key');
+  assert.equal(conflictAfterRestart.ok, false);
+  assert.equal(conflictAfterRestart.error.code, 'IDEMPOTENCY_KEY_REUSE_CONFLICT');
+  reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
@@ -157,6 +332,7 @@ test('asset intake hashes bytes, stages a durable object and preserves redacted 
   assert.equal(asset.project_id, projectId);
   assert.equal(asset.latest_revision.availability_state, 'AVAILABLE');
   assert.equal(asset.latest_revision.review_state, 'UNREVIEWED');
+  assert.equal(asset.latest_revision.readiness_state, 'UNKNOWN');
   assert.equal(asset.latest_revision.storage_object.content_hash, expectedHash);
   assert.deepEqual(imported.result.warnings, ['SECURITY_SCAN_PENDING', 'MEDIA_DECODE_PENDING']);
   assert.equal(asset.latest_revision.provenance.source_name, 'shot-010.txt');
@@ -171,7 +347,13 @@ test('asset intake hashes bytes, stages a durable object and preserves redacted 
   assert.equal(workspace.ok, true);
   assert.equal(workspace.result.assets.length, 1);
   assert.equal(workspace.result.counts.assets, 1);
-  const replay = execute(core, 'ImportAsset', { project_id: projectId, source_path: sourcePath }, {}, 'asset-import');
+  const replay = execute(core, 'ImportAsset', {
+    project_id: projectId,
+    source_path: sourcePath,
+    asset_type: 'DOCUMENT',
+    semantic_role: 'SOURCE_REFERENCE',
+    content_hash: expectedHash,
+  }, {}, 'asset-import');
   assert.equal(replay.ok, true);
   assert.equal(replay.result.idempotent_replay, true);
   assert.equal(core.handle(request('query.project.assets', { project_id: projectId })).result.assets.length, 1);

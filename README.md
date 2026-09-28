@@ -32,7 +32,9 @@ data location is required.
 The shipped flow is real and persisted:
 
 1. Open Home and create a project.
-2. Open the project and add production items.
+2. Open the project workspace. Add canonical tasks, planning shots, and
+   append-only notes. Tasks own planning status; a planning shot owns only its
+   lifecycle and does not stand in for rendered media, review, or approval.
 3. Open Library & intake, choose files with the browser picker (or drag them
    into the intake area). The packaged bootstrap streams each file into a
    short-lived local staging area and returns only an opaque handle to the
@@ -41,8 +43,8 @@ The shipped flow is real and persisted:
    revision/provenance records. The advanced local-path field remains
    available for development and controlled migrations.
 4. Reload the dashboard or restart `CineForge.exe`.
-5. The project, production items, activity, and imported assets are read back
-   from SQLite/object storage, with command, event, and
+5. The project, tasks, planning shots, notes, activity, and imported assets are
+   read back from SQLite/object storage, with command, event, and
    audit records retained by Core.
 
 The UI defaults to Vietnamese and includes an English toggle, dark/light theme,

@@ -164,6 +164,8 @@ Authoritative mutation intent.
 - correlation_id nullable
 - causation_id nullable
 - idempotency_key nullable
+- idempotency_fingerprint nullable SHA-256 of the versioned canonical payload
+  and `expected_versions` binding (stored for idempotency-key requests)
 - estimated_cost_json nullable
 - estimated_storage_bytes nullable
 - created_at_utc_us
@@ -173,6 +175,12 @@ Authoritative mutation intent.
 - error_details_json nullable
 
 Idempotency uniqueness is scoped, not a free global string collision.
+
+The idempotency namespace is `(actor_id, command_type, idempotency_key)`. Core
+binds each non-empty key to `IDEMPOTENCY_CANONICAL_V1`, the canonical payload,
+and canonical optimistic preconditions. A retry with the same binding replays
+the recorded result; a different binding returns
+`IDEMPOTENCY_KEY_REUSE_CONFLICT` and cannot create another command or event.
 
 Recommended unique partial key:
 - (actor_id, command_type, idempotency_key) when idempotency_key is not null.

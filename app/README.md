@@ -3,8 +3,10 @@
 This directory is the first usable desktop vertical slice. It keeps the UI
 behind a small `CoreClient` interface so the screen can run against the real
 local Core when available and still provide a deterministic first-run workspace
-for design review. The browser fallback stores only the dashboard snapshot in
-`localStorage`; it does not claim to be the canonical Core database.
+for design review. The browser fallback stores a bounded demo snapshot plus
+workspace records and local idempotency bindings in `localStorage`; it remains
+a development/offline path and does not claim to be the canonical Core database
+or to provide the Core command/audit ledger.
 
 ## Run it
 
@@ -31,6 +33,14 @@ The adapter calls:
 - `GET /v1/dashboard`
 - `POST /v1/projects` with `{ "name": string }`
 - `POST /v1/projects/{projectId}/production-items` with `{ "title": string }`
+- `GET /v1/projects/{projectId}/workspace` for the canonical project workspace
+  projection (tasks, planning shots, notes, counts, and projection sequence)
+- `GET/POST/PATCH /v1/projects/{projectId}/tasks` and task resource routes for
+  versioned task planning records
+- `GET/POST/PATCH /v1/projects/{projectId}/shots` and shot resource routes for
+  planning-shot records with a separate lifecycle state
+- `GET/POST /v1/projects/{projectId}/notes` plus task/shot note routes for
+  append-only, auditable notes
 - `GET /v1/assets` and `GET /v1/projects/{projectId}/assets`
 - `POST /v1/assets` or `POST /v1/projects/{projectId}/assets` with an advanced
   `source_path` or a bootstrap-issued `source_handle`
@@ -43,8 +53,11 @@ The adapter calls:
 - `POST /v1/decisions/{decisionId}/ack`
 
 The UI never writes a database directly. When no URL is configured, the local
-adapter gives the first-run shell a clearly bounded, persisted demo workspace
-and labels production state honestly. The staging endpoint exists on the
+adapter gives the first-run shell a clearly bounded, persisted demo workspace,
+replays equivalent local mutations by idempotency key, and labels production
+state honestly. The canonical live workspace keeps task, planning-shot, and
+note identities separate; a planning shot is never labelled as rendered or
+approved media. The staging endpoint exists on the
 packaged bootstrap boundary; a Vite development server pointed directly at
 Core should use the advanced path or a Core endpoint that implements the same
 staged-file contract.
@@ -56,9 +69,10 @@ npm test
 npm run build
 ```
 
-`npm test` covers local persistence, decision acknowledgement, and malformed
-snapshot recovery. `npm run build` runs the strict TypeScript project build
-before producing `dist/`.
+`npm test` covers local persistence, decision acknowledgement, malformed
+snapshot recovery, workspace records, idempotent retries, stale conflicts,
+and the HTTP adapter mapping. `npm run build` runs the strict TypeScript
+project build before producing `dist/`.
 
 ## Windows desktop package
 

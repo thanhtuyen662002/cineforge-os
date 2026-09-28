@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, ImportAssetInput, ProductionItem, ProjectSummary, ProjectWorkspace, StagedAsset, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -13,6 +13,11 @@ export interface CoreBridge {
   acknowledgeDecision(id: string): Promise<void>
   createProject(name: string): Promise<ProjectSummary>
   addProductionItem(projectId: string, title: string): Promise<ProductionItem>
+  createTask?(projectId: string, title: string, options?: { description?: string; priority?: number; idempotencyKey?: string }): Promise<TaskSummary>
+  updateTask?(taskId: string, patch: { title?: string; description?: string; priority?: number; status?: TaskStatus }, expectedVersion: number, idempotencyKey?: string): Promise<TaskSummary>
+  createShot?(projectId: string, code: string, title: string, idempotencyKey?: string): Promise<ShotSummary>
+  updateShot?(shotId: string, patch: { title?: string; lifecycleState?: ShotLifecycleState }, expectedVersion: number, idempotencyKey?: string): Promise<ShotSummary>
+  addNote?(projectId: string, target: { entityType: WorkspaceNoteEntityType; entityId: string }, body: string, idempotencyKey?: string): Promise<NoteSummary>
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
@@ -21,6 +26,28 @@ export interface CoreBridge {
 }
 
 const LOCAL_SNAPSHOT_KEY = 'cineforge-dashboard-v1'
+const LOCAL_WORKSPACE_KEY = 'cineforge-workspaces-v1'
+const LOCAL_IDEMPOTENCY_KEY = 'cineforge-idempotency-v1'
+
+export class CoreClientError extends Error {
+  readonly code: string
+  readonly category: string
+  readonly retryable: boolean
+  readonly needsUser: boolean
+  readonly userMessageKey?: string
+  readonly technicalDetails: Record<string, unknown>
+
+  constructor(message: string, fields: Partial<Pick<CoreClientError, 'code' | 'category' | 'retryable' | 'needsUser' | 'userMessageKey' | 'technicalDetails'>> = {}) {
+    super(message)
+    this.name = 'CoreClientError'
+    this.code = fields.code ?? 'CORE_REQUEST_FAILED'
+    this.category = fields.category ?? 'UNKNOWN'
+    this.retryable = fields.retryable ?? false
+    this.needsUser = fields.needsUser ?? true
+    this.userMessageKey = fields.userMessageKey
+    this.technicalDetails = fields.technicalDetails ?? {}
+  }
+}
 
 function localSnapshot(): DashboardSnapshot {
   const stored = localStorage.getItem(LOCAL_SNAPSHOT_KEY)
@@ -35,6 +62,155 @@ function localSnapshot(): DashboardSnapshot {
 
 function saveLocalSnapshot(snapshot: DashboardSnapshot) {
   localStorage.setItem(LOCAL_SNAPSHOT_KEY, JSON.stringify(snapshot))
+}
+
+type LocalWorkspaceState = { tasks: TaskSummary[]; shots: ShotSummary[]; notes: NoteSummary[]; projectionSeq: number }
+
+type LocalIdempotencyFailure = {
+  message: string
+  code: string
+  category: string
+  retryable: boolean
+  needsUser: boolean
+  userMessageKey?: string
+  technicalDetails: Record<string, unknown>
+}
+
+type LocalIdempotencyEntry = {
+  fingerprint: string
+  status: 'SUCCEEDED' | 'FAILED'
+  result?: unknown
+  error?: LocalIdempotencyFailure
+}
+
+function localWorkspaceStore(): Record<string, LocalWorkspaceState> {
+  const stored = localStorage.getItem(LOCAL_WORKSPACE_KEY)
+  if (!stored) return {}
+  try {
+    const parsed = JSON.parse(stored) as Record<string, LocalWorkspaceState>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    localStorage.removeItem(LOCAL_WORKSPACE_KEY)
+    return {}
+  }
+}
+
+function saveLocalWorkspaceStore(store: Record<string, LocalWorkspaceState>) {
+  localStorage.setItem(LOCAL_WORKSPACE_KEY, JSON.stringify(store))
+}
+
+function localIdempotencyStore(): Record<string, LocalIdempotencyEntry> {
+  const stored = localStorage.getItem(LOCAL_IDEMPOTENCY_KEY)
+  if (!stored) return {}
+  try {
+    const parsed = JSON.parse(stored) as Record<string, LocalIdempotencyEntry>
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(Object.entries(parsed).filter(([, entry]) => {
+      return Boolean(entry && typeof entry === 'object' && typeof entry.fingerprint === 'string' && (entry.status === 'SUCCEEDED' || entry.status === 'FAILED'))
+    }))
+  } catch {
+    localStorage.removeItem(LOCAL_IDEMPOTENCY_KEY)
+    return {}
+  }
+}
+
+function saveLocalIdempotencyStore(store: Record<string, LocalIdempotencyEntry>) {
+  localStorage.setItem(LOCAL_IDEMPOTENCY_KEY, JSON.stringify(store))
+}
+
+function stableLocalValue(value: unknown): string {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'number:' + String(value)
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
+  if (Array.isArray(value)) return '[' + value.map(stableLocalValue).join(',') + ']'
+  if (typeof value === 'object') {
+    return '{' + Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${stableLocalValue((value as Record<string, unknown>)[key])}`).join(',') + '}'
+  }
+  return JSON.stringify(String(value))
+}
+
+function localCommandFingerprint(payload: unknown, expectedVersions: unknown = {}): string {
+  return stableLocalValue({ payload, expectedVersions })
+}
+
+function localCommandStorageKey(commandType: string, idempotencyKey: string): string {
+  return stableLocalValue([commandType, idempotencyKey])
+}
+
+function localCommandReplay<T>(commandType: string, idempotencyKey: string, fingerprint: string): { handled: boolean; result?: T } {
+  const entry = localIdempotencyStore()[localCommandStorageKey(commandType, idempotencyKey)]
+  if (!entry) return { handled: false }
+  if (entry.fingerprint !== fingerprint) {
+    throw new CoreClientError('The idempotency key is already bound to a different request.', {
+      code: 'IDEMPOTENCY_KEY_REUSE_CONFLICT',
+      category: 'CONFLICT',
+      needsUser: true,
+    })
+  }
+  if (entry.status === 'FAILED') {
+    const failure = entry.error
+    throw new CoreClientError(failure?.message ?? 'The previous request failed.', {
+      code: failure?.code ?? 'COMMAND_FAILED',
+      category: failure?.category ?? 'UNKNOWN',
+      retryable: failure?.retryable ?? false,
+      needsUser: failure?.needsUser ?? true,
+      userMessageKey: failure?.userMessageKey,
+      technicalDetails: failure?.technicalDetails ?? {},
+    })
+  }
+  return { handled: true, result: structuredClone(entry.result) as T }
+}
+
+function localCommandSuccess(commandType: string, idempotencyKey: string, fingerprint: string, result: unknown) {
+  const store = localIdempotencyStore()
+  store[localCommandStorageKey(commandType, idempotencyKey)] = { fingerprint, status: 'SUCCEEDED', result: structuredClone(result) }
+  saveLocalIdempotencyStore(store)
+}
+
+function localCommandFailure(commandType: string, idempotencyKey: string, fingerprint: string, cause: unknown) {
+  const error = cause instanceof CoreClientError
+    ? cause
+    : new CoreClientError(cause instanceof Error ? cause.message : 'The local Core request failed.', { code: 'COMMAND_FAILED', category: 'UNKNOWN', needsUser: true })
+  const store = localIdempotencyStore()
+  store[localCommandStorageKey(commandType, idempotencyKey)] = {
+    fingerprint,
+    status: 'FAILED',
+    error: {
+      message: error.message,
+      code: error.code,
+      category: error.category,
+      retryable: error.retryable,
+      needsUser: error.needsUser,
+      userMessageKey: error.userMessageKey,
+      technicalDetails: error.technicalDetails,
+    },
+  }
+  saveLocalIdempotencyStore(store)
+}
+
+function localWorkspace(projectId: string): LocalWorkspaceState {
+  const store = localWorkspaceStore()
+  const existing = store[projectId]
+  if (existing) return existing
+  const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+  const tasks = (project?.productionItems ?? []).map((item, index): TaskSummary => ({
+    id: item.id,
+    projectId,
+    title: item.title,
+    description: item.detail,
+    status: item.state === 'done' ? 'DONE' : item.state === 'in_progress' ? 'IN_PROGRESS' : item.state === 'blocked' ? 'BLOCKED' : item.state === 'cancelled' ? 'CANCELLED' : 'PLANNED',
+    priority: 0,
+    rowVersion: 1,
+    createdAt: new Date(Date.now() + index).toISOString(),
+  }))
+  return { tasks, shots: [], notes: [], projectionSeq: 0 }
+}
+
+function persistLocalWorkspace(projectId: string, value: LocalWorkspaceState) {
+  const store = localWorkspaceStore()
+  store[projectId] = value
+  saveLocalWorkspaceStore(store)
 }
 
 /**
@@ -153,27 +329,206 @@ export class HttpCoreClient implements CoreClient {
     project.completion.total = Math.max(project.completion.total, project.productionItems.length)
     project.updatedAt = 'Vừa cập nhật'
     saveLocalSnapshot(snapshot)
+    const state = localWorkspace(projectId)
+    const task: TaskSummary = { id: item.id, projectId, title, description: item.detail, status: 'PLANNED', priority: 0, rowVersion: 1, createdAt: new Date().toISOString() }
+    if (!state.tasks.some((candidate) => candidate.id === task.id)) persistLocalWorkspace(projectId, { ...state, tasks: [...state.tasks, task], projectionSeq: state.projectionSeq + 1 })
     return item
+  }
+
+  async createTask(projectId: string, title: string, options: { description?: string; priority?: number; idempotencyKey?: string } = {}): Promise<TaskSummary> {
+    const normalizedTitle = title.trim()
+    if (!normalizedTitle || normalizedTitle.length > 500) throw new CoreClientError('A task title is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const { idempotencyKey, ...taskOptions } = options
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey ?? crypto.randomUUID() },
+        body: JSON.stringify({ title: normalizedTitle, ...taskOptions }),
+      })
+      return mapTaskRecord(await readCorePayload(response, 'task creation'))
+    }
+    const requestKey = idempotencyKey ?? crypto.randomUUID()
+    const description = taskOptions.description ?? ''
+    const priority = taskOptions.priority ?? 0
+    const fingerprint = localCommandFingerprint({ projectId, title: normalizedTitle, description, priority })
+    const replay = localCommandReplay<TaskSummary>('CreateTask', requestKey, fingerprint)
+    if (replay.handled) return replay.result as TaskSummary
+    try {
+      const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+      if (!project) throw new CoreClientError('Project not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      const state = localWorkspace(projectId)
+      if (description.length > 10000 || !Number.isSafeInteger(priority) || priority < -1000 || priority > 1000) throw new CoreClientError('Task fields are invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      const task: TaskSummary = { id: `${projectId}-task-${crypto.randomUUID()}`, projectId, title: normalizedTitle, description, status: 'PLANNED', priority, rowVersion: 1, createdAt: new Date().toISOString() }
+      const next = { ...state, tasks: [...state.tasks, task], projectionSeq: state.projectionSeq + 1 }
+      persistLocalWorkspace(projectId, next)
+      syncLocalTasks(projectId, next.tasks)
+      localCommandSuccess('CreateTask', requestKey, fingerprint, task)
+      return task
+    } catch (cause) {
+      localCommandFailure('CreateTask', requestKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async updateTask(taskId: string, patch: { title?: string; description?: string; priority?: number; status?: TaskStatus }, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<TaskSummary> {
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ command_type: 'UpdateTask', payload: { task_id: taskId, ...patch }, expected_versions: { TASK: expectedVersion } }),
+      })
+      return mapTaskRecord(await readCorePayload(response, 'task update'))
+    }
+    const fingerprint = localCommandFingerprint({ taskId, patch }, { TASK: expectedVersion })
+    const replay = localCommandReplay<TaskSummary>('UpdateTask', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as TaskSummary
+    try {
+      const store = localWorkspaceStore()
+      const entry = Object.entries(store).find(([, value]) => value.tasks.some((task) => task.id === taskId))
+      if (!entry) throw new CoreClientError('Task not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      const [projectId, state] = entry
+      const current = state.tasks.find((task) => task.id === taskId)
+      if (!current) throw new CoreClientError('Task not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (current.rowVersion !== expectedVersion) throw new CoreClientError('Workspace changed. Refresh before retrying.', { code: 'STALE_REVISION', category: 'STALE_REVISION', needsUser: true })
+      if (patch.title !== undefined && (typeof patch.title !== 'string' || !patch.title.trim() || patch.title.trim().length > 500)) throw new CoreClientError('A task title is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.description !== undefined && (typeof patch.description !== 'string' || patch.description.length > 10000)) throw new CoreClientError('Task description is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.priority !== undefined && (!Number.isSafeInteger(patch.priority) || patch.priority < -1000 || patch.priority > 1000)) throw new CoreClientError('Task priority is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.status !== undefined && !['PLANNED', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'].includes(patch.status)) throw new CoreClientError('Task status is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.status && patch.status !== current.status && !taskTransitionsFor(current.status).includes(patch.status)) throw new CoreClientError('That task state change is not allowed.', { code: 'INVALID_STATE_TRANSITION', category: 'CONFLICT', needsUser: true })
+      const updated = { ...current, ...patch, ...(patch.title !== undefined ? { title: patch.title.trim() } : {}), rowVersion: current.rowVersion + 1, updatedAt: new Date().toISOString() }
+      const next = { ...state, tasks: state.tasks.map((task) => task.id === taskId ? updated : task), projectionSeq: state.projectionSeq + 1 }
+      persistLocalWorkspace(projectId, next)
+      syncLocalTasks(projectId, next.tasks)
+      localCommandSuccess('UpdateTask', idempotencyKey, fingerprint, updated)
+      return updated
+    } catch (cause) {
+      localCommandFailure('UpdateTask', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async createShot(projectId: string, code: string, title: string, idempotencyKey = crypto.randomUUID()): Promise<ShotSummary> {
+    const normalizedCode = code.trim().toUpperCase()
+    const normalizedTitle = title.trim()
+    if (!/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(normalizedCode) || !normalizedTitle || normalizedTitle.length > 500) throw new CoreClientError('Shot code and title are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/shots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ code: normalizedCode, title: normalizedTitle }),
+      })
+      return mapShotRecord(await readCorePayload(response, 'shot creation'))
+    }
+    const fingerprint = localCommandFingerprint({ projectId, code: normalizedCode, title: normalizedTitle })
+    const replay = localCommandReplay<ShotSummary>('CreateShot', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as ShotSummary
+    try {
+      const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+      if (!project) throw new CoreClientError('Project not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      const state = localWorkspace(projectId)
+      if (state.shots.some((shot) => shot.code.toLowerCase() === normalizedCode.toLowerCase())) throw new CoreClientError('Shot code already exists in this project.', { code: 'DUPLICATE_SHOT_CODE', category: 'CONFLICT', needsUser: true })
+      const shot: ShotSummary = { id: `${projectId}-shot-${crypto.randomUUID()}`, projectId, code: normalizedCode, title: normalizedTitle, lifecycleState: 'ACTIVE', rowVersion: 1, createdAt: new Date().toISOString() }
+      persistLocalWorkspace(projectId, { ...state, shots: [...state.shots, shot], projectionSeq: state.projectionSeq + 1 })
+      localCommandSuccess('CreateShot', idempotencyKey, fingerprint, shot)
+      return shot
+    } catch (cause) {
+      localCommandFailure('CreateShot', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async updateShot(shotId: string, patch: { title?: string; lifecycleState?: ShotLifecycleState }, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<ShotSummary> {
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ command_type: 'UpdateShot', payload: { shot_id: shotId, ...patch, ...(patch.lifecycleState ? { lifecycle_state: patch.lifecycleState } : {}) }, expected_versions: { SHOT: expectedVersion } }),
+      })
+      return mapShotRecord(await readCorePayload(response, 'shot update'))
+    }
+    const fingerprint = localCommandFingerprint({ shotId, patch }, { SHOT: expectedVersion })
+    const replay = localCommandReplay<ShotSummary>('UpdateShot', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as ShotSummary
+    try {
+      const store = localWorkspaceStore()
+      const entry = Object.entries(store).find(([, value]) => value.shots.some((shot) => shot.id === shotId))
+      if (!entry) throw new CoreClientError('Shot not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      const [projectId, state] = entry
+      const current = state.shots.find((shot) => shot.id === shotId)
+      if (!current) throw new CoreClientError('Shot not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (current.rowVersion !== expectedVersion) throw new CoreClientError('Workspace changed. Refresh before retrying.', { code: 'STALE_REVISION', category: 'STALE_REVISION', needsUser: true })
+      if (patch.title !== undefined && (typeof patch.title !== 'string' || !patch.title.trim() || patch.title.trim().length > 500)) throw new CoreClientError('A shot title is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.lifecycleState !== undefined && !['ACTIVE', 'PAUSED', 'ARCHIVED', 'TRASHED'].includes(patch.lifecycleState)) throw new CoreClientError('Shot lifecycle is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.lifecycleState && patch.lifecycleState !== current.lifecycleState && !shotTransitionsFor(current.lifecycleState).includes(patch.lifecycleState)) throw new CoreClientError('That shot lifecycle change is not allowed.', { code: 'INVALID_STATE_TRANSITION', category: 'CONFLICT', needsUser: true })
+      const updated = { ...current, ...patch, ...(patch.title !== undefined ? { title: patch.title.trim() } : {}), rowVersion: current.rowVersion + 1, updatedAt: new Date().toISOString() }
+      persistLocalWorkspace(projectId, { ...state, shots: state.shots.map((shot) => shot.id === shotId ? updated : shot), projectionSeq: state.projectionSeq + 1 })
+      localCommandSuccess('UpdateShot', idempotencyKey, fingerprint, updated)
+      return updated
+    } catch (cause) {
+      localCommandFailure('UpdateShot', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async addNote(projectId: string, target: { entityType: WorkspaceNoteEntityType; entityId: string }, body: string, idempotencyKey = crypto.randomUUID()): Promise<NoteSummary> {
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ entity_type: target.entityType, entity_id: target.entityId, body }),
+      })
+      return mapNoteRecord(await readCorePayload(response, 'note creation'))
+    }
+    const normalizedBody = typeof body === 'string' ? body.trim() : ''
+    const fingerprint = localCommandFingerprint({ projectId, target, body: normalizedBody })
+    const replay = localCommandReplay<NoteSummary>('AddNote', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as NoteSummary
+    try {
+      const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+      if (!project) throw new CoreClientError('Project not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (!['PROJECT', 'TASK', 'SHOT'].includes(target.entityType) || typeof target.entityId !== 'string' || !target.entityId.trim()) throw new CoreClientError('Note target is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      const state = localWorkspace(projectId)
+      if (target.entityType === 'TASK' && !state.tasks.some((task) => task.id === target.entityId)) throw new CoreClientError('Task does not belong to this project.', { code: 'ENTITY_SCOPE_MISMATCH', category: 'CONFLICT', needsUser: true })
+      if (target.entityType === 'SHOT' && !state.shots.some((shot) => shot.id === target.entityId)) throw new CoreClientError('Shot does not belong to this project.', { code: 'ENTITY_SCOPE_MISMATCH', category: 'CONFLICT', needsUser: true })
+      if (target.entityType === 'PROJECT' && target.entityId !== projectId) throw new CoreClientError('Project scope does not match.', { code: 'ENTITY_SCOPE_MISMATCH', category: 'CONFLICT', needsUser: true })
+      if (!normalizedBody || normalizedBody.length > 50000) throw new CoreClientError('A note body is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      const note: NoteSummary = { id: `${projectId}-note-${crypto.randomUUID()}`, projectId, entityType: target.entityType, entityId: target.entityId, body: normalizedBody, createdAt: new Date().toISOString() }
+      const next = { ...state, notes: [note, ...state.notes], projectionSeq: state.projectionSeq + 1 }
+      persistLocalWorkspace(projectId, next)
+      localCommandSuccess('AddNote', idempotencyKey, fingerprint, note)
+      return note
+    } catch (cause) {
+      localCommandFailure('AddNote', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
   }
 
   async getProjectWorkspace(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace> {
     if (!this.baseUrl) {
       const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
       if (!project) throw new Error('Project no longer exists in Core')
-      const productionItems = structuredClone(project.productionItems ?? [])
-      return { projectId, productionItems, shotsCount: productionItems.length, notesCount: 0, generatedAt: new Date().toISOString() }
+      const state = localWorkspace(projectId)
+      const productionItems = state.tasks.map(taskToProductionItem)
+      return { projectId, productionItems, tasks: structuredClone(state.tasks), shots: structuredClone(state.shots), notes: structuredClone(state.notes), shotsCount: state.shots.length, notesCount: state.notes.length, projectionSeq: state.projectionSeq, generatedAt: new Date().toISOString() }
     }
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/workspace`, { signal, headers: { Accept: 'application/json' } })
     const payload = await readCorePayload(response, 'workspace')
     const result = asRecord(payload)
     const taskSources = arrayValue(result.tasks ?? result.production_items ?? result.productionItems)
     const counts = asRecord(result.counts)
-    const productionItems = taskSources.map((source, index) => mapProductionItemRecord(source, index))
+    const tasks = taskSources.map(mapTaskRecord)
+    const shots = arrayValue(result.shots).map(mapShotRecord)
+    const notes = arrayValue(result.notes).map(mapNoteRecord)
+    const productionItems = tasks.map(taskToProductionItem)
     return {
       projectId,
       productionItems,
-      shotsCount: numberValue(result.shots_count ?? result.shotsCount ?? counts.shots ?? (Array.isArray(result.shots) ? result.shots.length : result.shots), 0),
-      notesCount: numberValue(result.notes_count ?? result.notesCount ?? counts.notes ?? (Array.isArray(result.notes) ? result.notes.length : result.notes), 0),
+      tasks,
+      shots,
+      notes,
+      shotsCount: numberValue(result.shots_count ?? result.shotsCount ?? counts.shots ?? shots.length, shots.length),
+      notesCount: numberValue(result.notes_count ?? result.notesCount ?? counts.notes ?? notes.length, notes.length),
+      projectionSeq: numberValue(result.projection_seq ?? result.projectionSeq, 0),
       generatedAt: stringValue(result.generated_at ?? result.generatedAt),
     }
   }
@@ -261,7 +616,18 @@ async function readCorePayload(response: Response, label: string): Promise<unkno
   const envelope = asRecord(payload)
   if (!response.ok || envelope.ok === false) {
     const error = asRecord(envelope.error)
-    throw new Error(stringValue(error.user_message_key ?? error.message) ?? `Core ${label} request failed (${response.status})`)
+    const technicalDetails = asRecord(error.technical_details ?? error.technicalDetails)
+    throw new CoreClientError(
+      stringValue(error.user_message_key ?? error.message) ?? `Core ${label} request failed (${response.status})`,
+      {
+        code: stringValue(error.code) ?? `HTTP_${response.status}`,
+        category: stringValue(error.category) ?? 'UNKNOWN',
+        retryable: Boolean(error.retryable),
+        needsUser: error.needs_user === undefined ? true : Boolean(error.needs_user),
+        userMessageKey: stringValue(error.user_message_key),
+        technicalDetails,
+      },
+    )
   }
   return envelope.result ?? payload
 }
@@ -287,19 +653,116 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown, fallback: number): number {
   const numeric = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback
+  return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : fallback
+}
+
+function integerValue(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isSafeInteger(numeric) && numeric >= minimum && numeric <= maximum ? numeric : fallback
 }
 
 function mapProductionItemRecord(value: unknown, index: number): ProductionItem {
   const source = asRecord(value)
   const rawState = stringValue(source.state ?? source.status ?? source.lifecycle_state) ?? 'todo'
-  const state: ProductionItem['state'] = ['DONE', 'COMPLETE', 'completed', 'done'].includes(rawState) ? 'done' : ['RUNNING', 'IN_PROGRESS', 'running', 'in_progress'].includes(rawState) ? 'in_progress' : 'todo'
+  const state: ProductionItem['state'] = ['DONE', 'COMPLETE', 'completed', 'done'].includes(rawState) ? 'done' : ['RUNNING', 'IN_PROGRESS', 'running', 'in_progress'].includes(rawState) ? 'in_progress' : ['BLOCKED', 'blocked'].includes(rawState) ? 'blocked' : ['CANCELLED', 'cancelled'].includes(rawState) ? 'cancelled' : 'todo'
   return {
     id: stringValue(source.id ?? source.task_id) ?? `workspace-item-${index}`,
     title: stringValue(source.title ?? source.name) ?? 'Production item',
     detail: stringValue(source.detail ?? source.description) ?? (state === 'done' ? 'Đã hoàn tất' : 'Mới tạo · chưa bắt đầu'),
     state,
   }
+}
+
+function taskToProductionItem(task: TaskSummary): ProductionItem {
+  const state: ProductionItem['state'] = task.status === 'DONE' ? 'done' : task.status === 'IN_PROGRESS' ? 'in_progress' : task.status === 'BLOCKED' ? 'blocked' : task.status === 'CANCELLED' ? 'cancelled' : 'todo'
+  return {
+    id: task.id,
+    title: task.title,
+    detail: task.description || (task.status === 'BLOCKED' ? 'Đang bị chặn' : task.status === 'CANCELLED' ? 'Đã huỷ' : 'Mới tạo · chưa bắt đầu'),
+    state,
+  }
+}
+
+function mapTaskRecord(value: unknown): TaskSummary {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.task ?? envelope.result ?? value)
+  const rawStatus = stringValue(source.status ?? source.state) ?? 'PLANNED'
+  const status: TaskStatus = ['PLANNED', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'].includes(rawStatus) ? rawStatus as TaskStatus : 'PLANNED'
+  return {
+    id: stringValue(source.id ?? source.task_id) ?? `task-${crypto.randomUUID()}`,
+    projectId: stringValue(source.project_id ?? source.projectId) ?? '',
+    title: stringValue(source.title) ?? 'Production task',
+    description: typeof source.description === 'string' ? source.description : '',
+    status,
+    priority: integerValue(source.priority, 0, -1000, 1000),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapShotRecord(value: unknown): ShotSummary {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.shot ?? envelope.result ?? value)
+  const rawState = stringValue(source.lifecycle_state ?? source.lifecycleState ?? source.state) ?? 'ACTIVE'
+  const lifecycleState: ShotLifecycleState = ['ACTIVE', 'PAUSED', 'ARCHIVED', 'TRASHED'].includes(rawState) ? rawState as ShotLifecycleState : 'ACTIVE'
+  return {
+    id: stringValue(source.id ?? source.shot_id) ?? `shot-${crypto.randomUUID()}`,
+    projectId: stringValue(source.project_id ?? source.projectId) ?? '',
+    code: stringValue(source.code) ?? 'SHOT',
+    title: stringValue(source.title) ?? 'Planning shot',
+    lifecycleState,
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapNoteRecord(value: unknown): NoteSummary {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.note ?? envelope.result ?? value)
+  const rawType = stringValue(source.entity_type ?? source.entityType) ?? 'PROJECT'
+  const entityType: WorkspaceNoteEntityType = ['PROJECT', 'TASK', 'SHOT'].includes(rawType) ? rawType as WorkspaceNoteEntityType : 'PROJECT'
+  return {
+    id: stringValue(source.id ?? source.note_id) ?? `note-${crypto.randomUUID()}`,
+    projectId: stringValue(source.project_id ?? source.projectId) ?? '',
+    entityType,
+    entityId: stringValue(source.entity_id ?? source.entityId) ?? '',
+    body: stringValue(source.body) ?? '',
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function syncLocalTasks(projectId: string, tasks: TaskSummary[]) {
+  const snapshot = localSnapshot()
+  const project = snapshot.projects.find((candidate) => candidate.id === projectId)
+  if (!project) return
+  project.productionItems = tasks.map(taskToProductionItem)
+  project.completion = { done: tasks.filter((task) => task.status === 'DONE').length, total: tasks.length }
+  project.health = project.health === 'blocked' ? 'blocked' : tasks.some((task) => task.status === 'BLOCKED') ? 'attention' : 'healthy'
+  project.updatedAt = 'Vừa cập nhật'
+  saveLocalSnapshot(snapshot)
+}
+
+function taskTransitionsFor(status: TaskStatus): TaskStatus[] {
+  const transitions: Record<TaskStatus, TaskStatus[]> = {
+    PLANNED: ['IN_PROGRESS', 'BLOCKED', 'CANCELLED'],
+    IN_PROGRESS: ['DONE', 'BLOCKED', 'CANCELLED'],
+    BLOCKED: ['PLANNED', 'IN_PROGRESS', 'CANCELLED'],
+    DONE: [],
+    CANCELLED: [],
+  }
+  return transitions[status]
+}
+
+function shotTransitionsFor(state: ShotLifecycleState): ShotLifecycleState[] {
+  const transitions: Record<ShotLifecycleState, ShotLifecycleState[]> = {
+    ACTIVE: ['PAUSED', 'ARCHIVED', 'TRASHED'],
+    PAUSED: ['ACTIVE', 'ARCHIVED', 'TRASHED'],
+    ARCHIVED: ['TRASHED'],
+    TRASHED: ['ACTIVE'],
+  }
+  return transitions[state]
 }
 
 function mapActivityRecord(value: unknown, projectId: string, index: number): ActivityItem {
@@ -335,6 +798,8 @@ function mapAssetRecord(value: unknown): AssetSummary {
     originType: stringValue(asset.origin_type ?? asset.originType) ?? 'IMPORTED',
     state: stringValue(asset.lifecycle_state ?? asset.state) ?? 'ACTIVE',
     availability: stringValue(asset.availability ?? revision.availability_state ?? revision.availability) ?? 'AVAILABLE',
+    readinessState: ['READY', 'UNKNOWN', 'REVIEW_REQUIRED'].includes(String(asset.readinessState ?? asset.readiness_state ?? revision.readiness_state).toUpperCase())
+      ? String(asset.readinessState ?? asset.readiness_state ?? revision.readiness_state).toUpperCase() as AssetSummary['readinessState'] : 'UNKNOWN',
     revisionId: stringValue(asset.revisionId ?? asset.revision_id ?? revision.id ?? revision.revision_id ?? revision.revisionId),
     hashAlgorithm: stringValue(asset.hashAlgorithm ?? asset.hash_algorithm ?? storage.hash_algorithm ?? storage.hashAlgorithm),
     contentHash: stringValue(asset.contentHash ?? asset.content_hash ?? storage.content_hash ?? storage.contentHash),

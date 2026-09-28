@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import {
   Activity,
@@ -42,8 +42,8 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, DecisionRequest, Locale, ProductionItem, ProjectSummary, Theme, WorkState } from './types'
+import { CoreClientError, createCoreClient } from './coreAdapter'
+import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, DecisionRequest, Locale, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, TaskStatus, TaskSummary, Theme, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -255,6 +255,27 @@ function App() {
     }
   }
 
+  const syncProjectWorkspace = useCallback((workspace: ProjectWorkspace) => {
+    setSnapshot((current) => current ? {
+      ...current,
+      projects: current.projects.map((project) => {
+        if (project.id !== workspace.projectId) return project
+        const blocked = workspace.tasks.some((task) => task.status === 'BLOCKED')
+        return {
+          ...project,
+          productionItems: workspace.productionItems,
+          completion: {
+            done: workspace.productionItems.filter((item) => item.state === 'done').length,
+            total: workspace.productionItems.length,
+          },
+          health: project.health === 'blocked' ? 'blocked' : blocked ? 'attention' : project.health,
+          updatedAt: locale === 'vi' ? 'Vừa cập nhật' : 'Just updated',
+        }
+      }),
+      generatedAt: workspace.generatedAt ?? new Date().toISOString(),
+    } : current)
+  }, [locale])
+
   const content = snapshot ? (
     <>
       {activeNav === 'home' && (
@@ -270,7 +291,7 @@ function App() {
         />
       )}
       {activeNav === 'projects' && (
-        selectedProjectId ? <ProjectDetailView snapshot={snapshot} projectId={selectedProjectId} locale={locale} client={client} onBack={() => setSelectedProjectId(null)} onAddItem={addProductionItem} /> : <ProjectsView snapshot={snapshot} t={t} locale={locale} onNewProject={() => setNewProjectOpen(true)} onOpenProject={openProject} />
+        selectedProjectId ? <ProjectPlanningView snapshot={snapshot} projectId={selectedProjectId} locale={locale} client={client} onBack={() => setSelectedProjectId(null)} onWorkspaceChanged={syncProjectWorkspace} /> : <ProjectsView snapshot={snapshot} t={t} locale={locale} onNewProject={() => setNewProjectOpen(true)} onOpenProject={openProject} />
       )}
       {activeNav === 'needs' && (
         <NeedsView snapshot={snapshot} t={t} locale={locale} onOpenDecision={openDecision} onAcknowledge={acknowledgeDecision} />
@@ -352,7 +373,7 @@ function HomeView({ snapshot, t, locale, onOpenDecision, onOpenProject, onNewPro
   if (!leadProject) return <div className="page empty-home-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'KHỞI ĐỘNG' : 'GET STARTED'}</p><h1>{locale === 'vi' ? 'Bắt đầu workspace đầu tiên' : 'Start your first workspace'}</h1><p className="page-subtitle">{locale === 'vi' ? 'CineForge chỉ ghi nhận dữ liệu sau khi Core xác nhận. Tạo project để bắt đầu.' : 'CineForge records data only after Core confirms it. Create a project to begin.'}</p></div><button className="primary-button" onClick={onNewProject}><Plus size={17} />{t.newProject}</button></div><EmptyState icon={FolderKanban} title={locale === 'vi' ? 'Chưa có dự án' : 'No projects yet'} detail={locale === 'vi' ? 'Một project mới sẽ xuất hiện ở đây sau khi được Core lưu.' : 'A new project will appear here after Core saves it.'} /></div>
   return <div className="page home-page">
     <div className="page-heading"><div><p className="eyebrow">{formatDateGreeting(locale)}</p><h1>{t.greeting}</h1><p className="page-subtitle">{t.greetingHint}</p></div><button className="primary-button" onClick={onNewProject}><Plus size={17} />{t.newProject}</button></div>
-    <section className="continue-section"><div className="section-heading"><div><h2>{t.continue}</h2><p>{locale === 'vi' ? 'Nơi bạn dừng lại lần trước.' : 'Where you left off last time.'}</p></div><button className="text-button" onClick={() => onOpenProject(leadProject)}>{t.view}<ArrowRight size={15} /></button></div><div className="hero-project-card" style={{ '--project-accent': leadProject.accent } as CSSProperties} onClick={() => onOpenProject(leadProject)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpenProject(leadProject) }}><div className="hero-cover" style={{ background: leadProject.cover }}><div className="cover-noise" /><div className="cover-type">{leadProject.kind}</div><div className="cover-play"><LayoutDashboard size={19} /></div></div><div className="hero-project-body"><div className="project-title-row"><div><span className="project-kicker">{leadProject.name}</span><h3>{leadProject.nextAction}</h3></div><span className={`health-pill ${leadProject.health}`}><span />{leadProject.health === 'healthy' ? t.healthy : leadProject.health === 'blocked' ? (locale === 'vi' ? 'Đang chặn' : 'Blocked') : (locale === 'vi' ? 'Cần chú ý' : 'Needs attention')}</span></div><p className="hero-detail">{leadProject.stage} <span>·</span> {leadProject.stageDetail}</p><div className="hero-progress-row"><span>{leadProject.completion.done}/{leadProject.completion.total} {locale === 'vi' ? 'shot đã xong' : 'shots complete'}</span><span className="hero-progress-percent">{percentage(leadProject.completion.done, leadProject.completion.total)}%</span></div><div className="progress-track large"><span style={{ width: `${percentage(leadProject.completion.done, leadProject.completion.total)}%` }} /></div><div className="hero-footer"><span><Clock3 size={14} />{leadProject.updatedAt}</span><span><HardDrive size={14} />{leadProject.storage}</span><span className="hero-action">{leadProject.nextActionLabel}<ArrowRight size={15} /></span></div></div></div></section>
+    <section className="continue-section"><div className="section-heading"><div><h2>{t.continue}</h2><p>{locale === 'vi' ? 'Nơi bạn dừng lại lần trước.' : 'Where you left off last time.'}</p></div><button className="text-button" onClick={() => onOpenProject(leadProject)}>{t.view}<ArrowRight size={15} /></button></div><div className="hero-project-card" style={{ '--project-accent': leadProject.accent } as CSSProperties} onClick={() => onOpenProject(leadProject)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenProject(leadProject) } }}><div className="hero-cover" style={{ background: leadProject.cover }}><div className="cover-noise" /><div className="cover-type">{leadProject.kind}</div><div className="cover-play"><LayoutDashboard size={19} /></div></div><div className="hero-project-body"><div className="project-title-row"><div><span className="project-kicker">{leadProject.name}</span><h3>{leadProject.nextAction}</h3></div><span className={`health-pill ${leadProject.health}`}><span />{leadProject.health === 'healthy' ? t.healthy : leadProject.health === 'blocked' ? (locale === 'vi' ? 'Đang chặn' : 'Blocked') : (locale === 'vi' ? 'Cần chú ý' : 'Needs attention')}</span></div><p className="hero-detail">{leadProject.stage} <span>·</span> {leadProject.stageDetail}</p><div className="hero-progress-row"><span>{leadProject.completion.done}/{leadProject.completion.total} {locale === 'vi' ? 'việc đã xong' : 'tasks complete'}</span><span className="hero-progress-percent">{percentage(leadProject.completion.done, leadProject.completion.total)}%</span></div><div className="progress-track large"><span style={{ width: `${percentage(leadProject.completion.done, leadProject.completion.total)}%` }} /></div><div className="hero-footer"><span><Clock3 size={14} />{leadProject.updatedAt}</span><span><HardDrive size={14} />{leadProject.storage}</span><span className="hero-action">{leadProject.nextActionLabel}<ArrowRight size={15} /></span></div></div></div></section>
     <div className="home-grid"><section className="dashboard-card needs-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon amber"><Inbox size={16} /></span><div><h2>{t.needsYou}</h2><p>{t.needsHint}</p></div></div><button className="text-button" onClick={() => onNavigate('needs')}>{t.seeAll}<ArrowRight size={14} /></button></div>{snapshot.decisions.length === 0 ? <EmptyInline icon={CheckCircle2} text={t.noDecisions} /> : <div className="decision-list">{snapshot.decisions.slice(0, 3).map((decision) => <DecisionRow key={decision.id} decision={decision} locale={locale} onOpen={() => onOpenDecision(decision)} />)}</div>}</section><section className="dashboard-card activity-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><Activity size={16} /></span><div><h2>{t.background}</h2><p>{t.backgroundHint}</p></div></div><button className="text-button" onClick={() => onNavigate('activity')}>{t.seeAll}<ArrowRight size={14} /></button></div>{snapshot.activity.length === 0 ? <EmptyInline icon={CheckCircle2} text={t.noActivity} /> : <div className="activity-list">{snapshot.activity.slice(0, 4).map((item) => <ActivityRow key={item.id} item={item} locale={locale} />)}</div>}</section></div>
     <section className="projects-section"><div className="section-heading"><div><h2>{t.recentProjects}</h2><p>{locale === 'vi' ? 'Các không gian bạn vừa làm việc.' : 'The spaces you worked in recently.'}</p></div><button className="text-button" onClick={() => onNavigate('projects')}>{t.allProjects}<ArrowRight size={15} /></button></div><div className="project-grid">{snapshot.projects.slice(0, 3).map((project) => <ProjectCard key={project.id} project={project} locale={locale} onOpen={() => onOpenProject(project)} />)}</div></section>
   </div>
@@ -410,7 +431,238 @@ function ProjectDetailView({ snapshot, projectId, locale, client, onBack, onAddI
       setIsAdding(false)
     }
   }
-  return <div className="page project-detail-page"><button className="back-link" onClick={onBack}><ArrowRight size={15} className="back-arrow" />{locale === 'vi' ? 'Tất cả dự án' : 'All projects'}</button><div className="project-detail-heading"><div><p className="eyebrow">{project.kind}</p><h1>{project.name}</h1><p className="page-subtitle">{project.stage} · {project.stageDetail}</p></div><span className={`health-pill ${project.health}`}><span />{project.health === 'healthy' ? (locale === 'vi' ? 'Ổn định' : 'Healthy') : project.health === 'blocked' ? (locale === 'vi' ? 'Đang chặn' : 'Blocked') : (locale === 'vi' ? 'Cần chú ý' : 'Needs attention')}</span></div><div className="project-detail-grid"><section className="detail-summary-card"><div className="detail-cover" style={{ background: project.cover }}><div className="cover-noise" /><span className="cover-type">{project.kind}</span></div><div className="detail-summary-body"><div className="detail-stat"><span>{locale === 'vi' ? 'Production items' : 'Production items'}</span><strong>{items.length}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Shot đã xong' : 'Shots complete'}</span><strong>{project.completion.done}/{project.completion.total || '—'}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Dung lượng' : 'Storage'}</span><strong>{project.storage}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Ghi chú' : 'Notes'}</span><strong>{workspaceCounts.notes || '—'}</strong></div></div></section><section className="production-card"><div className="production-card-heading"><div><h2>{locale === 'vi' ? 'Không gian dự án' : 'Project workspace'}</h2><p>{locale === 'vi' ? 'Dữ liệu đọc từ Core. Mọi thay đổi ghi nhận qua command.' : 'Read from Core. Mutations are recorded through commands.'}</p></div><span className="state-label"><ShieldCheck size={13} />{locale === 'vi' ? 'Do Core quản lý' : 'Core-owned'}</span></div><div className="project-tabs" role="tablist" aria-label={locale === 'vi' ? 'Các phần của dự án' : 'Project sections'}><button className={activeTab === 'production' ? 'active' : ''} onClick={() => setActiveTab('production')} role="tab" aria-selected={activeTab === 'production'}><ListChecks size={14} />{locale === 'vi' ? 'Sản xuất' : 'Production'}</button><button className={activeTab === 'activity' ? 'active' : ''} onClick={() => setActiveTab('activity')} role="tab" aria-selected={activeTab === 'activity'}><Activity size={14} />{locale === 'vi' ? 'Hoạt động' : 'Activity'}</button><button className={activeTab === 'context' ? 'active' : ''} onClick={() => setActiveTab('context')} role="tab" aria-selected={activeTab === 'context'}><Info size={14} />{locale === 'vi' ? 'Thông tin' : 'Context'}</button></div>{workspaceLoading && <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc workspace từ Core…' : 'Reading workspace from Core…'}</div>}{workspaceError && <div className="inline-state warning"><AlertCircle size={14} />{locale === 'vi' ? 'Không đọc được workspace mới nhất; đang hiển thị snapshot dashboard.' : 'Could not read the latest workspace; showing the dashboard snapshot.'}</div>}{activeTab === 'production' && <><form className="add-item-form" onSubmit={addItem}><input value={newItem} onChange={(event) => setNewItem(event.target.value)} placeholder={locale === 'vi' ? 'Thêm production item…' : 'Add a production item…'} aria-label={locale === 'vi' ? 'Tên production item' : 'Production item name'} /><button className="primary-button small" disabled={!newItem.trim() || isAdding}>{isAdding ? '…' : <><Plus size={15} />{locale === 'vi' ? 'Thêm' : 'Add'}</>}</button></form><div className="production-list">{items.length === 0 ? <div className="production-empty"><Sparkles size={19} /><p>{locale === 'vi' ? 'Bắt đầu bằng một cảnh, shot hoặc mốc âm thanh.' : 'Start with a scene, shot, or audio milestone.'}</p></div> : items.map((item) => <div className="production-item" key={item.id}><span className={`production-check ${item.state}`}>{item.state === 'done' ? <Check size={13} /> : item.state === 'in_progress' ? <Clock3 size={13} /> : <span />}</span><div><strong>{item.title}</strong><small>{item.detail}</small></div><span className={`item-state ${item.state}`}>{item.state === 'done' ? (locale === 'vi' ? 'Đã xong' : 'Done') : item.state === 'in_progress' ? (locale === 'vi' ? 'Đang xử lý' : 'In progress') : (locale === 'vi' ? 'Chưa bắt đầu' : 'Not started')}</span></div>)}</div></>}{activeTab === 'activity' && <div className="workspace-activity-list">{activity.length === 0 ? <div className="production-empty"><CircleDot size={19} /><p>{locale === 'vi' ? 'Chưa có activity nào cho project này.' : 'No activity has been recorded for this project.'}</p></div> : activity.map((item) => <ActivityRow key={item.id} item={item} locale={locale} />)}</div>}{activeTab === 'context' && <div className="workspace-context"><div><span>{locale === 'vi' ? 'Project ID' : 'Project ID'}</span><code>{project.id}</code></div><div><span>{locale === 'vi' ? 'Giai đoạn' : 'Stage'}</span><strong>{project.stage}</strong></div><div><span>{locale === 'vi' ? 'Shots trong workspace' : 'Workspace shots'}</span><strong>{workspaceCounts.shots || project.completion.total || 0}</strong></div><div><span>{locale === 'vi' ? 'Cập nhật gần nhất' : 'Last updated'}</span><strong>{project.updatedAt}</strong></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Các trường này chỉ đọc. Dùng command tương ứng để thay đổi dữ liệu canonical.' : 'These fields are read-only. Use the corresponding command to change canonical data.'}</p></div>}</section></div></div>
+  return <div className="page project-detail-page"><button className="back-link" onClick={onBack}><ArrowRight size={15} className="back-arrow" />{locale === 'vi' ? 'Tất cả dự án' : 'All projects'}</button><div className="project-detail-heading"><div><p className="eyebrow">{project.kind}</p><h1>{project.name}</h1><p className="page-subtitle">{project.stage} · {project.stageDetail}</p></div><span className={`health-pill ${project.health}`}><span />{project.health === 'healthy' ? (locale === 'vi' ? 'Ổn định' : 'Healthy') : project.health === 'blocked' ? (locale === 'vi' ? 'Đang chặn' : 'Blocked') : (locale === 'vi' ? 'Cần chú ý' : 'Needs attention')}</span></div><div className="project-detail-grid"><section className="detail-summary-card"><div className="detail-cover" style={{ background: project.cover }}><div className="cover-noise" /><span className="cover-type">{project.kind}</span></div><div className="detail-summary-body"><div className="detail-stat"><span>{locale === 'vi' ? 'Production items' : 'Production items'}</span><strong>{items.length}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Việc đã xong' : 'Tasks complete'}</span><strong>{project.completion.done}/{project.completion.total || '—'}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Dung lượng' : 'Storage'}</span><strong>{project.storage}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Ghi chú' : 'Notes'}</span><strong>{workspaceCounts.notes || '—'}</strong></div></div></section><section className="production-card"><div className="production-card-heading"><div><h2>{locale === 'vi' ? 'Không gian dự án' : 'Project workspace'}</h2><p>{locale === 'vi' ? 'Dữ liệu đọc từ Core. Mọi thay đổi ghi nhận qua command.' : 'Read from Core. Mutations are recorded through commands.'}</p></div><span className="state-label"><ShieldCheck size={13} />{locale === 'vi' ? 'Do Core quản lý' : 'Core-owned'}</span></div><div className="project-tabs" role="tablist" aria-label={locale === 'vi' ? 'Các phần của dự án' : 'Project sections'}><button className={activeTab === 'production' ? 'active' : ''} onClick={() => setActiveTab('production')} role="tab" aria-selected={activeTab === 'production'}><ListChecks size={14} />{locale === 'vi' ? 'Sản xuất' : 'Production'}</button><button className={activeTab === 'activity' ? 'active' : ''} onClick={() => setActiveTab('activity')} role="tab" aria-selected={activeTab === 'activity'}><Activity size={14} />{locale === 'vi' ? 'Hoạt động' : 'Activity'}</button><button className={activeTab === 'context' ? 'active' : ''} onClick={() => setActiveTab('context')} role="tab" aria-selected={activeTab === 'context'}><Info size={14} />{locale === 'vi' ? 'Thông tin' : 'Context'}</button></div>{workspaceLoading && <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc workspace từ Core…' : 'Reading workspace from Core…'}</div>}{workspaceError && <div className="inline-state warning"><AlertCircle size={14} />{locale === 'vi' ? 'Không đọc được workspace mới nhất; đang hiển thị snapshot dashboard.' : 'Could not read the latest workspace; showing the dashboard snapshot.'}</div>}{activeTab === 'production' && <><form className="add-item-form" onSubmit={addItem}><input value={newItem} onChange={(event) => setNewItem(event.target.value)} placeholder={locale === 'vi' ? 'Thêm production item…' : 'Add a production item…'} aria-label={locale === 'vi' ? 'Tên production item' : 'Production item name'} /><button className="primary-button small" disabled={!newItem.trim() || isAdding}>{isAdding ? '…' : <><Plus size={15} />{locale === 'vi' ? 'Thêm' : 'Add'}</>}</button></form><div className="production-list">{items.length === 0 ? <div className="production-empty"><Sparkles size={19} /><p>{locale === 'vi' ? 'Bắt đầu bằng một cảnh, shot hoặc mốc âm thanh.' : 'Start with a scene, shot, or audio milestone.'}</p></div> : items.map((item) => <div className="production-item" key={item.id}><span className={`production-check ${item.state}`}>{productionItemIcon(item.state)}</span><div><strong>{item.title}</strong><small>{item.detail}</small></div><span className={`item-state ${item.state}`}>{productionItemLabel(item.state, locale)}</span></div>)}</div></>}{activeTab === 'activity' && <div className="workspace-activity-list">{activity.length === 0 ? <div className="production-empty"><CircleDot size={19} /><p>{locale === 'vi' ? 'Chưa có activity nào cho project này.' : 'No activity has been recorded for this project.'}</p></div> : activity.map((item) => <ActivityRow key={item.id} item={item} locale={locale} />)}</div>}{activeTab === 'context' && <div className="workspace-context"><div><span>{locale === 'vi' ? 'Project ID' : 'Project ID'}</span><code>{project.id}</code></div><div><span>{locale === 'vi' ? 'Giai đoạn' : 'Stage'}</span><strong>{project.stage}</strong></div><div><span>{locale === 'vi' ? 'Shots trong workspace' : 'Workspace shots'}</span><strong>{workspaceCounts.shots}</strong></div><div><span>{locale === 'vi' ? 'Cập nhật gần nhất' : 'Last updated'}</span><strong>{project.updatedAt}</strong></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Các trường này chỉ đọc. Dùng command tương ứng để thay đổi dữ liệu canonical.' : 'These fields are read-only. Use the corresponding command to change canonical data.'}</p></div>}</section></div></div>
+}
+
+const taskStatusLabels: Record<TaskStatus, { vi: string; en: string }> = {
+  PLANNED: { vi: 'Đã lên kế hoạch', en: 'Planned' },
+  IN_PROGRESS: { vi: 'Đang làm', en: 'In progress' },
+  BLOCKED: { vi: 'Đang bị chặn', en: 'Blocked' },
+  DONE: { vi: 'Đã hoàn tất', en: 'Done' },
+  CANCELLED: { vi: 'Đã huỷ', en: 'Cancelled' },
+}
+
+const shotLifecycleLabels: Record<ShotLifecycleState, { vi: string; en: string }> = {
+  ACTIVE: { vi: 'Đang hoạt động', en: 'Active' },
+  PAUSED: { vi: 'Tạm dừng', en: 'Paused' },
+  ARCHIVED: { vi: 'Đã lưu trữ', en: 'Archived' },
+  TRASHED: { vi: 'Đã đưa vào thùng rác', en: 'Trashed' },
+}
+
+const taskTransitions: Record<TaskStatus, TaskStatus[]> = {
+  PLANNED: ['IN_PROGRESS', 'BLOCKED', 'CANCELLED'],
+  IN_PROGRESS: ['BLOCKED', 'DONE', 'CANCELLED'],
+  BLOCKED: ['PLANNED', 'IN_PROGRESS', 'CANCELLED'],
+  DONE: [],
+  CANCELLED: [],
+}
+
+const shotLifecycleTransitions: Record<ShotLifecycleState, ShotLifecycleState[]> = {
+  ACTIVE: ['PAUSED', 'ARCHIVED', 'TRASHED'],
+  PAUSED: ['ACTIVE', 'ARCHIVED', 'TRASHED'],
+  ARCHIVED: ['TRASHED'],
+  TRASHED: ['ACTIVE'],
+}
+
+function productionItemLabel(state: ProductionItem['state'], locale: Locale) {
+  if (state === 'done') return locale === 'vi' ? 'Đã xong' : 'Done'
+  if (state === 'in_progress') return locale === 'vi' ? 'Đang xử lý' : 'In progress'
+  if (state === 'blocked') return locale === 'vi' ? 'Đang bị chặn' : 'Blocked'
+  if (state === 'cancelled') return locale === 'vi' ? 'Đã huỷ' : 'Cancelled'
+  return locale === 'vi' ? 'Chưa bắt đầu' : 'Not started'
+}
+
+function productionItemIcon(state: ProductionItem['state']) {
+  if (state === 'done') return <Check size={13} />
+  if (state === 'in_progress') return <Clock3 size={13} />
+  if (state === 'blocked') return <AlertCircle size={13} />
+  if (state === 'cancelled') return <X size={13} />
+  return <span />
+}
+
+function workspaceErrorMessage(cause: unknown, locale: Locale) {
+  if (!(cause instanceof CoreClientError)) return cause instanceof Error ? cause.message : (locale === 'vi' ? 'Không thể ghi thay đổi.' : 'The change could not be saved.')
+  const messages: Record<string, { vi: string; en: string }> = {
+    DUPLICATE_SHOT_CODE: { vi: 'Mã shot đã tồn tại trong dự án này.', en: 'That shot code already exists in this project.' },
+    INVALID_STATE_TRANSITION: { vi: 'Trạng thái này không thể chuyển từ trạng thái hiện tại.', en: 'That state change is not allowed from the current state.' },
+    ENTITY_SCOPE_MISMATCH: { vi: 'Bản ghi không thuộc dự án này.', en: 'That record does not belong to this project.' },
+    PROJECT_NOT_WRITABLE: { vi: 'Dự án hiện không cho phép thay đổi.', en: 'This project is not writable in its current lifecycle.' },
+    IDEMPOTENCY_KEY_REUSE_CONFLICT: { vi: 'Mã yêu cầu đã được dùng cho dữ liệu khác. Hãy thử lại với thao tác mới.', en: 'That request key was already used for different data. Retry as a new action.' },
+    NOT_FOUND: { vi: 'Bản ghi không còn tồn tại.', en: 'That record no longer exists.' },
+    INVALID_ARGUMENT: { vi: 'Thông tin nhập chưa hợp lệ.', en: 'Some entered values are invalid.' },
+  }
+  return messages[cause.code]?.[locale] ?? (locale === 'vi' ? 'Core không thể ghi thay đổi này.' : 'Core could not save this change.')
+}
+
+export function ProjectPlanningView({ snapshot, projectId, locale, client, onBack, onWorkspaceChanged }: { snapshot: DashboardSnapshot; projectId: string; locale: Locale; client: CoreClient; onBack: () => void; onWorkspaceChanged?: (workspace: ProjectWorkspace) => void }) {
+  const project = snapshot.projects.find((candidate) => candidate.id === projectId)
+  const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(null)
+  const [activeTab, setActiveTab] = useState<'tasks' | 'shots' | 'notes' | 'activity' | 'context'>('tasks')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [staleMessage, setStaleMessage] = useState<string | null>(null)
+  const [refreshToken, setRefreshToken] = useState(0)
+  const [taskTitle, setTaskTitle] = useState('')
+  const [taskDescription, setTaskDescription] = useState('')
+  const [shotCode, setShotCode] = useState('')
+  const [shotTitle, setShotTitle] = useState('')
+  const [noteBody, setNoteBody] = useState('')
+  const [noteTarget, setNoteTarget] = useState(`PROJECT:${projectId}`)
+  const [mutating, setMutating] = useState<string | null>(null)
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const mutationKeys = useRef(new Map<string, string>())
+
+  useEffect(() => {
+    if (!project || !client.getProjectWorkspace) return
+    const controller = new AbortController()
+    setLoading(true)
+    setError(null)
+    setStaleMessage(null)
+    void client.getProjectWorkspace(project.id, controller.signal).then((next) => {
+      if (!controller.signal.aborted) {
+        setWorkspace(next)
+        onWorkspaceChanged?.(next)
+      }
+    }).catch((cause: unknown) => {
+      if (!controller.signal.aborted) setError(workspaceErrorMessage(cause, locale))
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false)
+    })
+    return () => controller.abort()
+  }, [client, project?.id, refreshToken, locale, onWorkspaceChanged])
+
+  useEffect(() => {
+    if (project) setNoteTarget(`PROJECT:${project.id}`)
+  }, [project?.id])
+
+  if (!project) return <div className="page"><ErrorState message={locale === 'vi' ? 'Không tìm thấy dự án.' : 'Project could not be found.'} retryLabel={locale === 'vi' ? 'Quay lại dự án' : 'Back to projects'} onRetry={onBack} /></div>
+
+  const tasks = workspace?.tasks ?? []
+  const shots = workspace?.shots ?? []
+  const notes = workspace?.notes ?? []
+  const workspaceHealth: ProjectSummary['health'] = workspace ? (tasks.some((task) => task.status === 'BLOCKED') ? 'attention' : project.health === 'blocked' ? 'blocked' : 'healthy') : project.health
+  const tabs: Array<{ key: typeof activeTab; label: string; icon: typeof ListChecks }> = [
+    { key: 'tasks', label: locale === 'vi' ? 'Công việc' : 'Tasks', icon: ListChecks },
+    { key: 'shots', label: locale === 'vi' ? 'Shot kế hoạch' : 'Planning shots', icon: CircleDot },
+    { key: 'notes', label: locale === 'vi' ? 'Ghi chú' : 'Notes', icon: BookOpen },
+    { key: 'activity', label: locale === 'vi' ? 'Hoạt động' : 'Activity', icon: Activity },
+    { key: 'context', label: locale === 'vi' ? 'Thông tin' : 'Context', icon: Info },
+  ]
+
+  const refresh = () => setRefreshToken((value) => value + 1)
+  const runMutation = async (key: string, action: (idempotencyKey: string) => Promise<void>) => {
+    if (mutating) return
+    const idempotencyKey = mutationKeys.current.get(key) ?? crypto.randomUUID()
+    mutationKeys.current.set(key, idempotencyKey)
+    setMutating(key)
+    setError(null)
+    try {
+      await action(idempotencyKey)
+      mutationKeys.current.delete(key)
+      setRefreshToken((value) => value + 1)
+    } catch (cause: unknown) {
+      if (cause instanceof CoreClientError && cause.code === 'STALE_REVISION') {
+        setStaleMessage(locale === 'vi' ? 'Workspace đã thay đổi ở nơi khác. Bản nháp của bạn được giữ nguyên; hãy tải lại rồi thử lại.' : 'This workspace changed elsewhere. Your draft is preserved; refresh and retry.')
+      } else {
+        setError(workspaceErrorMessage(cause, locale))
+      }
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const createTask = (event: FormEvent) => {
+    event.preventDefault()
+    const title = taskTitle.trim()
+    if (!title || !client.createTask) return
+    void runMutation(`create-task:${title}:${taskDescription.trim()}`, async (idempotencyKey) => {
+      await client.createTask!(project.id, title, { description: taskDescription.trim(), idempotencyKey })
+      setTaskTitle('')
+      setTaskDescription('')
+    })
+  }
+
+  const createShot = (event: FormEvent) => {
+    event.preventDefault()
+    const code = shotCode.trim().toUpperCase()
+    const title = shotTitle.trim()
+    if (!/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(code) || !title || !client.createShot) return
+    void runMutation(`create-shot:${code}:${title}`, async (idempotencyKey) => {
+      await client.createShot!(project.id, code, title, idempotencyKey)
+      setShotCode('')
+      setShotTitle('')
+    })
+  }
+
+  const addNote = (event: FormEvent) => {
+    event.preventDefault()
+    const body = noteBody.trim()
+    const separator = noteTarget.indexOf(':')
+    const entityType = noteTarget.slice(0, separator) as 'PROJECT' | 'TASK' | 'SHOT'
+    const entityId = noteTarget.slice(separator + 1)
+    if (!body || !entityId || !client.addNote) return
+    void runMutation(`add-note:${noteTarget}:${body}`, async (idempotencyKey) => {
+      await client.addNote!(project.id, { entityType, entityId }, body, idempotencyKey)
+      setNoteBody('')
+    })
+  }
+
+  const updateTask = (task: TaskSummary, nextStatus: TaskStatus) => {
+    if (!client.updateTask || nextStatus === task.status) return
+    if (nextStatus === 'CANCELLED') {
+      const confirmed = window.confirm(locale === 'vi' ? `Xác nhận huỷ công việc “${task.title}”? Trạng thái này không thể khôi phục.` : `Cancel “${task.title}”? This task state cannot be restored.`)
+      if (!confirmed) return
+    }
+    void runMutation(`task-${task.id}:${nextStatus}:${task.rowVersion}`, async (idempotencyKey) => {
+      await client.updateTask!(task.id, { status: nextStatus }, task.rowVersion, idempotencyKey)
+    })
+  }
+
+  const updateShot = (shot: ShotSummary, nextState: ShotLifecycleState) => {
+    if (!client.updateShot || nextState === shot.lifecycleState) return
+    if (nextState === 'ARCHIVED' || nextState === 'TRASHED') {
+      const confirmed = window.confirm(locale === 'vi' ? `Xác nhận chuyển ${shot.code} sang “${shotLifecycleLabels[nextState].vi}”? Thao tác này ảnh hưởng đến lifecycle của shot.` : `Move ${shot.code} to “${shotLifecycleLabels[nextState].en}”? This changes the shot lifecycle.`)
+      if (!confirmed) return
+    }
+    void runMutation(`shot-${shot.id}:${nextState}:${shot.rowVersion}`, async (idempotencyKey) => {
+      await client.updateShot!(shot.id, { lifecycleState: nextState }, shot.rowVersion, idempotencyKey)
+    })
+  }
+
+  const onTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0
+    if (event.key === 'Home') { event.preventDefault(); tabRefs.current[0]?.focus(); setActiveTab(tabs[0].key); return }
+    if (event.key === 'End') { event.preventDefault(); tabRefs.current[tabs.length - 1]?.focus(); setActiveTab(tabs[tabs.length - 1].key); return }
+    if (direction === 0) return
+    event.preventDefault()
+    const nextIndex = (index + direction + tabs.length) % tabs.length
+    tabRefs.current[nextIndex]?.focus()
+    setActiveTab(tabs[nextIndex].key)
+  }
+
+  const tabPanel = activeTab === 'tasks' ? <>
+    <form className="workspace-form" onSubmit={createTask}>
+      <div className="form-grid two"><label htmlFor="workspace-task-title">{locale === 'vi' ? 'Tên công việc' : 'Task title'}<input id="workspace-task-title" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} maxLength={500} placeholder={locale === 'vi' ? 'Ví dụ: Chốt shot list' : 'For example: Lock the shot list'} /></label><label htmlFor="workspace-task-description">{locale === 'vi' ? 'Mô tả (tuỳ chọn)' : 'Description (optional)'}<input id="workspace-task-description" value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} maxLength={10000} placeholder={locale === 'vi' ? 'Điều cần nhớ…' : 'What should be remembered…'} /></label></div>
+      <button className="primary-button small" disabled={!taskTitle.trim() || !client.createTask || Boolean(mutating) || loading || !workspace}>{mutating?.startsWith('create-task:') ? '…' : <><Plus size={14} />{locale === 'vi' ? 'Thêm công việc' : 'Add task'}</>}</button>
+    </form>
+    {tasks.length === 0 ? <EmptyInline icon={ListChecks} text={locale === 'vi' ? 'Chưa có công việc. Thêm một việc để bắt đầu lập kế hoạch.' : 'No tasks yet. Add one to start planning.'} /> : <div className="workspace-record-list">{tasks.map((task) => <div className="workspace-record" key={task.id}><div className="workspace-record-main"><strong>{task.title}</strong><small>{task.description || (locale === 'vi' ? 'Không có mô tả' : 'No description')} · v{task.rowVersion}</small></div><select aria-label={`${locale === 'vi' ? 'Trạng thái' : 'Status'}: ${task.title}`} value={task.status} disabled={!client.updateTask || Boolean(mutating) || loading} onChange={(event) => updateTask(task, event.target.value as TaskStatus)}>{[task.status, ...taskTransitions[task.status]].map((status) => <option key={status} value={status}>{locale === 'vi' ? taskStatusLabels[status].vi : taskStatusLabels[status].en}</option>)}</select></div>)}</div>}
+  </> : activeTab === 'shots' ? <>
+    <form className="workspace-form" onSubmit={createShot}><div className="form-grid two"><label htmlFor="workspace-shot-code">{locale === 'vi' ? 'Mã shot' : 'Shot code'}<input id="workspace-shot-code" value={shotCode} onChange={(event) => setShotCode(event.target.value.toUpperCase())} maxLength={64} pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="SH010" required /></label><label htmlFor="workspace-shot-title">{locale === 'vi' ? 'Tên shot kế hoạch' : 'Planning shot title'}<input id="workspace-shot-title" value={shotTitle} onChange={(event) => setShotTitle(event.target.value)} maxLength={500} placeholder={locale === 'vi' ? 'Cửa mở' : 'Door opens'} required /></label></div><button className="primary-button small" disabled={!/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(shotCode.trim()) || !shotTitle.trim() || !client.createShot || Boolean(mutating) || loading || !workspace}>{mutating?.startsWith('create-shot:') ? '…' : <><Plus size={14} />{locale === 'vi' ? 'Thêm shot kế hoạch' : 'Add planning shot'}</>}</button></form>
+    <p className="workspace-boundary" role="note"><Info size={14} />{locale === 'vi' ? 'Đây là bản ghi lập kế hoạch và lifecycle. Nó chưa đại diện cho media đã render, review hoặc approval.' : 'This is a planning record and lifecycle only. It does not represent rendered, reviewed, or approved media.'}</p>
+    {shots.length === 0 ? <EmptyInline icon={CircleDot} text={locale === 'vi' ? 'Chưa có shot kế hoạch.' : 'No planning shots yet.'} /> : <div className="workspace-record-list">{shots.map((shot) => <div className="workspace-record" key={shot.id}><div className="workspace-record-main"><strong><span className="record-code">{shot.code}</span>{shot.title}</strong><small>{locale === 'vi' ? 'Lifecycle' : 'Lifecycle'} · v{shot.rowVersion}</small></div><select aria-label={`${locale === 'vi' ? 'Lifecycle của' : 'Lifecycle for'} ${shot.code}`} value={shot.lifecycleState} disabled={!client.updateShot || Boolean(mutating) || loading} onChange={(event) => updateShot(shot, event.target.value as ShotLifecycleState)}>{[shot.lifecycleState, ...shotLifecycleTransitions[shot.lifecycleState]].map((state) => <option key={state} value={state}>{locale === 'vi' ? shotLifecycleLabels[state].vi : shotLifecycleLabels[state].en}</option>)}</select></div>)}</div>}
+  </> : activeTab === 'notes' ? <>
+    <form className="workspace-form" onSubmit={addNote}><label htmlFor="workspace-note-target">{locale === 'vi' ? 'Gắn ghi chú vào' : 'Attach note to'}<select id="workspace-note-target" value={noteTarget} onChange={(event) => setNoteTarget(event.target.value)}><option value={`PROJECT:${project.id}`}>{locale === 'vi' ? 'Dự án' : 'Project'} · {project.name}</option>{tasks.map((task) => <option key={`TASK:${task.id}`} value={`TASK:${task.id}`}>{locale === 'vi' ? 'Công việc' : 'Task'} · {task.title}</option>)}{shots.map((shot) => <option key={`SHOT:${shot.id}`} value={`SHOT:${shot.id}`}>{locale === 'vi' ? 'Shot' : 'Shot'} · {shot.code}</option>)}</select></label><label htmlFor="workspace-note-body">{locale === 'vi' ? 'Ghi chú' : 'Note'}<textarea id="workspace-note-body" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} maxLength={50000} rows={4} placeholder={locale === 'vi' ? 'Ghi lại điều cần nhớ…' : 'Capture what should be remembered…'} /></label><button className="primary-button small" disabled={!noteBody.trim() || !client.addNote || Boolean(mutating) || loading || !workspace}>{mutating?.startsWith('add-note:') ? '…' : <><Plus size={14} />{locale === 'vi' ? 'Thêm ghi chú' : 'Add note'}</>}</button></form>
+    {notes.length === 0 ? <EmptyInline icon={BookOpen} text={locale === 'vi' ? 'Chưa có ghi chú. Ghi chú được giữ nguyên và không thể sửa xoá trong slice này.' : 'No notes yet. Notes are append-only in this slice.'} /> : <div className="workspace-note-list">{notes.map((note) => <NoteRecord key={note.id} note={note} tasks={tasks} shots={shots} locale={locale} />)}</div>}
+  </> : activeTab === 'activity' ? <div className="workspace-activity-list"><ActivityView snapshot={{ ...snapshot, activity: snapshot.activity.filter((item) => item.projectId === project.id || item.projectName === project.name) }} locale={locale} onOpenProject={() => undefined} /></div> : <div className="workspace-context"><div><span>Project ID</span><code>{project.id}</code></div><div><span>{locale === 'vi' ? 'Công việc' : 'Tasks'}</span><strong>{tasks.length}</strong></div><div><span>{locale === 'vi' ? 'Shot kế hoạch' : 'Planning shots'}</span><strong>{shots.length}</strong></div><div><span>{locale === 'vi' ? 'Ghi chú' : 'Notes'}</span><strong>{notes.length}</strong></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Workspace đọc từ Core. Mọi thay đổi đi qua command và giữ row version để phát hiện xung đột.' : 'Workspace is read from Core. Mutations go through commands and carry row versions for conflict detection.'}</p></div>
+
+  return <div className="page project-detail-page"><button className="back-link" onClick={onBack}><ArrowRight size={15} className="back-arrow" />{locale === 'vi' ? 'Tất cả dự án' : 'All projects'}</button><div className="project-detail-heading"><div><p className="eyebrow">{project.kind}</p><h1>{project.name}</h1><p className="page-subtitle">{project.stage} · {project.stageDetail}</p></div><span className={`health-pill ${workspaceHealth}`}><span />{workspaceHealth === 'healthy' ? (locale === 'vi' ? 'Ổn định' : 'Healthy') : workspaceHealth === 'blocked' ? (locale === 'vi' ? 'Đang chặn' : 'Blocked') : (locale === 'vi' ? 'Cần chú ý' : 'Needs attention')}</span></div><div className="project-detail-grid"><section className="detail-summary-card"><div className="detail-cover" style={{ background: project.cover }}><div className="cover-noise" /><span className="cover-type">{project.kind}</span></div><div className="detail-summary-body"><div className="detail-stat"><span>{locale === 'vi' ? 'Công việc' : 'Tasks'}</span><strong>{tasks.length}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Shot kế hoạch' : 'Planning shots'}</span><strong>{shots.length}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Ghi chú' : 'Notes'}</span><strong>{notes.length}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Dung lượng' : 'Storage'}</span><strong>{project.storage}</strong></div></div></section><section className="production-card"><div className="production-card-heading"><div><h2>{locale === 'vi' ? 'Workspace sản xuất' : 'Production workspace'}</h2><p>{locale === 'vi' ? 'Task, shot kế hoạch và ghi chú là các bản ghi riêng biệt.' : 'Tasks, planning shots, and notes are separate records.'}</p></div><span className="state-label"><ShieldCheck size={13} />{locale === 'vi' ? 'Do Core quản lý' : 'Core-owned'}</span></div><div className="project-tabs" role="tablist" aria-label={locale === 'vi' ? 'Các phần của workspace' : 'Workspace sections'}>{tabs.map(({ key, label, icon: Icon }, index) => <button key={key} ref={(element) => { tabRefs.current[index] = element }} id={`workspace-tab-${key}`} className={activeTab === key ? 'active' : ''} onClick={() => setActiveTab(key)} onKeyDown={(event) => onTabKeyDown(event, index)} role="tab" aria-selected={activeTab === key} aria-controls={activeTab === key ? `workspace-panel-${key}` : undefined} tabIndex={activeTab === key ? 0 : -1}><Icon size={14} />{label}</button>)}</div>{loading && <div className="inline-state" aria-live="polite"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc workspace từ Core…' : 'Reading workspace from Core…'}</div>}{staleMessage && <div className="inline-state warning stale-panel" role="alert" tabIndex={-1}><AlertCircle size={14} /><span>{staleMessage}</span><button className="subtle-button tiny" onClick={refresh}>{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>}{error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button className="subtle-button tiny" onClick={refresh}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}<div id={`workspace-panel-${activeTab}`} role="tabpanel" aria-labelledby={`workspace-tab-${activeTab}`} aria-busy={loading} className="workspace-panel">{loading && !workspace ? <div className="inline-state" aria-live="polite">{locale === 'vi' ? 'Đang chuẩn bị workspace…' : 'Preparing workspace…'}</div> : tabPanel}</div></section></div></div>
+}
+
+function NoteRecord({ note, tasks, shots, locale }: { note: NoteSummary; tasks: TaskSummary[]; shots: ShotSummary[]; locale: Locale }) {
+  const target = note.entityType === 'PROJECT' ? (locale === 'vi' ? 'Dự án' : 'Project') : note.entityType === 'TASK' ? tasks.find((task) => task.id === note.entityId)?.title ?? (locale === 'vi' ? 'Công việc' : 'Task') : shots.find((shot) => shot.id === note.entityId)?.code ?? 'Shot'
+  const parsedDate = note.createdAt ? new Date(note.createdAt) : null
+  const renderedDate = parsedDate && Number.isFinite(parsedDate.getTime()) ? parsedDate.toLocaleString(locale === 'vi' ? 'vi-VN' : 'en-US') : '—'
+  return <article className="workspace-note"><div className="workspace-note-meta"><span>{target}</span><time dateTime={note.createdAt}>{renderedDate}</time></div><p>{note.body}</p></article>
 }
 
 function NeedsView({ snapshot, t, locale, onOpenDecision, onAcknowledge }: { snapshot: DashboardSnapshot; t: Copy; locale: Locale; onOpenDecision: (decision: DecisionRequest) => void; onAcknowledge: (decision: DecisionRequest) => void }) {
@@ -555,9 +807,9 @@ function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: Da
       </section>
       <section className="library-records-card">
         <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon amber"><Database size={16} /></span><div><h2>{locale === 'vi' ? 'Asset đã nhập' : 'Imported assets'}</h2><p>{locale === 'vi' ? 'Bản ghi canonical từ Core, không đọc trực tiếp SQLite.' : 'Canonical Core records; the UI never reads SQLite directly.'}</p></div></div><div className="card-heading-actions"><button type="button" className="subtle-button tiny" onClick={() => void loadAssets()}><RefreshCw size={13} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip">{assets.length}</span></div></div>
-        {assetsLoading ? <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…'}</div> : assetsError ? <div className="inline-state warning"><AlertCircle size={14} />{assetsError}</div> : assets.length === 0 ? <EmptyState icon={Database} title={locale === 'vi' ? 'Chưa có asset' : 'No imported assets'} detail={locale === 'vi' ? 'Dán đường dẫn local và gửi command ImportAsset để bắt đầu.' : 'Paste a local path and send an ImportAsset command to begin.'} /> : <div className="library-record-list">{assets.map((asset) => { const project = snapshot.projects.find((candidate) => candidate.id === asset.projectId); return <div className="library-record asset-record" key={asset.id}><span className="record-state done"><FileIcon size={14} /></span><span className="library-record-main"><strong>{asset.name}</strong><small>{project?.name ?? (locale === 'vi' ? 'Studio-wide' : 'Studio-wide')} · {asset.assetType} · {formatBytes(asset.byteSize)} · {asset.contentHash?.slice(0, 12) ?? 'hash—'}</small></span><span className={`item-state ${asset.availability.toLowerCase()}`}>{asset.availability === 'AVAILABLE' ? (locale === 'vi' ? 'Sẵn sàng' : 'Available') : asset.availability}</span></div> })}</div>}
+        {assetsLoading ? <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…'}</div> : assetsError ? <div className="inline-state warning"><AlertCircle size={14} />{assetsError}</div> : assets.length === 0 ? <EmptyState icon={Database} title={locale === 'vi' ? 'Chưa có asset' : 'No imported assets'} detail={locale === 'vi' ? 'Dán đường dẫn local và gửi command ImportAsset để bắt đầu.' : 'Paste a local path and send ImportAsset command to begin.'} /> : <div className="library-record-list">{assets.map((asset) => { const project = snapshot.projects.find((candidate) => candidate.id === asset.projectId); const readinessLabel = asset.readinessState === 'READY' ? (locale === 'vi' ? 'Đã kiểm tra' : 'Verified') : asset.readinessState === 'REVIEW_REQUIRED' ? (locale === 'vi' ? 'Cần review' : 'Review required') : (locale === 'vi' ? 'Chờ kiểm tra' : 'Readiness unknown'); return <div className="library-record asset-record" key={asset.id}><span className="record-state done"><FileIcon size={14} /></span><span className="library-record-main"><strong>{asset.name}</strong><small>{project?.name ?? (locale === 'vi' ? 'Studio-wide' : 'Studio-wide')} · {asset.assetType} · {formatBytes(asset.byteSize)} · {asset.contentHash?.slice(0, 12) ?? 'hash—'}</small></span><span className={`item-state ${asset.readinessState === 'READY' ? 'ready' : 'attention'}`} title={asset.availability === 'AVAILABLE' ? (locale === 'vi' ? 'Object đã lưu; readiness vẫn cần bằng chứng verifier.' : 'Object is stored; readiness still requires verifier evidence.') : asset.availability}>{readinessLabel}</span></div> })}</div>}
       </section>
-      <section className="library-records-card library-production-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ListChecks size={16} /></span><div><h2>{locale === 'vi' ? 'Mốc production' : 'Production records'}</h2><p>{locale === 'vi' ? 'Các mốc công việc đã được Core lưu trong project.' : 'Production milestones already saved by Core.'}</p></div></div><span className="count-chip">{records.length}</span></div>{records.length === 0 ? <EmptyState icon={ListChecks} title={locale === 'vi' ? 'Chưa có mốc' : 'No records yet'} detail={locale === 'vi' ? 'Tạo project rồi thêm production item để thấy dữ liệu ở đây.' : 'Create a project and add a production item to see data here.'} /> : <div className="library-record-list">{records.map(({ project, item }) => <button className="library-record" key={`${project.id}-${item.id}`} onClick={() => onOpenProject(project)}><span className={`record-state ${item.state}`}><CircleDot size={14} /></span><span className="library-record-main"><strong>{item.title}</strong><small>{project.name} · {item.detail}</small></span><span className={`item-state ${item.state}`}>{item.state === 'done' ? (locale === 'vi' ? 'Đã xong' : 'Done') : item.state === 'in_progress' ? (locale === 'vi' ? 'Đang xử lý' : 'In progress') : (locale === 'vi' ? 'Chưa bắt đầu' : 'Not started')}</span><ArrowRight size={14} /></button>)}</div>}</section>
+      <section className="library-records-card library-production-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ListChecks size={16} /></span><div><h2>{locale === 'vi' ? 'Mốc production' : 'Production records'}</h2><p>{locale === 'vi' ? 'Các mốc công việc đã được Core lưu trong project.' : 'Production milestones already saved by Core.'}</p></div></div><span className="count-chip">{records.length}</span></div>{records.length === 0 ? <EmptyState icon={ListChecks} title={locale === 'vi' ? 'Chưa có mốc' : 'No records yet'} detail={locale === 'vi' ? 'Tạo project rồi thêm production item để thấy dữ liệu ở đây.' : 'Create a project and add a production item to see data here.'} /> : <div className="library-record-list">{records.map(({ project, item }) => <button className="library-record" key={`${project.id}-${item.id}`} onClick={() => onOpenProject(project)}><span className={`record-state ${item.state}`}><CircleDot size={14} /></span><span className="library-record-main"><strong>{item.title}</strong><small>{project.name} · {item.detail}</small></span><span className={`item-state ${item.state}`}>{productionItemLabel(item.state, locale)}</span><ArrowRight size={14} /></button>)}</div>}</section>
     </div>
   </div>
 }
@@ -568,7 +820,7 @@ function SettingsView({ snapshot, locale, theme, onThemeChange, onLocaleChange, 
 }
 
 function ProjectCard({ project, locale, onOpen }: { project: ProjectSummary; locale: Locale; onOpen: () => void }) {
-  return <article className="project-card" onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter') onOpen() }} role="button" tabIndex={0}><div className="project-card-cover" style={{ background: project.cover }}><div className="cover-noise" /><span className="cover-type">{project.kind}</span><span className={`cover-health ${project.health}`}><span /></span></div><div className="project-card-body"><div className="project-card-top"><div><h3>{project.name}</h3><p>{project.stage} <span>·</span> {project.stageDetail}</p></div><button className="icon-button ghost" onClick={(event) => { event.stopPropagation(); onOpen() }} aria-label={locale === 'vi' ? `Mở ${project.name}` : `Open ${project.name}`}><MoreHorizontal size={17} /></button></div><div className="mini-progress-row"><span>{project.completion.done}/{project.completion.total} {locale === 'vi' ? 'shot' : 'shots'}</span><span>{percentage(project.completion.done, project.completion.total)}%</span></div><div className="progress-track"><span style={{ width: `${percentage(project.completion.done, project.completion.total)}%` }} /></div><div className="project-card-footer"><span>{project.updatedAt}</span><span>{project.storage}</span></div></div></article>
+  return <article className="project-card" onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen() } }} role="button" tabIndex={0}><div className="project-card-cover" style={{ background: project.cover }}><div className="cover-noise" /><span className="cover-type">{project.kind}</span><span className={`cover-health ${project.health}`}><span /></span></div><div className="project-card-body"><div className="project-card-top"><div><h3>{project.name}</h3><p>{project.stage} <span>·</span> {project.stageDetail}</p></div><span className="icon-button ghost" aria-hidden="true"><MoreHorizontal size={17} /></span></div><div className="mini-progress-row"><span>{project.completion.done}/{project.completion.total} {locale === 'vi' ? 'việc' : 'tasks'}</span><span>{percentage(project.completion.done, project.completion.total)}%</span></div><div className="progress-track"><span style={{ width: `${percentage(project.completion.done, project.completion.total)}%` }} /></div><div className="project-card-footer"><span>{project.updatedAt}</span><span>{project.storage}</span></div></div></article>
 }
 
 function DecisionRow({ decision, locale, onOpen }: { decision: DecisionRequest; locale: Locale; onOpen: () => void }) {

@@ -97,6 +97,54 @@ try {
         $item = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/projects/{1}/production-items" -f $webPort, [Uri]::EscapeDataString([string]$project.id)) -Method Post -Headers $browserHeaders -ContentType 'application/json' -Body (@{ title = 'Packaging smoke item' } | ConvertTo-Json) -TimeoutSec 5
         if ([string]::IsNullOrWhiteSpace([string]$item.id)) { throw 'Core production item creation returned no item id.' }
 
+        # The canonical workspace surface is part of the packaged contract.
+        # Keep this beside the legacy projection check so a release cannot
+        # pass while only the compatibility route works.
+        $taskUri = "http://127.0.0.1:{0}/v1/projects/{1}/tasks" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $taskHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-task'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $taskEnvelope = Invoke-RestMethod -Uri $taskUri -Method Post -Headers $taskHeaders -ContentType 'application/json' -Body (@{ title = 'Lock canonical shot list'; description = 'Workspace route smoke' } | ConvertTo-Json) -TimeoutSec 5
+        $taskRecord = $taskEnvelope.result.task
+        if ($null -eq $taskRecord) { $taskRecord = $taskEnvelope.result }
+        if ([string]::IsNullOrWhiteSpace([string]$taskRecord.id) -or [string]$taskRecord.status -ne 'PLANNED') { throw 'Canonical task creation returned an invalid task.' }
+        $taskReplayEnvelope = Invoke-RestMethod -Uri $taskUri -Method Post -Headers $taskHeaders -ContentType 'application/json' -Body (@{ title = 'Lock canonical shot list'; description = 'Workspace route smoke' } | ConvertTo-Json) -TimeoutSec 5
+        $taskReplayRecord = $taskReplayEnvelope.result.task
+        if ($null -eq $taskReplayRecord) { $taskReplayRecord = $taskReplayEnvelope.result }
+        if ($taskReplayRecord.id -ne $taskRecord.id) { throw 'Canonical task idempotent retry returned a different task id.' }
+        $taskId = [Uri]::EscapeDataString([string]$taskRecord.id)
+        $taskUpdateEnvelope = Invoke-RestMethod -Uri "$taskUri/$taskId" -Method Patch -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-task-update'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ status = 'IN_PROGRESS'; row_version = [int]$taskRecord.row_version } | ConvertTo-Json) -TimeoutSec 5
+        $taskUpdateRecord = $taskUpdateEnvelope.result.task
+        if ($null -eq $taskUpdateRecord) { $taskUpdateRecord = $taskUpdateEnvelope.result }
+        if ($taskUpdateRecord.status -ne 'IN_PROGRESS' -or [int]$taskUpdateRecord.row_version -ne ([int]$taskRecord.row_version + 1)) { throw 'Canonical task update did not advance status and row version.' }
+        $staleTaskStatus = 0
+        try {
+            Invoke-RestMethod -Uri "$taskUri/$taskId" -Method Patch -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-task-stale'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ status = 'DONE'; row_version = [int]$taskRecord.row_version } | ConvertTo-Json) -TimeoutSec 5 | Out-Null
+        }
+        catch { if ($null -ne $_.Exception.Response) { $staleTaskStatus = [int]$_.Exception.Response.StatusCode } }
+        if ($staleTaskStatus -ne 409) { throw "Stale canonical task update was not rejected with HTTP 409 (actual: $staleTaskStatus)." }
+
+        $shotUri = "http://127.0.0.1:{0}/v1/projects/{1}/shots" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $shotEnvelope = Invoke-RestMethod -Uri $shotUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-shot'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ code = 'SH010'; title = 'Door opens' } | ConvertTo-Json) -TimeoutSec 5
+        $shotRecord = $shotEnvelope.result.shot
+        if ($null -eq $shotRecord) { $shotRecord = $shotEnvelope.result }
+        if ([string]::IsNullOrWhiteSpace([string]$shotRecord.id) -or [string]$shotRecord.lifecycle_state -ne 'ACTIVE') { throw 'Canonical shot creation returned an invalid shot.' }
+        $shotId = [Uri]::EscapeDataString([string]$shotRecord.id)
+        $shotUpdateEnvelope = Invoke-RestMethod -Uri "$shotUri/$shotId" -Method Patch -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-shot-update'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ lifecycle_state = 'PAUSED'; row_version = [int]$shotRecord.row_version } | ConvertTo-Json) -TimeoutSec 5
+        $shotUpdateRecord = $shotUpdateEnvelope.result.shot
+        if ($null -eq $shotUpdateRecord) { $shotUpdateRecord = $shotUpdateEnvelope.result }
+        if ($shotUpdateRecord.lifecycle_state -ne 'PAUSED') { throw 'Canonical shot lifecycle update did not persist.' }
+
+        $taskNoteUri = "$taskUri/$taskId/notes"
+        $taskNoteEnvelope = Invoke-RestMethod -Uri $taskNoteUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-task-note'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ body = 'Review rights before generation.' } | ConvertTo-Json) -TimeoutSec 5
+        $taskNoteRecord = $taskNoteEnvelope.result.note
+        if ($null -eq $taskNoteRecord) { $taskNoteRecord = $taskNoteEnvelope.result }
+        if ([string]::IsNullOrWhiteSpace([string]$taskNoteRecord.id) -or [string]$taskNoteRecord.entity_type -ne 'TASK' -or $taskNoteRecord.entity_id -ne $taskRecord.id) { throw 'Canonical task note creation returned an invalid note.' }
+        $workspaceUri = "http://127.0.0.1:{0}/v1/projects/{1}/workspace" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $workspaceEnvelope = Invoke-RestMethod -Uri $workspaceUri -TimeoutSec 5
+        $workspaceRecord = $workspaceEnvelope.result
+        if (@($workspaceRecord.tasks | Where-Object { $_.id -eq $taskRecord.id }).Count -ne 1) { throw 'Canonical task was not present in the workspace projection.' }
+        if (@($workspaceRecord.shots | Where-Object { $_.id -eq $shotRecord.id }).Count -ne 1) { throw 'Canonical shot was not present in the workspace projection.' }
+        if (@($workspaceRecord.notes | Where-Object { $_.id -eq $taskNoteRecord.id }).Count -ne 1) { throw 'Canonical note was not present in the workspace projection.' }
+
         # Exercise the user-facing asset path through the packaged bootstrap.
         # The source is deliberately created inside the temporary data root so
         # this test also proves that COPY materializes bytes into the managed
@@ -112,6 +160,7 @@ try {
         } | ConvertTo-Json) -TimeoutSec 5
         if ([string]::IsNullOrWhiteSpace([string]$asset.id)) { throw 'Core asset import returned no asset id.' }
         if ([string]$asset.availability -ne 'AVAILABLE') { throw "Packaged asset import was not AVAILABLE: $($asset.availability)" }
+        if ([string]$asset.readinessState -ne 'UNKNOWN') { throw "Packaged asset readiness was not UNKNOWN before verifier evidence: $($asset.readinessState)" }
         if ([string]$asset.contentHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Packaged asset import returned an invalid SHA-256 hash.' }
         if ([string]$asset.storageUri -notmatch '^object://sha-256/') { throw 'Packaged asset import did not return a managed object URI.' }
         if ([string]::IsNullOrWhiteSpace([string]$asset.importSessionId)) { throw 'Packaged asset import returned no import session id.' }
@@ -188,6 +237,7 @@ try {
         } | ConvertTo-Json) -TimeoutSec 5
         if ([string]::IsNullOrWhiteSpace([string]$stagedAsset.id)) { throw 'Staged Core asset import returned no asset id.' }
         if ([string]$stagedAsset.availability -ne 'AVAILABLE') { throw "Staged asset import was not AVAILABLE: $($stagedAsset.availability)" }
+        if ([string]$stagedAsset.readinessState -ne 'UNKNOWN') { throw "Staged asset readiness was not UNKNOWN before verifier evidence: $($stagedAsset.readinessState)" }
         if ([string]$stagedAsset.contentHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Staged asset import returned an invalid SHA-256 hash.' }
         if ([string]$stagedAsset.storageUri -notmatch '^object://sha-256/') { throw 'Staged asset import did not return a managed object URI.' }
         $stagedReplay = Invoke-RestMethod -Uri $assetUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-staged-asset'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
@@ -211,6 +261,10 @@ try {
         $persisted = @($refreshed.projects | Where-Object { $_.id -eq $project.id })
         if ($persisted.Count -ne 1) { throw 'Created project was not present in the refreshed dashboard.' }
         if (@($persisted[0].productionItems | Where-Object { $_.id -eq $item.id }).Count -ne 1) { throw 'Created production item was not present after dashboard refresh.' }
+        $refreshedWorkspace = Invoke-RestMethod -Uri $workspaceUri -TimeoutSec 5
+        if (@($refreshedWorkspace.result.tasks | Where-Object { $_.id -eq $taskRecord.id -and $_.status -eq 'IN_PROGRESS' }).Count -ne 1) { throw 'Canonical task was not present after dashboard refresh.' }
+        if (@($refreshedWorkspace.result.shots | Where-Object { $_.id -eq $shotRecord.id -and $_.lifecycle_state -eq 'PAUSED' }).Count -ne 1) { throw 'Canonical shot was not present after dashboard refresh.' }
+        if (@($refreshedWorkspace.result.notes | Where-Object { $_.id -eq $taskNoteRecord.id }).Count -ne 1) { throw 'Canonical note was not present after dashboard refresh.' }
 
         # Restart the exact bootstrap against the same data directory. This
         # catches accidental in-memory-only success in the packaged path.
@@ -237,11 +291,15 @@ try {
         $reloaded = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/dashboard" -TimeoutSec 5
         $reloadedProject = @($reloaded.projects | Where-Object { $_.id -eq $project.id })
         if ($reloadedProject.Count -ne 1 -or @($reloadedProject[0].productionItems | Where-Object { $_.id -eq $item.id }).Count -ne 1) { throw 'Project data did not survive a packaged bootstrap restart.' }
+        $reloadedWorkspace = Invoke-RestMethod -Uri $workspaceUri -TimeoutSec 5
+        if (@($reloadedWorkspace.result.tasks | Where-Object { $_.id -eq $taskRecord.id -and $_.status -eq 'IN_PROGRESS' }).Count -ne 1) { throw 'Canonical task did not survive a packaged bootstrap restart.' }
+        if (@($reloadedWorkspace.result.shots | Where-Object { $_.id -eq $shotRecord.id -and $_.lifecycle_state -eq 'PAUSED' }).Count -ne 1) { throw 'Canonical shot did not survive a packaged bootstrap restart.' }
+        if (@($reloadedWorkspace.result.notes | Where-Object { $_.id -eq $taskNoteRecord.id }).Count -ne 1) { throw 'Canonical note did not survive a packaged bootstrap restart.' }
         $reloadedAssets = Invoke-RestMethod -Uri $assetUri -TimeoutSec 5
         $reloadedAsset = @($reloadedAssets.assets | Where-Object { $_.id -eq $asset.id })
-        if ($reloadedAsset.Count -ne 1 -or $reloadedAsset[0].contentHash -ne $asset.contentHash -or $reloadedAsset[0].availability -ne 'AVAILABLE') { throw 'Imported asset did not survive a packaged bootstrap restart.' }
+        if ($reloadedAsset.Count -ne 1 -or $reloadedAsset[0].contentHash -ne $asset.contentHash -or $reloadedAsset[0].availability -ne 'AVAILABLE' -or $reloadedAsset[0].readinessState -ne 'UNKNOWN') { throw 'Imported asset did not survive a packaged bootstrap restart.' }
         $reloadedStagedAsset = @($reloadedAssets.assets | Where-Object { $_.id -eq $stagedAsset.id })
-        if ($reloadedStagedAsset.Count -ne 1 -or $reloadedStagedAsset[0].contentHash -ne $stagedAsset.contentHash -or $reloadedStagedAsset[0].availability -ne 'AVAILABLE') { throw 'Browser-staged asset did not survive a packaged bootstrap restart.' }
+        if ($reloadedStagedAsset.Count -ne 1 -or $reloadedStagedAsset[0].contentHash -ne $stagedAsset.contentHash -or $reloadedStagedAsset[0].availability -ne 'AVAILABLE' -or $reloadedStagedAsset[0].readinessState -ne 'UNKNOWN') { throw 'Browser-staged asset did not survive a packaged bootstrap restart.' }
     }
     Write-Host ("PACKAGING_SMOKE=PASS core={0} web={1}" -f $health.core, $health.web) -ForegroundColor Green
     $passed = $true

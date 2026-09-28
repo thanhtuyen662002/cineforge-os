@@ -1,6 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
+import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -258,6 +259,7 @@ export function initializeDatabase(db) {
       correlation_id TEXT,
       causation_id TEXT,
       idempotency_key TEXT,
+      idempotency_fingerprint TEXT,
       estimated_cost_json TEXT,
       estimated_storage_bytes INTEGER,
       created_at_utc_us INTEGER NOT NULL,
@@ -329,11 +331,41 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS audit_records_no_delete
       BEFORE DELETE ON audit_records
       BEGIN SELECT RAISE(ABORT, 'audit_records is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS notes_no_update
+      BEFORE UPDATE ON notes
+      BEGIN SELECT RAISE(ABORT, 'notes are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS notes_no_delete
+      BEFORE DELETE ON notes
+      BEGIN SELECT RAISE(ABORT, 'notes are append-only'); END;
   `);
 
+  // v3 adds a durable request binding for idempotency keys.  CREATE TABLE IF
+  // NOT EXISTS cannot add columns to an existing installation, so inspect the
+  // live table before applying the resumable ALTER TABLE step.  Existing rows
+  // are backfilled from their already durable payload/precondition JSON; a
+  // malformed legacy row is left NULL and is safely canonicalized on replay by
+  // Core rather than guessed during migration.
+  const commandColumns = new Set(db.prepare('PRAGMA table_info(commands)').all().map((row) => String(row.name)));
+  if (!commandColumns.has('idempotency_fingerprint')) {
+    db.exec('ALTER TABLE commands ADD COLUMN idempotency_fingerprint TEXT');
+  }
+  const legacyCommands = db.prepare(`SELECT id, payload_json, expected_versions_json
+    FROM commands WHERE idempotency_key IS NOT NULL AND idempotency_fingerprint IS NULL`).all();
+  const setFingerprint = db.prepare('UPDATE commands SET idempotency_fingerprint = ? WHERE id = ?');
+  for (const row of legacyCommands) {
+    try {
+      const payload = JSON.parse(row.payload_json ?? '{}');
+      const expectedVersions = JSON.parse(row.expected_versions_json ?? '{}');
+      setFingerprint.run(idempotencyFingerprint(payload, expectedVersions), row.id);
+    } catch {
+      // A pre-v3 malformed record cannot be safely normalized.  Core will
+      // derive the same best-effort binding when that key is replayed.
+    }
+  }
+
   // Keep a durable migration ledger.  The v2 tables above are idempotent so
-  // an interrupted upgrade can be resumed safely; recording v1 for a fresh
-  // installation preserves the historical baseline before recording v2.
+  // an interrupted upgrade can be resumed safely; recording v1/v2 for a fresh
+  // installation preserves the historical baseline before recording v3.
   const migrationVersions = new Set(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => Number(row.version)));
   for (let version = 1; version <= SCHEMA_VERSION; version += 1) {
     if (!migrationVersions.has(version)) {

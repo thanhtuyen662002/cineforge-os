@@ -71,13 +71,26 @@ The desktop-facing routes are:
 | GET | `/v1/projects/{id}` | Read one project |
 | PATCH | `/v1/projects/{id}` | Update metadata with `row_version` or `expected_version` |
 | GET | `/v1/projects/{id}/workspace` | Project, tasks, shots and notes |
+| GET | `/v1/projects/{id}/tasks` | List canonical project tasks |
+| GET | `/v1/projects/{id}/tasks/{taskId}` | Read one task within its project scope |
+| POST | `/v1/projects/{id}/tasks` | Create a canonical task (idempotency key supported) |
+| PATCH | `/v1/projects/{id}/tasks/{taskId}` | Update a task with `row_version`/`expected_version` |
 | POST | `/v1/projects/{id}/production-items` | Create a production task |
+| GET | `/v1/projects/{id}/shots` | List canonical project shots |
+| GET | `/v1/projects/{id}/shots/{shotId}` | Read one shot within its project scope |
+| POST | `/v1/projects/{id}/shots` | Create a canonical shot (idempotency key supported) |
+| PATCH | `/v1/projects/{id}/shots/{shotId}` | Update a shot with `row_version`/`expected_version` |
+| GET | `/v1/projects/{id}/notes` | List append-only notes for the project |
+| POST | `/v1/projects/{id}/notes` | Add a project note or a scoped task/shot note |
+| GET | `/v1/projects/{id}/tasks/{taskId}/notes` | List notes attached to one task |
+| POST | `/v1/projects/{id}/tasks/{taskId}/notes` | Add a note to one task |
+| GET | `/v1/projects/{id}/shots/{shotId}/notes` | List notes attached to one shot |
+| POST | `/v1/projects/{id}/shots/{shotId}/notes` | Add a note to one shot |
 | GET | `/v1/projects/{id}/assets` | List project assets and latest immutable revisions |
 | POST | `/v1/projects/{id}/assets` | Hash and register a local file (copy by default) |
 | GET | `/v1/assets` | List assets across the studio |
 | POST | `/v1/assets` | Hash and register a studio-wide local file |
 | GET | `/v1/imports/{id}` | Read an import session and its item state |
-| POST | `/v1/projects/{id}/notes` | Add a project note |
 | POST | `/v1/decisions/{id}/ack` | Idempotent desktop acknowledgement receipt |
 | GET | `/v1/events?after_seq=N` | Replay domain activity after a cursor |
 
@@ -118,3 +131,22 @@ Canonical JSON clients can call:
 An import succeeds only after the bytes have been read and SHA-256 verified;
 security scanning and media decode remain explicit `UNKNOWN` evidence rather
 than being represented as a false pass.
+
+Task and shot updates require an optimistic concurrency value. Send either
+`row_version`/`expected_version` in the JSON body or an `expected_versions`
+object; a stale value returns HTTP 409 with `STALE_REVISION`. Nested task and
+shot routes verify that the target belongs to the project before executing a
+command. Notes are append-only: the project route defaults to a project note,
+while a task/shot route pins the target and rejects cross-project references.
+Every mutating route accepts an `Idempotency-Key` header (or the equivalent
+`idempotency_key` JSON field).
+
+An idempotency key is scoped to the authenticated actor and command type. Core
+stores a SHA-256 fingerprint of the canonical payload together with canonical
+`expected_versions`. Retries with equivalent JSON (including a different
+object-key insertion order) replay the original command result. Reusing the
+same key with a different payload or optimistic precondition returns the
+structured `IDEMPOTENCY_KEY_REUSE_CONFLICT` conflict (HTTP 409) and does not
+create another command or event. Existing databases are upgraded in place and
+backfill the fingerprint from their durable command JSON before accepting a
+replay.

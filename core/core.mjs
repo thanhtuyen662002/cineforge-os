@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initializeDatabase, SCHEMA_VERSION } from './schema.mjs';
 import { isUuid, nowUtcUs, rfc3339FromUs, uuidv7 } from './ids.mjs';
+import { idempotencyFingerprint } from './canonical.mjs';
 
 export const API_VERSION = '1';
 export const CORE_VERSION = '0.1.0';
@@ -22,6 +23,31 @@ const ASSET_ORIGIN_TYPES = new Set(['IMPORTED', 'GENERATED', 'RECORDED', 'EXTERN
 const ASSET_STORAGE_MODES = new Set(['COPY', 'REFERENCE']);
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 const MAX_ASSET_METADATA_BYTES = 64 * 1024;
+
+// The V1 schema uses a compact task vocabulary while the authoritative state
+// machine calls the active/ready stages out separately.  IN_PROGRESS is the
+// persisted equivalent of ACTIVE, and PLANNED is the persisted equivalent of
+// READY.  Terminal task states are intentionally absorbing: a correction is a
+// new command/record, never a silent resurrection of a completed or cancelled
+// task.
+const TASK_TRANSITIONS = Object.freeze({
+  PLANNED: new Set(['IN_PROGRESS', 'BLOCKED', 'CANCELLED']),
+  IN_PROGRESS: new Set(['DONE', 'BLOCKED', 'CANCELLED']),
+  BLOCKED: new Set(['PLANNED', 'IN_PROGRESS', 'CANCELLED']),
+  DONE: new Set(),
+  CANCELLED: new Set(),
+});
+
+// Shots use a lifecycle axis rather than the production-task status axis.  A
+// shot can be paused or archived, an archive can only be moved to trash, and
+// trash can only be restored to ACTIVE.  This keeps destructive transitions
+// explicit and prevents an update payload from bypassing the state machine.
+const SHOT_TRANSITIONS = Object.freeze({
+  ACTIVE: new Set(['PAUSED', 'ARCHIVED', 'TRASHED']),
+  PAUSED: new Set(['ACTIVE', 'ARCHIVED', 'TRASHED']),
+  ARCHIVED: new Set(['TRASHED']),
+  TRASHED: new Set(['ACTIVE']),
+});
 
 export class CoreError extends Error {
   constructor(code, category, messageKey, messageArgs = {}, options = {}) {
@@ -180,6 +206,11 @@ function publicAssetRevision(row, storage, provenance, locations = []) {
   out.storage_object = publicStorageObject(storage);
   out.provenance = publicProvenance(provenance);
   out.locations = locations.map(publicAssetLocation);
+  // Hash/storage availability is separate from media decode and security
+  // evidence.  Until an explicit verifier records that evidence, consumers
+  // must keep the revision in UNKNOWN readiness rather than treating a
+  // materialized object as a safe/approved input.
+  out.readiness_state = out.review_state === 'APPROVED' ? 'READY' : 'UNKNOWN';
   return out;
 }
 
@@ -489,6 +520,28 @@ export class CoreService {
     }
   }
 
+  _assertPayloadProjectScope(payload, projectId, entityType, entityId) {
+    const suppliedProjectId = payload?.project_id ?? payload?.projectId;
+    if (suppliedProjectId !== undefined && suppliedProjectId !== null && suppliedProjectId !== projectId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: entityType, entity_id: entityId, project_id: suppliedProjectId, actual_project_id: projectId,
+      }, { needsUser: true });
+    }
+    const suppliedEntityType = payload?.entity_type ?? payload?.entityType;
+    if (suppliedEntityType !== undefined && suppliedEntityType !== null
+      && String(suppliedEntityType).toUpperCase() !== entityType) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: suppliedEntityType, entity_id: entityId, expected_entity_type: entityType,
+      }, { needsUser: true });
+    }
+    const suppliedEntityId = payload?.entity_id ?? payload?.entityId;
+    if (suppliedEntityId !== undefined && suppliedEntityId !== null && suppliedEntityId !== entityId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: entityType, entity_id: suppliedEntityId, expected_entity_id: entityId,
+      }, { needsUser: true });
+    }
+  }
+
   _insertEvent(event, commandId, actorId, correlationId, causationId) {
     const created = nowUtcUs();
     const result = this.db.prepare(`INSERT INTO domain_events
@@ -524,6 +577,37 @@ export class CoreService {
       WHERE actor_id = ? AND command_type = ? AND idempotency_key = ?`).get(this.actorId, commandType, key);
   }
 
+  _idempotencyFingerprint(row) {
+    if (typeof row?.idempotency_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(row.idempotency_fingerprint)) {
+      return row.idempotency_fingerprint.toLowerCase();
+    }
+    // Compatibility path for a v2 row that was created before the v3 column
+    // existed (or for a legacy row whose migration could not parse JSON).
+    return idempotencyFingerprint(parseJson(row?.payload_json, {}), parseJson(row?.expected_versions_json, {}));
+  }
+
+  _assertIdempotencyBinding(previous, commandType, idempotencyKey, fingerprint) {
+    const previousFingerprint = this._idempotencyFingerprint(previous);
+    if (previousFingerprint === fingerprint) return;
+    // Do not expose the original payload or expected versions in an error.
+    // Their digests are sufficient for diagnostics without turning a conflict
+    // response into a data exfiltration channel.
+    throw new CoreError(
+      'IDEMPOTENCY_KEY_REUSE_CONFLICT',
+      'CONFLICT',
+      'errors.idempotency_key_reuse_conflict',
+      { command_type: commandType },
+      {
+        needsUser: true,
+        technicalDetails: {
+          idempotency_key_namespace: `${this.actorId}:${commandType}`,
+          existing_fingerprint: previousFingerprint,
+          received_fingerprint: fingerprint,
+        },
+      },
+    );
+  }
+
   executeCommand(input = {}) {
     const commandType = requiredString(input.command_type ?? input.commandType, 'command_type', 120);
     const payload = this._commandPayload(input.payload ?? {});
@@ -535,8 +619,10 @@ export class CoreService {
     if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 200)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_idempotency_key', {});
     }
+    const requestFingerprint = idempotencyKey ? idempotencyFingerprint(payload, expectedVersions) : null;
     const previous = this._findIdempotent(commandType, idempotencyKey);
     if (previous) {
+      this._assertIdempotencyBinding(previous, commandType, idempotencyKey, requestFingerprint);
       if (previous.status === 'FAILED') {
         const failure = parseJson(previous.error_details_json, {});
         throw new CoreError(previous.error_code ?? 'COMMAND_FAILED', failure.category ?? 'INTERNAL', failure.user_message_key ?? 'errors.command_failed', failure.user_message_args ?? {}, {
@@ -556,11 +642,12 @@ export class CoreService {
     this._transaction(() => {
       this.db.prepare(`INSERT INTO commands
         (id, studio_id, project_id, actor_id, command_type, schema_version, scope_type, scope_id,
-         payload_json, expected_versions_json, reversibility, status, idempotency_key, created_at_utc_us)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'RECEIVED', ?, ?)`).run(
+         payload_json, expected_versions_json, reversibility, status, idempotency_key,
+         idempotency_fingerprint, created_at_utc_us)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'RECEIVED', ?, ?, ?)`).run(
         commandId, this.studioId, projectId, this.actorId, commandType,
         projectId ? 'PROJECT' : 'SYSTEM', projectId, json(payload), json(expectedVersions),
-        this._reversibility(commandType), idempotencyKey, created,
+        this._reversibility(commandType), idempotencyKey, requestFingerprint, created,
       );
     });
 
@@ -571,7 +658,16 @@ export class CoreService {
         const operation = this._applyCommand(commandType, payload, expectedVersions, commandId);
         const eventSeq = this._insertEvent(operation.event, commandId, this.actorId, input.correlation_id ?? null, input.causation_id ?? null);
         this._insertAudit(operation.audit, commandId, this.actorId, 'SUCCEEDED');
-        const result = { ...operation.result, command_id: commandId, event_seq: eventSeq, status: 'SUCCEEDED' };
+        const canonicalKey = commandType.includes('Note') || commandType === 'AddNote' ? 'note'
+          : commandType.includes('Task') ? 'task'
+            : commandType.includes('Shot') ? 'shot' : null;
+        const result = {
+          ...operation.result,
+          ...(canonicalKey ? { [canonicalKey]: operation.result } : {}),
+          command_id: commandId,
+          event_seq: eventSeq,
+          status: 'SUCCEEDED',
+        };
         this.db.prepare(`UPDATE commands SET project_id = COALESCE(?, project_id), status = 'SUCCEEDED',
           finished_at_utc_us = ?, result_json = ?, error_code = NULL, error_details_json = NULL WHERE id = ?`)
           .run(operation.projectId ?? null, nowUtcUs(), json(result), commandId);
@@ -597,14 +693,46 @@ export class CoreService {
 
   _commandProjectId(commandType, payload) {
     const explicitProjectId = payload.project_id ?? payload.projectId;
+    // For entity-scoped commands, derive the command's project from the
+    // target row.  A caller-supplied project_id is only a scope assertion and
+    // is checked by the command implementation; it must never cause the audit
+    // record to claim a different project from the entity being mutated.
+    const entityType = String(payload.entity_type ?? payload.entityType ?? '').trim().toUpperCase();
+    const entityId = payload.entity_id ?? payload.entityId;
+    const derivesTask = ['UpdateTask', 'AddTaskNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'TASK');
+    const derivesShot = ['UpdateShot', 'AddShotNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'SHOT');
+    if (derivesTask) {
+      const taskId = commandType === 'AddNote'
+        ? entityId
+        : payload.task_id ?? payload.taskId ?? (entityType === 'TASK' ? entityId : null);
+      if (taskId) {
+        const derived = this.db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(taskId)?.project_id;
+        if (derived) return derived;
+      }
+    }
+    if (derivesShot) {
+      const shotId = commandType === 'AddNote'
+        ? entityId
+        : payload.shot_id ?? payload.shotId ?? (entityType === 'SHOT' ? entityId : null);
+      if (shotId) {
+        const derived = this.db.prepare('SELECT project_id FROM shots WHERE id = ?').get(shotId)?.project_id;
+        if (derived) return derived;
+      }
+    }
+    if (entityId && entityType === 'PROJECT') {
+      const derived = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(entityId)?.id;
+      if (derived) return derived;
+    }
+    if (entityId && entityType === 'TASK') {
+      const derived = this.db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(entityId)?.project_id;
+      if (derived) return derived;
+    }
+    if (entityId && entityType === 'SHOT') {
+      const derived = this.db.prepare('SELECT project_id FROM shots WHERE id = ?').get(entityId)?.project_id;
+      if (derived) return derived;
+    }
     if (explicitProjectId) {
       return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
-    }
-    for (const key of ['task_id', 'taskId']) {
-      if (payload[key]) return this.db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(payload[key])?.project_id ?? null;
-    }
-    for (const key of ['shot_id', 'shotId']) {
-      if (payload[key]) return this.db.prepare('SELECT project_id FROM shots WHERE id = ?').get(payload[key])?.project_id ?? null;
     }
     if (commandType === 'CreateProject') return null;
     return null;
@@ -667,6 +795,7 @@ export class CoreService {
   _updateProject(payload, expectedVersions) {
     const projectId = payload.project_id ?? payload.projectId;
     const current = this._project(projectId);
+    this._assertPayloadProjectScope(payload, current.id, 'PROJECT', projectId);
     this._expectedVersion(expectedVersions, 'PROJECT', projectId, current.row_version);
     this._assertProjectWritable(current);
     const title = payload.title === undefined ? current.title : requiredString(payload.title, 'title');
@@ -692,6 +821,7 @@ export class CoreService {
   _changeProjectState(payload, expectedVersions, state) {
     const projectId = payload.project_id ?? payload.projectId;
     const current = this._project(projectId);
+    this._assertPayloadProjectScope(payload, current.id, 'PROJECT', projectId);
     this._expectedVersion(expectedVersions, 'PROJECT', projectId, current.row_version);
     const allowed = {
       ACTIVE: new Set(['PAUSED', 'ARCHIVED', 'TRASHED']),
@@ -731,6 +861,7 @@ export class CoreService {
     const task = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
     return {
       projectId: project.id,
+      task: publicTask(task),
       result: publicTask(task),
       event: { aggregateType: 'TASK', aggregateId: taskId, aggregateVersion: 1, eventType: 'TASK_CREATED', payload: publicTask(task) },
       audit: { actionType: 'task.create', targetType: 'TASK', targetId: taskId, payload: { project_id: project.id } },
@@ -742,11 +873,17 @@ export class CoreService {
     const current = this._task(taskId);
     this._expectedVersion(expectedVersions, 'TASK', taskId, current.row_version);
     const project = this._project(current.project_id);
+    this._assertPayloadProjectScope(payload, project.id, 'TASK', taskId);
     this._assertProjectWritable(project);
     const title = payload.title === undefined ? current.title : requiredString(payload.title, 'title');
     const description = payload.description === undefined ? current.description : optionalString(payload.description, 'description');
     const status = payload.status === undefined ? current.status : payload.status;
     if (!TASK_STATES.has(status)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_task_status', { status });
+    if (status !== current.status && !TASK_TRANSITIONS[current.status]?.has(status)) {
+      throw new CoreError('INVALID_STATE_TRANSITION', 'CONFLICT', 'errors.invalid_state_transition', {
+        entity_type: 'TASK', entity_id: taskId, from: current.status, to: status,
+      }, { needsUser: true });
+    }
     const priority = payload.priority === undefined ? current.priority : asInt(payload.priority, NaN);
     if (!Number.isSafeInteger(priority) || priority < -1000 || priority > 1000) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_priority', {});
     const version = Number(current.row_version) + 1;
@@ -755,6 +892,7 @@ export class CoreService {
     const task = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
     return {
       projectId: project.id,
+      task: publicTask(task),
       result: publicTask(task),
       event: { aggregateType: 'TASK', aggregateId: taskId, aggregateVersion: version, eventType: 'TASK_UPDATED', payload: publicTask(task) },
       audit: { actionType: 'task.update', targetType: 'TASK', targetId: taskId, payload: { row_version: version } },
@@ -765,7 +903,7 @@ export class CoreService {
     const project = this._project(payload.project_id ?? payload.projectId);
     this._assertProjectWritable(project);
     const title = requiredString(payload.title, 'title');
-    const code = requiredString(payload.code, 'code', 64);
+    const code = requiredString(payload.code, 'code', 64).toUpperCase();
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(code)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_shot_code', {});
     if (this.db.prepare('SELECT id FROM shots WHERE project_id = ? AND code = ?').get(project.id, code)) {
       throw new CoreError('DUPLICATE_SHOT_CODE', 'CONFLICT', 'errors.duplicate_shot_code', { code });
@@ -778,6 +916,7 @@ export class CoreService {
     const shot = this.db.prepare('SELECT * FROM shots WHERE id = ?').get(shotId);
     return {
       projectId: project.id,
+      shot: publicShot(shot),
       result: publicShot(shot),
       event: { aggregateType: 'SHOT', aggregateId: shotId, aggregateVersion: 1, eventType: 'SHOT_CREATED', payload: publicShot(shot) },
       audit: { actionType: 'shot.create', targetType: 'SHOT', targetId: shotId, payload: { project_id: project.id, code } },
@@ -789,16 +928,23 @@ export class CoreService {
     const current = this._shot(shotId);
     this._expectedVersion(expectedVersions, 'SHOT', shotId, current.row_version);
     const project = this._project(current.project_id);
+    this._assertPayloadProjectScope(payload, project.id, 'SHOT', shotId);
     this._assertProjectWritable(project);
     const title = payload.title === undefined ? current.title : requiredString(payload.title, 'title');
     const state = payload.lifecycle_state ?? payload.lifecycleState ?? current.lifecycle_state;
     if (!SHOT_STATES.has(state)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_shot_state', { state });
+    if (state !== current.lifecycle_state && !SHOT_TRANSITIONS[current.lifecycle_state]?.has(state)) {
+      throw new CoreError('INVALID_STATE_TRANSITION', 'CONFLICT', 'errors.invalid_state_transition', {
+        entity_type: 'SHOT', entity_id: shotId, from: current.lifecycle_state, to: state,
+      }, { needsUser: true });
+    }
     const version = Number(current.row_version) + 1;
     this.db.prepare('UPDATE shots SET title = ?, lifecycle_state = ?, updated_at_utc_us = ?, row_version = ? WHERE id = ?')
       .run(title, state, nowUtcUs(), version, shotId);
     const shot = this.db.prepare('SELECT * FROM shots WHERE id = ?').get(shotId);
     return {
       projectId: project.id,
+      shot: publicShot(shot),
       result: publicShot(shot),
       event: { aggregateType: 'SHOT', aggregateId: shotId, aggregateVersion: version, eventType: 'SHOT_UPDATED', payload: publicShot(shot) },
       audit: { actionType: 'shot.update', targetType: 'SHOT', targetId: shotId, payload: { row_version: version } },
@@ -990,11 +1136,25 @@ export class CoreService {
     const entityId = payload.entity_id ?? payload.entityId
       ?? (commandType === 'AddTaskNote' ? payload.task_id ?? payload.taskId : null)
       ?? (commandType === 'AddShotNote' ? payload.shot_id ?? payload.shotId : null);
+    if (commandType === 'AddTaskNote' && entityType !== 'TASK') {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_note_entity_type', { entity_type: entityType });
+    }
+    if (commandType === 'AddShotNote' && entityType !== 'SHOT') {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_note_entity_type', { entity_type: entityType });
+    }
+    const typedEntityId = commandType === 'AddTaskNote' ? payload.task_id ?? payload.taskId
+      : commandType === 'AddShotNote' ? payload.shot_id ?? payload.shotId : null;
+    if (typedEntityId !== undefined && typedEntityId !== null && typedEntityId !== entityId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: entityType, entity_id: entityId, command_target_id: typedEntityId,
+      }, { needsUser: true });
+    }
     const body = requiredString(payload.body ?? payload.note, 'body', 50000);
     let project;
     if (entityType === 'PROJECT') project = this._project(entityId);
     if (entityType === 'TASK') { const task = this._task(entityId); project = this._project(task.project_id); }
     if (entityType === 'SHOT') { const shot = this._shot(entityId); project = this._project(shot.project_id); }
+    this._assertPayloadProjectScope(payload, project.id, entityType, entityId);
     this._assertProjectWritable(project);
     const noteId = uuidv7();
     const created = nowUtcUs();
@@ -1003,6 +1163,7 @@ export class CoreService {
     const note = this.db.prepare('SELECT * FROM notes WHERE id = ?').get(noteId);
     return {
       projectId: project.id,
+      note: publicNote(note),
       result: publicNote(note),
       event: { aggregateType: 'NOTE', aggregateId: noteId, aggregateVersion: 1, eventType: `${entityType}_NOTE_ADDED`, payload: publicNote(note) },
       audit: { actionType: `${entityType.toLowerCase()}.note_add`, targetType: entityType, targetId: entityId, payload: { note_id: noteId } },
@@ -1102,12 +1263,14 @@ export class CoreService {
         id: task.id,
         title: task.title,
         detail: task.description || 'Mới tạo · chưa bắt đầu',
-        state: task.status === 'DONE' ? 'done' : task.status === 'IN_PROGRESS' ? 'in_progress' : 'todo',
+        state: task.status === 'DONE' ? 'done' : task.status === 'IN_PROGRESS' ? 'in_progress' : task.status === 'BLOCKED' ? 'blocked' : task.status === 'CANCELLED' ? 'cancelled' : 'todo',
       }));
       project.completion = {
         done: tasks.filter((task) => task.status === 'DONE').length,
         total: tasks.length,
       };
+      const blockedTasks = tasks.filter((task) => task.status === 'BLOCKED').length;
+      project.health_state = row.lifecycle_state === 'TRASHED' ? 'BLOCKED' : blockedTasks > 0 ? 'AT_RISK' : 'HEALTHY';
       return project;
     });
   }

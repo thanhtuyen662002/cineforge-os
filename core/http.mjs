@@ -7,7 +7,8 @@ function statusFor(response) {
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
   if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'EXPECTED_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH'].includes(code)) return 409;
+  if (['STALE_REVISION', 'EXPECTED_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH'].includes(code)) return 409;
+  if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
   if (response.error?.category === 'INTERNAL') return 500;
   return 400;
@@ -29,18 +30,18 @@ function send(response, body, status = 200) {
   response.end(payload);
 }
 
-function errorBody(code, messageKey, details = {}) {
+function errorBody(code, messageKey, details = {}, options = {}) {
   return {
     request_id: null,
     ok: false,
     error: {
       code,
-      category: 'VALIDATION',
+      category: options.category ?? 'VALIDATION',
       user_message_key: messageKey,
-      user_message_args: {},
-      retryable: false,
-      needs_user: false,
-      decision_request_id: null,
+      user_message_args: options.messageArgs ?? {},
+      retryable: Boolean(options.retryable),
+      needs_user: Boolean(options.needsUser),
+      decision_request_id: options.decisionRequestId ?? null,
       technical_details: details,
     },
     warnings: [],
@@ -101,7 +102,9 @@ function mapProject(source) {
     cover: 'linear-gradient(145deg, #7664a9 0%, #35446a 56%, #171c2a 100%)',
     accent: '#b9a0ff',
     completion,
-    health: lifecycle === 'TRASHED' ? 'blocked' : 'healthy',
+    health: readString(source, 'health_state', 'healthState') === 'BLOCKED' || lifecycle === 'TRASHED'
+      ? 'blocked'
+      : readString(source, 'health_state', 'healthState') === 'AT_RISK' ? 'attention' : 'healthy',
     nextAction: 'Mở dự án',
     nextActionLabel: 'Mở',
     storage: '—',
@@ -163,6 +166,7 @@ function mapAsset(source) {
     originType: readString(asset, 'origin_type', 'originType') ?? 'IMPORTED',
     state: readString(asset, 'lifecycle_state', 'state') ?? 'ACTIVE',
     availability: readString(revision, 'availability_state', 'availability') ?? 'AVAILABLE',
+    readinessState: readString(asset, 'readiness_state', 'readinessState') ?? readString(revision, 'readiness_state', 'readinessState') ?? 'UNKNOWN',
     revisionId: readString(revision, 'id', 'revision_id', 'revisionId'),
     hashAlgorithm: readString(storage, 'hash_algorithm', 'hashAlgorithm'),
     contentHash: readString(storage, 'content_hash', 'contentHash'),
@@ -219,6 +223,43 @@ function query(core, request, method, params) {
   return core.handle({ request_id: requestId(request), api_version: '1', method, params });
 }
 
+function commandKey(request, body = {}) {
+  const header = request.headers['idempotency-key'];
+  if (typeof header === 'string' && header.length > 0) return header;
+  const value = body.idempotency_key ?? body.idempotencyKey;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function scopeError(entityType, entityId, projectId) {
+  return errorBody(
+    'ENTITY_SCOPE_MISMATCH',
+    'errors.entity_scope_mismatch',
+    { entity_type: entityType, entity_id: entityId, project_id: projectId },
+    { category: 'CONFLICT', needsUser: true },
+  );
+}
+
+function listProjectEntities(core, request, queryMethod, projectId, entityType, entityId = null) {
+  const response = query(core, request, queryMethod, { project_id: projectId });
+  if (!response.ok || !entityId) return response;
+  const rows = Array.isArray(response.result) ? response.result : [];
+  return rows.some((row) => row?.id === entityId) ? response : scopeError(entityType, entityId, projectId);
+}
+
+function filteredNotes(response, entityType, entityId) {
+  if (!response.ok || !entityType || !entityId) return response;
+  const notes = Array.isArray(response.result)
+    ? response.result.filter((note) => String(note?.entity_type ?? '').toUpperCase() === entityType && note?.entity_id === entityId)
+    : [];
+  return { ...response, result: notes };
+}
+
+function noteCommandPayload(projectId, body, defaultType = 'PROJECT', defaultId = projectId) {
+  const entityType = String(body.entity_type ?? body.entityType ?? defaultType).trim().toUpperCase();
+  const entityId = body.entity_id ?? body.entityId ?? defaultId;
+  return { ...body, project_id: projectId, entity_type: entityType, entity_id: entityId };
+}
+
 export function createCoreHttpServer(core, options = {}) {
   const token = options.token ?? process.env.CINEFORGE_CORE_TOKEN ?? null;
   const host = options.host ?? '127.0.0.1';
@@ -253,14 +294,14 @@ export function createCoreHttpServer(core, options = {}) {
         });
         result = assets.ok ? mapAssetList(assets.result) : assets;
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'assets' && parts.length === 2) {
-        const created = command(core, request, 'ImportAsset', body, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
+        const created = command(core, request, 'ImportAsset', body, {}, commandKey(request, body));
         result = created.ok ? mapAsset(created.result) : created;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
         result = query(core, request, 'query.project.list', { include_trashed: url.searchParams.get('include_trashed') === 'true' });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
-        const created = command(core, request, 'CreateProject', { ...body, title: body.title ?? body.name }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
+        const created = command(core, request, 'CreateProject', { ...body, title: body.title ?? body.name }, {}, commandKey(request, body));
         result = created.ok ? mapProject(created.result) : created;
-      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'assets') {
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'assets' && parts.length === 4) {
         const assets = query(core, request, 'query.project.assets', {
           project_id: parts[2], limit: url.searchParams.get('limit') ?? 100,
           include_trashed: url.searchParams.get('include_trashed') === 'true',
@@ -269,31 +310,82 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts.length === 3) {
         const projectId = parts[2];
         if (request.method === 'GET') result = query(core, request, 'query.project.get', { project_id: projectId });
-        else if (request.method === 'PATCH') result = command(core, request, 'UpdateProjectMetadata', { ...body, project_id: projectId }, expectedVersions(body, 'PROJECT'), request.headers['idempotency-key'] ?? body.idempotency_key);
+        else if (request.method === 'PATCH') result = command(core, request, 'UpdateProjectMetadata', { ...body, project_id: projectId }, expectedVersions(body, 'PROJECT'), commandKey(request, body));
         else result = errorBody('METHOD_NOT_ALLOWED', 'errors.method_not_allowed');
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'workspace') {
         result = query(core, request, 'query.project.workspace', { project_id: parts[2] });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'activity') {
         result = query(core, request, 'query.project.activity', { project_id: parts[2], limit: url.searchParams.get('limit') ?? 100 });
-      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks') {
-        const created = command(core, request, 'CreateTask', { ...body, project_id: parts[2] }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
+
+      // First-class project task routes.  The legacy production-items route
+      // below remains a compact UI projection; these routes expose the
+      // canonical task row, including status and row_version.
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts.length === 4) {
+        result = query(core, request, 'query.task.list', { project_id: parts[2] });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts[4] && parts.length === 5) {
+        const scoped = listProjectEntities(core, request, 'query.task.list', parts[2], 'TASK', parts[4]);
+        result = scoped.ok ? { ...scoped, result: scoped.result.find((task) => task.id === parts[4]) } : scoped;
+      } else if (request.method === 'PATCH' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts[4] && parts.length === 5) {
+        // Mutating nested routes always reach Core's command gate.  Scope
+        // mismatches are rejected there and receive a Command/Audit record;
+        // a read-side preflight would otherwise create an unaudited intent.
+        result = command(core, request, 'UpdateTask', { ...body, project_id: parts[2], task_id: parts[4] }, expectedVersions(body, 'TASK'), commandKey(request, body));
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts.length === 4) {
+        const created = command(core, request, 'CreateTask', { ...body, project_id: parts[2] }, {}, commandKey(request, body));
+        result = created;
+
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts[4] && parts[5] === 'notes' && parts.length === 6) {
+        const scoped = listProjectEntities(core, request, 'query.task.list', parts[2], 'TASK', parts[4]);
+        result = scoped.ok
+          ? filteredNotes(query(core, request, 'query.notes.list', { project_id: parts[2] }), 'TASK', parts[4])
+          : scoped;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts[4] && parts[5] === 'notes' && parts.length === 6) {
+        const payload = noteCommandPayload(parts[2], body, 'TASK', parts[4]);
+        result = command(core, request, 'AddTaskNote', { ...payload, task_id: parts[4] }, {}, commandKey(request, body));
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'production-items' && parts.length === 4) {
+        const tasks = query(core, request, 'query.task.list', { project_id: parts[2] });
+        result = tasks.ok ? { ...tasks, result: tasks.result.map((task) => mapProductionItem(task, task.title)) } : tasks;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'production-items' && parts.length === 4) {
+        const created = command(core, request, 'CreateTask', { ...body, project_id: parts[2] }, {}, commandKey(request, body));
         result = created.ok ? mapProductionItem(created.result, body.title) : created;
-      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'production-items') {
-        const created = command(core, request, 'CreateTask', { ...body, project_id: parts[2] }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
-        result = created.ok ? mapProductionItem(created.result, body.title) : created;
-      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'assets') {
-        const created = command(core, request, 'ImportAsset', { ...body, project_id: parts[2] }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
+
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'assets' && parts.length === 4) {
+        const created = command(core, request, 'ImportAsset', { ...body, project_id: parts[2] }, {}, commandKey(request, body));
         result = created.ok ? mapAsset(created.result) : created;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'imports' && parts[2] && parts.length === 3) {
         result = query(core, request, 'query.import.session', { import_session_id: parts[2] });
-      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots') {
-        result = command(core, request, 'CreateShot', { ...body, project_id: parts[2] }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
-      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'notes') {
-        result = command(core, request, 'AddNote', { ...body, project_id: parts[2] }, {}, request.headers['idempotency-key'] ?? body.idempotency_key);
+
+      // First-class shot routes mirror the task routes and enforce the nested
+      // project scope before a mutating command reaches Core.
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts.length === 4) {
+        result = query(core, request, 'query.shot.list', { project_id: parts[2] });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts[4] && parts.length === 5) {
+        const scoped = listProjectEntities(core, request, 'query.shot.list', parts[2], 'SHOT', parts[4]);
+        result = scoped.ok ? { ...scoped, result: scoped.result.find((shot) => shot.id === parts[4]) } : scoped;
+      } else if (request.method === 'PATCH' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts[4] && parts.length === 5) {
+        result = command(core, request, 'UpdateShot', { ...body, project_id: parts[2], shot_id: parts[4] }, expectedVersions(body, 'SHOT'), commandKey(request, body));
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts.length === 4) {
+        result = command(core, request, 'CreateShot', { ...body, project_id: parts[2] }, {}, commandKey(request, body));
+
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts[4] && parts[5] === 'notes' && parts.length === 6) {
+        const scoped = listProjectEntities(core, request, 'query.shot.list', parts[2], 'SHOT', parts[4]);
+        result = scoped.ok
+          ? filteredNotes(query(core, request, 'query.notes.list', { project_id: parts[2] }), 'SHOT', parts[4])
+          : scoped;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts[4] && parts[5] === 'notes' && parts.length === 6) {
+        const payload = noteCommandPayload(parts[2], body, 'SHOT', parts[4]);
+        result = command(core, request, 'AddShotNote', { ...payload, shot_id: parts[4] }, {}, commandKey(request, body));
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'notes' && parts.length === 4) {
+        result = query(core, request, 'query.notes.list', { project_id: parts[2], limit: url.searchParams.get('limit') ?? 100 });
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'notes' && parts.length === 4) {
+        const payload = noteCommandPayload(parts[2], body);
+        // Let the command gate perform target/project validation so every
+        // mutating intent is represented in the append-only audit trail.
+        result = command(core, request, 'AddNote', payload, {}, commandKey(request, body));
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'events') {
         result = query(core, request, 'events.subscribe', { after_seq: url.searchParams.get('after_seq') ?? 0, limit: url.searchParams.get('limit') ?? 100 });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'commands' && parts.length === 2) {
-        result = command(core, request, body.command_type, body.payload ?? {}, body.expected_versions ?? {}, request.headers['idempotency-key'] ?? body.idempotency_key);
+        result = command(core, request, body.command_type, body.payload ?? {}, body.expected_versions ?? {}, commandKey(request, body));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'commands' && parts[2] && parts[3] === 'cancel') {
         result = core.handle({ request_id: requestId(request), api_version: '1', method: 'command.cancel', params: { command_id: parts[2] } });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'decisions' && parts[2] && parts[3] === 'ack') {

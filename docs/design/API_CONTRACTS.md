@@ -150,6 +150,16 @@ Rules:
 - idempotency-safe;
 - returns immediately for long-running work with command/job IDs.
 
+### Idempotency binding
+
+When `idempotency_key` (or the equivalent HTTP `Idempotency-Key` header) is
+present, the key is scoped to the authenticated actor and `command_type`.
+Core stores a SHA-256 binding over `IDEMPOTENCY_CANONICAL_V1`, the canonical
+payload, and canonical `expected_versions`. Equivalent retries replay the
+original result. Reusing the namespace key with a different payload or
+precondition returns `IDEMPOTENCY_KEY_REUSE_CONFLICT` in category `CONFLICT`
+(`needs_user: true`) and does not append a second command or event.
+
 ## command.cancel
 Cancellation semantics are command-specific.
 Response must distinguish:
