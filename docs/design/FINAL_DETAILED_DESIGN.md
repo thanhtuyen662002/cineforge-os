@@ -33,10 +33,16 @@ Before this baseline was declared:
 - 40 user-action groups were reviewed.
 - 20 role-based red-team passes were performed.
 - 20 cross-role interaction failure scenarios were tested conceptually.
-- 21 cross-layer domains were checked for all four owners: Schema + State + API + UI.
-- Final cross-layer check reported zero uncovered owner gaps.
+- 21 baseline cross-layer domains were checked for all four owners: Schema + State + API + UI.
+- The baseline feature-matrix check reported zero uncovered owner gaps within those 21 domains.
 
-This does not claim unknown unknowns are eliminated. It means newly found conceptual issues now reduce to existing ownership/control mechanisms rather than exposing a missing architectural category.
+The broader canonical red-team ledger has now received the same explicit
+design-owner treatment: all 662 findings resolve to a unique owner section,
+with 486 `DESIGN_COVERED` records, 173 `EMPIRICAL_TEST_REQUIRED` records and
+3 explicit residuals.  There are zero `UNCOVERED` and zero
+`OPEN_UNOWNED_PENDING_AUDIT` records.  This closes architectural ownership;
+it does not promote any runtime evidence, and the required negative/chaos
+tests, independent review and implementation evidence remain open.
 
 # 3. Core ownership model
 
@@ -434,3 +440,52 @@ Further design changes should now be driven by:
 - connector/provider behavior observed in practice.
 
 New speculative complexity should not be added unless it maps to an observed failure or a documented risk that current controls cannot contain.
+
+
+
+# 18. Control maturity and anti-overengineering
+
+Implementation planning references `docs/design/CONTROL_REGISTRY.yaml`.
+
+## Maturity
+A control is:
+- DESIGNED
+- SPECIFIED
+- IMPLEMENTED
+- AUTOMATED_TESTED
+- CHAOS_TESTED
+- PRODUCTION_PROVEN
+
+Documentation alone never advances a control beyond SPECIFIED.
+
+## Applicability
+Controls classify as:
+- V1_FOUNDATION
+- V1_BEFORE_RELEASE
+- SCALE_HARDENING
+- FUTURE_MULTIUSER
+- OPTIONAL_HIGH_SECURITY
+
+A coding task implements only controls applicable to its current slice/risk profile unless doing so would make later compatibility impossible.
+
+## Anti-overengineering test
+Before implementing a major abstraction/control:
+1. Is it required by the current slice or current reachable P0/P1?
+2. Is it necessary to keep a future boundary compatible?
+3. Can it remain a specified interface/design reserve without code now?
+
+If yes to deferral, do not code it yet.
+
+The comprehensive schema/design is a compatibility map, not a big-bang backlog.
+
+# 19. Governance/product WIP balance
+
+Planner monitors WIP distribution among:
+- vertical product delivery;
+- control-plane/governance;
+- reliability/hardening;
+- testing/CI.
+
+Unbounded hardening cannot starve the first real 3–5 minute film unless a currently reachable unresolved P0 prevents safe continuation.
+
+The first real film remains a mandatory architecture validation milestone.

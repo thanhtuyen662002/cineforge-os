@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "manifest_id": "cineforge-l6-runtime-contract",
+  "lane_id": "L6",
+  "implementation_class": "REFERENCE_HARNESS_ONLY",
+  "runtime_status": "NOT_IMPLEMENTED_IN_REPOSITORY",
+  "promotion_state": "PARKED_EXPLORATION_ONLY",
+  "source_artifact": "docs/orchestration/l6_runtime_contract.py",
+  "selftest_artifact": "docs/orchestration/l6_runtime_selftest.py",
+  "gate_artifact": "docs/orchestration/l6_runtime_gate.py",
+  "gate_selftest_artifact": "docs/orchestration/l6_runtime_gate_selftest.py",
+  "required_chaos_ids": [
+    "CT-25",
+    "CT-26",
+    "CT-27",
+    "CT-28",
+    "CT-39"
+  ],
+  "required_control_ids": [
+    "CF-CTRL-OBJECT-STAGING",
+    "CF-CTRL-WIP-BACKPRESSURE",
+    "CF-CTRL-SQLITE-SAFE-ROOT"
+  ],
+  "owner_refs": [
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#F1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#F2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#F3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#G1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#G2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#H4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#J1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#BI",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#BM",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N10",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#O2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#Q1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#Q2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#T3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#BB",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#BC",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#BG",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#OL",
+    "docs/architecture/FINAL_ARCHITECTURE.md#14",
+    "docs/architecture/FINAL_ARCHITECTURE.md#15",
+    "docs/architecture/FINAL_ARCHITECTURE.md#30",
+    "docs/architecture/FINAL_ARCHITECTURE.md#39",
+    "docs/design/API_CONTRACTS.md#72",
+    "docs/design/API_CONTRACTS.md#116",
+    "docs/design/API_CONTRACTS.md#102",
+    "docs/design/API_CONTRACTS.md#API-MONEY-01",
+    "docs/design/API_CONTRACTS.md#API-PAID-DISPATCH-BUDGET-ADDITIONS",
+    "docs/design/API_CONTRACTS.md#API-LARGE-FANOUT-INVALIDATION",
+    "docs/design/API_CONTRACTS.md#API-SCHEDULER-RETRY-COORDINATION"
+  ],
+  "invariants": [
+    {
+      "id": "L6-INV-RESOURCE-COST-ADMISSION",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#Q1",
+      "negative_fixture": "a multi-resource or paid reservation that crosses headroom, hard budget or unknown exposure is rejected without partial allocation"
+    },
+    {
+      "id": "L6-INV-WORKER-CRASH-QUARANTINE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#H4",
+      "negative_fixture": "bounded restart backoff, single-use retry claim and poison quarantine prevent a crash loop or completed-effect replay"
+    },
+    {
+      "id": "L6-INV-PINNED-FANOUT",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#F3",
+      "negative_fixture": "wrong entity/revision, unapproved sample, over-cap dispatch or stale invalidation cannot produce mass work"
+    },
+    {
+      "id": "L6-INV-MANUAL-REVISION-FENCE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#G1",
+      "negative_fixture": "an active manual lock, changed current revision or stale lock epoch yields a non-canonical candidate"
+    },
+    {
+      "id": "L6-INV-PUBLICATION-UNKNOWN",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#BG",
+      "negative_fixture": "a lost publication response remains unknown until bound destination evidence authorizes delivery, compensation or a fresh retry identity"
+    },
+    {
+      "id": "L6-INV-CAPTURE-SUPPLEMENTAL",
+      "owner_ref": "docs/design/API_CONTRACTS.md#102",
+      "negative_fixture": "capture permission, owner/device/source/session drift or conflicting output is quarantined; this fixture is not a CT-39 publication proof"
+    }
+  ],
+  "forbidden_claims": [
+    "atomic database or operating-system lease proof",
+    "real GPU/VRAM capacity or physical resource release proof",
+    "real worker process-tree, crash or power-loss recovery proof",
+    "real camera/device permission or privacy proof",
+    "real provider/publication or external destination postcondition proof",
+    "production runtime or chaos coverage proof",
+    "performance SLO claim",
+    "coverage_state=VERIFIED"
+  ]
+}
