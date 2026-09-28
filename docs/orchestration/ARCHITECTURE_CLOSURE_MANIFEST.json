@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "manifest_id": "cineforge-architecture-closure",
+  "closure_state": "CHOT_DESIGN_BASELINE",
+  "scope": "AUTHORITATIVE_ARCHITECTURE_AND_CONTRACT_DESIGN",
+  "architecture_source": "docs/architecture/FINAL_ARCHITECTURE.md#ARCH-REDTEAM-CLOSURE-01",
+  "lane_matrix_source": "docs/orchestration/PROMOTION_LANE_MATRIX.json",
+  "lane_ids": [
+    "L3",
+    "L4",
+    "L5",
+    "L6",
+    "L7"
+  ],
+  "lane_contract_status": "CONTRACT_GATE_IMPLEMENTED",
+  "runtime_status": "NOT_IMPLEMENTED_IN_REPOSITORY",
+  "promotion_state": "PARKED_EXPLORATION_ONLY",
+  "production_status": "NOT_CLOSED",
+  "decision": "Architecture and design contracts are closed at the design level; implementation and production release remain open pending independent evidence.",
+  "required_external_evidence": [
+    "independent architecture, security, QA and integration review bound to exact child-PR heads",
+    "trusted exact-head Tier-A/Tier-B CI from an authorized producer",
+    "product implementation for every promoted contract owner",
+    "machine-readable runtime and executed CT-01..CT-40 chaos evidence",
+    "explicit owner or residual disposition for every finding with no silent promotion",
+    "merge lease, post-merge verification and Issue #1 closure reconciliation"
+  ],
+  "open_blockers": [
+    "PR #2 is an umbrella research PR and must remain Draft/unmerged",
+    "child implementation PRs for Issues #3 through #7 are not all present or merged",
+    "repository currently has no trusted workflow/check suite or independent review evidence",
+    "coverage remains DESIGNED_UNVERIFIED/EMPIRICAL_TEST_REQUIRED with explicit OPEN_UNVERIFIED and external/future residuals",
+    "runtime_status and production_status must not be promoted by reference harness output"
+  ],
+  "forbidden_claims": [
+    "production readiness",
+    "runtime implementation completion",
+    "independent review completion",
+    "empirical chaos verification",
+    "merge or release authorization"
+  ],
+  "design_coverage_state": "COMPLETE_EXPLICIT_RESIDUALS",
+  "design_owner_mapping_count": 662,
+  "coverage_uncovered_count": 0,
+  "coverage_partial_count": 0,
+  "coverage_open_unowned_pending_audit_count": 0,
+  "source_digest_algorithm": "SHA-256(path\\0normalized-UTF8-content\\0 sorted)",
+  "source_digest_scope": "AGENTS.md, authoritative architecture/design/orchestration sources, all lane owner documents named by PROMOTION_LANE_MATRIX.json, and the closure/promotion gate implementations plus the canonical finding coverage and owner-mapping approval artifacts; ARCHITECTURE_CLOSURE_MANIFEST.json is intentionally excluded to avoid self-reference",
+  "source_digest": "sha256:b1abde8c537110c0ac74d36eeca07ca69d4ca400aa4dc66d08a5f7c15d577829"
+}

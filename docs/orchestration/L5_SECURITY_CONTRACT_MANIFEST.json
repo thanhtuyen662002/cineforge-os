@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "manifest_id": "cineforge-l5-security-contract",
+  "lane_id": "L5",
+  "implementation_class": "REFERENCE_HARNESS_ONLY",
+  "runtime_status": "NOT_IMPLEMENTED_IN_REPOSITORY",
+  "promotion_state": "PARKED_EXPLORATION_ONLY",
+  "source_artifact": "docs/orchestration/l5_security_contract.py",
+  "selftest_artifact": "docs/orchestration/l5_security_selftest.py",
+  "gate_artifact": "docs/orchestration/l5_security_gate.py",
+  "gate_selftest_artifact": "docs/orchestration/l5_security_gate_selftest.py",
+  "required_chaos_ids": [
+    "CT-17",
+    "CT-18",
+    "CT-19",
+    "CT-20",
+    "CT-21",
+    "CT-22",
+    "CT-23",
+    "CT-24",
+    "CT-31",
+    "CT-32",
+    "CT-33",
+    "CT-34",
+    "CT-35",
+    "CT-36",
+    "CT-37"
+  ],
+  "required_control_ids": [
+    "CF-CTRL-OBJECT-STAGING",
+    "CF-CTRL-IPC-TRUST",
+    "CF-CTRL-INPUT-SANDBOX",
+    "CF-CTRL-CONTEXT-TRUST",
+    "CF-CTRL-EXTERNAL-MATERIALIZE",
+    "CF-CTRL-RELEASE-PROVENANCE",
+    "CF-CTRL-RIGHTS-PRIVACY",
+    "CF-CTRL-UPDATE-SUPPLY-CHAIN"
+  ],
+  "owner_refs": [
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#C1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#C2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#C3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#C4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#C5",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#C6",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#C7",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#D1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#D2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#D3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#D4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#D5",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#D6",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#E1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#E2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#E3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#H1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#H2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#H3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#I1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#I2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N7",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N8",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N10",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N11",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N12",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#N13",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#O1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#O3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#O4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#P1",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#P2",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#J3",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#Y4",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#V2"
+  ],
+  "invariants": [
+    {
+      "id": "L5-INV-STAGED-BYTES",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C2",
+      "negative_fixture": "mismatched, reparse-point or aliased bytes remain quarantined"
+    },
+    {
+      "id": "L5-INV-NETWORK-PARSER-BUDGET",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C4",
+      "negative_fixture": "private redirect, DNS rebinding, parser overrun or parser network request is blocked"
+    },
+    {
+      "id": "L5-INV-IPC-ORIGIN",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#D1",
+      "negative_fixture": "replayed or cross-session capability tokens cannot cross the authenticated bridge"
+    },
+    {
+      "id": "L5-INV-CONTEXT-TOOLS",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#D2",
+      "negative_fixture": "untrusted context cannot authorize an unreviewed typed tool call"
+    },
+    {
+      "id": "L5-INV-CALLBACK-SCOPE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#E1",
+      "negative_fixture": "stale, forged, replayed or cross-account provider callbacks remain non-canonical"
+    },
+    {
+      "id": "L5-INV-EXTERNAL-MATERIALIZATION",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#C6",
+      "negative_fixture": "expired, mismatched, low-confidence or DNS-rebound external artifacts cannot become READY"
+    },
+    {
+      "id": "L5-INV-ACCOUNT-SEMANTICS",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#E2",
+      "negative_fixture": "connection account, browser account or site/action fingerprint drift fences egress"
+    },
+    {
+      "id": "L5-INV-PACKAGE-REVOCATION",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#I1",
+      "negative_fixture": "revoked, stale-key, registry, version or install-script package evidence is rejected"
+    },
+    {
+      "id": "L5-INV-ARTIFACT-PROVENANCE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#J3",
+      "negative_fixture": "artifact bytes, manifest, SBOM, attestation and CI provenance must bind exactly"
+    },
+    {
+      "id": "L5-INV-RELEASE-CLOSURE",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#N4",
+      "negative_fixture": "dirty, untracked, unverified or path-colliding release workspaces are blocked"
+    },
+    {
+      "id": "L5-INV-TOOLCHAIN-INTEGRITY",
+      "owner_ref": "docs/design/EXTREME_HARDENING_CONTRACTS.md#N4",
+      "negative_fixture": "managed executable path, binary, environment or registry drift is rejected"
+    }
+  ],
+  "forbidden_claims": [
+    "actual archive/parser sandbox proof",
+    "actual stable OS handle/TOCTOU proof",
+    "actual network or SSRF proof",
+    "actual WebView/native bridge proof",
+    "actual provider signature verification",
+    "actual signing-key or package release verification",
+    "production security proof",
+    "coverage_state=VERIFIED"
+  ]
+}

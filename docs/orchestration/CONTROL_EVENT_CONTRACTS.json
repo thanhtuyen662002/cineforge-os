@@ -1,0 +1,260 @@
+{
+  "schema_id": "cineforge-control-event-contracts",
+  "schema_version": 1,
+  "encoding": "UTF-8",
+  "machine_key_pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+  "max_event_bytes": 32768,
+  "max_line_bytes": 4096,
+  "hashing": {
+    "algorithm": "SHA-256",
+    "canonicalization": "UTF-8 bytes of sorted KEY=VALUE lines, one LF after each line, excluding EVENT_HASH"
+  },
+  "formats": {
+    "event_schema": {
+      "pattern": "^[A-Z][A-Z0-9_]{1,63}_V[1-9][0-9]*$",
+      "max_length": 64
+    },
+    "event_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$",
+      "max_length": 128
+    },
+    "token": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,127}$",
+      "max_length": 128
+    },
+    "github_login": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$",
+      "max_length": 39
+    },
+    "positive_int": {
+      "pattern": "^[1-9][0-9]{0,9}$",
+      "max_length": 10
+    },
+    "nonnegative_int": {
+      "pattern": "^(?:0|[1-9][0-9]{0,9})$",
+      "max_length": 10
+    },
+    "sha256": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "max_length": 71
+    },
+    "sha256_or_none": {
+      "pattern": "^(?:none|sha256:[0-9a-f]{64})$",
+      "max_length": 71
+    },
+    "git_sha": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "max_length": 64
+    },
+    "git_sha_or_none": {
+      "pattern": "^(?:none|[0-9a-f]{40}|[0-9a-f]{64})$",
+      "max_length": 64
+    },
+    "comment_id_or_none": {
+      "pattern": "^(?:none|[1-9][0-9]{0,19})$",
+      "max_length": 20
+    },
+    "github_repository": {
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+      "max_length": 200
+    },
+    "branch": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$",
+      "max_length": 200
+    },
+    "repository_path": {
+      "pattern": "^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+$",
+      "max_length": 512
+    },
+    "text": {
+      "pattern": "(?s).*",
+      "max_length": 2048
+    }
+  },
+  "envelope": {
+    "required": [
+      "EVENT_SCHEMA",
+      "CONTROL_EVENT_ID",
+      "CONTROL_EPOCH",
+      "PREV_EVENT_COMMENT_ID",
+      "PREV_EVENT_HASH",
+      "EVENT_HASH_ALGORITHM",
+      "EVENT_HASH",
+      "TRUSTED_AUTHOR"
+    ],
+    "fields": {
+      "EVENT_SCHEMA": {"format": "event_schema"},
+      "CONTROL_EVENT_ID": {"format": "event_id"},
+      "CONTROL_EPOCH": {"format": "positive_int"},
+      "PREV_EVENT_COMMENT_ID": {"format": "comment_id_or_none"},
+      "PREV_EVENT_HASH": {"format": "sha256_or_none"},
+      "EVENT_HASH_ALGORITHM": {"enum": ["SHA-256"]},
+      "EVENT_HASH": {"format": "sha256"},
+      "TRUSTED_AUTHOR": {"format": "github_login"}
+    }
+  },
+  "events": {
+    "AGENT_STATE_V1": {
+      "required": ["AGENT_INSTANCE_ID", "RUN_ID", "SLOT_ID", "HEAD_SHA", "BASE_SHA", "STATE", "BLOCKER", "NEXT_ACTION"],
+      "fields": {
+        "AGENT_INSTANCE_ID": {"format": "token"},
+        "RUN_ID": {"format": "token"},
+        "SLOT_ID": {"format": "token"},
+        "HEAD_SHA": {"format": "git_sha"},
+        "BASE_SHA": {"format": "git_sha"},
+        "STATE": {"enum": ["ACTIVE", "PARKED_WAITING_CI", "PARKED_WAITING_REVIEW", "PARKED_BLOCKED_DEPENDENCY", "READY_FOR_REVIEW", "READY_FOR_MERGE", "ABANDONED"]},
+        "BLOCKER": {"format": "text"},
+        "NEXT_ACTION": {"format": "text"}
+      }
+    },
+    "AGENT_TAKEOVER_V1": {
+      "required": ["FROM", "TO", "RUN_ID", "SLOT_ID", "HEAD_SHA", "BASE_SHA", "REASON", "NEXT_ACTION", "AUTHORIZED_BY"],
+      "fields": {
+        "FROM": {"format": "token"},
+        "TO": {"format": "token"},
+        "RUN_ID": {"format": "token"},
+        "SLOT_ID": {"format": "token"},
+        "HEAD_SHA": {"format": "git_sha"},
+        "BASE_SHA": {"format": "git_sha"},
+        "REASON": {"format": "text"},
+        "NEXT_ACTION": {"format": "text"},
+        "AUTHORIZED_BY": {"format": "token"}
+      }
+    },
+    "AGENT_REVIEW_V1": {
+      "required": ["REVIEW_AGENT_INSTANCE_ID", "RUN_ID", "REVIEW_HEAD_SHA", "REVIEW_BASE_SHA", "VERIFICATION_MERGE_SHA", "REVIEW_PROFILE", "VERDICT", "BLOCKERS"],
+      "fields": {
+        "REVIEW_AGENT_INSTANCE_ID": {"format": "token"},
+        "RUN_ID": {"format": "token"},
+        "REVIEW_HEAD_SHA": {"format": "git_sha"},
+        "REVIEW_BASE_SHA": {"format": "git_sha"},
+        "VERIFICATION_MERGE_SHA": {"format": "git_sha_or_none"},
+        "REVIEW_PROFILE": {"enum": ["domain", "qa", "security", "integration"]},
+        "VERDICT": {"enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"]},
+        "BLOCKERS": {"format": "text"}
+      }
+    },
+    "TASK_CONTRACT_REVISION_V1": {
+      "required": ["ISSUE", "CONTRACT_VERSION", "PREV_CONTRACT_HASH", "NEW_CONTRACT_HASH", "REASON", "AUTHORIZED_BY"],
+      "fields": {
+        "ISSUE": {"format": "positive_int"},
+        "CONTRACT_VERSION": {"format": "positive_int"},
+        "PREV_CONTRACT_HASH": {"format": "sha256"},
+        "NEW_CONTRACT_HASH": {"format": "sha256"},
+        "REASON": {"format": "text"},
+        "AUTHORIZED_BY": {"format": "token"}
+      }
+    },
+    "ORPHAN_OBSERVED_V1": {
+      "required": ["BRANCH", "HEAD_SHA", "OBSERVED_BY", "STATE"],
+      "fields": {
+        "BRANCH": {"format": "branch"},
+        "HEAD_SHA": {"format": "git_sha"},
+        "OBSERVED_BY": {"format": "token"},
+        "STATE": {"enum": ["FIRST_SEEN", "CONFIRMED_STALE", "RECOVERED", "RETIRED"]}
+      }
+    },
+    "CLAIM_INTENT_V1": {
+      "required": ["CLAIM_INTENT_ID", "ISSUE", "ATTEMPT", "TASK_CONTRACT_HASH", "AGENT_INSTANCE_ID", "SLOT_ID", "RUN_ID"],
+      "fields": {
+        "CLAIM_INTENT_ID": {"format": "event_id"},
+        "ISSUE": {"format": "positive_int"},
+        "ATTEMPT": {"format": "positive_int"},
+        "TASK_CONTRACT_HASH": {"format": "sha256"},
+        "AGENT_INSTANCE_ID": {"format": "token"},
+        "SLOT_ID": {"format": "token"},
+        "RUN_ID": {"format": "token"}
+      }
+    },
+    "CAPACITY_PLAN_V2": {
+      "required": ["PLAN_VERSION", "PREV_PLAN_COMMENT_ID", "PRIMARY_PLANNER", "PRIMARY_FLOW_GOVERNOR", "PRIMARY_INTEGRATOR", "SLOT_COUNT", "SLOT_BINDINGS", "STAGGER_OFFSETS", "CI_RUNNER_CAPACITY", "REVIEW_CAPACITY", "MAX_ACTIVE_IMPLEMENTATION", "MAX_CI_IN_FLIGHT", "MAX_WAITING_REVIEW", "MAX_PARKED_TOTAL", "CURRENT_CRITICAL_PATH", "CURRENT_HOTSPOTS", "UPDATED_BY"],
+      "fields": {
+        "PLAN_VERSION": {"format": "positive_int"},
+        "PREV_PLAN_COMMENT_ID": {"format": "comment_id_or_none"},
+        "PRIMARY_PLANNER": {"format": "token"},
+        "PRIMARY_FLOW_GOVERNOR": {"format": "token"},
+        "PRIMARY_INTEGRATOR": {"format": "token"},
+        "SLOT_COUNT": {"format": "positive_int"},
+        "SLOT_BINDINGS": {"format": "text"},
+        "STAGGER_OFFSETS": {"format": "text"},
+        "CI_RUNNER_CAPACITY": {"format": "nonnegative_int"},
+        "REVIEW_CAPACITY": {"format": "nonnegative_int"},
+        "MAX_ACTIVE_IMPLEMENTATION": {"format": "nonnegative_int"},
+        "MAX_CI_IN_FLIGHT": {"format": "nonnegative_int"},
+        "MAX_WAITING_REVIEW": {"format": "nonnegative_int"},
+        "MAX_PARKED_TOTAL": {"format": "nonnegative_int"},
+        "CURRENT_CRITICAL_PATH": {"format": "text"},
+        "CURRENT_HOTSPOTS": {"format": "text"},
+        "UPDATED_BY": {"format": "token"}
+      }
+    },
+    "SLOT_LEASE_V1": {
+      "required": ["SLOT_ID", "AGENT_INSTANCE_ID", "RUN_ID", "ACTION", "LEASE_EPOCH", "TTL_SECONDS", "REASON"],
+      "fields": {
+        "SLOT_ID": {"format": "token"},
+        "AGENT_INSTANCE_ID": {"format": "token"},
+        "RUN_ID": {"format": "token"},
+        "ACTION": {"enum": ["ACQUIRE", "RENEW", "RELEASE", "TAKEOVER"]},
+        "LEASE_EPOCH": {"format": "positive_int"},
+        "TTL_SECONDS": {"format": "nonnegative_int"},
+        "REASON": {"format": "text"}
+      }
+    },
+    "CONTROL_ROLE_LEASE_V1": {
+      "required": ["ROLE", "AGENT_INSTANCE_ID", "RUN_ID", "ACTION", "EPOCH", "TTL_SECONDS", "REASON"],
+      "fields": {
+        "ROLE": {"enum": ["PLANNER", "FLOW_GOVERNOR", "INTEGRATOR"]},
+        "AGENT_INSTANCE_ID": {"format": "token"},
+        "RUN_ID": {"format": "token"},
+        "ACTION": {"enum": ["ACQUIRE", "RENEW", "RELEASE", "TAKEOVER"]},
+        "EPOCH": {"format": "positive_int"},
+        "TTL_SECONDS": {"format": "nonnegative_int"},
+        "REASON": {"format": "text"}
+      }
+    },
+    "MERGE_LEASE_V1": {
+      "required": ["REPOSITORY", "MERGE_OPERATION_ID", "AGENT_INSTANCE_ID", "RUN_ID", "ACTION", "LEASE_EPOCH", "TTL_SECONDS", "EXPECTED_MAIN_SHA", "EXPECTED_PR_HEAD_SHA", "REASON"],
+      "fields": {
+        "REPOSITORY": {"format": "github_repository"},
+        "MERGE_OPERATION_ID": {"format": "event_id"},
+        "AGENT_INSTANCE_ID": {"format": "token"},
+        "RUN_ID": {"format": "token"},
+        "ACTION": {"enum": ["ACQUIRE", "RENEW", "RELEASE", "TAKEOVER"]},
+        "LEASE_EPOCH": {"format": "positive_int"},
+        "TTL_SECONDS": {"format": "nonnegative_int"},
+        "EXPECTED_MAIN_SHA": {"format": "git_sha"},
+        "EXPECTED_PR_HEAD_SHA": {"format": "git_sha"},
+        "REASON": {"format": "text"}
+      }
+    },
+    "CI_VERIFICATION_V1": {
+      "required": ["HEAD_SHA", "BASE_SHA", "SYNTHETIC_MERGE_SHA", "WORKFLOW_CHECK_ID", "CHECK_PRODUCER_IDENTITY", "WORKFLOW_PATH", "WORKFLOW_REVISION", "RUNNER_TRUST_CLASS", "ATTEMPT", "RESULT"],
+      "fields": {
+        "HEAD_SHA": {"format": "git_sha"},
+        "BASE_SHA": {"format": "git_sha"},
+        "SYNTHETIC_MERGE_SHA": {"format": "git_sha_or_none"},
+        "WORKFLOW_CHECK_ID": {"format": "text"},
+        "CHECK_PRODUCER_IDENTITY": {"format": "token"},
+        "WORKFLOW_PATH": {"format": "repository_path"},
+        "WORKFLOW_REVISION": {"format": "git_sha"},
+        "RUNNER_TRUST_CLASS": {"enum": ["GITHUB_HOSTED", "TRUSTED_SELF_HOSTED", "ISOLATED_UNTRUSTED", "EXTERNAL_VERIFIER", "UNKNOWN"]},
+        "ATTEMPT": {"format": "positive_int"},
+        "RESULT": {"enum": ["PASS", "FAIL", "CANCELLED", "UNKNOWN", "NOT_RUN"]}
+      }
+    },
+    "MERGE_OUTCOME_V1": {
+      "required": ["MERGE_OPERATION_ID", "OUTCOME", "EXPECTED_MAIN_SHA", "EXPECTED_PR_HEAD_SHA", "OBSERVED_MERGED_SHA", "OBSERVED_MAIN_SHA", "RECONCILED_BY", "RECONCILIATION_SOURCE", "REASON"],
+      "fields": {
+        "MERGE_OPERATION_ID": {"format": "event_id"},
+        "OUTCOME": {"enum": ["CONFIRMED_SUCCESS", "CONFIRMED_FAILURE", "UNKNOWN_OUTCOME"]},
+        "EXPECTED_MAIN_SHA": {"format": "git_sha"},
+        "EXPECTED_PR_HEAD_SHA": {"format": "git_sha"},
+        "OBSERVED_MERGED_SHA": {"format": "git_sha_or_none"},
+        "OBSERVED_MAIN_SHA": {"format": "git_sha_or_none"},
+        "RECONCILED_BY": {"format": "token"},
+        "RECONCILIATION_SOURCE": {"enum": ["DIRECT_GITHUB_READ", "EXTERNAL_VERIFIER", "NONE"]},
+        "REASON": {"format": "text"}
+      }
+    }
+  }
+}
