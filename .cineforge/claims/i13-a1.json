@@ -1,0 +1,12 @@
+{
+  "issue": 13,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-intake-hardening",
+  "run_id_at_claim": "WORK-intake-hardening-20260928-A1",
+  "slot_id": "WORK-intake-hardening",
+  "claim_base_sha": "431cb1a7544aa89b5eb4b5387791f1bd6f577c08",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:6f8b68082e80d4649532a23be39bc7b4218a99cea34500b3ddeeb8073db4f31d",
+  "context_base_sha": "431cb1a7544aa89b5eb4b5387791f1bd6f577c08",
+  "bootstrap_only": false
+}
