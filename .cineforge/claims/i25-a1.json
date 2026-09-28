@@ -1,0 +1,14 @@
+{
+  "task_id": 25,
+  "claim_id": "i25-a1",
+  "contract_version": 1,
+  "contract_hash": "sha256:ecbb3536ebde3bd9d63edf31528e12284a8a36ba2dcc24ce4019c472289d24b7",
+  "agent_instance_id": "cineforge-WORK-handoff",
+  "slot_id": "WORK-handoff",
+  "run_id": "WORK-handoff-20260929-A1",
+  "base_ref": "agent/i23-a1",
+  "base_sha": "dbda6b5e30eaff52d0a8eaf72c17e76a61c675ab",
+  "context_base_sha": "dbda6b5e30eaff52d0a8eaf72c17e76a61c675ab",
+  "status": "CLAIMED",
+  "created_at": "2026-09-29T02:00:00+07:00"
+}
