@@ -1029,8 +1029,10 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
       createIntentRef.current = null
       onToast(locale === 'vi' ? `Đã tạo nhân vật “${created.displayName}”.` : `Character “${created.displayName}” created.`)
     } catch (cause) {
-      setCreateNeedsUser(cause instanceof CoreClientError && cause.needsUser)
-      setCreateError(workspaceErrorMessage(cause, locale))
+      if (projectIdRef.current === requestedProjectId) {
+        setCreateNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+        setCreateError(workspaceErrorMessage(cause, locale))
+      }
     } finally {
       setCreating(false)
     }
