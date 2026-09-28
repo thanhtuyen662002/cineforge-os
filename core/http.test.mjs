@@ -559,3 +559,91 @@ test('HTTP DecisionRequest routes expose canonical Needs You state and stale-saf
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('HTTP local backup routes expose redacted metadata, admission and verification', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-backup-'));
+  const dbPath = path.join(directory, 'cineforge.sqlite');
+  const assetStorePath = path.join(directory, 'asset-store');
+  const destination = path.join(directory, 'backup-destination');
+  const sourcePath = path.join(directory, 'source.txt');
+  fs.writeFileSync(sourcePath, 'backup route bytes\n', 'utf8');
+  const core = new CoreService({ dbPath, assetStorePath });
+  let listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  let base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, {
+      ...options,
+      headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+    });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const imported = await jsonRequest('/v1/assets', {
+      method: 'POST', headers: { 'idempotency-key': 'http-backup-asset' },
+      body: JSON.stringify({ source_path: sourcePath, storage_mode: 'COPY', asset_type: 'DOCUMENT' }),
+    });
+    assert.equal(imported.response.status, 200);
+
+    const admission = await jsonRequest(`/v1/storage/admission?destination_path=${encodeURIComponent(destination)}&reserve_bytes=0`);
+    assert.equal(admission.response.status, 200);
+    assert.equal(admission.payload.result.destination_name, path.basename(destination));
+    assert.equal(admission.payload.result.durability_class, 'LOCAL_WRITABLE');
+    assert.ok(Number(admission.payload.result.estimated_bytes) > 0);
+
+    const created = await jsonRequest('/v1/backups', {
+      method: 'POST', headers: { 'idempotency-key': 'http-backup-create' },
+      body: JSON.stringify({ destination_path: destination, reserve_bytes: 0 }),
+    });
+    assert.equal(created.response.status, 200);
+    assert.equal(created.payload.ok, true);
+    const backup = created.payload.result.backup;
+    assert.equal(backup.state, 'VERIFIED');
+    assert.equal(Object.hasOwn(backup, 'destination_path'), false);
+    assert.equal(Object.hasOwn(backup, 'manifest_path'), false);
+    assert.equal(Object.hasOwn(backup, 'snapshot_path'), false);
+    assert.equal(backup.destination_name, backup.id);
+    assert.equal(backup.manifest_name, 'manifest.json');
+    assert.equal(backup.snapshot_name, 'cineforge.sqlite');
+
+    const replay = await jsonRequest('/v1/backups', {
+      method: 'POST', headers: { 'idempotency-key': 'http-backup-create' },
+      body: JSON.stringify({ destination_path: destination, reserve_bytes: 0 }),
+    });
+    assert.equal(replay.response.status, 200);
+    assert.equal(replay.payload.result.idempotent_replay, true);
+    assert.equal(replay.payload.result.backup.id, backup.id);
+
+    const listed = await jsonRequest('/v1/backups');
+    assert.equal(listed.response.status, 200);
+    assert.equal(listed.payload.result.backups.length, 1);
+    assert.equal(listed.payload.result.backups[0].id, backup.id);
+
+    const detail = await jsonRequest(`/v1/backups/${encodeURIComponent(backup.id)}`);
+    assert.equal(detail.response.status, 200);
+    assert.equal(detail.payload.result.backup.id, backup.id);
+    assert.equal(detail.payload.result.verifications.length, 1);
+    assert.equal(detail.payload.result.verifications[0].outcome, 'VERIFIED');
+
+    const verified = await jsonRequest(`/v1/backups/${encodeURIComponent(backup.id)}/verify`, {
+      method: 'POST', headers: { 'idempotency-key': 'http-backup-verify' }, body: '{}',
+    });
+    assert.equal(verified.response.status, 200);
+    assert.equal(verified.payload.result.verification.outcome, 'VERIFIED');
+
+    const pressure = await jsonRequest('/v1/backups', {
+      method: 'POST', headers: { 'idempotency-key': 'http-backup-pressure' },
+      body: JSON.stringify({ destination_path: path.join(directory, 'rejected'), max_backup_bytes: 1 }),
+    });
+    assert.equal(pressure.response.status, 409);
+    assert.equal(pressure.payload.error.code, 'STORAGE_PRESSURE');
+    assert.equal(fs.existsSync(path.join(directory, 'rejected')), false);
+
+    const missing = await jsonRequest('/v1/backups/missing-backup');
+    assert.equal(missing.response.status, 404);
+    assert.equal(missing.payload.error.code, 'NOT_FOUND');
+  } finally {
+    if (listener?.server?.listening) await new Promise((resolve) => listener.server.close(resolve));
+    try { core.close(); } catch { /* preserve cleanup */ }
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
