@@ -685,11 +685,12 @@ export class HttpCoreClient implements CoreClient {
   private async createCharacterRevision(kind: CharacterRevisionKind, characterId: string, input: CharacterRevisionInput, idempotencyKey: string): Promise<CharacterRevision> {
     if (!this.baseUrl) throw new CoreClientError('Character revisions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
     const route = kind === 'visual' ? 'visual-revisions' : kind === 'voice' ? 'voice-revisions' : 'performance-bibles'
+    const fields = allowedCharacterRevisionFields(kind, input.fields)
     const payload = {
+      ...fields,
       ...(input.semanticDescription?.trim() ? { semantic_description: input.semanticDescription.trim() } : {}),
       ...(input.canonicalLanguage?.trim() ? { canonical_language: input.canonicalLanguage.trim() } : {}),
       ...(input.rightsIdentityId?.trim() ? { rights_identity_id: input.rightsIdentityId.trim() } : {}),
-      ...(input.fields && typeof input.fields === 'object' ? input.fields : {}),
     }
     const response = await fetch(`${this.baseUrl}/v1/characters/${encodeURIComponent(characterId)}/${route}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(payload),
@@ -748,6 +749,18 @@ export class HttpCoreClient implements CoreClient {
     const payload = await readCorePayload(response, 'asset import')
     return mapAssetRecord(payload)
   }
+}
+
+const CHARACTER_REVISION_FIELD_ALLOWLIST: Record<CharacterRevisionKind, ReadonlySet<string>> = {
+  visual: new Set(['anatomy', 'proportion', 'proportions', 'palette', 'marking', 'markings', 'forbidden_drift', 'forbiddenDrift', 'references']),
+  voice: new Set(['accent_profile', 'accentProfile', 'vocal_range', 'vocalRange', 'timbre', 'prosody', 'emotional_map', 'emotionalMap', 'pronunciation_lexicon', 'pronunciationLexicon', 'forbidden_traits', 'forbiddenTraits']),
+  performance: new Set(['posture', 'gait', 'gestures', 'eye_behavior', 'eyeBehavior', 'reaction_timing', 'reactionTiming', 'speech_rhythm', 'speechRhythm', 'emotional_baseline', 'emotionalBaseline', 'forbidden_drift', 'forbiddenDrift']),
+}
+
+function allowedCharacterRevisionFields(kind: CharacterRevisionKind, fields: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return {}
+  const allowlist = CHARACTER_REVISION_FIELD_ALLOWLIST[kind]
+  return Object.fromEntries(Object.entries(fields).filter(([key]) => allowlist.has(key)))
 }
 
 async function readCorePayload(response: Response, label: string): Promise<unknown> {

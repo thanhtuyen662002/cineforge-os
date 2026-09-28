@@ -30,11 +30,14 @@ describe('HttpCoreClient character boundary', () => {
       result: { id: 'voice-rev-1', state: 'DRAFT', canonical_language: 'vi-VN', character_id: 'char-1' },
     }), { status: 200, headers: { 'content-type': 'application/json' } }))
     const client = new HttpCoreClient('http://127.0.0.1:43217')
-    const revision = await client.createVoiceIdentityRevision('char-1', { semanticDescription: 'Warm and restrained', canonicalLanguage: 'vi-VN' }, 'voice-revision-1')
+    const revision = await client.createVoiceIdentityRevision('char-1', {
+      semanticDescription: 'Warm and restrained', canonicalLanguage: 'vi-VN',
+      fields: { canonical_language: 'en-US', prosody: { pace: 'measured' }, provider_voice_id: 'provider-secret' },
+    }, 'voice-revision-1')
     expect(revision.id).toBe('voice-rev-1')
     const request = fetchMock.mock.calls[0][1] as RequestInit
     expect(request.method).toBe('POST')
     expect(request.headers).toEqual(expect.objectContaining({ 'Idempotency-Key': 'voice-revision-1' }))
-    expect(JSON.parse(String(request.body))).toEqual({ semantic_description: 'Warm and restrained', canonical_language: 'vi-VN' })
+    expect(JSON.parse(String(request.body))).toEqual({ semantic_description: 'Warm and restrained', canonical_language: 'vi-VN', prosody: { pace: 'measured' } })
   })
 })
