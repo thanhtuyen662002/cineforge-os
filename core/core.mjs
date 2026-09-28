@@ -18,6 +18,16 @@ const TERMINAL_COMMAND_STATES = new Set([
 const PROJECT_STATES = new Set(['ACTIVE', 'PAUSED', 'ARCHIVED', 'TRASHED']);
 const TASK_STATES = new Set(['PLANNED', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED']);
 const SHOT_STATES = new Set(['ACTIVE', 'PAUSED', 'ARCHIVED', 'TRASHED']);
+const CHARACTER_STATES = new Set(['ACTIVE', 'ARCHIVED', 'RETIRED']);
+const CHARACTER_REVISION_TYPES = new Set(['VISUAL', 'VOICE', 'PERFORMANCE']);
+const CHARACTER_REVISION_STATES = new Set(['DRAFT', 'CANDIDATE', 'APPROVED', 'SUPERSEDED', 'REJECTED']);
+const CHARACTER_REVISION_TRANSITIONS = Object.freeze({
+  DRAFT: new Set(['CANDIDATE']),
+  CANDIDATE: new Set(['APPROVED', 'REJECTED']),
+  APPROVED: new Set(['SUPERSEDED']),
+  SUPERSEDED: new Set(),
+  REJECTED: new Set(),
+});
 const NOTE_ENTITY_TYPES = new Set(['PROJECT', 'TASK', 'SHOT']);
 const DECISION_STATES = new Set(['OPEN', 'RESOLVED', 'DISMISSED', 'EXPIRED', 'OBSOLETE']);
 const DECISION_SCOPE_TYPES = new Set(['TASK', 'SHOT', 'SCENE', 'PROJECT', 'RELEASE', 'SYSTEM']);
@@ -150,7 +160,12 @@ function optionalString(value, field, maxLength = 10000, fallback = '') {
 
 function structuredValue(value, field, fallback, expectedKind, maxBytes = 128 * 1024) {
   if (value === undefined || value === null) return fallback;
-  if (typeof value !== expectedKind || Array.isArray(value) !== (expectedKind === 'object' && Array.isArray(value))) {
+  const valid = expectedKind === 'object'
+    ? typeof value === 'object' && !Array.isArray(value)
+    : expectedKind === 'array'
+      ? Array.isArray(value)
+      : typeof value === expectedKind;
+  if (!valid) {
     throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
   }
   let encoded;
@@ -176,7 +191,7 @@ function arrayValue(value, field, fallback = []) {
   if (!Array.isArray(value)) {
     throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
   }
-  return structuredValue(value, field, fallback, 'object');
+  return structuredValue(value, field, fallback, 'array');
 }
 
 function enumValue(value, field, pattern, fallback = null) {
@@ -420,6 +435,43 @@ function publicAsset(row, revision, storage, provenance, locations = []) {
   return out;
 }
 
+function publicCharacter(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const [source, target] of [
+    ['created_at_utc_us', 'created_at'],
+    ['updated_at_utc_us', 'updated_at'],
+  ]) {
+    if (out[source] !== undefined && out[source] !== null) out[target] = rfc3339FromUs(out[source]);
+    delete out[source];
+  }
+  return out;
+}
+
+function publicCharacterRevision(row, jsonFields = []) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const field of jsonFields) {
+    const jsonField = `${field}_json`;
+    if (Object.prototype.hasOwnProperty.call(out, jsonField)) {
+      out[field] = parseJson(out[jsonField], {});
+      delete out[jsonField];
+    }
+  }
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  delete out.created_at_utc_us;
+  out.state = out.lifecycle_state;
+  return out;
+}
+
+function publicCharacterReference(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  delete out.created_at_utc_us;
+  return out;
+}
+
 function publicRightsIdentity(row) {
   if (!row) return null;
   const out = rowObject(row);
@@ -642,6 +694,48 @@ export class CoreService {
     const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
     if (!row) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.project_not_found', { project_id: projectId });
     return row;
+  }
+
+  _character(characterId) {
+    const id = requiredString(characterId, 'character_id');
+    const row = this.db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
+    if (!row) throw new CoreError('CHARACTER_NOT_FOUND', 'VALIDATION', 'errors.character_not_found', { character_id: id });
+    return row;
+  }
+
+  _characterPackage(characterId, kind) {
+    const character = this._character(characterId);
+    const table = kind === 'VISUAL' ? 'visual_identity_packages'
+      : kind === 'VOICE' ? 'voice_identity_packages' : 'performance_bibles';
+    const row = this.db.prepare(`SELECT * FROM ${table} WHERE character_id = ?`).get(character.id);
+    if (!row) throw new CoreError('CHARACTER_PACKAGE_NOT_FOUND', 'INTERNAL', 'errors.character_package_not_found', { character_id: character.id, package_type: kind }, { needsUser: false });
+    return { character, row };
+  }
+
+  _characterRevision(kind, revisionId) {
+    const id = requiredString(revisionId, 'revision_id');
+    if (!CHARACTER_REVISION_TYPES.has(kind)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'revision_type' });
+    const table = kind === 'VISUAL' ? 'visual_identity_revisions'
+      : kind === 'VOICE' ? 'voice_identity_revisions' : 'performance_bible_revisions';
+    const packageTable = kind === 'VISUAL' ? 'visual_identity_packages'
+      : kind === 'VOICE' ? 'voice_identity_packages' : 'performance_bibles';
+    const packageColumn = kind === 'PERFORMANCE' ? 'performance_bible_id' : 'package_id';
+    const row = this.db.prepare(`SELECT r.*, p.character_id
+      FROM ${table} r JOIN ${packageTable} p ON p.id = r.${packageColumn}
+      WHERE r.id = ?`).get(id);
+    if (!row) throw new CoreError('CHARACTER_REVISION_NOT_FOUND', 'VALIDATION', 'errors.character_revision_not_found', { revision_id: id });
+    const character = this._character(row.character_id);
+    return { row, character, table, packageTable, packageColumn };
+  }
+
+  _assertCharacterProjectScope(payload, character) {
+    const supplied = payload?.project_id ?? payload?.projectId;
+    if (supplied !== undefined && supplied !== null && supplied !== character.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'CHARACTER', entity_id: character.id, project_id: supplied, actual_project_id: character.project_id,
+      }, { needsUser: true });
+    }
+    if (supplied) this._project(supplied);
   }
 
   _task(taskId) {
@@ -2098,6 +2192,24 @@ export class CoreService {
         if (identityId) return this.db.prepare('SELECT project_id FROM rights_identities WHERE id = ?').get(identityId)?.project_id ?? null;
       }
     }
+    const characterCreateCommands = ['CreateCharacter'];
+    if (characterCreateCommands.includes(commandType) && explicitProjectId) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
+    const characterId = payload.character_id ?? payload.characterId;
+    if (characterId) {
+      const characterProject = this.db.prepare('SELECT project_id FROM characters WHERE id = ?').get(characterId)?.project_id;
+      if (characterProject) return characterProject;
+    }
+    const revisionId = payload.revision_id ?? payload.revisionId;
+    if (revisionId) {
+      const revisionProject = this.db.prepare(`SELECT c.project_id FROM characters c
+        JOIN visual_identity_packages vp ON vp.character_id = c.id JOIN visual_identity_revisions vr ON vr.package_id = vp.id WHERE vr.id = ?
+        UNION ALL SELECT c.project_id FROM characters c
+        JOIN voice_identity_packages vp ON vp.character_id = c.id JOIN voice_identity_revisions vr ON vr.package_id = vp.id WHERE vr.id = ?
+        UNION ALL SELECT c.project_id FROM characters c
+        JOIN performance_bibles pb ON pb.character_id = c.id JOIN performance_bible_revisions pr ON pr.performance_bible_id = pb.id WHERE pr.id = ?
+        LIMIT 1`).get(revisionId, revisionId, revisionId)?.project_id;
+      if (revisionProject) return revisionProject;
+    }
     if (explicitProjectId) {
       return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
     }
@@ -2110,6 +2222,7 @@ export class CoreService {
     if (['ResolveDecisionRequest', 'DismissDecisionRequest', 'ObsoleteDecisionRequest'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateRightsIdentity', 'CreateRightsRecord', 'RecordConsent', 'RevokeRights'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateBackup', 'VerifyBackup'].includes(commandType)) return 'COMPENSATABLE';
+    if (['CreateCharacter', 'CreateVisualIdentityRevision', 'CreateVoiceIdentityRevision', 'CreatePerformanceBibleRevision', 'TransitionCharacterRevision'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -2125,6 +2238,11 @@ export class CoreService {
       case 'UpdateTask': return this._updateTask(payload, expectedVersions);
       case 'CreateShot': return this._createShot(payload);
       case 'UpdateShot': return this._updateShot(payload, expectedVersions);
+      case 'CreateCharacter': return this._createCharacter(payload);
+      case 'CreateVisualIdentityRevision': return this._createCharacterRevision(payload, 'VISUAL');
+      case 'CreateVoiceIdentityRevision': return this._createCharacterRevision(payload, 'VOICE');
+      case 'CreatePerformanceBibleRevision': return this._createCharacterRevision(payload, 'PERFORMANCE');
+      case 'TransitionCharacterRevision': return this._transitionCharacterRevision(payload, expectedVersions);
       case 'CreateDecisionRequest': return this._createDecisionRequest(payload);
       case 'ResolveDecisionRequest': return this._resolveDecisionRequest(payload, expectedVersions);
       case 'DismissDecisionRequest': return this._dismissDecisionRequest(payload, expectedVersions);
@@ -2222,6 +2340,361 @@ export class CoreService {
       result: publicProject(project),
       event: { aggregateType: 'PROJECT', aggregateId: projectId, aggregateVersion: version, eventType: `PROJECT_${state}`, payload: publicProject(project) },
       audit: { actionType: `project.${state.toLowerCase()}`, targetType: 'PROJECT', targetId: projectId, payload: { lifecycle_state: state } },
+    };
+  }
+
+  _characterProjection(characterId, options = {}) {
+    const character = this._character(characterId);
+    const visualPackage = this.db.prepare('SELECT * FROM visual_identity_packages WHERE character_id = ?').get(character.id);
+    const voicePackage = this.db.prepare('SELECT * FROM voice_identity_packages WHERE character_id = ?').get(character.id);
+    const performanceBible = this.db.prepare('SELECT * FROM performance_bibles WHERE character_id = ?').get(character.id);
+    const latest = (table, column, packageId) => packageId
+      ? this.db.prepare(`SELECT * FROM ${table} WHERE ${column} = ? ORDER BY revision_number DESC LIMIT 1`).get(packageId)
+      : null;
+    const visual = latest('visual_identity_revisions', 'package_id', visualPackage?.id);
+    const voice = latest('voice_identity_revisions', 'package_id', voicePackage?.id);
+    const performance = latest('performance_bible_revisions', 'performance_bible_id', performanceBible?.id);
+    const visualRefs = visual
+      ? this.db.prepare(`SELECT r.*, a.project_id, ar.availability_state, ar.review_state, ar.availability_evidence_state,
+          so.storage_class, sol.state AS location_state
+        FROM visual_identity_references r
+        JOIN asset_revisions ar ON ar.id = r.asset_revision_id
+        JOIN assets a ON a.id = ar.asset_id
+        JOIN storage_objects so ON so.id = ar.storage_object_id
+        LEFT JOIN storage_object_locations sol ON sol.storage_object_id = so.id AND sol.location_role = 'PRIMARY'
+        WHERE r.visual_identity_revision_id = ?
+        ORDER BY r.priority ASC, r.reference_role ASC, r.asset_revision_id ASC`).all(visual.id)
+      : [];
+    const visualReady = visualRefs.length === 0 || visualRefs.every((ref) => ref.project_id === character.project_id
+      && ref.availability_state === 'AVAILABLE'
+      && ref.review_state === 'APPROVED'
+      && ref.availability_evidence_state === 'VERIFIED'
+      && ref.location_state === 'AVAILABLE'
+      && ref.storage_class !== 'EXTERNAL_REFERENCE');
+    const visualView = visual ? publicCharacterRevision(visual, ['anatomy', 'proportion', 'palette', 'marking', 'forbidden_drift']) : null;
+    if (visualView) {
+      visualView.references = visualRefs.map(publicCharacterReference);
+      visualView.readiness_state = visualReady ? 'READY' : 'UNKNOWN';
+      visualView.next_step = visualReady ? null : 'Kiểm tra asset reference đã materialize và được duyệt trước khi khóa visual identity.';
+    }
+    const voiceView = voice ? publicCharacterRevision(voice, [
+      'accent_profile', 'vocal_range', 'timbre', 'prosody', 'emotional_map', 'pronunciation_lexicon', 'forbidden_traits',
+    ]) : null;
+    if (voiceView) {
+      const rights = voice.rights_identity_id
+        ? this._evaluateRights(voice.rights_identity_id, { right_type: DEFAULT_RIGHT_TYPE, consent_type: DEFAULT_CONSENT_TYPE, purpose: 'VOICE_IDENTITY' })
+        : publicRightsEvaluation({
+          status: 'UNKNOWN', state: 'UNKNOWN', eligible: false, rights_identity_id: null,
+          right_type: DEFAULT_RIGHT_TYPE, consent_type: DEFAULT_CONSENT_TYPE,
+          blockers: [{ code: 'RIGHTS_IDENTITY_MISSING', dimension: 'IDENTITY', status: 'UNKNOWN' }],
+          evidence: [], evaluated_at_utc_us: nowUtcUs(),
+        });
+      voiceView.rights = rights;
+      voiceView.readiness_state = rights.eligible ? 'READY' : 'UNKNOWN';
+      voiceView.next_step = rights.eligible ? null : 'Bổ sung quyền và consent ALLOWED trước khi duyệt voice identity.';
+    }
+    const performanceView = performance ? publicCharacterRevision(performance, [
+      'posture', 'gait', 'gestures', 'eye_behavior', 'reaction_timing', 'speech_rhythm', 'emotional_baseline', 'forbidden_drift',
+    ]) : null;
+    if (performanceView) {
+      performanceView.readiness_state = 'READY';
+      performanceView.next_step = null;
+    }
+    const visualRows = visualPackage
+      ? this.db.prepare('SELECT * FROM visual_identity_revisions WHERE package_id = ? ORDER BY revision_number DESC').all(visualPackage.id)
+      : [];
+    const voiceRows = voicePackage
+      ? this.db.prepare('SELECT * FROM voice_identity_revisions WHERE package_id = ? ORDER BY revision_number DESC').all(voicePackage.id)
+      : [];
+    const performanceRows = performanceBible
+      ? this.db.prepare('SELECT * FROM performance_bible_revisions WHERE performance_bible_id = ? ORDER BY revision_number DESC').all(performanceBible.id)
+      : [];
+    const publicPackage = (root, rows, kind) => {
+      if (!root) return null;
+      const revisions = rows.map((row) => {
+        const fields = kind === 'VISUAL'
+          ? ['anatomy', 'proportion', 'palette', 'marking', 'forbidden_drift']
+          : kind === 'VOICE'
+            ? ['accent_profile', 'vocal_range', 'timbre', 'prosody', 'emotional_map', 'pronunciation_lexicon', 'forbidden_traits']
+            : ['posture', 'gait', 'gestures', 'eye_behavior', 'reaction_timing', 'speech_rhythm', 'emotional_baseline', 'forbidden_drift'];
+        const view = publicCharacterRevision(row, fields);
+        if (kind === 'VOICE') view.rights = this._voiceRevisionRights(row);
+        return view;
+      });
+      return {
+        id: root.id,
+        approved_revision: revisions.find((revision) => revision.lifecycle_state === 'APPROVED') ?? null,
+        candidate_revisions: revisions.filter((revision) => ['DRAFT', 'CANDIDATE'].includes(revision.lifecycle_state)),
+      };
+    };
+    return {
+      character: publicCharacter(character),
+      visual_identity: visualView,
+      voice_identity: voiceView,
+      performance_bible: performanceView,
+      visual_identity_package: publicPackage(visualPackage, visualRows, 'VISUAL'),
+      voice_identity_package: publicPackage(voicePackage, voiceRows, 'VOICE'),
+      performance_bible_package: publicPackage(performanceBible, performanceRows, 'PERFORMANCE'),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+      ...options,
+    };
+  }
+
+  _characterList(params = {}) {
+    const projectId = params.project_id ?? params.projectId ?? null;
+    if (projectId) this._project(projectId);
+    const stateInput = params.lifecycle_state ?? params.lifecycleState ?? null;
+    const state = stateInput === null || stateInput === undefined || stateInput === '' ? null : String(stateInput).trim().toUpperCase();
+    if (state !== null && !CHARACTER_STATES.has(state)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_character_state', { state });
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = this.db.prepare(`SELECT * FROM characters
+      WHERE (? IS NULL OR project_id = ?) AND (? IS NULL OR lifecycle_state = ?)
+      ORDER BY display_name COLLATE NOCASE ASC, id ASC LIMIT ?`).all(projectId, projectId, state, state, limit);
+    return {
+      characters: rows.map((row) => {
+        const projection = this._characterProjection(row.id);
+        return {
+          ...projection.character,
+          visual_identity_package: projection.visual_identity_package,
+          voice_identity_package: projection.voice_identity_package,
+          performance_bible_package: projection.performance_bible_package,
+          visual_identity: projection.visual_identity ? {
+            id: projection.visual_identity.id,
+            revision_id: projection.visual_identity.id,
+            state: projection.visual_identity.lifecycle_state,
+            readiness_state: projection.visual_identity.readiness_state,
+          } : null,
+          voice_identity: projection.voice_identity ? {
+            id: projection.voice_identity.id,
+            revision_id: projection.voice_identity.id,
+            state: projection.voice_identity.lifecycle_state,
+            readiness_state: projection.voice_identity.readiness_state,
+            rights_state: projection.voice_identity.rights?.status ?? 'UNKNOWN',
+          } : null,
+          performance_bible: projection.performance_bible ? {
+            id: projection.performance_bible.id,
+            revision_id: projection.performance_bible.id,
+            state: projection.performance_bible.lifecycle_state,
+            readiness_state: projection.performance_bible.readiness_state,
+          } : null,
+        };
+      }),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _createCharacter(payload) {
+    const project = this._project(payload.project_id ?? payload.projectId);
+    if (payload.entity_type !== undefined || payload.entityType !== undefined || payload.entity_id !== undefined || payload.entityId !== undefined) {
+      this._assertPayloadProjectScope(payload, project.id, 'PROJECT', project.id);
+    }
+    this._assertProjectWritable(project);
+    const displayName = requiredString(payload.display_name ?? payload.displayName ?? payload.name, 'display_name');
+    // Character codes are identifiers, not display text. Canonicalizing them
+    // avoids two visually equivalent identities (e.g. MAYA/maya) in a project.
+    const stableCode = codeValue(payload.stable_code ?? payload.stableCode ?? payload.code, displayName).toUpperCase();
+    const collision = this.db.prepare('SELECT id FROM characters WHERE project_id = ? AND stable_code = ?').get(project.id, stableCode);
+    if (collision) throw new CoreError('DUPLICATE_CHARACTER_CODE', 'CONFLICT', 'errors.duplicate_character_code', { stable_code: stableCode });
+    const characterId = uuidv7();
+    const visualPackageId = uuidv7();
+    const voicePackageId = uuidv7();
+    const performanceBibleId = uuidv7();
+    const created = nowUtcUs();
+    this.db.prepare(`INSERT INTO characters
+      (id, project_id, stable_code, display_name, lifecycle_state, created_by_actor_id, created_at_utc_us, updated_at_utc_us, row_version)
+      VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, 1)`).run(characterId, project.id, stableCode, displayName, this.actorId, created, created);
+    this.db.prepare(`INSERT INTO visual_identity_packages(id, character_id, created_by_actor_id, created_at_utc_us) VALUES (?, ?, ?, ?)`)
+      .run(visualPackageId, characterId, this.actorId, created);
+    this.db.prepare(`INSERT INTO voice_identity_packages(id, character_id, created_by_actor_id, created_at_utc_us) VALUES (?, ?, ?, ?)`)
+      .run(voicePackageId, characterId, this.actorId, created);
+    this.db.prepare(`INSERT INTO performance_bibles(id, character_id, created_by_actor_id, created_at_utc_us) VALUES (?, ?, ?, ?)`)
+      .run(performanceBibleId, characterId, this.actorId, created);
+    const projection = this._characterProjection(characterId);
+    return {
+      projectId: project.id,
+      result: projection,
+      event: { aggregateType: 'CHARACTER', aggregateId: characterId, aggregateVersion: 1, eventType: 'CHARACTER_CREATED', payload: projection.character },
+      audit: { actionType: 'character.create', targetType: 'CHARACTER', targetId: characterId, payload: { stable_code: stableCode, project_id: project.id } },
+    };
+  }
+
+  _revisionInput(payload, kind, character) {
+    const semanticDescription = optionalString(payload.semantic_description ?? payload.semanticDescription, 'semantic_description', 8000, '');
+    if (kind === 'VISUAL') {
+      return {
+        semanticDescription,
+        anatomy: structuredValue(payload.anatomy ?? {}, 'anatomy', {}, 'object'),
+        proportion: structuredValue(payload.proportion ?? payload.proportions ?? {}, 'proportion', {}, 'object'),
+        palette: structuredValue(payload.palette ?? {}, 'palette', {}, 'object'),
+        marking: structuredValue(payload.marking ?? payload.markings ?? {}, 'marking', {}, 'object'),
+        forbiddenDrift: structuredValue(payload.forbidden_drift ?? payload.forbiddenDrift ?? {}, 'forbidden_drift', {}, 'object'),
+        references: arrayValue(payload.references ?? [], 'references', []).map((reference, index) => {
+          if (!reference || typeof reference !== 'object' || Array.isArray(reference)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `references[${index}]` });
+          const assetRevisionId = requiredString(reference.asset_revision_id ?? reference.assetRevisionId, 'asset_revision_id');
+          const referenceRole = requiredString(reference.reference_role ?? reference.referenceRole ?? 'CANONICAL', 'reference_role', 100).toUpperCase();
+          const priority = asInt(reference.priority, index);
+          if (priority < 0 || priority > 100000) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'priority' });
+          const asset = this.db.prepare(`SELECT a.project_id, ar.availability_state, ar.review_state, ar.availability_evidence_state,
+              so.storage_class, sol.state AS location_state
+            FROM asset_revisions ar JOIN assets a ON a.id = ar.asset_id
+            JOIN storage_objects so ON so.id = ar.storage_object_id
+            LEFT JOIN storage_object_locations sol ON sol.storage_object_id = so.id AND sol.location_role = 'PRIMARY'
+            WHERE ar.id = ?`).get(assetRevisionId);
+          if (!asset) throw new CoreError('ASSET_REVISION_NOT_FOUND', 'VALIDATION', 'errors.asset_revision_not_found', { asset_revision_id: assetRevisionId });
+          if (asset.project_id !== character.project_id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+            entity_type: 'ASSET_REVISION', entity_id: assetRevisionId, project_id: character.project_id, actual_project_id: asset.project_id,
+          }, { needsUser: true });
+          if (asset.availability_state !== 'AVAILABLE' || asset.review_state !== 'APPROVED'
+            || asset.availability_evidence_state !== 'VERIFIED' || asset.location_state !== 'AVAILABLE'
+            || asset.storage_class === 'EXTERNAL_REFERENCE') {
+            throw new CoreError('ASSET_NOT_READY', 'CONFLICT', 'errors.character_asset_not_ready', { asset_revision_id: assetRevisionId }, { needsUser: true });
+          }
+          return { assetRevisionId, referenceRole, priority };
+        }),
+      };
+    }
+    if (kind === 'VOICE') {
+      const canonicalLanguage = requiredString(payload.canonical_language ?? payload.canonicalLanguage ?? 'vi-VN', 'canonical_language', 35);
+      const rightsIdentityId = payload.rights_identity_id ?? payload.rightsIdentityId ?? null;
+      if (rightsIdentityId !== null) {
+        const identity = this._rightsIdentity(rightsIdentityId);
+        if (identity.project_id !== null && identity.project_id !== character.project_id) {
+          throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+            entity_type: 'RIGHTS_IDENTITY', entity_id: identity.id, project_id: character.project_id, actual_project_id: identity.project_id,
+          }, { needsUser: true });
+        }
+      }
+      return {
+        semanticDescription,
+        canonicalLanguage,
+        accentProfile: structuredValue(payload.accent_profile ?? payload.accentProfile ?? {}, 'accent_profile', {}, 'object'),
+        vocalRange: structuredValue(payload.vocal_range ?? payload.vocalRange ?? {}, 'vocal_range', {}, 'object'),
+        timbre: structuredValue(payload.timbre ?? {}, 'timbre', {}, 'object'),
+        prosody: structuredValue(payload.prosody ?? {}, 'prosody', {}, 'object'),
+        emotionalMap: structuredValue(payload.emotional_map ?? payload.emotionalMap ?? {}, 'emotional_map', {}, 'object'),
+        pronunciationLexicon: structuredValue(payload.pronunciation_lexicon ?? payload.pronunciationLexicon ?? {}, 'pronunciation_lexicon', {}, 'object'),
+        forbiddenTraits: structuredValue(payload.forbidden_traits ?? payload.forbiddenTraits ?? {}, 'forbidden_traits', {}, 'object'),
+        rightsIdentityId,
+      };
+    }
+    return {
+      posture: structuredValue(payload.posture ?? {}, 'posture', {}, 'object'),
+      gait: structuredValue(payload.gait ?? {}, 'gait', {}, 'object'),
+      gestures: structuredValue(payload.gestures ?? {}, 'gestures', {}, 'object'),
+      eyeBehavior: structuredValue(payload.eye_behavior ?? payload.eyeBehavior ?? {}, 'eye_behavior', {}, 'object'),
+      reactionTiming: structuredValue(payload.reaction_timing ?? payload.reactionTiming ?? {}, 'reaction_timing', {}, 'object'),
+      speechRhythm: structuredValue(payload.speech_rhythm ?? payload.speechRhythm ?? {}, 'speech_rhythm', {}, 'object'),
+      emotionalBaseline: structuredValue(payload.emotional_baseline ?? payload.emotionalBaseline ?? {}, 'emotional_baseline', {}, 'object'),
+      forbiddenDrift: structuredValue(payload.forbidden_drift ?? payload.forbiddenDrift ?? {}, 'forbidden_drift', {}, 'object'),
+    };
+  }
+
+  _createCharacterRevision(payload, kind) {
+    const character = this._character(payload.character_id ?? payload.characterId);
+    this._assertCharacterProjectScope(payload, character);
+    this._assertProjectWritable(this._project(character.project_id));
+    const packageInfo = this._characterPackage(character.id, kind);
+    const input = this._revisionInput(payload, kind, character);
+    const table = kind === 'VISUAL' ? 'visual_identity_revisions' : kind === 'VOICE' ? 'voice_identity_revisions' : 'performance_bible_revisions';
+    const packageColumn = kind === 'PERFORMANCE' ? 'performance_bible_id' : 'package_id';
+    const latest = this.db.prepare(`SELECT COALESCE(MAX(revision_number), 0) AS revision_number FROM ${table} WHERE ${packageColumn} = ?`).get(packageInfo.row.id);
+    const revisionNumber = Number(latest.revision_number) + 1;
+    const revisionId = uuidv7();
+    const created = nowUtcUs();
+    if (kind === 'VISUAL') {
+      this.db.prepare(`INSERT INTO visual_identity_revisions
+        (id, package_id, revision_number, lifecycle_state, semantic_description, anatomy_json, proportion_json, palette_json, marking_json, forbidden_drift_json, created_by_actor_id, created_at_utc_us, row_version)
+        VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+        revisionId, packageInfo.row.id, revisionNumber, input.semanticDescription, json(input.anatomy), json(input.proportion), json(input.palette), json(input.marking), json(input.forbiddenDrift), this.actorId, created,
+      );
+      const insertRef = this.db.prepare(`INSERT INTO visual_identity_references
+        (visual_identity_revision_id, asset_revision_id, reference_role, priority, created_at_utc_us) VALUES (?, ?, ?, ?, ?)`);
+      for (const reference of input.references) insertRef.run(revisionId, reference.assetRevisionId, reference.referenceRole, reference.priority, created);
+    } else if (kind === 'VOICE') {
+      this.db.prepare(`INSERT INTO voice_identity_revisions
+        (id, package_id, revision_number, lifecycle_state, semantic_description, canonical_language, accent_profile_json, vocal_range_json, timbre_json, prosody_json, emotional_map_json, pronunciation_lexicon_json, forbidden_traits_json, rights_identity_id, created_by_actor_id, created_at_utc_us, row_version)
+        VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+        revisionId, packageInfo.row.id, revisionNumber, input.semanticDescription, input.canonicalLanguage, json(input.accentProfile), json(input.vocalRange), json(input.timbre), json(input.prosody), json(input.emotionalMap), json(input.pronunciationLexicon), json(input.forbiddenTraits), input.rightsIdentityId, this.actorId, created,
+      );
+    } else {
+      this.db.prepare(`INSERT INTO performance_bible_revisions
+        (id, performance_bible_id, revision_number, lifecycle_state, posture_json, gait_json, gestures_json, eye_behavior_json, reaction_timing_json, speech_rhythm_json, emotional_baseline_json, forbidden_drift_json, created_by_actor_id, created_at_utc_us, row_version)
+        VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+        revisionId, packageInfo.row.id, revisionNumber, json(input.posture), json(input.gait), json(input.gestures), json(input.eyeBehavior), json(input.reactionTiming), json(input.speechRhythm), json(input.emotionalBaseline), json(input.forbiddenDrift), this.actorId, created,
+      );
+    }
+    const characterVersion = Number(character.row_version) + 1;
+    this.db.prepare('UPDATE characters SET updated_at_utc_us = ?, row_version = ? WHERE id = ?').run(created, characterVersion, character.id);
+    const projection = this._characterProjection(character.id);
+    const revision = kind === 'VISUAL' ? projection.visual_identity : kind === 'VOICE' ? projection.voice_identity : projection.performance_bible;
+    return {
+      projectId: character.project_id,
+      result: { character: projection.character, revision },
+      event: { aggregateType: 'CHARACTER', aggregateId: character.id, aggregateVersion: characterVersion, eventType: `${kind}_IDENTITY_REVISION_CREATED`, payload: { character_id: character.id, revision_id: revisionId, revision_type: kind, revision_number: revisionNumber } },
+      audit: { actionType: `character.${kind.toLowerCase()}_revision.create`, targetType: `${kind}_IDENTITY_REVISION`, targetId: revisionId, payload: { character_id: character.id, revision_number: revisionNumber } },
+    };
+  }
+
+  _voiceRevisionRights(row) {
+    if (!row.rights_identity_id) return publicRightsEvaluation({
+      status: 'UNKNOWN', state: 'UNKNOWN', eligible: false, rights_identity_id: null,
+      right_type: DEFAULT_RIGHT_TYPE, consent_type: DEFAULT_CONSENT_TYPE,
+      blockers: [{ code: 'RIGHTS_IDENTITY_MISSING', dimension: 'IDENTITY', status: 'UNKNOWN' }],
+      evidence: [], evaluated_at_utc_us: nowUtcUs(),
+    });
+    return this._evaluateRights(row.rights_identity_id, { right_type: DEFAULT_RIGHT_TYPE, consent_type: DEFAULT_CONSENT_TYPE, purpose: 'VOICE_IDENTITY' });
+  }
+
+  _transitionCharacterRevision(payload, expectedVersions) {
+    const kind = enumValue(payload.revision_type ?? payload.revisionType, 'revision_type', /^[A-Z]+$/, null);
+    if (!CHARACTER_REVISION_TYPES.has(kind)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'revision_type' });
+    const info = this._characterRevision(kind, payload.revision_id ?? payload.revisionId);
+    this._assertCharacterProjectScope(payload, info.character);
+    this._assertProjectWritable(this._project(info.character.project_id));
+    const expected = this._expectedVersion(expectedVersions, 'REVISION', info.row.id, info.row.row_version);
+    const nextState = enumValue(payload.next_state ?? payload.nextState ?? payload.state, 'next_state', /^[A-Z]+$/, null);
+    if (!CHARACTER_REVISION_STATES.has(nextState) || !CHARACTER_REVISION_TRANSITIONS[info.row.lifecycle_state]?.has(nextState)) {
+      throw new CoreError('INVALID_STATE_TRANSITION', 'CONFLICT', 'errors.invalid_state_transition', { from: info.row.lifecycle_state, to: nextState });
+    }
+    if (nextState === 'APPROVED' && kind === 'VOICE') {
+      const rights = this._voiceRevisionRights(info.row);
+      if (!rights.eligible) {
+        throw new CoreError('RIGHTS_BLOCKED', 'RIGHTS_BLOCKED', 'errors.character_voice_rights_blocked', {
+          revision_id: info.row.id, status: rights.status,
+        }, { needsUser: true, technicalDetails: { rights } });
+      }
+    }
+    if (nextState === 'APPROVED' && kind === 'VISUAL') {
+      const refs = this.db.prepare(`SELECT r.asset_revision_id, a.project_id, ar.availability_state, ar.review_state, ar.availability_evidence_state,
+          so.storage_class, sol.state AS location_state
+        FROM visual_identity_references r JOIN asset_revisions ar ON ar.id = r.asset_revision_id
+        JOIN assets a ON a.id = ar.asset_id JOIN storage_objects so ON so.id = ar.storage_object_id
+        LEFT JOIN storage_object_locations sol ON sol.storage_object_id = so.id AND sol.location_role = 'PRIMARY'
+        WHERE r.visual_identity_revision_id = ?`).all(info.row.id);
+      if (refs.some((ref) => ref.project_id !== info.character.project_id || ref.availability_state !== 'AVAILABLE'
+        || ref.review_state !== 'APPROVED' || ref.availability_evidence_state !== 'VERIFIED'
+        || ref.location_state !== 'AVAILABLE' || ref.storage_class === 'EXTERNAL_REFERENCE')) {
+        throw new CoreError('ASSET_NOT_READY', 'CONFLICT', 'errors.character_asset_not_ready', { revision_id: info.row.id }, { needsUser: true });
+      }
+    }
+    const currentApproved = this.db.prepare(`SELECT id FROM ${info.table} WHERE ${info.packageColumn} = ? AND lifecycle_state = 'APPROVED' AND id != ?`).get(info.row[info.packageColumn], info.row.id);
+    const supersededRevisionId = nextState === 'APPROVED' ? currentApproved?.id ?? null : null;
+    if (supersededRevisionId) {
+      this.db.prepare(`UPDATE ${info.table} SET lifecycle_state = 'SUPERSEDED', row_version = row_version + 1 WHERE id = ?`).run(supersededRevisionId);
+    }
+    const nextVersion = Number(info.row.row_version) + 1;
+    this.db.prepare(`UPDATE ${info.table} SET lifecycle_state = ?, row_version = ? WHERE id = ?`).run(nextState, nextVersion, info.row.id);
+    const characterVersion = Number(info.character.row_version) + 1;
+    this.db.prepare('UPDATE characters SET updated_at_utc_us = ?, row_version = ? WHERE id = ?').run(nowUtcUs(), characterVersion, info.character.id);
+    const projection = this._characterProjection(info.character.id);
+    const revision = kind === 'VISUAL' ? projection.visual_identity : kind === 'VOICE' ? projection.voice_identity : projection.performance_bible;
+    return {
+      projectId: info.character.project_id,
+      result: { character: projection.character, revision },
+      event: { aggregateType: 'CHARACTER', aggregateId: info.character.id, aggregateVersion: characterVersion, eventType: `${kind}_IDENTITY_REVISION_${nextState}`, payload: { character_id: info.character.id, revision_id: info.row.id, revision_type: kind, lifecycle_state: nextState, superseded_revision_id: supersededRevisionId } },
+      audit: { actionType: `character.${kind.toLowerCase()}_revision.transition`, targetType: `${kind}_IDENTITY_REVISION`, targetId: info.row.id, payload: { from: info.row.lifecycle_state, to: nextState, superseded_revision_id: supersededRevisionId } },
     };
   }
 
@@ -2903,10 +3376,15 @@ export class CoreService {
       ResolveDecisionRequest: ['DECISION_REQUEST', payload.decision_request_id ?? payload.decisionRequestId],
       DismissDecisionRequest: ['DECISION_REQUEST', payload.decision_request_id ?? payload.decisionRequestId],
       ObsoleteDecisionRequest: ['DECISION_REQUEST', payload.decision_request_id ?? payload.decisionRequestId],
+      TransitionCharacterRevision: ['REVISION', payload.revision_id ?? payload.revisionId],
     };
     const mapping = mappings[commandType];
     if (!mapping?.[1]) return null;
-    const row = mapping[0] === 'PROJECT' ? this._project(mapping[1]) : mapping[0] === 'TASK' ? this._task(mapping[1]) : mapping[0] === 'SHOT' ? this._shot(mapping[1]) : this._decision(mapping[1]);
+    const row = mapping[0] === 'PROJECT' ? this._project(mapping[1])
+      : mapping[0] === 'TASK' ? this._task(mapping[1])
+        : mapping[0] === 'SHOT' ? this._shot(mapping[1])
+          : mapping[0] === 'REVISION' ? this._characterRevision(String(payload.revision_type ?? payload.revisionType ?? '').trim().toUpperCase(), mapping[1]).row
+            : this._decision(mapping[1]);
     return { kind: mapping[0], id: mapping[1], row };
   }
 
@@ -3130,6 +3608,17 @@ export class CoreService {
       case 'query.library.assets_page':
       case 'query.asset.list':
       case 'query.project.assets': return this._assets(params);
+      case 'query.character.list': return this._characterList(params);
+      case 'query.character.workspace': {
+        const projection = this._characterProjection(params.character_id ?? params.characterId);
+        const requestedProject = params.project_id ?? params.projectId;
+        if (requestedProject !== undefined && requestedProject !== null && requestedProject !== projection.character.project_id) {
+          throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+            entity_type: 'CHARACTER', entity_id: projection.character.id, project_id: requestedProject, actual_project_id: projection.character.project_id,
+          }, { needsUser: true });
+        }
+        return projection;
+      }
       case 'query.asset.rights': return this._rightsForAsset(params.asset_id ?? params.assetId, params);
       case 'query.rights.evaluate': return this._evaluateRights(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
       case 'query.rights.identity': return this._rightsIdentityDetails(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
@@ -3162,6 +3651,7 @@ export class CoreService {
       shots: this._shots(projectId),
       notes: this._notes(projectId, { limit: 100 }),
       assets: this._assets({ project_id: projectId }).assets,
+      characters: this._characterList({ project_id: projectId }).characters,
     };
   }
 
@@ -3284,7 +3774,8 @@ export class CoreService {
         UNION SELECT id FROM notes WHERE project_id = ?
        UNION SELECT id FROM asset_revisions WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?)
        UNION SELECT id FROM decision_requests WHERE project_id = ?
-      ) ORDER BY seq DESC LIMIT ?`).all(projectId, projectId, projectId, projectId, projectId, projectId, limit);
+       UNION SELECT id FROM characters WHERE project_id = ?
+      ) ORDER BY seq DESC LIMIT ?`).all(projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit);
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
@@ -3313,7 +3804,9 @@ export class CoreService {
       WHERE lower(title) LIKE ? ORDER BY title LIMIT 50`).all(like).map(rowObject);
     const shots = this.db.prepare(`SELECT id, 'SHOT' AS entity_type, code, title, lifecycle_state, project_id FROM shots
       WHERE lower(code) LIKE ? OR lower(title) LIKE ? ORDER BY code LIMIT 50`).all(like, like).map(rowObject);
-    return { exact: [...projects, ...tasks, ...shots], semantic: [], projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+    const characters = this.db.prepare(`SELECT id, 'CHARACTER' AS entity_type, stable_code AS code, display_name AS title, lifecycle_state, project_id FROM characters
+      WHERE lower(stable_code) LIKE ? OR lower(display_name) LIKE ? ORDER BY display_name LIMIT 50`).all(like, like).map(rowObject);
+    return { exact: [...projects, ...tasks, ...shots, ...characters], semantic: [], projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
   _storageSummary() {

@@ -509,6 +509,9 @@ Only one selected take per dialogue line revision/language via partial unique in
 - lifecycle_state
 - row_version
 
+`stable_code` is project-scoped and canonicalized to uppercase by the V1
+command boundary so case variants cannot create duplicate identities.
+
 ## visual_identity_packages
 - id PK
 - character_id FK
@@ -516,12 +519,15 @@ Only one selected take per dialogue line revision/language via partial unique in
 ## visual_identity_revisions
 - common revision envelope
 - package_id FK
+- revision_number
+- lifecycle_state: DRAFT | CANDIDATE | APPROVED | SUPERSEDED | REJECTED
 - semantic_description
 - anatomy_json
 - proportion_json
 - palette_json
 - marking_json
 - forbidden_drift_json
+- row_version
 
 ## visual_identity_references
 - visual_identity_revision_id FK
@@ -537,14 +543,19 @@ PK(visual_identity_revision_id, asset_revision_id, reference_role)
 ## voice_identity_revisions
 - common revision envelope
 - package_id FK
+- revision_number
+- lifecycle_state: DRAFT | CANDIDATE | APPROVED | SUPERSEDED | REJECTED
 - semantic_description
 - canonical_language
+- accent_profile_json
 - vocal_range_json
 - timbre_json
 - prosody_json
 - emotional_map_json
-- pronunciation_lexicon_revision_id nullable
+- pronunciation_lexicon_json
 - forbidden_traits_json
+- rights_identity_id nullable FK
+- row_version
 
 ## voice_provider_bindings
 - id PK
@@ -565,6 +576,8 @@ PK(visual_identity_revision_id, asset_revision_id, reference_role)
 ## performance_bible_revisions
 - common revision envelope
 - performance_bible_id FK
+- revision_number
+- lifecycle_state: DRAFT | CANDIDATE | APPROVED | SUPERSEDED | REJECTED
 - posture_json
 - gait_json
 - gestures_json
@@ -573,6 +586,21 @@ PK(visual_identity_revision_id, asset_revision_id, reference_role)
 - speech_rhythm_json
 - emotional_baseline_json
 - forbidden_drift_json
+- row_version
+
+### Implemented V1 character-canon slice
+
+The local Core implementation currently covers the stable `characters` row,
+the three package roots, immutable revision content, and exact visual asset
+reference rows.  `CreateCharacter`, the three revision-create commands,
+`TransitionCharacterRevision`, `query.character.list`, and
+`query.character.workspace` are auditable, idempotent and projection-sequenced.
+Only lifecycle state and optimistic `row_version` can advance on an existing
+revision; content changes create a new revision.  Visual references must be a
+same-project, materialized, approved asset revision.  Voice approval evaluates
+the existing rights/consent identity and keeps `UNKNOWN`, `RESTRICTED`,
+`EXPIRED`, and `REVOKED` fail-closed.  Provider bindings, costumes, props,
+dialogue, timeline snapshots and generation remain outside this slice.
 
 ## character_state_intervals
 - id PK
@@ -1391,7 +1419,7 @@ Immutable.
 PK(gc_run_id, storage_object_id)
 
 ## backups
-The schema v7 local baseline materializes a complete local-library snapshot as
+The schema v8 local baseline materializes a complete local-library snapshot as
 an immutable backup identity.  The SQLite row is the authoritative record of
 the artifact and its verification history; snapshot bytes and content-addressed
 object copies remain outside SQLite.
@@ -1433,7 +1461,7 @@ installation identity matched, and every copied object matched its recorded
 content hash and byte size.  `UNKNOWN` or `FAILED` evidence never grants
 recoverability.
 
-## Local backup artifact format (schema v7)
+## Local backup artifact format (schema v8)
 
 `CreateBackup` first performs storage admission and then writes a private
 temporary directory named `.<backup-id>.partial`.  It atomically renames this

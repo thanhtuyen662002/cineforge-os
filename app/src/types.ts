@@ -87,8 +87,11 @@ export interface CharacterRevision {
   createdAt?: string
   updatedAt?: string
   semanticDescription?: string
+  readinessState?: string
+  nextStep?: string
   canonicalLanguage?: string
   rightsStatus?: string
+  rights?: RightsSummary | null
   rightsIdentityId?: string
   bindingState?: string
   referenceCount?: number

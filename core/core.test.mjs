@@ -434,7 +434,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 7);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 8);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -573,7 +573,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 7);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 8);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -724,7 +724,7 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(fs.existsSync(persisted.snapshot_path), true);
   const manifest = JSON.parse(fs.readFileSync(persisted.manifest_path, 'utf8'));
   assert.equal(manifest.format_version, 1);
-  assert.equal(manifest.schema_version, 7);
+  assert.equal(manifest.schema_version, 8);
   assert.equal(manifest.objects.length, 1);
   assert.equal(manifest.objects[0].materialization, 'COPIED');
   assert.equal(fs.existsSync(path.join(persisted.destination_path, manifest.objects[0].relative_path)), true);
@@ -813,6 +813,175 @@ test('local backup admission, artifact verification, tamper detection and replay
   }, {}, 'backup-offline');
   assert.equal(unsupportedDurability.ok, false);
   assert.equal(unsupportedDurability.error.code, 'DURABILITY_PROFILE_UNAVAILABLE');
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('character canon keeps identity, visual, voice and performance revisions separate and fail closed', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const project = execute(core, 'CreateProject', { title: 'Character film', code: 'character-film' }, {}, 'character-project');
+  assert.equal(project.ok, true);
+  const character = execute(core, 'CreateCharacter', {
+    project_id: project.result.id,
+    stable_code: 'otto',
+    display_name: 'Otto',
+  }, {}, 'character-create');
+  assert.equal(character.ok, true, JSON.stringify(character));
+  assert.equal(character.result.character.display_name, 'Otto');
+  assert.equal(character.result.character.stable_code, 'OTTO');
+  assert.equal(character.result.visual_identity, null);
+  assert.equal(character.result.voice_identity, null);
+  assert.equal(character.result.performance_bible, null);
+  assert.equal(core.db.prepare('PRAGMA table_info(characters)').all().some((column) => column.name === 'voice_id'), false);
+
+  const duplicate = execute(core, 'CreateCharacter', {
+    project_id: project.result.id,
+    stable_code: 'OTTO',
+    display_name: 'Duplicate Otto',
+  }, {}, 'character-duplicate');
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.error.code, 'DUPLICATE_CHARACTER_CODE');
+
+  const visual = execute(core, 'CreateVisualIdentityRevision', {
+    character_id: character.result.character.id,
+    semantic_description: 'Canonical neutral face and silhouette',
+    anatomy: { species: 'human', face: 'angular' },
+    forbidden_drift: { age_impression: 'stable' },
+  }, {}, 'character-visual');
+  assert.equal(visual.ok, true, JSON.stringify(visual));
+  assert.equal(visual.result.revision.lifecycle_state, 'DRAFT');
+  assert.equal(visual.result.revision.readiness_state, 'READY');
+  const invalidVisualShape = execute(core, 'CreateVisualIdentityRevision', {
+    character_id: character.result.character.id, anatomy: [],
+  }, {}, 'character-visual-invalid-shape');
+  assert.equal(invalidVisualShape.ok, false);
+  assert.equal(invalidVisualShape.error.code, 'INVALID_ARGUMENT');
+  const visualRevisionId = visual.result.revision.id;
+  const candidate = execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VISUAL', revision_id: visualRevisionId, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'character-visual-candidate');
+  assert.equal(candidate.ok, true, JSON.stringify(candidate));
+  const stale = execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VISUAL', revision_id: visualRevisionId, next_state: 'APPROVED',
+  }, { REVISION: 1 }, 'character-visual-stale');
+  assert.equal(stale.ok, false);
+  assert.equal(stale.error.code, 'STALE_REVISION');
+  const approvedVisual = execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VISUAL', revision_id: visualRevisionId, next_state: 'APPROVED',
+  }, { REVISION: 2 }, 'character-visual-approve');
+  assert.equal(approvedVisual.ok, true, JSON.stringify(approvedVisual));
+  assert.equal(approvedVisual.result.revision.lifecycle_state, 'APPROVED');
+  assert.throws(
+    () => core.db.prepare('UPDATE visual_identity_revisions SET anatomy_json = ? WHERE id = ?').run('{"tampered":true}', visualRevisionId),
+    /visual_identity_revision content is immutable/,
+  );
+  const visualNext = execute(core, 'CreateVisualIdentityRevision', {
+    character_id: character.result.character.id,
+    semantic_description: 'Second canonical visual revision',
+  }, {}, 'character-visual-next');
+  assert.equal(visualNext.ok, true, JSON.stringify(visualNext));
+  const visualNextId = visualNext.result.revision.id;
+  assert.equal(execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VISUAL', revision_id: visualNextId, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'character-visual-next-candidate').ok, true);
+  const secondApprovedVisual = execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VISUAL', revision_id: visualNextId, next_state: 'APPROVED',
+  }, { REVISION: 2 }, 'character-visual-next-approve');
+  assert.equal(secondApprovedVisual.ok, true, JSON.stringify(secondApprovedVisual));
+  assert.equal(core.db.prepare('SELECT lifecycle_state FROM visual_identity_revisions WHERE id = ?').get(visualRevisionId).lifecycle_state, 'SUPERSEDED');
+  const supersedeEvent = core.db.prepare('SELECT payload_json FROM domain_events WHERE command_id = ?').get(secondApprovedVisual.result.command_id);
+  assert.equal(JSON.parse(supersedeEvent.payload_json).superseded_revision_id, visualRevisionId);
+
+  const voice = execute(core, 'CreateVoiceIdentityRevision', {
+    character_id: character.result.character.id,
+    canonical_language: 'vi-VN',
+    accent_profile: { region: 'north' },
+    timbre: { register: 'warm' },
+  }, {}, 'character-voice');
+  assert.equal(voice.ok, true, JSON.stringify(voice));
+  const voiceRevisionId = voice.result.revision.id;
+  const voiceCandidate = execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VOICE', revision_id: voiceRevisionId, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'character-voice-candidate');
+  assert.equal(voiceCandidate.ok, true, JSON.stringify(voiceCandidate));
+  const blockedVoice = execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VOICE', revision_id: voiceRevisionId, next_state: 'APPROVED',
+  }, { REVISION: 2 }, 'character-voice-blocked');
+  assert.equal(blockedVoice.ok, false);
+  assert.equal(blockedVoice.error.code, 'RIGHTS_BLOCKED');
+  assert.equal(blockedVoice.error.needs_user, true);
+
+  const rightsIdentity = execute(core, 'CreateRightsIdentity', {
+    project_id: project.result.id,
+    subject_type: 'PERFORMER',
+    subject_id: 'otto-performer',
+  }, {}, 'character-rights-identity');
+  assert.equal(rightsIdentity.ok, true, JSON.stringify(rightsIdentity));
+  const rightsId = rightsIdentity.result.id;
+  assert.equal(execute(core, 'CreateRightsRecord', {
+    rights_identity_id: rightsId, right_type: 'SOURCE_USE', status: 'ALLOWED', purpose: { allowed: ['VOICE_IDENTITY'] },
+  }, {}, 'character-rights-record').ok, true);
+  assert.equal(execute(core, 'RecordConsent', {
+    rights_identity_id: rightsId, consent_type: 'SOURCE_USE', granted_by: 'otto-performer',
+  }, {}, 'character-rights-consent').ok, true);
+  const voiceWithRights = execute(core, 'CreateVoiceIdentityRevision', {
+    character_id: character.result.character.id, canonical_language: 'en-US', rights_identity_id: rightsId,
+  }, {}, 'character-voice-rights');
+  assert.equal(voiceWithRights.ok, true, JSON.stringify(voiceWithRights));
+  const voiceRightsId = voiceWithRights.result.revision.id;
+  assert.equal(execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VOICE', revision_id: voiceRightsId, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'character-voice-rights-candidate').ok, true);
+  const approvedVoice = execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VOICE', revision_id: voiceRightsId, next_state: 'APPROVED',
+  }, { REVISION: 2 }, 'character-voice-rights-approve');
+  assert.equal(approvedVoice.ok, true, JSON.stringify(approvedVoice));
+  assert.equal(approvedVoice.result.revision.rights.status, 'ALLOWED');
+
+  const performance = execute(core, 'CreatePerformanceBibleRevision', {
+    character_id: character.result.character.id,
+    posture: { baseline: 'upright' }, gestures: { signature: ['touches ring'] },
+    forbidden_drift: { energy: 'not frantic' },
+  }, {}, 'character-performance');
+  assert.equal(performance.ok, true, JSON.stringify(performance));
+  assert.equal(performance.result.revision.readiness_state, 'READY');
+
+  const workspace = core.handle(request('query.character.workspace', { character_id: character.result.character.id }, 'character-workspace'));
+  assert.equal(workspace.ok, true, JSON.stringify(workspace));
+  assert.equal(workspace.result.character.id, character.result.character.id);
+  assert.equal(workspace.result.voice_identity.rights.status, 'ALLOWED');
+  assert.equal(JSON.stringify(workspace.result).includes(dbPath), false);
+  const list = core.handle(request('query.character.list', { project_id: project.result.id }, 'character-list'));
+  assert.equal(list.ok, true, JSON.stringify(list));
+  assert.equal(list.result.characters.length, 1);
+  assert.equal(list.result.characters[0].stable_code, 'OTTO');
+  const crossProject = execute(core, 'CreateCharacter', {
+    project_id: project.result.id,
+    entity_type: 'PROJECT', entity_id: 'different-project', stable_code: 'BAD', display_name: 'Bad',
+  }, {}, 'character-cross-scope');
+  assert.equal(crossProject.ok, false);
+  assert.equal(crossProject.error.code, 'ENTITY_SCOPE_MISMATCH');
+  const lockedProject = execute(core, 'CreateProject', { title: 'Locked character film', code: 'locked-character-film' }, {}, 'character-locked-project');
+  const lockedCharacter = execute(core, 'CreateCharacter', {
+    project_id: lockedProject.result.id, stable_code: 'LOCKED', display_name: 'Locked',
+  }, {}, 'character-locked-create');
+  const lockedRevision = execute(core, 'CreateVisualIdentityRevision', {
+    character_id: lockedCharacter.result.character.id, semantic_description: 'Before archive',
+  }, {}, 'character-locked-revision');
+  assert.equal(lockedRevision.ok, true, JSON.stringify(lockedRevision));
+  const archived = execute(core, 'ArchiveProject', { project_id: lockedProject.result.id }, { PROJECT: 1 }, 'character-locked-archive');
+  assert.equal(archived.ok, true, JSON.stringify(archived));
+  const blockedCreate = execute(core, 'CreatePerformanceBibleRevision', {
+    character_id: lockedCharacter.result.character.id, posture: { baseline: 'still' },
+  }, {}, 'character-locked-performance');
+  assert.equal(blockedCreate.ok, false);
+  assert.equal(blockedCreate.error.code, 'PROJECT_NOT_WRITABLE');
+  const blockedTransition = execute(core, 'TransitionCharacterRevision', {
+    revision_type: 'VISUAL', revision_id: lockedRevision.result.revision.id, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'character-locked-transition');
+  assert.equal(blockedTransition.ok, false);
+  assert.equal(blockedTransition.error.code, 'PROJECT_NOT_WRITABLE');
   core.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });

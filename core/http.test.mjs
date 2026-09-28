@@ -26,6 +26,48 @@ test('HTTP presentation adapter exposes dashboard, project and production-item f
     const project = await create.json();
     assert.equal(project.name, 'HTTP project');
 
+    const characterHeaders = { 'content-type': 'application/json', 'idempotency-key': 'http-character' };
+    const characterCreate = await fetch(`${base}/v1/projects/${encodeURIComponent(project.id)}/characters`, {
+      method: 'POST', headers: characterHeaders,
+      body: JSON.stringify({ display_name: 'Maya', stable_code: 'MAYA' }),
+    });
+    assert.equal(characterCreate.status, 200);
+    const character = await characterCreate.json();
+    assert.equal(character.displayName, 'Maya');
+    assert.equal(character.stableCode, 'MAYA');
+    assert.ok(character.visualIdentityPackage);
+    assert.deepEqual(character.visualIdentityPackage.candidateRevisions, []);
+
+    const characterReplay = await fetch(`${base}/v1/projects/${encodeURIComponent(project.id)}/characters`, {
+      method: 'POST', headers: characterHeaders,
+      body: JSON.stringify({ display_name: 'Maya', stable_code: 'MAYA' }),
+    });
+    assert.equal(characterReplay.status, 200);
+    assert.equal((await characterReplay.json()).id, character.id);
+
+    const charactersResponse = await fetch(`${base}/v1/projects/${encodeURIComponent(project.id)}/characters`);
+    assert.equal(charactersResponse.status, 200);
+    const characters = await charactersResponse.json();
+    assert.equal(characters.result.characters.length, 1);
+    assert.equal(characters.result.characters[0].id, character.id);
+
+    const characterWorkspaceResponse = await fetch(`${base}/v1/projects/${encodeURIComponent(project.id)}/characters/${encodeURIComponent(character.id)}/workspace`);
+    assert.equal(characterWorkspaceResponse.status, 200);
+    const characterWorkspace = await characterWorkspaceResponse.json();
+    assert.equal(characterWorkspace.result.character.id, character.id);
+    assert.ok(characterWorkspace.result.character.voiceIdentityPackage);
+    assert.deepEqual(characterWorkspace.result.character.voiceIdentityPackage.candidateRevisions, []);
+
+    const visualRevisionResponse = await fetch(`${base}/v1/characters/${encodeURIComponent(character.id)}/visual-revisions`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'http-character-visual' },
+      body: JSON.stringify({ semantic_description: 'Short hair and a red scarf.' }),
+    });
+    assert.equal(visualRevisionResponse.status, 200);
+    const visualRevision = await visualRevisionResponse.json();
+    assert.equal(visualRevision.result.character.id, character.id);
+    assert.equal(visualRevision.result.revision.state, 'DRAFT');
+    assert.equal(visualRevision.result.revision.semantic_description, 'Short hair and a red scarf.');
+
     const itemResponse = await fetch(`${base}/v1/projects/${encodeURIComponent(project.id)}/production-items`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'First shot' }),
     });
@@ -103,9 +145,9 @@ test('HTTP character routes preserve identity/package boundaries and command ide
           projection_seq: 12,
           characters: [{
             id: 'character-1', project_id: 'project-1', stable_code: 'MAYA', display_name: 'Maya',
-            lifecycle_state: 'ACTIVE', row_version: 2,
+            lifecycle_state: 'ACTIVE', row_version: 2, rights_summary: { provider_id: '/tmp/provider-secret' }, usage: { provider_path: '/tmp/usage-secret' }, costume_state: { path: '/tmp/costume-secret' },
             visual_identity_package: { id: 'visual-package-1', candidate_revisions: [{ id: 'visual-rev-1', revision_number: 1, state: 'DRAFT' }] },
-            voice_identity_package: { id: 'voice-package-1', candidate_revisions: [{ id: 'voice-rev-1', revision_number: 1, state: 'DRAFT', canonical_language: 'vi-VN', binding_state: 'TESTING' }] },
+            voice_identity_package: { id: 'voice-package-1', candidate_revisions: [{ id: 'voice-rev-1', revision_number: 1, state: 'DRAFT', canonical_language: 'vi-VN', binding_state: 'TESTING', readiness_state: 'UNKNOWN', next_step: 'Attach rights', rights: { status: 'UNKNOWN', blockers: [{ code: 'RIGHTS_MISSING', dimension: 'RIGHT', path: 'C:/secret', provider_voice_id: 'provider-secret' }] } }] },
           }],
         },
       };
@@ -140,13 +182,21 @@ test('HTTP character routes preserve identity/package boundaries and command ide
     return { response, payload: await response.json() };
   };
   try {
-    const listed = await jsonRequest('/v1/projects/project-1/characters');
+    const listed = await jsonRequest('/v1/projects/project-1/characters?lifecycle_state=ACTIVE');
     assert.equal(listed.response.status, 200);
     assert.equal(listed.payload.result.characters[0].id, 'character-1');
     assert.equal(listed.payload.result.characters[0].visualIdentityPackage.candidateRevisions[0].id, 'visual-rev-1');
     assert.equal(listed.payload.result.characters[0].voiceIdentityPackage.candidateRevisions[0].canonicalLanguage, 'vi-VN');
+    assert.equal(listed.payload.result.characters[0].voiceIdentityPackage.candidateRevisions[0].rightsStatus, 'UNKNOWN');
+    assert.equal(listed.payload.result.characters[0].voiceIdentityPackage.candidateRevisions[0].readinessState, 'UNKNOWN');
+    assert.equal(listed.payload.result.characters[0].voiceIdentityPackage.candidateRevisions[0].rights.blockers[0].code, 'RIGHTS_MISSING');
+    assert.equal(Object.hasOwn(listed.payload.result.characters[0].voiceIdentityPackage.candidateRevisions[0].rights.blockers[0], 'path'), false);
+    assert.equal(Object.hasOwn(listed.payload.result.characters[0].voiceIdentityPackage.candidateRevisions[0].rights.blockers[0], 'provider_voice_id'), false);
+    assert.equal(listed.payload.result.characters[0].rights, null);
+    assert.equal(listed.payload.result.characters[0].usage, null);
+    assert.equal(listed.payload.result.characters[0].costumeState, null);
 
-    const workspace = await jsonRequest('/v1/characters/character-1/workspace');
+    const workspace = await jsonRequest('/v1/characters/character-1/workspace?project_id=project-1');
     assert.equal(workspace.response.status, 200);
     assert.equal(workspace.payload.result.character.id, 'character-1');
     assert.equal(workspace.payload.result.character.performanceBible.candidateRevisions[0].id, 'performance-rev-1');
@@ -169,6 +219,10 @@ test('HTTP character routes preserve identity/package boundaries and command ide
     assert.equal(voice.response.status, 200);
     assert.equal(voice.payload.result.character_id, 'character-1');
     const commands = calls.filter((call) => call.method === 'command.execute');
+    const listQuery = calls.find((call) => call.method === 'query.character.list');
+    assert.equal(listQuery.params.lifecycle_state, 'ACTIVE');
+    const workspaceQuery = calls.find((call) => call.method === 'query.character.workspace');
+    assert.equal(workspaceQuery.params.project_id, 'project-1');
     assert.equal(commands[0].params.command_type, 'CreateCharacter');
     assert.equal(commands[0].params.idempotency_key, 'http-character-create');
     assert.equal(commands[1].params.command_type, 'CreateVisualIdentityRevision');

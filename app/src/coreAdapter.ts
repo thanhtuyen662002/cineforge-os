@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -1055,10 +1055,38 @@ function mapAssetRecord(value: unknown): AssetSummary {
   }
 }
 
+function mapCharacterRights(value: unknown): RightsSummary | null {
+  const source = asRecord(value)
+  if (Object.keys(source).length === 0) return null
+  const rightsStates: RightsState[] = ['ALLOWED', 'RESTRICTED', 'UNKNOWN', 'REVOKED', 'EXPIRED']
+  const rawStatus = String(source.status ?? source.state ?? 'UNKNOWN').toUpperCase()
+  const status = rightsStates.includes(rawStatus as RightsState) ? rawStatus as RightsState : 'UNKNOWN'
+  const safeItems = (items: unknown): Array<Record<string, unknown>> => arrayValue(items)
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
+    .map((item) => Object.fromEntries(['code', 'dimension', 'status', 'evidence_id', 'id']
+      .filter((key) => typeof item[key] === 'string' && item[key].length > 0)
+      .map((key) => [key, item[key]])))
+  return {
+    status,
+    state: status,
+    eligible: source.eligible === true,
+    rightsIdentityId: stringValue(source.rights_identity_id ?? source.rightsIdentityId),
+    rightType: stringValue(source.right_type ?? source.rightType),
+    consentType: stringValue(source.consent_type ?? source.consentType),
+    rightStatus: rightsStates.includes(String(source.right_status ?? '').toUpperCase() as RightsState) ? String(source.right_status).toUpperCase() as RightsState : 'UNKNOWN',
+    consentStatus: rightsStates.includes(String(source.consent_status ?? '').toUpperCase() as RightsState) ? String(source.consent_status).toUpperCase() as RightsState : 'UNKNOWN',
+    blockers: safeItems(source.blockers),
+    evidence: safeItems(source.evidence),
+    evaluatedAt: stringValue(source.evaluated_at ?? source.evaluatedAt),
+    identity: null,
+  }
+}
+
 function mapCharacterRevisionRecord(value: unknown, kind: CharacterRevisionKind): CharacterRevision {
   const envelope = asRecord(value)
   const source = asRecord(envelope.revision ?? envelope.visual_revision ?? envelope.voice_revision ?? envelope.performance_bible_revision ?? envelope.result ?? value)
   const rawState = stringValue(source.state ?? source.lifecycle_state ?? source.lifecycleState) ?? 'DRAFT'
+  const rights = mapCharacterRights(source.rights)
   return {
     id: stringValue(source.id ?? source.revision_id ?? source.revisionId) ?? `${kind}-revision-${crypto.randomUUID()}`,
     kind,
@@ -1068,8 +1096,11 @@ function mapCharacterRevisionRecord(value: unknown, kind: CharacterRevisionKind)
     createdAt: stringValue(source.created_at ?? source.createdAt),
     updatedAt: stringValue(source.updated_at ?? source.updatedAt),
     semanticDescription: stringValue(source.semantic_description ?? source.semanticDescription ?? source.description),
+    readinessState: stringValue(source.readiness_state ?? source.readinessState),
+    nextStep: stringValue(source.next_step ?? source.nextStep),
     canonicalLanguage: stringValue(source.canonical_language ?? source.canonicalLanguage ?? source.language),
-    rightsStatus: stringValue(source.rights_status ?? source.rightsStatus),
+    rightsStatus: stringValue(source.rights_status ?? source.rightsStatus ?? rights?.status),
+    rights,
     rightsIdentityId: stringValue(source.rights_identity_id ?? source.rightsIdentityId),
     bindingState: stringValue(source.binding_state ?? source.bindingState),
     referenceCount: numberValue(source.reference_count ?? source.referenceCount, 0),
@@ -1102,11 +1133,14 @@ function mapCharacterRecord(value: unknown): CharacterSummary {
     visualIdentityPackage: mapPackage(source.visual_identity_package ?? source.visualIdentityPackage, 'visual', source.visual_revisions ?? source.visualIdentityRevisions),
     voiceIdentityPackage: mapPackage(source.voice_identity_package ?? source.voiceIdentityPackage, 'voice', source.voice_revisions ?? source.voiceIdentityRevisions),
     performanceBible: mapPackage(source.performance_bible_package ?? source.performanceBiblePackage ?? source.performance_bible ?? source.performanceBible, 'performance', source.performance_bible_revisions ?? source.performanceBibleRevisions),
-    costumeState: source.costume_state ?? source.costumeState,
-    propState: source.prop_state ?? source.propState,
-    continuityState: source.continuity_state ?? source.continuityState,
-    rights: source.rights && typeof source.rights === 'object' && !Array.isArray(source.rights) ? source.rights as Record<string, unknown> : null,
-    usage: source.usage && typeof source.usage === 'object' && !Array.isArray(source.usage) ? source.usage as Record<string, unknown> : null,
+    // These domains are outside the bounded canon adapter. Keep arbitrary
+    // nested connector/provider data from being rendered before their own
+    // allowlists are defined.
+    costumeState: null,
+    propState: null,
+    continuityState: null,
+    rights: null,
+    usage: null,
     needsYou: arrayValue(source.needs_you ?? source.needsYou),
   }
 }

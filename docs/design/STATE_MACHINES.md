@@ -167,6 +167,12 @@ Alternative:
 APPROVED bytes/content are immutable.
 A “change” from approved revision always creates a new DRAFT revision.
 
+The V1 Character/Voice/Performance baseline applies this lifecycle to each
+independent package revision. Core stores an optimistic `row_version` and
+accepts only the typed `TransitionCharacterRevision` command. Approval is
+rights-aware for voice revisions and materialization-aware for visual
+references; an unknown result stays blocked and visible to the user.
+
 # 7. Character lock state
 
 Lock is separate from revision lifecycle.

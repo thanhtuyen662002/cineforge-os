@@ -3288,9 +3288,51 @@ provider egress, generation, training, publish, legal document parsing,
 multi-user authority, or signed provenance controls; those callers must keep
 their own gates explicit until their bounded slices land.
 
+# API-CHARACTER-CANON-BASELINE. Character identity and package revisions
+
+The local V1 canon slice keeps `CharacterIdentity` separate from visual,
+voice and performance packages.  No provider voice ID, outfit or internal
+asset path is accepted as canonical character state.
+
+Commands are issued through `command.execute` (or `POST /v1/commands`):
+
+- `CreateCharacter({project_id, stable_code?, display_name})`
+- `CreateVisualIdentityRevision({character_id, semantic_description?, anatomy?, proportion?, palette?, marking?, forbidden_drift?, references?})`
+- `CreateVoiceIdentityRevision({character_id, canonical_language?, semantic_description?, accent_profile?, vocal_range?, timbre?, prosody?, emotional_map?, pronunciation_lexicon?, forbidden_traits?, rights_identity_id?})`
+- `CreatePerformanceBibleRevision({character_id, posture?, gait?, gestures?, eye_behavior?, reaction_timing?, speech_rhythm?, emotional_baseline?, forbidden_drift?})`
+- `TransitionCharacterRevision({revision_type, revision_id, next_state})`, with
+  `expected_versions` bound to the revision row version.
+
+When supplied, `stable_code` is canonicalized to uppercase before the
+project-scoped uniqueness check.
+
+Revision states are explicit: `DRAFT → CANDIDATE → APPROVED → SUPERSEDED`,
+with `CANDIDATE → REJECTED`.  Approved content is immutable; a changed
+content payload creates a new revision.  Visual references must point at a
+same-project, materialized, approved asset revision.  Voice approval evaluates
+the linked rights/consent identity and blocks `UNKNOWN`, `RESTRICTED`,
+`EXPIRED`, and `REVOKED` with `needs_user=true`.
+
+Queries are:
+
+- `query.character.list({project_id?, lifecycle_state?, limit?})`;
+- `query.character.workspace({character_id, project_id?})`, which returns the
+  identity, package roots, revision IDs/states, readiness, rights evidence and
+  a projection sequence.
+
+The HTTP adapter exposes global and project-scoped list/workspace routes:
+`GET /v1/characters`, `GET /v1/characters/{id}/workspace`,
+`GET /v1/projects/{projectId}/characters`, and
+`GET /v1/projects/{projectId}/characters/{id}/workspace`.  Creation routes
+are `POST /v1/projects/{projectId}/characters` and the nested
+`visual-revisions`, `voice-revisions`, and `performance-bibles` routes.
+Responses redact local resolver paths and never expose provider binding fields.
+Generation, dialogue, timeline snapshots, costumes, props and release remain
+outside this bounded contract.
+
 # API-BACKUP-LOCAL-BASELINE. Local backup and verification
 
-The schema v7 V1 slice exposes a local, single-installation backup contract.
+The schema v8 V1 slice exposes a local, single-installation backup contract.
 It is deliberately narrower than the future restore/recovery and remote
 durability contracts described elsewhere in this document.
 

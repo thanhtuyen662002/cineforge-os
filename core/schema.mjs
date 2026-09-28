@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -381,6 +381,126 @@ export function initializeDatabase(db) {
     );
     CREATE INDEX IF NOT EXISTS import_items_session_idx ON import_items(import_session_id, created_at_utc_us ASC);
 
+    /*
+     * Character canon is deliberately split into a stable identity and
+     * independent package/revision streams.  No image path, outfit or
+     * provider voice identifier belongs on characters.  Revision content is
+     * append-only; Core may advance only the lifecycle state and row version.
+     */
+    CREATE TABLE IF NOT EXISTS characters (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      stable_code TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      lifecycle_state TEXT NOT NULL DEFAULT 'ACTIVE'
+        CHECK (lifecycle_state IN ('ACTIVE', 'ARCHIVED', 'RETIRED')),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(project_id, stable_code)
+    );
+    CREATE INDEX IF NOT EXISTS characters_project_idx
+      ON characters(project_id, lifecycle_state, created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS visual_identity_packages (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL UNIQUE REFERENCES characters(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS visual_identity_revisions (
+      id TEXT PRIMARY KEY,
+      package_id TEXT NOT NULL REFERENCES visual_identity_packages(id),
+      revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+      lifecycle_state TEXT NOT NULL DEFAULT 'DRAFT'
+        CHECK (lifecycle_state IN ('DRAFT', 'CANDIDATE', 'APPROVED', 'SUPERSEDED', 'REJECTED')),
+      semantic_description TEXT NOT NULL DEFAULT '',
+      anatomy_json TEXT NOT NULL DEFAULT '{}',
+      proportion_json TEXT NOT NULL DEFAULT '{}',
+      palette_json TEXT NOT NULL DEFAULT '{}',
+      marking_json TEXT NOT NULL DEFAULT '{}',
+      forbidden_drift_json TEXT NOT NULL DEFAULT '{}',
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(package_id, revision_number)
+    );
+    CREATE INDEX IF NOT EXISTS visual_identity_revisions_package_idx
+      ON visual_identity_revisions(package_id, revision_number DESC);
+
+    CREATE TABLE IF NOT EXISTS visual_identity_references (
+      visual_identity_revision_id TEXT NOT NULL REFERENCES visual_identity_revisions(id),
+      asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+      reference_role TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0 CHECK (priority >= 0),
+      created_at_utc_us INTEGER NOT NULL,
+      PRIMARY KEY(visual_identity_revision_id, asset_revision_id, reference_role)
+    );
+    CREATE INDEX IF NOT EXISTS visual_identity_references_asset_idx
+      ON visual_identity_references(asset_revision_id);
+
+    CREATE TABLE IF NOT EXISTS voice_identity_packages (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL UNIQUE REFERENCES characters(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS voice_identity_revisions (
+      id TEXT PRIMARY KEY,
+      package_id TEXT NOT NULL REFERENCES voice_identity_packages(id),
+      revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+      lifecycle_state TEXT NOT NULL DEFAULT 'DRAFT'
+        CHECK (lifecycle_state IN ('DRAFT', 'CANDIDATE', 'APPROVED', 'SUPERSEDED', 'REJECTED')),
+      semantic_description TEXT NOT NULL DEFAULT '',
+      canonical_language TEXT NOT NULL DEFAULT 'vi-VN',
+      accent_profile_json TEXT NOT NULL DEFAULT '{}',
+      vocal_range_json TEXT NOT NULL DEFAULT '{}',
+      timbre_json TEXT NOT NULL DEFAULT '{}',
+      prosody_json TEXT NOT NULL DEFAULT '{}',
+      emotional_map_json TEXT NOT NULL DEFAULT '{}',
+      pronunciation_lexicon_json TEXT NOT NULL DEFAULT '{}',
+      forbidden_traits_json TEXT NOT NULL DEFAULT '{}',
+      rights_identity_id TEXT REFERENCES rights_identities(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(package_id, revision_number)
+    );
+    CREATE INDEX IF NOT EXISTS voice_identity_revisions_package_idx
+      ON voice_identity_revisions(package_id, revision_number DESC);
+
+    CREATE TABLE IF NOT EXISTS performance_bibles (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL UNIQUE REFERENCES characters(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS performance_bible_revisions (
+      id TEXT PRIMARY KEY,
+      performance_bible_id TEXT NOT NULL REFERENCES performance_bibles(id),
+      revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+      lifecycle_state TEXT NOT NULL DEFAULT 'DRAFT'
+        CHECK (lifecycle_state IN ('DRAFT', 'CANDIDATE', 'APPROVED', 'SUPERSEDED', 'REJECTED')),
+      posture_json TEXT NOT NULL DEFAULT '{}',
+      gait_json TEXT NOT NULL DEFAULT '{}',
+      gestures_json TEXT NOT NULL DEFAULT '{}',
+      eye_behavior_json TEXT NOT NULL DEFAULT '{}',
+      reaction_timing_json TEXT NOT NULL DEFAULT '{}',
+      speech_rhythm_json TEXT NOT NULL DEFAULT '{}',
+      emotional_baseline_json TEXT NOT NULL DEFAULT '{}',
+      forbidden_drift_json TEXT NOT NULL DEFAULT '{}',
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(performance_bible_id, revision_number)
+    );
+    CREATE INDEX IF NOT EXISTS performance_bible_revisions_bible_idx
+      ON performance_bible_revisions(performance_bible_id, revision_number DESC);
+
     CREATE TRIGGER IF NOT EXISTS storage_objects_no_update
       BEFORE UPDATE ON storage_objects
       BEGIN SELECT RAISE(ABORT, 'storage_objects is append-only'); END;
@@ -443,6 +563,90 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS provenance_records_no_delete
       BEFORE DELETE ON provenance_records
       BEGIN SELECT RAISE(ABORT, 'provenance_records is append-only'); END;
+
+    CREATE TRIGGER IF NOT EXISTS visual_identity_packages_no_update
+      BEFORE UPDATE ON visual_identity_packages
+      BEGIN SELECT RAISE(ABORT, 'visual_identity_packages are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS visual_identity_packages_no_delete
+      BEFORE DELETE ON visual_identity_packages
+      BEGIN SELECT RAISE(ABORT, 'visual_identity_packages are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS visual_identity_revisions_no_delete
+      BEFORE DELETE ON visual_identity_revisions
+      BEGIN SELECT RAISE(ABORT, 'visual_identity_revisions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS visual_identity_revisions_identity_no_update
+      BEFORE UPDATE ON visual_identity_revisions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.package_id IS NOT OLD.package_id
+        OR NEW.revision_number IS NOT OLD.revision_number
+        OR NEW.semantic_description IS NOT OLD.semantic_description
+        OR NEW.anatomy_json IS NOT OLD.anatomy_json
+        OR NEW.proportion_json IS NOT OLD.proportion_json
+        OR NEW.palette_json IS NOT OLD.palette_json
+        OR NEW.marking_json IS NOT OLD.marking_json
+        OR NEW.forbidden_drift_json IS NOT OLD.forbidden_drift_json
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'visual_identity_revision content is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS visual_identity_references_no_update
+      BEFORE UPDATE ON visual_identity_references
+      BEGIN SELECT RAISE(ABORT, 'visual_identity_references are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS visual_identity_references_no_delete
+      BEFORE DELETE ON visual_identity_references
+      BEGIN SELECT RAISE(ABORT, 'visual_identity_references are append-only'); END;
+
+    CREATE TRIGGER IF NOT EXISTS voice_identity_packages_no_update
+      BEFORE UPDATE ON voice_identity_packages
+      BEGIN SELECT RAISE(ABORT, 'voice_identity_packages are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS voice_identity_packages_no_delete
+      BEFORE DELETE ON voice_identity_packages
+      BEGIN SELECT RAISE(ABORT, 'voice_identity_packages are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS voice_identity_revisions_no_delete
+      BEFORE DELETE ON voice_identity_revisions
+      BEGIN SELECT RAISE(ABORT, 'voice_identity_revisions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS voice_identity_revisions_identity_no_update
+      BEFORE UPDATE ON voice_identity_revisions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.package_id IS NOT OLD.package_id
+        OR NEW.revision_number IS NOT OLD.revision_number
+        OR NEW.semantic_description IS NOT OLD.semantic_description
+        OR NEW.canonical_language IS NOT OLD.canonical_language
+        OR NEW.accent_profile_json IS NOT OLD.accent_profile_json
+        OR NEW.vocal_range_json IS NOT OLD.vocal_range_json
+        OR NEW.timbre_json IS NOT OLD.timbre_json
+        OR NEW.prosody_json IS NOT OLD.prosody_json
+        OR NEW.emotional_map_json IS NOT OLD.emotional_map_json
+        OR NEW.pronunciation_lexicon_json IS NOT OLD.pronunciation_lexicon_json
+        OR NEW.forbidden_traits_json IS NOT OLD.forbidden_traits_json
+        OR NEW.rights_identity_id IS NOT OLD.rights_identity_id
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'voice_identity_revision content is immutable'); END;
+
+    CREATE TRIGGER IF NOT EXISTS performance_bibles_no_update
+      BEFORE UPDATE ON performance_bibles
+      BEGIN SELECT RAISE(ABORT, 'performance_bibles are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS performance_bibles_no_delete
+      BEFORE DELETE ON performance_bibles
+      BEGIN SELECT RAISE(ABORT, 'performance_bibles are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS performance_bible_revisions_no_delete
+      BEFORE DELETE ON performance_bible_revisions
+      BEGIN SELECT RAISE(ABORT, 'performance_bible_revisions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS performance_bible_revisions_identity_no_update
+      BEFORE UPDATE ON performance_bible_revisions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.performance_bible_id IS NOT OLD.performance_bible_id
+        OR NEW.revision_number IS NOT OLD.revision_number
+        OR NEW.posture_json IS NOT OLD.posture_json
+        OR NEW.gait_json IS NOT OLD.gait_json
+        OR NEW.gestures_json IS NOT OLD.gestures_json
+        OR NEW.eye_behavior_json IS NOT OLD.eye_behavior_json
+        OR NEW.reaction_timing_json IS NOT OLD.reaction_timing_json
+        OR NEW.speech_rhythm_json IS NOT OLD.speech_rhythm_json
+        OR NEW.emotional_baseline_json IS NOT OLD.emotional_baseline_json
+        OR NEW.forbidden_drift_json IS NOT OLD.forbidden_drift_json
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'performance_bible_revision content is immutable'); END;
 
     CREATE TABLE IF NOT EXISTS commands (
       id TEXT PRIMARY KEY,
@@ -691,6 +895,15 @@ export function initializeDatabase(db) {
       // A pre-v3 malformed record cannot be safely normalized.  Core will
       // derive the same best-effort binding when that key is replayed.
     }
+  }
+
+  // v8 character revisions gain an explicit optimistic row version.  The
+  // tables are created above for new installations; these guarded additions
+  // keep a partially upgraded local database resumable without rewriting any
+  // existing canon bytes.
+  for (const table of ['visual_identity_revisions', 'voice_identity_revisions', 'performance_bible_revisions']) {
+    const columns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((row) => String(row.name)));
+    if (columns.size > 0 && !columns.has('row_version')) db.exec(`ALTER TABLE ${table} ADD COLUMN row_version INTEGER NOT NULL DEFAULT 1`);
   }
 
   // v5 records whether an asset's storage/availability evidence was actually

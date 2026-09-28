@@ -233,6 +233,35 @@ function mapAssetList(result) {
 // Character projections deliberately keep identity, visual, voice and
 // performance data separate.  The adapter never exposes provider bindings or
 // internal asset paths as part of the canonical character identity.
+function mapCharacterRights(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : null;
+  if (!value) return null;
+  const statuses = new Set(['ALLOWED', 'RESTRICTED', 'UNKNOWN', 'REVOKED', 'EXPIRED']);
+  const statusCandidate = String(value.status ?? value.state ?? 'UNKNOWN').toUpperCase();
+  const status = statuses.has(statusCandidate) ? statusCandidate : 'UNKNOWN';
+  const safeItems = (items) => Array.isArray(items) ? items.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const safe = {};
+    for (const key of ['code', 'dimension', 'status', 'evidence_id', 'id']) {
+      if (typeof item[key] === 'string' && item[key].length > 0) safe[key] = item[key];
+    }
+    return safe;
+  }).filter((item) => item && Object.keys(item).length > 0) : [];
+  return {
+    status,
+    state: status,
+    eligible: value.eligible === true,
+    rights_identity_id: typeof value.rights_identity_id === 'string' ? value.rights_identity_id : null,
+    right_type: typeof value.right_type === 'string' ? value.right_type : null,
+    consent_type: typeof value.consent_type === 'string' ? value.consent_type : null,
+    right_status: statuses.has(String(value.right_status ?? '').toUpperCase()) ? String(value.right_status).toUpperCase() : 'UNKNOWN',
+    consent_status: statuses.has(String(value.consent_status ?? '').toUpperCase()) ? String(value.consent_status).toUpperCase() : 'UNKNOWN',
+    blockers: safeItems(value.blockers),
+    evidence: safeItems(value.evidence),
+    evaluated_at: readString(value, 'evaluated_at', 'evaluatedAt'),
+  };
+}
+
 function mapRevision(source, kind = 'revision') {
   const value = source && typeof source === 'object' ? source : {};
   const revision = value.revision && typeof value.revision === 'object' ? value.revision : value;
@@ -244,6 +273,8 @@ function mapRevision(source, kind = 'revision') {
     createdAt: readString(revision, 'created_at', 'createdAt'),
     updatedAt: readString(revision, 'updated_at', 'updatedAt'),
     semanticDescription: readString(revision, 'semantic_description', 'semanticDescription', 'description'),
+    readinessState: readString(revision, 'readiness_state', 'readinessState'),
+    nextStep: readString(revision, 'next_step', 'nextStep'),
     kind,
   };
   if (kind === 'visual') {
@@ -253,7 +284,9 @@ function mapRevision(source, kind = 'revision') {
   }
   if (kind === 'voice') {
     result.canonicalLanguage = readString(revision, 'canonical_language', 'canonicalLanguage', 'language');
-    result.rightsStatus = readString(revision, 'rights_status', 'rightsStatus');
+    const rights = revision.rights && typeof revision.rights === 'object' && !Array.isArray(revision.rights) ? revision.rights : {};
+    result.rightsStatus = readString(revision, 'rights_status', 'rightsStatus') ?? readString(rights, 'status', 'state');
+    result.rights = mapCharacterRights(rights);
     result.rightsIdentityId = readString(revision, 'rights_identity_id', 'rightsIdentityId');
     result.bindingState = readString(revision, 'binding_state', 'bindingState');
   }
@@ -315,11 +348,14 @@ function mapCharacter(source) {
         ? (performance.candidate_revisions ?? performance.candidateRevisions).map((item) => mapRevision(item, 'performance'))
         : performanceApproved ? [] : performanceRevisions.length ? performanceRevisions : [mapRevision(performance, 'performance')],
     } : (performanceRevisions.length ? { approvedRevision: null, candidateRevisions: performanceRevisions } : null),
-    costumeState: value.costume_state ?? value.costumeState ?? null,
-    propState: value.prop_state ?? value.propState ?? null,
-    continuityState: value.continuity_state ?? value.continuityState ?? null,
-    rights: value.rights ?? value.rights_summary ?? value.rightsSummary ?? null,
-    usage: value.usage ?? value.usage_counts ?? value.usageCounts ?? null,
+    // Costume/prop/continuity and provider-facing usage objects are outside
+    // this bounded canon surface. Do not forward arbitrary nested data across
+    // the HTTP boundary before their own redaction contracts exist.
+    costumeState: null,
+    propState: null,
+    continuityState: null,
+    rights: null,
+    usage: null,
     needsYou: Array.isArray(value.needs_you ?? value.needsYou) ? (value.needs_you ?? value.needsYou) : [],
   };
 }
@@ -345,8 +381,10 @@ function mapCharacterWorkspace(result) {
     character: mapCharacter({ ...value, ...(characterSource && typeof characterSource === 'object' ? characterSource : {}) }),
     generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
     projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
-    usage: value.usage ?? value.usage_counts ?? value.usageCounts ?? null,
-    rights: value.rights ?? value.rights_summary ?? value.rightsSummary ?? null,
+    // Keep the bounded workspace projection closed over canon metadata. Any
+    // future usage/rights summary needs its own allowlist before crossing HTTP.
+    usage: null,
+    rights: null,
     needsYou: Array.isArray(value.needs_you ?? value.needsYou) ? (value.needs_you ?? value.needsYou) : [],
   };
 }
@@ -514,12 +552,15 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'characters' && parts.length === 2) {
         const listed = query(core, request, 'query.character.list', {
           project_id: url.searchParams.get('project_id') ?? url.searchParams.get('projectId') ?? undefined,
-          include_archived: url.searchParams.get('include_archived') === 'true',
+          lifecycle_state: url.searchParams.get('lifecycle_state') ?? url.searchParams.get('lifecycleState') ?? undefined,
           limit: url.searchParams.get('limit') ?? 100,
         });
         result = listed.ok ? { ...listed, result: mapCharacterList(listed.result) } : listed;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'characters' && parts[2] && parts[3] === 'workspace' && parts.length === 4) {
-        const workspace = query(core, request, 'query.character.workspace', { character_id: parts[2] });
+        const workspace = query(core, request, 'query.character.workspace', {
+          character_id: parts[2],
+          project_id: url.searchParams.get('project_id') ?? url.searchParams.get('projectId') ?? undefined,
+        });
         result = workspace.ok ? { ...workspace, result: mapCharacterWorkspace(workspace.result) } : workspace;
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'characters' && parts.length === 2) {
         const created = command(core, request, 'CreateCharacter', body, {}, commandKey(request, body));
@@ -533,7 +574,7 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'characters' && parts.length === 4) {
         const listed = query(core, request, 'query.character.list', {
           project_id: parts[2],
-          include_archived: url.searchParams.get('include_archived') === 'true',
+          lifecycle_state: url.searchParams.get('lifecycle_state') ?? url.searchParams.get('lifecycleState') ?? undefined,
           limit: url.searchParams.get('limit') ?? 100,
         });
         result = listed.ok ? { ...listed, result: mapCharacterList(listed.result) } : listed;

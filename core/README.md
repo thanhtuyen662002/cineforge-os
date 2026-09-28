@@ -100,6 +100,14 @@ The desktop-facing routes are:
 | GET | `/v1/assets` | List assets across the studio |
 | POST | `/v1/assets` | Hash and register a studio-wide local file |
 | GET | `/v1/assets/{id}/rights` | Evaluate an asset's effective right/consent state |
+| GET | `/v1/characters` | List CharacterIdentity projections, optionally scoped to a project |
+| GET | `/v1/characters/{id}/workspace` | Read one character's separate package/revision workspace |
+| POST | `/v1/projects/{id}/characters` | Create a stable CharacterIdentity (idempotency key supported) |
+| GET | `/v1/projects/{id}/characters` | List characters in one project |
+| GET | `/v1/projects/{id}/characters/{characterId}/workspace` | Read a project-scoped character workspace |
+| POST | `/v1/characters/{id}/visual-revisions` | Create a draft visual identity revision |
+| POST | `/v1/characters/{id}/voice-revisions` | Create a draft voice identity revision |
+| POST | `/v1/characters/{id}/performance-bibles` | Create a draft performance bible revision |
 | GET | `/v1/rights/evaluate` | Evaluate a rights identity at a requested effective time |
 | GET | `/v1/rights/{id}/identity` | Read identity and append-only rights evidence |
 | GET | `/v1/backups` | List local backup metadata and verification state |
@@ -166,6 +174,16 @@ structured blockers; only `ALLOWED` is eligible. Provider egress, generation,
 training, publish, legal parsing, multi-user authority, and signed provenance
 remain separate gates until their own bounded implementation slices are
 completed.
+
+Character canon uses the same command boundary. `CreateCharacter` creates only
+the stable identity plus empty package roots. The three revision commands keep
+visual, voice and performance data separate; `TransitionCharacterRevision`
+advances the explicit DRAFT/CANDIDATE/APPROVED/SUPERSEDED lifecycle (or
+CANDIDATE/REJECTED) with an optimistic revision version. Visual references are
+validated against same-project, materialized, approved assets. Voice approval
+evaluates rights and consent and remains blocked for every state other than
+ALLOWED. Provider bindings, generation, timeline, costume and prop state are
+not silently implied by this baseline.
 
 Local backup uses the advanced `POST /v1/commands` boundary as well as the
 convenience routes above. `CreateBackup` accepts an optional destination,
