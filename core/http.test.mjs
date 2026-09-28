@@ -91,6 +91,93 @@ test('HTTP presentation adapter exposes dashboard, project and production-item f
   }
 });
 
+test('HTTP character routes preserve identity/package boundaries and command idempotency', async () => {
+  const calls = [];
+  const core = {
+    handle(request) {
+      calls.push(request);
+      if (request.method === 'query.character.list') return {
+        ok: true,
+        result: {
+          generated_at: '2026-01-01T00:00:00.000Z',
+          projection_seq: 12,
+          characters: [{
+            id: 'character-1', project_id: 'project-1', stable_code: 'MAYA', display_name: 'Maya',
+            lifecycle_state: 'ACTIVE', row_version: 2,
+            visual_identity_package: { id: 'visual-package-1', candidate_revisions: [{ id: 'visual-rev-1', revision_number: 1, state: 'DRAFT' }] },
+            voice_identity_package: { id: 'voice-package-1', candidate_revisions: [{ id: 'voice-rev-1', revision_number: 1, state: 'DRAFT', canonical_language: 'vi-VN', binding_state: 'TESTING' }] },
+          }],
+        },
+      };
+      if (request.method === 'query.character.workspace') return {
+        ok: true,
+        result: {
+          character: { id: 'character-1', project_id: 'project-1', stable_code: 'MAYA', display_name: 'Maya' },
+          visual_revisions: [{ id: 'visual-rev-1', state: 'DRAFT' }],
+          voice_revisions: [{ id: 'voice-rev-1', state: 'DRAFT', canonical_language: 'vi-VN' }],
+          performance_bible_revisions: [{ id: 'performance-rev-1', state: 'DRAFT' }],
+          needs_you: [{ id: 'decision-1', needs_user: true }],
+        },
+      };
+      if (request.method === 'command.execute' && request.params.command_type === 'CreateCharacter') return {
+        ok: true,
+        result: { id: 'character-2', project_id: request.params.payload.project_id, stable_code: 'LINH', display_name: 'Linh', lifecycle_state: 'ACTIVE', row_version: 1 },
+      };
+      if (request.method === 'command.execute') return {
+        ok: true,
+        result: { id: `${request.params.command_type.toLowerCase()}-1`, character_id: request.params.payload.character_id, state: 'DRAFT' },
+      };
+      return { ok: false, error: { code: 'NOT_FOUND', category: 'VALIDATION' } };
+    },
+  };
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, {
+      ...options,
+      headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+    });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const listed = await jsonRequest('/v1/projects/project-1/characters');
+    assert.equal(listed.response.status, 200);
+    assert.equal(listed.payload.result.characters[0].id, 'character-1');
+    assert.equal(listed.payload.result.characters[0].visualIdentityPackage.candidateRevisions[0].id, 'visual-rev-1');
+    assert.equal(listed.payload.result.characters[0].voiceIdentityPackage.candidateRevisions[0].canonicalLanguage, 'vi-VN');
+
+    const workspace = await jsonRequest('/v1/characters/character-1/workspace');
+    assert.equal(workspace.response.status, 200);
+    assert.equal(workspace.payload.result.character.id, 'character-1');
+    assert.equal(workspace.payload.result.character.performanceBible.candidateRevisions[0].id, 'performance-rev-1');
+    assert.equal(workspace.payload.result.needsYou.length, 1);
+
+    const created = await jsonRequest('/v1/projects/project-1/characters', {
+      method: 'POST', headers: { 'idempotency-key': 'http-character-create' },
+      body: JSON.stringify({ stable_code: 'LINH', display_name: 'Linh' }),
+    });
+    assert.equal(created.response.status, 200);
+    assert.equal(created.payload.displayName, 'Linh');
+    const visual = await jsonRequest('/v1/characters/character-1/visual-revisions', {
+      method: 'POST', headers: { 'idempotency-key': 'http-character-visual' }, body: JSON.stringify({ semantic_description: 'Short hair' }),
+    });
+    assert.equal(visual.response.status, 200);
+    assert.equal(visual.payload.result.character_id, 'character-1');
+    const voice = await jsonRequest('/v1/characters/character-1/voice-revisions', {
+      method: 'POST', headers: { 'idempotency-key': 'http-character-voice' }, body: JSON.stringify({ canonical_language: 'vi-VN' }),
+    });
+    assert.equal(voice.response.status, 200);
+    assert.equal(voice.payload.result.character_id, 'character-1');
+    const commands = calls.filter((call) => call.method === 'command.execute');
+    assert.equal(commands[0].params.command_type, 'CreateCharacter');
+    assert.equal(commands[0].params.idempotency_key, 'http-character-create');
+    assert.equal(commands[1].params.command_type, 'CreateVisualIdentityRevision');
+    assert.equal(commands[1].params.payload.character_id, 'character-1');
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+  }
+});
+
 test('HTTP intake exposes durable staging evidence and keeps REFERENCE availability UNKNOWN', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-staging-'));
   const core = new CoreService({ dbPath: path.join(directory, 'cineforge.sqlite'), assetStorePath: path.join(directory, 'asset-store') });

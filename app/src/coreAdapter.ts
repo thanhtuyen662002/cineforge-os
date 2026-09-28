@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -25,6 +25,12 @@ export interface CoreBridge {
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
+  getCharacters?(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]>
+  getCharacterWorkspace?(characterId: string, signal?: AbortSignal): Promise<CharacterWorkspace>
+  createCharacter?(projectId: string, displayName: string, stableCode?: string, idempotencyKey?: string): Promise<CharacterSummary>
+  createVisualIdentityRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
+  createVoiceIdentityRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
+  createPerformanceBibleRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
 }
 
 const LOCAL_SNAPSHOT_KEY = 'cineforge-dashboard-v1'
@@ -638,6 +644,59 @@ export class HttpCoreClient implements CoreClient {
     return arrayValue(result.assets).map(mapAssetRecord)
   }
 
+  async getCharacters(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]> {
+    if (!this.baseUrl) return []
+    const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
+    const response = await fetch(`${this.baseUrl}/v1/characters${query}`, { signal, headers: { Accept: 'application/json' } })
+    const payload = await readCorePayload(response, 'characters')
+    const result = asRecord(payload)
+    return arrayValue(result.characters ?? result.items ?? payload).map(mapCharacterRecord)
+  }
+
+  async getCharacterWorkspace(characterId: string, signal?: AbortSignal): Promise<CharacterWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Character workspace requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/characters/${encodeURIComponent(characterId)}/workspace`, { signal, headers: { Accept: 'application/json' } })
+    return mapCharacterWorkspaceRecord(await readCorePayload(response, 'character workspace'))
+  }
+
+  async createCharacter(projectId: string, displayName: string, stableCode?: string, idempotencyKey: string = crypto.randomUUID()): Promise<CharacterSummary> {
+    const normalizedName = displayName.trim()
+    if (!normalizedName || normalizedName.length > 500) throw new CoreClientError('A character name is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    if (!this.baseUrl) throw new CoreClientError('Character creation requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/characters`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ display_name: normalizedName, ...(stableCode?.trim() ? { stable_code: stableCode.trim() } : {}) }),
+    })
+    return mapCharacterRecord(await readCorePayload(response, 'character creation'))
+  }
+
+  async createVisualIdentityRevision(characterId: string, input: CharacterRevisionInput, idempotencyKey: string = crypto.randomUUID()): Promise<CharacterRevision> {
+    return this.createCharacterRevision('visual', characterId, input, idempotencyKey)
+  }
+
+  async createVoiceIdentityRevision(characterId: string, input: CharacterRevisionInput, idempotencyKey: string = crypto.randomUUID()): Promise<CharacterRevision> {
+    return this.createCharacterRevision('voice', characterId, input, idempotencyKey)
+  }
+
+  async createPerformanceBibleRevision(characterId: string, input: CharacterRevisionInput, idempotencyKey: string = crypto.randomUUID()): Promise<CharacterRevision> {
+    return this.createCharacterRevision('performance', characterId, input, idempotencyKey)
+  }
+
+  private async createCharacterRevision(kind: CharacterRevisionKind, characterId: string, input: CharacterRevisionInput, idempotencyKey: string): Promise<CharacterRevision> {
+    if (!this.baseUrl) throw new CoreClientError('Character revisions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const route = kind === 'visual' ? 'visual-revisions' : kind === 'voice' ? 'voice-revisions' : 'performance-bibles'
+    const payload = {
+      ...(input.semanticDescription?.trim() ? { semantic_description: input.semanticDescription.trim() } : {}),
+      ...(input.canonicalLanguage?.trim() ? { canonical_language: input.canonicalLanguage.trim() } : {}),
+      ...(input.rightsIdentityId?.trim() ? { rights_identity_id: input.rightsIdentityId.trim() } : {}),
+      ...(input.fields && typeof input.fields === 'object' ? input.fields : {}),
+    }
+    const response = await fetch(`${this.baseUrl}/v1/characters/${encodeURIComponent(characterId)}/${route}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(payload),
+    })
+    return mapCharacterRevisionRecord(await readCorePayload(response, `${kind} revision creation`), kind)
+  }
+
   async stageAsset(file: File): Promise<StagedAsset> {
     if (!this.baseUrl) throw new Error('File staging requires a connected Core')
     const response = await fetch(`${this.baseUrl}/v1/desktop/stage`, {
@@ -993,6 +1052,82 @@ function mapAssetRecord(value: unknown): AssetSummary {
     warnings,
     rights,
     latestRevision: revision,
+  }
+}
+
+function mapCharacterRevisionRecord(value: unknown, kind: CharacterRevisionKind): CharacterRevision {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.revision ?? envelope.visual_revision ?? envelope.voice_revision ?? envelope.performance_bible_revision ?? envelope.result ?? value)
+  const rawState = stringValue(source.state ?? source.lifecycle_state ?? source.lifecycleState) ?? 'DRAFT'
+  return {
+    id: stringValue(source.id ?? source.revision_id ?? source.revisionId) ?? `${kind}-revision-${crypto.randomUUID()}`,
+    kind,
+    revisionNumber: numberValue(source.revision_number ?? source.revisionNumber ?? source.version, 0) || undefined,
+    state: rawState,
+    approvalState: stringValue(source.approval_state ?? source.approvalState),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+    semanticDescription: stringValue(source.semantic_description ?? source.semanticDescription ?? source.description),
+    canonicalLanguage: stringValue(source.canonical_language ?? source.canonicalLanguage ?? source.language),
+    rightsStatus: stringValue(source.rights_status ?? source.rightsStatus),
+    rightsIdentityId: stringValue(source.rights_identity_id ?? source.rightsIdentityId),
+    bindingState: stringValue(source.binding_state ?? source.bindingState),
+    referenceCount: numberValue(source.reference_count ?? source.referenceCount, 0),
+    behaviorSummary: stringValue(source.behavior_summary ?? source.behaviorSummary),
+  }
+}
+
+function mapCharacterRecord(value: unknown): CharacterSummary {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.character ?? envelope.identity ?? envelope.result ?? value)
+  const mapPackage = (raw: unknown, kind: CharacterRevisionKind, revisionList: unknown): CharacterSummary['visualIdentityPackage'] => {
+    const packageSource = asRecord(raw)
+    const candidates = arrayValue(packageSource.candidate_revisions ?? packageSource.candidateRevisions ?? revisionList).map((item) => mapCharacterRevisionRecord(item, kind))
+    const approvedRaw = packageSource.approved_revision ?? packageSource.approvedRevision
+    return raw || candidates.length > 0 ? {
+      id: stringValue(packageSource.id ?? packageSource.package_id ?? packageSource.packageId),
+      approvedRevision: approvedRaw ? mapCharacterRevisionRecord(approvedRaw, kind) : null,
+      candidateRevisions: candidates,
+    } : null
+  }
+  return {
+    id: stringValue(source.id ?? source.character_id ?? source.characterId) ?? `character-${crypto.randomUUID()}`,
+    projectId: stringValue(source.project_id ?? source.projectId),
+    stableCode: stringValue(source.stable_code ?? source.stableCode ?? source.code),
+    displayName: stringValue(source.display_name ?? source.displayName ?? source.name) ?? 'Character',
+    lifecycleState: stringValue(source.lifecycle_state ?? source.lifecycleState ?? source.state) ?? 'ACTIVE',
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+    visualIdentityPackage: mapPackage(source.visual_identity_package ?? source.visualIdentityPackage, 'visual', source.visual_revisions ?? source.visualIdentityRevisions),
+    voiceIdentityPackage: mapPackage(source.voice_identity_package ?? source.voiceIdentityPackage, 'voice', source.voice_revisions ?? source.voiceIdentityRevisions),
+    performanceBible: mapPackage(source.performance_bible_package ?? source.performanceBiblePackage ?? source.performance_bible ?? source.performanceBible, 'performance', source.performance_bible_revisions ?? source.performanceBibleRevisions),
+    costumeState: source.costume_state ?? source.costumeState,
+    propState: source.prop_state ?? source.propState,
+    continuityState: source.continuity_state ?? source.continuityState,
+    rights: source.rights && typeof source.rights === 'object' && !Array.isArray(source.rights) ? source.rights as Record<string, unknown> : null,
+    usage: source.usage && typeof source.usage === 'object' && !Array.isArray(source.usage) ? source.usage as Record<string, unknown> : null,
+    needsYou: arrayValue(source.needs_you ?? source.needsYou),
+  }
+}
+
+function mapCharacterWorkspaceRecord(value: unknown): CharacterWorkspace {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.character ?? envelope.identity ?? envelope.result ?? value)
+  const merged = {
+    ...envelope,
+    ...source,
+    visual_revisions: envelope.visual_revisions ?? envelope.visualIdentityRevisions,
+    voice_revisions: envelope.voice_revisions ?? envelope.voiceIdentityRevisions,
+    performance_bible_revisions: envelope.performance_bible_revisions ?? envelope.performanceBibleRevisions,
+  }
+  return {
+    character: mapCharacterRecord(merged),
+    generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
+    projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
+    usage: envelope.usage && typeof envelope.usage === 'object' && !Array.isArray(envelope.usage) ? envelope.usage as Record<string, unknown> : null,
+    rights: envelope.rights && typeof envelope.rights === 'object' && !Array.isArray(envelope.rights) ? envelope.rights as Record<string, unknown> : null,
+    needsYou: arrayValue(envelope.needs_you ?? envelope.needsYou),
   }
 }
 

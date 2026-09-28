@@ -74,6 +74,69 @@ export interface NoteSummary {
   createdAt?: string
 }
 
+export type CharacterRevisionKind = 'visual' | 'voice' | 'performance'
+
+/** Revision metadata is intentionally separate from CharacterIdentity. A
+ * character never owns a provider voice id, outfit, or image field directly. */
+export interface CharacterRevision {
+  id: string
+  kind: CharacterRevisionKind
+  revisionNumber?: number
+  state: string
+  approvalState?: string
+  createdAt?: string
+  updatedAt?: string
+  semanticDescription?: string
+  canonicalLanguage?: string
+  rightsStatus?: string
+  rightsIdentityId?: string
+  bindingState?: string
+  referenceCount?: number
+  behaviorSummary?: string
+}
+
+export interface CharacterPackage {
+  id?: string
+  approvedRevision: CharacterRevision | null
+  candidateRevisions: CharacterRevision[]
+}
+
+export interface CharacterSummary {
+  id: string
+  projectId?: string
+  stableCode?: string
+  displayName: string
+  lifecycleState: string
+  rowVersion: number
+  createdAt?: string
+  updatedAt?: string
+  visualIdentityPackage: CharacterPackage | null
+  voiceIdentityPackage: CharacterPackage | null
+  performanceBible: CharacterPackage | null
+  costumeState?: unknown
+  propState?: unknown
+  continuityState?: unknown
+  rights?: Record<string, unknown> | null
+  usage?: Record<string, unknown> | null
+  needsYou: unknown[]
+}
+
+export interface CharacterWorkspace {
+  character: CharacterSummary
+  generatedAt?: string
+  projectionSeq?: number
+  usage?: Record<string, unknown> | null
+  rights?: Record<string, unknown> | null
+  needsYou: unknown[]
+}
+
+export interface CharacterRevisionInput {
+  semanticDescription?: string
+  canonicalLanguage?: string
+  rightsIdentityId?: string
+  fields?: Record<string, unknown>
+}
+
 export type RightsState = 'ALLOWED' | 'RESTRICTED' | 'UNKNOWN' | 'REVOKED' | 'EXPIRED'
 
 export interface RightsSummary {
@@ -234,4 +297,10 @@ export interface CoreClient {
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
+  getCharacters?(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]>
+  getCharacterWorkspace?(characterId: string, signal?: AbortSignal): Promise<CharacterWorkspace>
+  createCharacter?(projectId: string, displayName: string, stableCode?: string, idempotencyKey?: string): Promise<CharacterSummary>
+  createVisualIdentityRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
+  createVoiceIdentityRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
+  createPerformanceBibleRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
 }

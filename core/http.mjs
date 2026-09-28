@@ -6,8 +6,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED'].includes(code)) return 400;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
@@ -230,6 +230,121 @@ function mapAssetList(result) {
   };
 }
 
+// Character projections deliberately keep identity, visual, voice and
+// performance data separate.  The adapter never exposes provider bindings or
+// internal asset paths as part of the canonical character identity.
+function mapRevision(source, kind = 'revision') {
+  const value = source && typeof source === 'object' ? source : {};
+  const revision = value.revision && typeof value.revision === 'object' ? value.revision : value;
+  const result = {
+    id: readString(revision, 'id', 'revision_id', 'revisionId'),
+    revisionNumber: Number(revision.revision_number ?? revision.revisionNumber ?? revision.version ?? 0) || undefined,
+    state: readString(revision, 'state', 'lifecycle_state', 'lifecycleState') ?? 'DRAFT',
+    approvalState: readString(revision, 'approval_state', 'approvalState'),
+    createdAt: readString(revision, 'created_at', 'createdAt'),
+    updatedAt: readString(revision, 'updated_at', 'updatedAt'),
+    semanticDescription: readString(revision, 'semantic_description', 'semanticDescription', 'description'),
+    kind,
+  };
+  if (kind === 'visual') {
+    result.referenceCount = Array.isArray(revision.references ?? revision.visual_identity_references)
+      ? (revision.references ?? revision.visual_identity_references).length : Number(revision.reference_count ?? revision.referenceCount ?? 0) || 0;
+    result.rightsStatus = readString(revision, 'rights_status', 'rightsStatus');
+  }
+  if (kind === 'voice') {
+    result.canonicalLanguage = readString(revision, 'canonical_language', 'canonicalLanguage', 'language');
+    result.rightsStatus = readString(revision, 'rights_status', 'rightsStatus');
+    result.rightsIdentityId = readString(revision, 'rights_identity_id', 'rightsIdentityId');
+    result.bindingState = readString(revision, 'binding_state', 'bindingState');
+  }
+  if (kind === 'performance') {
+    result.behaviorSummary = readString(revision, 'behavior_summary', 'behaviorSummary');
+  }
+  return Object.fromEntries(Object.entries(result).filter(([, item]) => item !== undefined));
+}
+
+function mapCharacter(source) {
+  const value = source && typeof source === 'object' ? source : {};
+  const identity = value.character && typeof value.character === 'object' ? value.character
+    : value.identity && typeof value.identity === 'object' ? value.identity : value;
+  const visualRevisions = Array.isArray(value.visual_revisions ?? value.visualIdentityRevisions)
+    ? (value.visual_revisions ?? value.visualIdentityRevisions).map((item) => mapRevision(item, 'visual')) : [];
+  const voiceRevisions = Array.isArray(value.voice_revisions ?? value.voiceIdentityRevisions)
+    ? (value.voice_revisions ?? value.voiceIdentityRevisions).map((item) => mapRevision(item, 'voice')) : [];
+  const performanceRevisions = Array.isArray(value.performance_bible_revisions ?? value.performanceBibleRevisions)
+    ? (value.performance_bible_revisions ?? value.performanceBibleRevisions).map((item) => mapRevision(item, 'performance')) : [];
+  const visual = value.visual_identity_package ?? value.visualIdentityPackage ?? value.visual_identity;
+  const voice = value.voice_identity_package ?? value.voiceIdentityPackage ?? value.voice_identity;
+  const performance = value.performance_bible_package ?? value.performanceBiblePackage ?? value.performance_bible;
+  return {
+    id: readString(identity, 'id', 'character_id', 'characterId') ?? crypto.randomUUID(),
+    projectId: readString(identity, 'project_id', 'projectId'),
+    stableCode: readString(identity, 'stable_code', 'stableCode', 'code'),
+    displayName: readString(identity, 'display_name', 'displayName', 'name') ?? 'Character',
+    lifecycleState: readString(identity, 'lifecycle_state', 'lifecycleState', 'state') ?? 'ACTIVE',
+    rowVersion: Number(identity.row_version ?? identity.rowVersion ?? 1) || 1,
+    createdAt: readString(identity, 'created_at', 'createdAt'),
+    updatedAt: readString(identity, 'updated_at', 'updatedAt'),
+    visualIdentityPackage: visual && typeof visual === 'object' ? {
+      id: readString(visual, 'id', 'package_id', 'packageId'),
+      approvedRevision: visual.approved_revision || visual.approvedRevision || (String(visual.lifecycle_state ?? visual.state ?? '').toUpperCase() === 'APPROVED' ? visual : null)
+        ? mapRevision(visual.approved_revision ?? visual.approvedRevision ?? visual, 'visual') : null,
+      candidateRevisions: Array.isArray(visual.candidate_revisions ?? visual.candidateRevisions)
+        ? (visual.candidate_revisions ?? visual.candidateRevisions).map((item) => mapRevision(item, 'visual'))
+        : visualRevisions.length ? visualRevisions : [mapRevision(visual, 'visual')],
+    } : (visualRevisions.length ? { approvedRevision: null, candidateRevisions: visualRevisions } : null),
+    voiceIdentityPackage: voice && typeof voice === 'object' ? {
+      id: readString(voice, 'id', 'package_id', 'packageId'),
+      approvedRevision: voice.approved_revision || voice.approvedRevision || (String(voice.lifecycle_state ?? voice.state ?? '').toUpperCase() === 'APPROVED' ? voice : null)
+        ? mapRevision(voice.approved_revision ?? voice.approvedRevision ?? voice, 'voice') : null,
+      candidateRevisions: Array.isArray(voice.candidate_revisions ?? voice.candidateRevisions)
+        ? (voice.candidate_revisions ?? voice.candidateRevisions).map((item) => mapRevision(item, 'voice'))
+        : voiceRevisions.length ? voiceRevisions : [mapRevision(voice, 'voice')],
+    } : (voiceRevisions.length ? { approvedRevision: null, candidateRevisions: voiceRevisions } : null),
+    performanceBible: performance && typeof performance === 'object' ? {
+      id: readString(performance, 'id', 'performance_bible_id', 'performanceBibleId'),
+      approvedRevision: performance.approved_revision || performance.approvedRevision || (String(performance.lifecycle_state ?? performance.state ?? '').toUpperCase() === 'APPROVED' ? performance : null)
+        ? mapRevision(performance.approved_revision ?? performance.approvedRevision ?? performance, 'performance') : null,
+      candidateRevisions: Array.isArray(performance.candidate_revisions ?? performance.candidateRevisions)
+        ? (performance.candidate_revisions ?? performance.candidateRevisions).map((item) => mapRevision(item, 'performance'))
+        : performanceRevisions.length ? performanceRevisions : [mapRevision(performance, 'performance')],
+    } : (performanceRevisions.length ? { approvedRevision: null, candidateRevisions: performanceRevisions } : null),
+    costumeState: value.costume_state ?? value.costumeState ?? null,
+    propState: value.prop_state ?? value.propState ?? null,
+    continuityState: value.continuity_state ?? value.continuityState ?? null,
+    rights: value.rights ?? value.rights_summary ?? value.rightsSummary ?? null,
+    usage: value.usage ?? value.usage_counts ?? value.usageCounts ?? null,
+    needsYou: Array.isArray(value.needs_you ?? value.needsYou) ? (value.needs_you ?? value.needsYou) : [],
+  };
+}
+
+function mapCharacterList(result) {
+  const value = result && typeof result === 'object' ? result : {};
+  const rows = Array.isArray(result) ? result : value.characters ?? value.items ?? value.results ?? [];
+  return {
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    characters: Array.isArray(rows) ? rows.map(mapCharacter) : [],
+  };
+}
+
+function mapCharacterWorkspace(result) {
+  const value = result && typeof result === 'object' ? result : {};
+  const characterSource = value.character ?? value.identity ?? value;
+  return {
+    // Workspace responses commonly keep the identity under `character` and
+    // revision collections beside it. Merge those read-model pieces before
+    // projecting so the UI receives one coherent workspace without exposing
+    // storage/provider internals.
+    character: mapCharacter({ ...value, ...(characterSource && typeof characterSource === 'object' ? characterSource : {}) }),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    usage: value.usage ?? value.usage_counts ?? value.usageCounts ?? null,
+    rights: value.rights ?? value.rights_summary ?? value.rightsSummary ?? null,
+    needsYou: Array.isArray(value.needs_you ?? value.needsYou) ? (value.needs_you ?? value.needsYou) : [],
+  };
+}
+
 function mapDashboard(result) {
   const health = result?.system_health ?? result?.systemHealth ?? {};
   const backupState = String(health.backup_state ?? health.backupState ?? '').toUpperCase();
@@ -390,6 +505,44 @@ export function createCoreHttpServer(core, options = {}) {
         });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'storage' && parts[2] === 'staging' && parts[3] === 'reconcile' && parts.length === 4) {
         result = command(core, request, 'ReconcileStaging', body, {}, commandKey(request, body));
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'characters' && parts.length === 2) {
+        const listed = query(core, request, 'query.character.list', {
+          project_id: url.searchParams.get('project_id') ?? url.searchParams.get('projectId') ?? undefined,
+          include_archived: url.searchParams.get('include_archived') === 'true',
+          limit: url.searchParams.get('limit') ?? 100,
+        });
+        result = listed.ok ? { ...listed, result: mapCharacterList(listed.result) } : listed;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'characters' && parts[2] && parts[3] === 'workspace' && parts.length === 4) {
+        const workspace = query(core, request, 'query.character.workspace', { character_id: parts[2] });
+        result = workspace.ok ? { ...workspace, result: mapCharacterWorkspace(workspace.result) } : workspace;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'characters' && parts.length === 2) {
+        const created = command(core, request, 'CreateCharacter', body, {}, commandKey(request, body));
+        result = created.ok ? mapCharacter(created.result) : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'characters' && parts[2] && parts[3] === 'visual-revisions' && parts.length === 4) {
+        result = command(core, request, 'CreateVisualIdentityRevision', { ...body, character_id: parts[2] }, expectedVersions(body, 'CHARACTER'), commandKey(request, body));
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'characters' && parts[2] && parts[3] === 'voice-revisions' && parts.length === 4) {
+        result = command(core, request, 'CreateVoiceIdentityRevision', { ...body, character_id: parts[2] }, expectedVersions(body, 'CHARACTER'), commandKey(request, body));
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'characters' && parts[2] && parts[3] === 'performance-bibles' && parts.length === 4) {
+        result = command(core, request, 'CreatePerformanceBibleRevision', { ...body, character_id: parts[2] }, expectedVersions(body, 'CHARACTER'), commandKey(request, body));
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'characters' && parts.length === 4) {
+        const listed = query(core, request, 'query.character.list', {
+          project_id: parts[2],
+          include_archived: url.searchParams.get('include_archived') === 'true',
+          limit: url.searchParams.get('limit') ?? 100,
+        });
+        result = listed.ok ? { ...listed, result: mapCharacterList(listed.result) } : listed;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'characters' && parts[4] && parts[5] === 'workspace' && parts.length === 6) {
+        const workspace = query(core, request, 'query.character.workspace', { character_id: parts[4], project_id: parts[2] });
+        result = workspace.ok ? { ...workspace, result: mapCharacterWorkspace(workspace.result) } : workspace;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'characters' && parts.length === 4) {
+        const created = command(core, request, 'CreateCharacter', { ...body, project_id: parts[2] }, {}, commandKey(request, body));
+        result = created.ok ? mapCharacter(created.result) : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'characters' && parts[4] && parts[5] === 'visual-revisions' && parts.length === 6) {
+        result = command(core, request, 'CreateVisualIdentityRevision', { ...body, project_id: parts[2], character_id: parts[4] }, expectedVersions(body, 'CHARACTER'), commandKey(request, body));
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'characters' && parts[4] && parts[5] === 'voice-revisions' && parts.length === 6) {
+        result = command(core, request, 'CreateVoiceIdentityRevision', { ...body, project_id: parts[2], character_id: parts[4] }, expectedVersions(body, 'CHARACTER'), commandKey(request, body));
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'characters' && parts[4] && parts[5] === 'performance-bibles' && parts.length === 6) {
+        result = command(core, request, 'CreatePerformanceBibleRevision', { ...body, project_id: parts[2], character_id: parts[4] }, expectedVersions(body, 'CHARACTER'), commandKey(request, body));
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
         result = query(core, request, 'query.project.list', { include_trashed: url.searchParams.get('include_trashed') === 'true' });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
