@@ -1,0 +1,31 @@
+{
+  "issue": 21,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-timeline-baseline",
+  "run_id_at_claim": "WORK-timeline-baseline-20260928-A1",
+  "slot_id": "WORK-timeline-baseline",
+  "claim_base_sha": "68675cf86d1777808c64bd59c63c7279c0c6c767",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:3f4e0b365402558f4020c9160edbfd77907ffcebeb501143704b5bb9b8abb39c",
+  "context_base_sha": "68675cf86d1777808c64bd59c63c7279c0c6c767",
+  "arch_context": [
+    "docs/architecture/FINAL_ARCHITECTURE.md#7-canonical-timeline-edit-graph",
+    "docs/architecture/FINAL_ARCHITECTURE.md#8-production-dependency-graph",
+    "docs/architecture/FINAL_ARCHITECTURE.md#19-undo-autosave-and-branching"
+  ],
+  "design_context": [
+    "docs/design/FINAL_DETAILED_DESIGN.md#14-implementation-slices",
+    "docs/design/SCHEMA.md#11-canonical-timeline-edit-schema",
+    "docs/design/API_CONTRACTS.md#16-timeline-api-detail",
+    "docs/design/STATE_MACHINES.md#22-timeline-working-session",
+    "docs/design/STATE_MACHINES.md#23-timeline-revision-lifecycle",
+    "docs/design/UI_COMPONENT_SYSTEM.md#18-timeline-post-workspace"
+  ],
+  "risk_context": [
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#c-storageimportmedia-contracts",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#p-error-telemetry-and-temporary-data-privacy",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#aa-aggregate-action-policy"
+  ],
+  "risk": "HIGH",
+  "status": "CLAIMED"
+}

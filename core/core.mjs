@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initializeDatabase, SCHEMA_VERSION } from './schema.mjs';
 import { isUuid, nowUtcUs, rfc3339FromUs, uuidv7 } from './ids.mjs';
-import { idempotencyFingerprint } from './canonical.mjs';
+import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
 export const API_VERSION = '1';
 export const CORE_VERSION = '0.1.0';
@@ -28,6 +28,27 @@ const CHARACTER_REVISION_TRANSITIONS = Object.freeze({
   SUPERSEDED: new Set(),
   REJECTED: new Set(),
 });
+const MEDIA_PROFILE_STATES = new Set(['DRAFT', 'CANDIDATE', 'APPROVED', 'SUPERSEDED', 'REJECTED']);
+const MEDIA_PROFILE_TRANSITIONS = Object.freeze({
+  DRAFT: new Set(['CANDIDATE']),
+  CANDIDATE: new Set(['APPROVED', 'REJECTED']),
+  APPROVED: new Set(['SUPERSEDED']),
+  SUPERSEDED: new Set(),
+  REJECTED: new Set(),
+});
+const TIMELINE_REVISION_STATES = new Set(['DRAFT_CHECKPOINT', 'CANDIDATE', 'APPROVED', 'SUPERSEDED']);
+const TIMELINE_REVISION_TRANSITIONS = Object.freeze({
+  DRAFT_CHECKPOINT: new Set(['CANDIDATE']),
+  CANDIDATE: new Set(['APPROVED']),
+  APPROVED: new Set(['SUPERSEDED']),
+  SUPERSEDED: new Set(),
+});
+const TIMELINE_TRACK_TYPES = new Set(['VIDEO', 'AUDIO', 'CAPTION', 'DATA']);
+const MAX_RATIONAL_COMPONENT = 9_000_000_000;
+const MAX_TIMELINE_TRACKS = 64;
+const MAX_TIMELINE_CLIPS_PER_TRACK = 10_000;
+const MAX_TIMELINE_MARKERS = 10_000;
+const MAX_TIMELINE_DURATION_TICKS = 9_000_000_000;
 const NOTE_ENTITY_TYPES = new Set(['PROJECT', 'TASK', 'SHOT']);
 const DECISION_STATES = new Set(['OPEN', 'RESOLVED', 'DISMISSED', 'EXPIRED', 'OBSOLETE']);
 const DECISION_SCOPE_TYPES = new Set(['TASK', 'SHOT', 'SCENE', 'PROJECT', 'RELEASE', 'SYSTEM']);
@@ -126,6 +147,65 @@ function rowObject(row) {
 function asInt(value, fallback = 0) {
   const number = Number(value);
   return Number.isSafeInteger(number) ? number : fallback;
+}
+
+function boundedInteger(value, field, { min = 0, max = MAX_RATIONAL_COMPONENT } = {}) {
+  const number = typeof value === 'number' && Number.isSafeInteger(value)
+    ? value
+    : typeof value === 'string' && /^\d+$/.test(value.trim())
+      ? Number(value.trim())
+      : Number.NaN;
+  if (!Number.isSafeInteger(number) || number < min || number > max) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  }
+  return number;
+}
+
+function rationalValue(value, field, { allowZero = true } = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  }
+  const numerator = boundedInteger(value.num ?? value.numerator, `${field}.num`, { min: allowZero ? 0 : 1 });
+  const denominator = boundedInteger(value.den ?? value.denominator, `${field}.den`, { min: 1 });
+  return { num: numerator, den: denominator };
+}
+
+function normalizeRational(value, field, options = {}) {
+  const rational = rationalValue(value, field, options);
+  let numerator = BigInt(rational.num);
+  let denominator = BigInt(rational.den);
+  const gcd = (left, right) => {
+    let a = left < 0n ? -left : left;
+    let b = right < 0n ? -right : right;
+    while (b !== 0n) {
+      const next = a % b;
+      a = b;
+      b = next;
+    }
+    return a || 1n;
+  };
+  const divisor = gcd(numerator, denominator);
+  numerator /= divisor;
+  denominator /= divisor;
+  if (numerator > BigInt(MAX_RATIONAL_COMPONENT) || denominator > BigInt(MAX_RATIONAL_COMPONENT)) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  }
+  return { num: Number(numerator), den: Number(denominator) };
+}
+
+function rationalCompare(left, right) {
+  const lhs = BigInt(left.num) * BigInt(right.den);
+  const rhs = BigInt(right.num) * BigInt(left.den);
+  return lhs < rhs ? -1 : lhs > rhs ? 1 : 0;
+}
+
+function rationalSubtract(left, right) {
+  const numerator = BigInt(left.num) * BigInt(right.den) - BigInt(right.num) * BigInt(left.den);
+  const denominator = BigInt(left.den) * BigInt(right.den);
+  if (numerator <= 0n || numerator > BigInt(MAX_RATIONAL_COMPONENT) || denominator > BigInt(MAX_RATIONAL_COMPONENT)) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'duration' });
+  }
+  return { num: Number(numerator), den: Number(denominator) };
 }
 
 function pathKey(value) {
@@ -472,6 +552,79 @@ function publicCharacterReference(row) {
   return out;
 }
 
+function publicMediaProfileRevision(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.timeline_rate = { num: Number(out.timeline_rate_num), den: Number(out.timeline_rate_den) };
+  out.time_base = { num: Number(out.time_base_num), den: Number(out.time_base_den) };
+  out.pixel_aspect = { num: Number(out.pixel_aspect_num), den: Number(out.pixel_aspect_den) };
+  out.proxy_profile = parseJson(out.proxy_profile_json, {});
+  out.mastering_targets = parseJson(out.mastering_targets_json, {});
+  out.state = out.lifecycle_state;
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  delete out.proxy_profile_json;
+  delete out.mastering_targets_json;
+  delete out.created_at_utc_us;
+  return out;
+}
+
+function publicTimeline(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const [source, target] of [['created_at_utc_us', 'created_at'], ['updated_at_utc_us', 'updated_at']]) {
+    if (out[source] !== undefined && out[source] !== null) out[target] = rfc3339FromUs(out[source]);
+    delete out[source];
+  }
+  out.state = out.lifecycle_state;
+  return out;
+}
+
+function publicTimelineClip(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.timeline_in = { num: Number(out.timeline_in_num), den: Number(out.timeline_in_den) };
+  out.timeline_out = { num: Number(out.timeline_out_num), den: Number(out.timeline_out_den) };
+  out.speed = { num: Number(out.speed_num), den: Number(out.speed_den) };
+  out.source_in = out.source_in_num === null || out.source_in_num === undefined ? null : { num: Number(out.source_in_num), den: Number(out.source_in_den) };
+  out.source_out = out.source_out_num === null || out.source_out_num === undefined ? null : { num: Number(out.source_out_num), den: Number(out.source_out_den) };
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  for (const field of ['created_at_utc_us', 'timeline_in_num', 'timeline_in_den', 'timeline_out_num', 'timeline_out_den', 'source_in_num', 'source_in_den', 'source_out_num', 'source_out_den', 'speed_num', 'speed_den']) delete out[field];
+  return out;
+}
+
+function publicTimelineMarker(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.time = { num: Number(out.position_num), den: Number(out.position_den) };
+  out.payload = parseJson(out.payload_json, {});
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  for (const field of ['position_num', 'position_den', 'payload_json', 'created_at_utc_us']) delete out[field];
+  return out;
+}
+
+function publicTimelineTrack(row, clips = []) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.enabled = Boolean(Number(out.enabled));
+  out.clips = clips.map(publicTimelineClip).filter(Boolean);
+  delete out.created_at_utc_us;
+  return out;
+}
+
+function publicTimelineRevision(row, tracks = [], options = {}) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.state = out.lifecycle_state;
+  out.duration = { num: Number(out.duration_num), den: Number(out.duration_den) };
+  out.tracks = tracks;
+  out.markers = options.markers ?? [];
+  out.readiness_state = options.readinessState ?? 'READY';
+  out.next_step = options.nextStep ?? null;
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  for (const field of ['created_at_utc_us', 'duration_num', 'duration_den']) delete out[field];
+  return out;
+}
+
 function publicRightsIdentity(row) {
   if (!row) return null;
   const out = rowObject(row);
@@ -748,6 +901,45 @@ export class CoreService {
     const row = this.db.prepare('SELECT * FROM shots WHERE id = ?').get(shotId);
     if (!row) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.shot_not_found', { shot_id: shotId });
     return row;
+  }
+
+  _mediaProfileRevision(revisionId) {
+    const id = requiredString(revisionId, 'media_profile_revision_id');
+    const row = this.db.prepare(`SELECT r.*, p.project_id, p.id AS profile_id
+      FROM project_media_profile_revisions r
+      JOIN project_media_profiles p ON p.id = r.profile_id
+      WHERE r.id = ?`).get(id);
+    if (!row) throw new CoreError('MEDIA_PROFILE_REVISION_NOT_FOUND', 'VALIDATION', 'errors.media_profile_revision_not_found', { media_profile_revision_id: id });
+    return row;
+  }
+
+  _timeline(timelineId) {
+    const id = requiredString(timelineId, 'timeline_id');
+    const row = this.db.prepare('SELECT * FROM timelines WHERE id = ?').get(id);
+    if (!row) throw new CoreError('TIMELINE_NOT_FOUND', 'VALIDATION', 'errors.timeline_not_found', { timeline_id: id });
+    return row;
+  }
+
+  _timelineRevision(revisionId) {
+    const id = requiredString(revisionId, 'timeline_revision_id');
+    const row = this.db.prepare(`SELECT r.*, t.project_id, t.code AS timeline_code, t.title AS timeline_title,
+        t.scope_type, t.scope_id, t.row_version AS timeline_row_version
+      FROM timeline_revisions r JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(id);
+    if (!row) throw new CoreError('TIMELINE_REVISION_NOT_FOUND', 'VALIDATION', 'errors.timeline_revision_not_found', { timeline_revision_id: id });
+    return row;
+  }
+
+  _assertTimelineProjectScope(payload, projectId, entityType, entityId) {
+    this._assertPayloadProjectScope(payload, projectId, entityType, entityId);
+    const suppliedProfile = payload?.media_profile_revision_id ?? payload?.mediaProfileRevisionId;
+    if (suppliedProfile) {
+      const profile = this._mediaProfileRevision(suppliedProfile);
+      if (profile.project_id !== projectId) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+          entity_type: 'MEDIA_PROFILE_REVISION', entity_id: suppliedProfile, project_id: projectId, actual_project_id: profile.project_id,
+        }, { needsUser: true });
+      }
+    }
   }
 
   _decision(decisionRequestId) {
@@ -2142,6 +2334,23 @@ export class CoreService {
     // record to claim a different project from the entity being mutated.
     const entityType = String(payload.entity_type ?? payload.entityType ?? '').trim().toUpperCase();
     const entityId = payload.entity_id ?? payload.entityId;
+    if (commandType === 'CreateMediaProfileRevision' || commandType === 'CreateTimeline') {
+      if (explicitProjectId) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
+    }
+    if (commandType === 'TransitionMediaProfileRevision') {
+      const mediaRevisionId = payload.revision_id ?? payload.revisionId;
+      if (mediaRevisionId) return this.db.prepare(`SELECT p.project_id FROM project_media_profile_revisions r
+        JOIN project_media_profiles p ON p.id = r.profile_id WHERE r.id = ?`).get(mediaRevisionId)?.project_id ?? null;
+    }
+    if (commandType === 'CreateTimelineRevision') {
+      const timelineId = payload.timeline_id ?? payload.timelineId;
+      if (timelineId) return this.db.prepare('SELECT project_id FROM timelines WHERE id = ?').get(timelineId)?.project_id ?? null;
+    }
+    if (commandType === 'TransitionTimelineRevision') {
+      const timelineRevisionId = payload.timeline_revision_id ?? payload.timelineRevisionId ?? payload.revision_id ?? payload.revisionId;
+      if (timelineRevisionId) return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r
+        JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(timelineRevisionId)?.project_id ?? null;
+    }
     const derivesTask = ['UpdateTask', 'AddTaskNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'TASK');
     const derivesShot = ['UpdateShot', 'AddShotNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'SHOT');
     if (['ResolveDecisionRequest', 'DismissDecisionRequest', 'ObsoleteDecisionRequest'].includes(commandType)) {
@@ -2223,6 +2432,7 @@ export class CoreService {
     if (['CreateRightsIdentity', 'CreateRightsRecord', 'RecordConsent', 'RevokeRights'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateBackup', 'VerifyBackup'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateCharacter', 'CreateVisualIdentityRevision', 'CreateVoiceIdentityRevision', 'CreatePerformanceBibleRevision', 'TransitionCharacterRevision'].includes(commandType)) return 'COMPENSATABLE';
+    if (['CreateMediaProfileRevision', 'TransitionMediaProfileRevision', 'CreateTimeline', 'CreateTimelineRevision', 'TransitionTimelineRevision'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -2243,6 +2453,11 @@ export class CoreService {
       case 'CreateVoiceIdentityRevision': return this._createCharacterRevision(payload, 'VOICE');
       case 'CreatePerformanceBibleRevision': return this._createCharacterRevision(payload, 'PERFORMANCE');
       case 'TransitionCharacterRevision': return this._transitionCharacterRevision(payload, expectedVersions);
+      case 'CreateMediaProfileRevision': return this._createMediaProfileRevision(payload);
+      case 'TransitionMediaProfileRevision': return this._transitionMediaProfileRevision(payload, expectedVersions);
+      case 'CreateTimeline': return this._createTimeline(payload);
+      case 'CreateTimelineRevision': return this._createTimelineRevision(payload, expectedVersions);
+      case 'TransitionTimelineRevision': return this._transitionTimelineRevision(payload, expectedVersions);
       case 'CreateDecisionRequest': return this._createDecisionRequest(payload);
       case 'ResolveDecisionRequest': return this._resolveDecisionRequest(payload, expectedVersions);
       case 'DismissDecisionRequest': return this._dismissDecisionRequest(payload, expectedVersions);
@@ -2695,6 +2910,535 @@ export class CoreService {
       result: { character: projection.character, revision },
       event: { aggregateType: 'CHARACTER', aggregateId: info.character.id, aggregateVersion: characterVersion, eventType: `${kind}_IDENTITY_REVISION_${nextState}`, payload: { character_id: info.character.id, revision_id: info.row.id, revision_type: kind, lifecycle_state: nextState, superseded_revision_id: supersededRevisionId } },
       audit: { actionType: `character.${kind.toLowerCase()}_revision.transition`, targetType: `${kind}_IDENTITY_REVISION`, targetId: info.row.id, payload: { from: info.row.lifecycle_state, to: nextState, superseded_revision_id: supersededRevisionId } },
+    };
+  }
+
+  _mediaProfileInput(payload) {
+    const source = payload?.profile && typeof payload.profile === 'object' && !Array.isArray(payload.profile)
+      ? { ...payload, ...payload.profile }
+      : payload;
+    const timelineRate = normalizeRational(source.timeline_rate ?? source.timelineRate ?? {
+      num: source.timeline_rate_num ?? source.timelineRateNum,
+      den: source.timeline_rate_den ?? source.timelineRateDen,
+    }, 'timeline_rate', { allowZero: false });
+    const timeBase = normalizeRational(source.time_base ?? source.timeBase ?? source.timeline_time_base ?? source.timelineTimeBase ?? {
+      num: source.time_base_num ?? source.timeBaseNum ?? source.timeline_time_base_num ?? source.timelineTimeBaseNum,
+      den: source.time_base_den ?? source.timeBaseDen ?? source.timeline_time_base_den ?? source.timelineTimeBaseDen,
+    }, 'time_base', { allowZero: false });
+    const pixelAspect = normalizeRational(source.pixel_aspect ?? source.pixelAspect ?? {
+      num: source.pixel_aspect_num ?? source.pixelAspectNum,
+      den: source.pixel_aspect_den ?? source.pixelAspectDen,
+    }, 'pixel_aspect', { allowZero: false });
+    return {
+      timelineRate,
+      timeBase,
+      pixelAspect,
+      width: boundedInteger(source.width, 'width', { min: 1, max: 32_000 }),
+      height: boundedInteger(source.height, 'height', { min: 1, max: 32_000 }),
+      workingColorSpace: requiredString(source.working_color_space ?? source.workingColorSpace, 'working_color_space', 100),
+      transferFunction: requiredString(source.transfer_function ?? source.transferFunction, 'transfer_function', 100),
+      hdrPolicy: requiredString(source.hdr_policy ?? source.hdrPolicy, 'hdr_policy', 100),
+      audioSampleRate: boundedInteger(source.audio_sample_rate ?? source.audioSampleRate, 'audio_sample_rate', { min: 1, max: 768_000 }),
+      audioChannelLayout: requiredString(source.audio_channel_layout ?? source.audioChannelLayout, 'audio_channel_layout', 100),
+      proxyProfile: structuredValue(source.proxy_profile ?? source.proxyProfile ?? {}, 'proxy_profile', {}, 'object'),
+      masteringTargets: structuredValue(source.mastering_targets ?? source.masteringTargets ?? {}, 'mastering_targets', {}, 'object'),
+    };
+  }
+
+  _mediaProfileProjection(profileId) {
+    const profile = this.db.prepare('SELECT * FROM project_media_profiles WHERE id = ?').get(profileId);
+    if (!profile) throw new CoreError('MEDIA_PROFILE_NOT_FOUND', 'VALIDATION', 'errors.media_profile_not_found', { profile_id: profileId });
+    const revisions = this.db.prepare(`SELECT * FROM project_media_profile_revisions
+      WHERE profile_id = ? ORDER BY revision_number DESC`).all(profile.id).map(publicMediaProfileRevision);
+    return {
+      profile: { id: profile.id, project_id: profile.project_id, revisions },
+      approved_revision: revisions.find((revision) => revision.lifecycle_state === 'APPROVED') ?? null,
+      candidate_revisions: revisions.filter((revision) => ['DRAFT', 'CANDIDATE'].includes(revision.lifecycle_state)),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _createMediaProfileRevision(payload) {
+    const project = this._project(payload.project_id ?? payload.projectId);
+    this._assertProjectWritable(project);
+    const input = this._mediaProfileInput(payload);
+    let profile = this.db.prepare('SELECT * FROM project_media_profiles WHERE project_id = ?').get(project.id);
+    if (payload.profile_id ?? payload.profileId) {
+      const profileId = requiredString(payload.profile_id ?? payload.profileId, 'profile_id');
+      profile = this.db.prepare('SELECT * FROM project_media_profiles WHERE id = ?').get(profileId);
+      if (!profile) throw new CoreError('MEDIA_PROFILE_NOT_FOUND', 'VALIDATION', 'errors.media_profile_not_found', { profile_id: profileId });
+      if (profile.project_id !== project.id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'MEDIA_PROFILE', entity_id: profile.id, project_id: project.id, actual_project_id: profile.project_id,
+      }, { needsUser: true });
+    }
+    const created = nowUtcUs();
+    if (!profile) {
+      profile = { id: uuidv7(), project_id: project.id };
+      this.db.prepare(`INSERT INTO project_media_profiles(id, project_id, created_by_actor_id, created_at_utc_us)
+        VALUES (?, ?, ?, ?)`).run(profile.id, project.id, this.actorId, created);
+    }
+    const latest = this.db.prepare('SELECT COALESCE(MAX(revision_number), 0) AS revision_number FROM project_media_profile_revisions WHERE profile_id = ?').get(profile.id);
+    const revisionId = uuidv7();
+    const revisionNumber = Number(latest.revision_number) + 1;
+    this.db.prepare(`INSERT INTO project_media_profile_revisions
+      (id, profile_id, revision_number, lifecycle_state, timeline_rate_num, timeline_rate_den,
+       time_base_num, time_base_den, width, height, pixel_aspect_num, pixel_aspect_den,
+       working_color_space, transfer_function, hdr_policy, audio_sample_rate, audio_channel_layout,
+       proxy_profile_json, mastering_targets_json, created_by_actor_id, created_at_utc_us, row_version)
+      VALUES (?, ?, ?, 'CANDIDATE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+      revisionId, profile.id, revisionNumber, input.timelineRate.num, input.timelineRate.den,
+      input.timeBase.num, input.timeBase.den, input.width, input.height, input.pixelAspect.num, input.pixelAspect.den,
+      input.workingColorSpace, input.transferFunction, input.hdrPolicy, input.audioSampleRate, input.audioChannelLayout,
+      json(input.proxyProfile), json(input.masteringTargets), this.actorId, created,
+    );
+    const projection = this._mediaProfileProjection(profile.id);
+    const aggregateVersion = Number(this.db.prepare(`SELECT COALESCE(MAX(aggregate_version), 0) + 1 AS version
+      FROM domain_events WHERE aggregate_type = 'MEDIA_PROFILE' AND aggregate_id = ?`).get(profile.id).version);
+    return {
+      projectId: project.id,
+      result: projection,
+      event: { aggregateType: 'MEDIA_PROFILE', aggregateId: profile.id, aggregateVersion, eventType: 'MEDIA_PROFILE_REVISION_CREATED', payload: { profile_id: profile.id, revision_id: revisionId, revision_number: revisionNumber } },
+      audit: { actionType: 'media_profile.revision.create', targetType: 'MEDIA_PROFILE_REVISION', targetId: revisionId, payload: { profile_id: profile.id, project_id: project.id, revision_number: revisionNumber } },
+    };
+  }
+
+  _transitionMediaProfileRevision(payload, expectedVersions) {
+    const info = this._mediaProfileRevision(payload.revision_id ?? payload.revisionId);
+    this._assertPayloadProjectScope(payload, info.project_id, 'MEDIA_PROFILE_REVISION', info.id);
+    const project = this._project(info.project_id);
+    this._assertProjectWritable(project);
+    this._expectedVersion(expectedVersions, 'REVISION', info.id, info.row_version);
+    const nextState = enumValue(payload.next_state ?? payload.nextState ?? payload.state, 'next_state', /^[A-Z]+$/);
+    if (!MEDIA_PROFILE_STATES.has(nextState) || !MEDIA_PROFILE_TRANSITIONS[info.lifecycle_state]?.has(nextState)) {
+      throw new CoreError('INVALID_STATE_TRANSITION', 'CONFLICT', 'errors.invalid_state_transition', { from: info.lifecycle_state, to: nextState }, { needsUser: true });
+    }
+    const currentApproved = nextState === 'APPROVED'
+      ? this.db.prepare(`SELECT id FROM project_media_profile_revisions WHERE profile_id = ? AND lifecycle_state = 'APPROVED' AND id != ?`).get(info.profile_id, info.id)
+      : null;
+    const supersededRevisionId = currentApproved?.id ?? null;
+    if (supersededRevisionId) this.db.prepare(`UPDATE project_media_profile_revisions SET lifecycle_state = 'SUPERSEDED', row_version = row_version + 1 WHERE id = ?`).run(supersededRevisionId);
+    const nextVersion = Number(info.row_version) + 1;
+    this.db.prepare('UPDATE project_media_profile_revisions SET lifecycle_state = ?, row_version = ? WHERE id = ?').run(nextState, nextVersion, info.id);
+    const projection = this._mediaProfileProjection(info.profile_id);
+    const aggregateVersion = Number(this.db.prepare(`SELECT COALESCE(MAX(aggregate_version), 0) + 1 AS version
+      FROM domain_events WHERE aggregate_type = 'MEDIA_PROFILE' AND aggregate_id = ?`).get(info.profile_id).version);
+    return {
+      projectId: info.project_id,
+      result: projection,
+      event: { aggregateType: 'MEDIA_PROFILE', aggregateId: info.profile_id, aggregateVersion, eventType: `MEDIA_PROFILE_REVISION_${nextState}`, payload: { profile_id: info.profile_id, revision_id: info.id, lifecycle_state: nextState, superseded_revision_id: supersededRevisionId } },
+      audit: { actionType: 'media_profile.revision.transition', targetType: 'MEDIA_PROFILE_REVISION', targetId: info.id, payload: { from: info.lifecycle_state, to: nextState, superseded_revision_id: supersededRevisionId } },
+    };
+  }
+
+  _mediaProfileWorkspace(projectId) {
+    const project = this._project(projectId);
+    const profile = this.db.prepare('SELECT id FROM project_media_profiles WHERE project_id = ?').get(project.id);
+    if (!profile) {
+      return {
+        project_id: project.id,
+        profile: null,
+        approved_revision: null,
+        candidate_revisions: [],
+        projection_seq: this._projectionSeq(),
+        generated_at: new Date().toISOString(),
+      };
+    }
+    return { project_id: project.id, ...this._mediaProfileProjection(profile.id) };
+  }
+
+  _timelineRational(payload, field, { required = true, allowZero = true } = {}) {
+    const snake = field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    const camel = field.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    const value = payload?.[field] ?? payload?.[camel] ?? payload?.[snake]
+      ?? (payload && (payload[`${snake}_num`] !== undefined || payload[`${snake}_den`] !== undefined)
+        ? { num: payload[`${snake}_num`], den: payload[`${snake}_den`] } : undefined);
+    if (value === undefined || value === null) {
+      if (!required) return null;
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.required_field', { field });
+    }
+    return normalizeRational(value, field, { allowZero });
+  }
+
+  _timelineClipInput(payload, index) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `tracks.clips[${index}]` });
+    }
+    const timelineIn = this._timelineRational(payload, 'timeline_in', { allowZero: true });
+    const timelineOut = this._timelineRational(payload, 'timeline_out', { allowZero: false });
+    if (rationalCompare(timelineOut, timelineIn) <= 0) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_time_interval', { field: 'timeline_out' });
+    }
+    const assetRevisionId = payload.asset_revision_id ?? payload.assetRevisionId ?? null;
+    if (assetRevisionId !== null && (typeof assetRevisionId !== 'string' || assetRevisionId.trim().length === 0)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'asset_revision_id' });
+    }
+    const sourceIn = this._timelineRational(payload, 'source_in', { required: false, allowZero: true });
+    const sourceOut = this._timelineRational(payload, 'source_out', { required: false, allowZero: false });
+    if ((sourceIn === null) !== (sourceOut === null)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'source_in/source_out' });
+    }
+    if (assetRevisionId && sourceIn === null) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.required_field', { field: 'source_in/source_out' });
+    }
+    if (!assetRevisionId && sourceIn !== null) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'asset_revision_id' });
+    }
+    if (sourceIn !== null && rationalCompare(sourceOut, sourceIn) <= 0) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_time_interval', { field: 'source_out' });
+    }
+    const speed = this._timelineRational(payload, 'speed', { required: false, allowZero: false }) ?? { num: 1, den: 1 };
+    return {
+      assetRevisionId: assetRevisionId?.trim() ?? null,
+      sourceIn,
+      sourceOut,
+      timelineIn,
+      timelineOut,
+      speed,
+    };
+  }
+
+  _normalizeTimelineTracks(payload) {
+    const rawTracks = payload?.tracks === undefined || payload?.tracks === null ? [] : arrayValue(payload.tracks, 'tracks');
+    if (rawTracks.length > MAX_TIMELINE_TRACKS) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.field_too_large', { field: 'tracks', max_items: MAX_TIMELINE_TRACKS });
+    }
+    const seenOrder = new Set();
+    const tracks = rawTracks.map((rawTrack, trackIndex) => {
+      if (!rawTrack || typeof rawTrack !== 'object' || Array.isArray(rawTrack)) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `tracks[${trackIndex}]` });
+      }
+      const trackType = enumValue(rawTrack.track_type ?? rawTrack.trackType ?? 'VIDEO', 'track_type', /^[A-Z]+$/);
+      // Audio/caption/data semantics require their own contracts.  Keeping
+      // this checkpoint slice video-only avoids silently inventing provider or
+      // mixing behavior while retaining a provider-neutral track boundary.
+      if (trackType !== 'VIDEO') {
+        throw new CoreError('UNSUPPORTED_TIMELINE_TRACK', 'VALIDATION', 'errors.unsupported_timeline_track', { track_type: trackType }, { needsUser: true });
+      }
+      const orderIndex = boundedInteger(rawTrack.order_index ?? rawTrack.orderIndex ?? trackIndex, 'order_index', { min: 0, max: MAX_TIMELINE_TRACKS - 1 });
+      if (seenOrder.has(orderIndex)) {
+        throw new CoreError('DUPLICATE_TIMELINE_TRACK_ORDER', 'CONFLICT', 'errors.duplicate_timeline_track_order', { order_index: orderIndex });
+      }
+      seenOrder.add(orderIndex);
+      const clips = rawTrack.clips === undefined || rawTrack.clips === null ? [] : arrayValue(rawTrack.clips, `tracks[${trackIndex}].clips`);
+      if (clips.length > MAX_TIMELINE_CLIPS_PER_TRACK) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.field_too_large', { field: `tracks[${trackIndex}].clips`, max_items: MAX_TIMELINE_CLIPS_PER_TRACK });
+      }
+      const normalizedClips = clips.map((clip, clipIndex) => this._timelineClipInput(clip, clipIndex));
+      normalizedClips.sort((left, right) => rationalCompare(left.timelineIn, right.timelineIn));
+      for (let index = 1; index < normalizedClips.length; index += 1) {
+        if (rationalCompare(normalizedClips[index - 1].timelineOut, normalizedClips[index].timelineIn) > 0) {
+          throw new CoreError('TIMELINE_CLIP_OVERLAP', 'CONFLICT', 'errors.timeline_clip_overlap', { track_index: trackIndex, clip_index: index }, { needsUser: true });
+        }
+      }
+      const enabled = nullableBoolean(rawTrack.enabled, 'enabled');
+      return {
+        trackType,
+        orderIndex,
+        name: optionalString(rawTrack.name, `tracks[${trackIndex}].name`, 200, `Video ${orderIndex + 1}`),
+        enabled: enabled === null ? 1 : enabled,
+        clips: normalizedClips,
+      };
+    });
+    tracks.sort((left, right) => left.orderIndex - right.orderIndex);
+    return tracks;
+  }
+
+  _normalizeTimelineMarkers(payload, duration) {
+    const rawMarkers = payload?.markers === undefined || payload?.markers === null ? [] : arrayValue(payload.markers, 'markers');
+    if (rawMarkers.length > MAX_TIMELINE_MARKERS) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.field_too_large', { field: 'markers', max_items: MAX_TIMELINE_MARKERS });
+    }
+    const markers = rawMarkers.map((rawMarker, markerIndex) => {
+      if (!rawMarker || typeof rawMarker !== 'object' || Array.isArray(rawMarker)) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `markers[${markerIndex}]` });
+      }
+      const time = this._timelineRational(rawMarker, 'time', { allowZero: true });
+      if (duration && rationalCompare(time, duration) > 0) {
+        throw new CoreError('TIMELINE_MARKER_OUT_OF_BOUNDS', 'VALIDATION', 'errors.timeline_marker_out_of_bounds', { field: 'time' }, { needsUser: true });
+      }
+      return {
+        time,
+        markerType: enumValue(rawMarker.marker_type ?? rawMarker.markerType ?? rawMarker.type ?? 'NOTE', 'marker_type', /^[A-Z][A-Z0-9_.-]{0,63}$/),
+        label: optionalString(rawMarker.label ?? rawMarker.name, `markers[${markerIndex}].label`, 300, ''),
+        payload: structuredValue(rawMarker.payload ?? {}, `markers[${markerIndex}].payload`, {}, 'object', 32 * 1024),
+      };
+    });
+    markers.sort((left, right) => rationalCompare(left.time, right.time));
+    return markers;
+  }
+
+  _timelineAssetReadiness(assetRevisionId, projectId) {
+    const id = requiredString(assetRevisionId, 'asset_revision_id');
+    const row = this.db.prepare(`SELECT r.id, r.asset_id, r.availability_state, r.review_state, r.availability_evidence_state,
+        a.project_id, a.lifecycle_state AS asset_lifecycle_state,
+        so.storage_class, sol.state AS location_state
+      FROM asset_revisions r
+      JOIN assets a ON a.id = r.asset_id
+      LEFT JOIN storage_objects so ON so.id = r.storage_object_id
+      LEFT JOIN storage_object_locations sol ON sol.id = (
+        SELECT location.id FROM storage_object_locations location
+        WHERE location.storage_object_id = r.storage_object_id AND location.location_role = 'PRIMARY'
+        ORDER BY CASE WHEN location.state = 'AVAILABLE' THEN 0 ELSE 1 END, location.id ASC LIMIT 1
+      )
+      WHERE r.id = ?`).get(id);
+    if (!row) throw new CoreError('ASSET_REVISION_NOT_FOUND', 'VALIDATION', 'errors.asset_revision_not_found', { asset_revision_id: id });
+    if (row.project_id !== projectId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'ASSET_REVISION', entity_id: id, project_id: projectId, actual_project_id: row.project_id,
+      }, { needsUser: true });
+    }
+    const rights = this._rightsForAsset(row.asset_id);
+    if (!rights.eligible) {
+      throw new CoreError('RIGHTS_BLOCKED', 'RIGHTS_BLOCKED', 'errors.timeline_asset_rights_blocked', { asset_revision_id: id }, {
+        needsUser: true,
+        technicalDetails: { rights_status: rights.status },
+      });
+    }
+    const ready = row.asset_lifecycle_state !== 'TRASHED'
+      && row.availability_state === 'AVAILABLE'
+      && row.review_state === 'APPROVED'
+      && row.availability_evidence_state === 'VERIFIED'
+      && row.storage_class !== 'EXTERNAL_REFERENCE'
+      && row.location_state === 'AVAILABLE';
+    if (!ready) {
+      throw new CoreError('TIMELINE_ASSET_NOT_READY', 'CONFLICT', 'errors.timeline_asset_not_ready', { asset_revision_id: id }, { needsUser: true });
+    }
+    return { asset_revision_id: id, asset_id: row.asset_id };
+  }
+
+  _timelineRevisionReadiness(revision, tracks) {
+    const profile = this._mediaProfileRevision(revision.media_profile_revision_id);
+    if (profile.lifecycle_state !== 'APPROVED') {
+      return { state: 'UNKNOWN', nextStep: 'Duyệt Media Profile revision đang được timeline pin trước khi tiếp tục.' };
+    }
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        if (!clip.asset_revision_id) continue;
+        try {
+          this._timelineAssetReadiness(clip.asset_revision_id, revision.project_id);
+        } catch (error) {
+          return { state: 'UNKNOWN', nextStep: error.code === 'RIGHTS_BLOCKED'
+            ? 'Bổ sung rights/consent hợp lệ cho asset trước khi approve timeline.'
+            : 'Kiểm tra asset revision đã materialize, verify và review APPROVED trước khi approve timeline.' };
+        }
+      }
+    }
+    return { state: 'READY', nextStep: null };
+  }
+
+  _timelineRevisionProjection(revisionOrId) {
+    const revision = typeof revisionOrId === 'string' ? this._timelineRevision(revisionOrId) : revisionOrId;
+    const trackRows = this.db.prepare('SELECT * FROM timeline_tracks WHERE timeline_revision_id = ? ORDER BY order_index ASC, id ASC').all(revision.id);
+    const tracks = trackRows.map((track) => {
+      const clips = this.db.prepare('SELECT * FROM timeline_clip_instances WHERE track_id = ?').all(track.id)
+        .sort((left, right) => rationalCompare({ num: Number(left.timeline_in_num), den: Number(left.timeline_in_den) }, { num: Number(right.timeline_in_num), den: Number(right.timeline_in_den) }) || String(left.id).localeCompare(String(right.id)));
+      return publicTimelineTrack(track, clips);
+    });
+    const markerRows = this.db.prepare('SELECT * FROM timeline_markers WHERE timeline_revision_id = ?').all(revision.id)
+      .sort((left, right) => rationalCompare({ num: Number(left.position_num), den: Number(left.position_den) }, { num: Number(right.position_num), den: Number(right.position_den) }) || String(left.id).localeCompare(String(right.id)));
+    const readiness = this._timelineRevisionReadiness(revision, tracks);
+    const revisionView = publicTimelineRevision(revision, tracks, { markers: markerRows.map(publicTimelineMarker).filter(Boolean), readinessState: readiness.state, nextStep: readiness.nextStep });
+    const timeline = publicTimeline(this.db.prepare('SELECT * FROM timelines WHERE id = ?').get(revision.timeline_id));
+    const mediaProfileRevision = publicMediaProfileRevision(this._mediaProfileRevision(revision.media_profile_revision_id));
+    return {
+      timeline,
+      media_profile_revision: mediaProfileRevision,
+      revision: revisionView,
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _createTimeline(payload) {
+    const project = this._project(payload.project_id ?? payload.projectId);
+    this._assertProjectWritable(project);
+    const scopeType = enumValue(payload.scope_type ?? payload.scopeType ?? 'PROJECT', 'scope_type', /^[A-Z]+$/);
+    if (scopeType !== 'PROJECT') throw new CoreError('UNSUPPORTED_TIMELINE_SCOPE', 'VALIDATION', 'errors.unsupported_timeline_scope', { scope_type: scopeType }, { needsUser: true });
+    const scopeId = payload.scope_id ?? payload.scopeId ?? project.id;
+    if (scopeId !== project.id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'PROJECT', entity_id: scopeId, project_id: project.id }, { needsUser: true });
+    const profileRevisionId = payload.media_profile_revision_id ?? payload.mediaProfileRevisionId;
+    const profileRevision = this._mediaProfileRevision(profileRevisionId);
+    if (profileRevision.project_id !== project.id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'MEDIA_PROFILE_REVISION', entity_id: profileRevision.id, project_id: project.id, actual_project_id: profileRevision.project_id }, { needsUser: true });
+    if (profileRevision.lifecycle_state !== 'APPROVED') throw new CoreError('MEDIA_PROFILE_NOT_APPROVED', 'CONFLICT', 'errors.media_profile_not_approved', { media_profile_revision_id: profileRevision.id }, { needsUser: true });
+    const code = requiredString(payload.code, 'code', 64).toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(code)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_timeline_code', {});
+    if (this.db.prepare('SELECT id FROM timelines WHERE project_id = ? AND code = ?').get(project.id, code)) {
+      throw new CoreError('DUPLICATE_TIMELINE_CODE', 'CONFLICT', 'errors.duplicate_timeline_code', { code }, { needsUser: true });
+    }
+    const title = requiredString(payload.title, 'title', 300);
+    const timelineId = uuidv7();
+    const created = nowUtcUs();
+    this.db.prepare(`INSERT INTO timelines
+      (id, project_id, scope_type, scope_id, code, title, lifecycle_state, created_by_actor_id, created_at_utc_us, updated_at_utc_us, row_version)
+      VALUES (?, ?, 'PROJECT', ?, ?, ?, 'ACTIVE', ?, ?, ?, 1)`).run(timelineId, project.id, project.id, code, title, this.actorId, created, created);
+    const timeline = publicTimeline(this.db.prepare('SELECT * FROM timelines WHERE id = ?').get(timelineId));
+    return {
+      projectId: project.id,
+      result: { timeline, media_profile_revision: publicMediaProfileRevision(profileRevision) },
+      event: { aggregateType: 'TIMELINE', aggregateId: timelineId, aggregateVersion: 1, eventType: 'TIMELINE_CREATED', payload: { timeline_id: timelineId, project_id: project.id, code, media_profile_revision_id: profileRevision.id } },
+      audit: { actionType: 'timeline.create', targetType: 'TIMELINE', targetId: timelineId, payload: { project_id: project.id, code, media_profile_revision_id: profileRevision.id } },
+    };
+  }
+
+  _createTimelineRevision(payload, expectedVersions) {
+    const timeline = this._timeline(payload.timeline_id ?? payload.timelineId);
+    this._assertPayloadProjectScope(payload, timeline.project_id, 'TIMELINE', timeline.id);
+    const project = this._project(timeline.project_id);
+    this._assertProjectWritable(project);
+    if (timeline.lifecycle_state !== 'ACTIVE') throw new CoreError('TIMELINE_NOT_WRITABLE', 'CONFLICT', 'errors.timeline_not_writable', { state: timeline.lifecycle_state }, { needsUser: true });
+    this._expectedVersion(expectedVersions, 'TIMELINE', timeline.id, timeline.row_version);
+    const profileRevisionId = payload.media_profile_revision_id ?? payload.mediaProfileRevisionId;
+    const profileRevision = this._mediaProfileRevision(profileRevisionId);
+    if (profileRevision.project_id !== project.id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'MEDIA_PROFILE_REVISION', entity_id: profileRevision.id, project_id: project.id, actual_project_id: profileRevision.project_id }, { needsUser: true });
+    if (profileRevision.lifecycle_state !== 'APPROVED') throw new CoreError('MEDIA_PROFILE_NOT_APPROVED', 'CONFLICT', 'errors.media_profile_not_approved', { media_profile_revision_id: profileRevision.id }, { needsUser: true });
+    const tracks = this._normalizeTimelineTracks(payload);
+    const duration = this._timelineRational(payload, 'duration', { allowZero: false });
+    if (duration.num > MAX_TIMELINE_DURATION_TICKS) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'duration' });
+    const markers = this._normalizeTimelineMarkers(payload, duration);
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        if (rationalCompare(clip.timelineOut, duration) > 0) throw new CoreError('TIMELINE_CLIP_OUT_OF_BOUNDS', 'VALIDATION', 'errors.timeline_clip_out_of_bounds', { field: 'timeline_out' }, { needsUser: true });
+        if (clip.assetRevisionId) this._timelineAssetReadiness(clip.assetRevisionId, project.id);
+      }
+    }
+    const content = {
+      media_profile_revision_id: profileRevision.id,
+      duration,
+      tracks: tracks.map((track) => ({
+        track_type: track.trackType,
+        order_index: track.orderIndex,
+        name: track.name,
+        enabled: Boolean(track.enabled),
+        clips: track.clips.map((clip) => ({
+          asset_revision_id: clip.assetRevisionId,
+          source_in: clip.sourceIn,
+          source_out: clip.sourceOut,
+          timeline_in: clip.timelineIn,
+          timeline_out: clip.timelineOut,
+          speed: clip.speed,
+        })),
+      })),
+      markers,
+    };
+    const contentHash = crypto.createHash('sha256').update(canonicalJson(content)).digest('hex');
+    const latest = this.db.prepare('SELECT COALESCE(MAX(revision_number), 0) AS revision_number FROM timeline_revisions WHERE timeline_id = ?').get(timeline.id);
+    const revisionId = uuidv7();
+    const revisionNumber = Number(latest.revision_number) + 1;
+    const created = nowUtcUs();
+    this.db.prepare(`INSERT INTO timeline_revisions
+      (id, timeline_id, media_profile_revision_id, revision_number, lifecycle_state, duration_num, duration_den, content_hash, created_by_actor_id, created_at_utc_us, row_version)
+      VALUES (?, ?, ?, ?, 'DRAFT_CHECKPOINT', ?, ?, ?, ?, ?, 1)`).run(
+      revisionId, timeline.id, profileRevision.id, revisionNumber, duration.num, duration.den, contentHash, this.actorId, created,
+    );
+    for (const track of tracks) {
+      const trackId = uuidv7();
+      this.db.prepare(`INSERT INTO timeline_tracks(id, timeline_revision_id, track_type, order_index, name, enabled, created_at_utc_us)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(trackId, revisionId, track.trackType, track.orderIndex, track.name, track.enabled, created);
+      for (const clip of track.clips) {
+        this.db.prepare(`INSERT INTO timeline_clip_instances
+          (id, track_id, asset_revision_id, source_in_num, source_in_den, source_out_num, source_out_den,
+           timeline_in_num, timeline_in_den, timeline_out_num, timeline_out_den, speed_num, speed_den, created_at_utc_us)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          uuidv7(), trackId, clip.assetRevisionId,
+          clip.sourceIn?.num ?? null, clip.sourceIn?.den ?? null, clip.sourceOut?.num ?? null, clip.sourceOut?.den ?? null,
+          clip.timelineIn.num, clip.timelineIn.den, clip.timelineOut.num, clip.timelineOut.den, clip.speed.num, clip.speed.den, created,
+        );
+      }
+    }
+    for (const marker of markers) {
+      this.db.prepare(`INSERT INTO timeline_markers
+        (id, timeline_revision_id, position_num, position_den, marker_type, label, payload_json, created_at_utc_us)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        uuidv7(), revisionId, marker.time.num, marker.time.den, marker.markerType, marker.label, json(marker.payload), created,
+      );
+    }
+    const timelineVersion = Number(timeline.row_version) + 1;
+    this.db.prepare('UPDATE timelines SET updated_at_utc_us = ?, row_version = ? WHERE id = ?').run(nowUtcUs(), timelineVersion, timeline.id);
+    const projection = this._timelineRevisionProjection(revisionId);
+    return {
+      projectId: project.id,
+      result: projection,
+      event: { aggregateType: 'TIMELINE', aggregateId: timeline.id, aggregateVersion: timelineVersion, eventType: 'TIMELINE_REVISION_CREATED', payload: { timeline_id: timeline.id, timeline_revision_id: revisionId, revision_number: revisionNumber, content_hash: contentHash } },
+      audit: { actionType: 'timeline.revision.create', targetType: 'TIMELINE_REVISION', targetId: revisionId, payload: { timeline_id: timeline.id, project_id: project.id, revision_number: revisionNumber, content_hash: contentHash } },
+    };
+  }
+
+  _transitionTimelineRevision(payload, expectedVersions) {
+    const info = this._timelineRevision(payload.timeline_revision_id ?? payload.timelineRevisionId ?? payload.revision_id ?? payload.revisionId);
+    this._assertPayloadProjectScope(payload, info.project_id, 'TIMELINE_REVISION', info.id);
+    const project = this._project(info.project_id);
+    this._assertProjectWritable(project);
+    const timeline = this._timeline(info.timeline_id);
+    if (timeline.lifecycle_state !== 'ACTIVE') throw new CoreError('TIMELINE_NOT_WRITABLE', 'CONFLICT', 'errors.timeline_not_writable', { state: timeline.lifecycle_state }, { needsUser: true });
+    this._expectedVersion(expectedVersions, 'REVISION', info.id, info.row_version);
+    const nextState = enumValue(payload.next_state ?? payload.nextState ?? payload.state, 'next_state', /^[A-Z_]+$/);
+    if (!TIMELINE_REVISION_STATES.has(nextState) || !TIMELINE_REVISION_TRANSITIONS[info.lifecycle_state]?.has(nextState)) {
+      throw new CoreError('INVALID_STATE_TRANSITION', 'CONFLICT', 'errors.invalid_state_transition', { from: info.lifecycle_state, to: nextState }, { needsUser: true });
+    }
+    const profile = this._mediaProfileRevision(info.media_profile_revision_id);
+    if (nextState === 'APPROVED') {
+      if (profile.lifecycle_state !== 'APPROVED') throw new CoreError('MEDIA_PROFILE_NOT_APPROVED', 'CONFLICT', 'errors.media_profile_not_approved', { media_profile_revision_id: profile.id }, { needsUser: true });
+      const tracks = this.db.prepare('SELECT * FROM timeline_tracks WHERE timeline_revision_id = ? ORDER BY order_index ASC, id ASC').all(info.id);
+      for (const track of tracks) {
+        const clips = this.db.prepare('SELECT * FROM timeline_clip_instances WHERE track_id = ? ORDER BY id ASC').all(track.id);
+        for (const clip of clips) if (clip.asset_revision_id) this._timelineAssetReadiness(clip.asset_revision_id, info.project_id);
+      }
+    }
+    const currentApproved = nextState === 'APPROVED'
+      ? this.db.prepare(`SELECT id FROM timeline_revisions WHERE timeline_id = ? AND lifecycle_state = 'APPROVED' AND id != ?`).get(info.timeline_id, info.id)
+      : null;
+    const supersededRevisionId = currentApproved?.id ?? null;
+    if (supersededRevisionId) this.db.prepare(`UPDATE timeline_revisions SET lifecycle_state = 'SUPERSEDED', row_version = row_version + 1 WHERE id = ?`).run(supersededRevisionId);
+    const nextVersion = Number(info.row_version) + 1;
+    this.db.prepare('UPDATE timeline_revisions SET lifecycle_state = ?, row_version = ? WHERE id = ?').run(nextState, nextVersion, info.id);
+    const timelineVersion = Number(timeline.row_version) + 1;
+    this.db.prepare('UPDATE timelines SET updated_at_utc_us = ?, row_version = ? WHERE id = ?').run(nowUtcUs(), timelineVersion, timeline.id);
+    const projection = this._timelineRevisionProjection(info.id);
+    return {
+      projectId: info.project_id,
+      result: { ...projection, superseded_revision_id: supersededRevisionId },
+      event: { aggregateType: 'TIMELINE', aggregateId: timeline.id, aggregateVersion: timelineVersion, eventType: `TIMELINE_REVISION_${nextState}`, payload: { timeline_id: timeline.id, timeline_revision_id: info.id, lifecycle_state: nextState, superseded_revision_id: supersededRevisionId } },
+      audit: { actionType: 'timeline.revision.transition', targetType: 'TIMELINE_REVISION', targetId: info.id, payload: { timeline_id: timeline.id, from: info.lifecycle_state, to: nextState, superseded_revision_id: supersededRevisionId } },
+    };
+  }
+
+  _timelineList(params = {}) {
+    const projectId = params.project_id ?? params.projectId ?? null;
+    if (projectId) this._project(projectId);
+    const includeTrashed = Boolean(params.include_trashed ?? params.includeTrashed);
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = projectId
+      ? this.db.prepare(`SELECT * FROM timelines WHERE project_id = ? AND (? = 1 OR lifecycle_state != 'TRASHED') ORDER BY created_at_utc_us DESC, id DESC LIMIT ?`).all(projectId, includeTrashed ? 1 : 0, limit)
+      : this.db.prepare(`SELECT * FROM timelines WHERE (? = 1 OR lifecycle_state != 'TRASHED') ORDER BY created_at_utc_us DESC, id DESC LIMIT ?`).all(includeTrashed ? 1 : 0, limit);
+    const timelines = rows.map((row) => {
+      const revisions = this.db.prepare('SELECT * FROM timeline_revisions WHERE timeline_id = ? ORDER BY revision_number DESC').all(row.id);
+      const summaries = revisions.map((revision) => {
+        const tracks = this.db.prepare('SELECT * FROM timeline_tracks WHERE timeline_revision_id = ? ORDER BY order_index ASC, id ASC').all(revision.id).map((track) => publicTimelineTrack(track, this.db.prepare('SELECT * FROM timeline_clip_instances WHERE track_id = ? ORDER BY id ASC').all(track.id)));
+        const readiness = this._timelineRevisionReadiness(revision, tracks);
+        return publicTimelineRevision(revision, [], { readinessState: readiness.state, nextStep: readiness.nextStep });
+      });
+      return { ...publicTimeline(row), approved_revision: summaries.find((revision) => revision.lifecycle_state === 'APPROVED') ?? null, candidate_revisions: summaries.filter((revision) => ['DRAFT_CHECKPOINT', 'CANDIDATE'].includes(revision.lifecycle_state)) };
+    });
+    return { timelines, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _timelineWorkspace(timelineId, requestedProjectId = null) {
+    const timeline = this._timeline(timelineId);
+    if (requestedProjectId !== null && requestedProjectId !== undefined && requestedProjectId !== timeline.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE', entity_id: timeline.id, project_id: requestedProjectId, actual_project_id: timeline.project_id }, { needsUser: true });
+    }
+    const revisions = this.db.prepare('SELECT * FROM timeline_revisions WHERE timeline_id = ? ORDER BY revision_number DESC').all(timeline.id);
+    const projections = revisions.map((revision) => this._timelineRevisionProjection(revision.id));
+    const profileRevisionId = revisions[0]?.media_profile_revision_id ?? null;
+    return {
+      timeline: publicTimeline(timeline),
+      media_profile_revision: profileRevisionId ? publicMediaProfileRevision(this._mediaProfileRevision(profileRevisionId)) : null,
+      revisions: projections.map((projection) => projection.revision),
+      approved_revision: projections.find((projection) => projection.revision.lifecycle_state === 'APPROVED')?.revision ?? null,
+      candidate_revisions: projections.filter((projection) => ['DRAFT_CHECKPOINT', 'CANDIDATE'].includes(projection.revision.lifecycle_state)).map((projection) => projection.revision),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
     };
   }
 
@@ -3485,6 +4229,9 @@ export class CoreService {
     if (aggregateType === 'RIGHTS_RECORD') return this.db.prepare('SELECT ri.project_id FROM rights_records rr JOIN rights_identities ri ON ri.id = rr.rights_identity_id WHERE rr.id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'CONSENT') return this.db.prepare('SELECT ri.project_id FROM consents c JOIN rights_identities ri ON ri.id = c.rights_identity_id WHERE c.id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'RIGHTS_REVOCATION') return this.db.prepare('SELECT ri.project_id FROM revocations r JOIN rights_identities ri ON ri.id = r.rights_identity_id WHERE r.id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'MEDIA_PROFILE') return this.db.prepare('SELECT project_id FROM project_media_profiles WHERE id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'TIMELINE') return this.db.prepare('SELECT project_id FROM timelines WHERE id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'TIMELINE_REVISION') return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(aggregateId)?.project_id ?? null;
     return null;
   }
 
@@ -3619,6 +4366,10 @@ export class CoreService {
         }
         return projection;
       }
+      case 'query.media_profile.workspace':
+      case 'query.media_profile.get': return this._mediaProfileWorkspace(params.project_id ?? params.projectId);
+      case 'query.timeline.list': return this._timelineList(params);
+      case 'query.timeline.workspace': return this._timelineWorkspace(params.timeline_id ?? params.timelineId, params.project_id ?? params.projectId ?? null);
       case 'query.asset.rights': return this._rightsForAsset(params.asset_id ?? params.assetId, params);
       case 'query.rights.evaluate': return this._evaluateRights(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
       case 'query.rights.identity': return this._rightsIdentityDetails(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
@@ -3775,7 +4526,9 @@ export class CoreService {
        UNION SELECT id FROM asset_revisions WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?)
        UNION SELECT id FROM decision_requests WHERE project_id = ?
        UNION SELECT id FROM characters WHERE project_id = ?
-      ) ORDER BY seq DESC LIMIT ?`).all(projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit);
+       UNION SELECT id FROM timelines WHERE project_id = ?
+       UNION SELECT id FROM project_media_profiles WHERE project_id = ?
+       ) ORDER BY seq DESC LIMIT ?`).all(projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit);
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
@@ -3806,7 +4559,9 @@ export class CoreService {
       WHERE lower(code) LIKE ? OR lower(title) LIKE ? ORDER BY code LIMIT 50`).all(like, like).map(rowObject);
     const characters = this.db.prepare(`SELECT id, 'CHARACTER' AS entity_type, stable_code AS code, display_name AS title, lifecycle_state, project_id FROM characters
       WHERE lower(stable_code) LIKE ? OR lower(display_name) LIKE ? ORDER BY display_name LIMIT 50`).all(like, like).map(rowObject);
-    return { exact: [...projects, ...tasks, ...shots, ...characters], semantic: [], projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+    const timelines = this.db.prepare(`SELECT id, 'TIMELINE' AS entity_type, code, title, lifecycle_state, project_id FROM timelines
+      WHERE lower(code) LIKE ? OR lower(title) LIKE ? ORDER BY title LIMIT 50`).all(like, like).map(rowObject);
+    return { exact: [...projects, ...tasks, ...shots, ...characters, ...timelines], semantic: [], projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
   _storageSummary() {

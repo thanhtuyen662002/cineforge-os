@@ -140,6 +140,147 @@ export interface CharacterRevisionInput {
   fields?: Record<string, unknown>
 }
 
+/** Canonical media/timeline time is a checked rational. The UI keeps large
+ * components as strings when Core cannot represent them as safe JS integers;
+ * it never converts them to floating-point seconds. */
+export interface RationalValue {
+  num: number | string
+  den: number | string
+}
+
+export type MediaProfileRevisionState = 'DRAFT' | 'CANDIDATE' | 'APPROVED' | 'SUPERSEDED' | 'REJECTED' | string
+
+export interface MediaProfileRevision {
+  id?: string
+  profileId?: string
+  projectId?: string
+  revisionNumber?: number
+  state: MediaProfileRevisionState
+  rowVersion: number
+  timelineRate: RationalValue
+  timeBase: RationalValue
+  dropFramePolicy: string
+  width: number
+  height: number
+  pixelAspect: RationalValue
+  workingColorSpace: string
+  transferFunction: string
+  hdrPolicy: string
+  audioSampleRate: number
+  audioChannelLayout: string
+  createdAt?: string
+}
+
+export interface MediaProfileWorkspace {
+  profile: { id?: string; projectId?: string }
+  revisions: MediaProfileRevision[]
+  approvedRevision: MediaProfileRevision | null
+  candidateRevisions: MediaProfileRevision[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export interface MediaProfileInput {
+  timelineRate: RationalValue
+  timeBase: RationalValue
+  pixelAspect: RationalValue
+  width: number
+  height: number
+  dropFramePolicy?: string
+  workingColorSpace: string
+  transferFunction: string
+  hdrPolicy: string
+  audioSampleRate: number
+  audioChannelLayout: string
+  proxyProfile?: Record<string, unknown>
+  masteringTargets?: Record<string, unknown>
+}
+
+export type TimelineRevisionState = 'DRAFT_CHECKPOINT' | 'CANDIDATE' | 'APPROVED' | 'SUPERSEDED' | string
+
+export interface TimelineMarker {
+  id?: string
+  time: RationalValue
+  markerType: string
+  label: string
+}
+
+export interface TimelineClip {
+  id?: string
+  assetRevisionId?: string
+  timelineIn: RationalValue
+  timelineOut: RationalValue
+  sourceIn?: RationalValue | null
+  sourceOut?: RationalValue | null
+  speed: RationalValue
+  label?: string
+}
+
+export interface TimelineTrack {
+  id?: string
+  trackType: string
+  orderIndex: number
+  name: string
+  enabled: boolean
+  clips: TimelineClip[]
+}
+
+export interface TimelineRevision {
+  id?: string
+  timelineId?: string
+  mediaProfileRevisionId?: string
+  revisionNumber?: number
+  state: TimelineRevisionState
+  rowVersion: number
+  duration: RationalValue
+  editHash?: string
+  tracks: TimelineTrack[]
+  markers: TimelineMarker[]
+  readinessState: string
+  nextStep?: string
+  createdAt?: string
+}
+
+export interface TimelineSummary {
+  id?: string
+  projectId?: string
+  scopeType: string
+  scopeId?: string
+  code?: string
+  title: string
+  state: string
+  rowVersion: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface TimelineWorkspace {
+  timeline: TimelineSummary
+  mediaProfile: MediaProfileWorkspace | null
+  revisions: TimelineRevision[]
+  currentRevision: TimelineRevision | null
+  needsYou: unknown[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export interface TimelineInput {
+  title: string
+  code?: string
+  scopeType?: 'PROJECT'
+  scopeId?: string
+  /** Approved media profile revision pinned by the timeline. */
+  mediaProfileRevisionId: string
+}
+
+export interface TimelineSnapshotInput {
+  mediaProfileRevisionId: string
+  /** Positive checked rational duration for this immutable checkpoint. */
+  duration: RationalValue
+  tracks: Array<Partial<TimelineTrack> & { trackType: 'VIDEO'; clips: TimelineClip[] }>
+  markers: TimelineMarker[]
+}
+
 export type RightsState = 'ALLOWED' | 'RESTRICTED' | 'UNKNOWN' | 'REVOKED' | 'EXPIRED'
 
 export interface RightsSummary {
@@ -306,4 +447,12 @@ export interface CoreClient {
   createVisualIdentityRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
   createVoiceIdentityRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
   createPerformanceBibleRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
+  getMediaProfile?(projectId: string, signal?: AbortSignal): Promise<MediaProfileWorkspace>
+  createMediaProfileRevision?(projectId: string, input: MediaProfileInput, idempotencyKey?: string): Promise<MediaProfileWorkspace>
+  transitionMediaProfileRevision?(projectId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string): Promise<MediaProfileWorkspace>
+  getTimelines?(projectId: string, signal?: AbortSignal): Promise<TimelineSummary[]>
+  getTimelineWorkspace?(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace>
+  createTimeline?(projectId: string, input: TimelineInput, idempotencyKey?: string): Promise<TimelineSummary>
+  createTimelineRevision?(projectId: string, timelineId: string, input: TimelineSnapshotInput, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
+  transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
 }

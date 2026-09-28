@@ -188,8 +188,9 @@ Common query methods:
 - `query.scene.workspace`
 - `query.shot.workspace`
 - `query.character.workspace`
-- `query.timeline.get`
-- `query.timeline.impact`
+- `query.media_profile.workspace`
+- `query.timeline.list`
+- `query.timeline.workspace`
 - `query.connections`
 - `query.connection.detail`
 - `query.jobs`
@@ -283,7 +284,6 @@ not raw unrestricted user filesystem permissions.
 ## Project
 - CreateProject
 - UpdateProjectMetadata
-- ChangeProjectMediaProfile
 - PauseProject
 - ArchiveProject
 - TrashProject
@@ -342,8 +342,16 @@ not raw unrestricted user filesystem permissions.
 - ApplyTimelineEditOp
 - UndoTimelineEditOp
 - RedoTimelineEditOp
-- CheckpointTimeline
-- ApproveTimelineRevision
+- CreateMediaProfileRevision
+- TransitionMediaProfileRevision
+- CreateTimeline
+- CreateTimelineRevision
+- TransitionTimelineRevision
+
+For Issue #21, the five commands above are the bounded executable contract.
+The working-session, edit-operation and undo/redo commands remain deferred and
+must not be advertised as available runtime commands until their own
+implementation evidence exists.
 
 ## Connections
 - AddConnection
@@ -507,6 +515,117 @@ returns language-by-language and dialogue/shot impact before voice replacement.
 
 # 16. Timeline API detail
 
+## Issue #21 bounded media-profile/checkpoint contract
+
+This is the first executable contract boundary for the canonical timeline. The
+Issue #21 bounded slice is project-scoped and stores an immutable, auditable
+checkpoint. It does not open an editor session or render media. The runtime
+names below are the names exposed by Core and its loopback HTTP adapter.
+
+`CreateMediaProfileRevision` creates a new immutable profile revision. Its
+payload is explicit and must contain:
+
+```json
+{
+  "project_id": "project-id",
+  "profile": {
+    "timeline_rate_num": 24000,
+    "timeline_rate_den": 1001,
+    "timeline_time_base_num": 1001,
+    "timeline_time_base_den": 24000,
+    "width": 1920,
+    "height": 1080,
+    "pixel_aspect_num": 1,
+    "pixel_aspect_den": 1,
+    "working_color_space": "REC709",
+    "transfer_function": "SDR",
+    "hdr_policy": "DISABLED",
+    "audio_sample_rate": 48000,
+    "audio_channel_layout": "STEREO",
+    "proxy_profile": {},
+    "mastering_targets": {}
+  }
+}
+```
+
+The Core canonicalizes and checks rate/time-base/pixel-aspect rationals
+(positive denominator, reduced fraction, bounded integer range). Unknown
+technical values remain `UNKNOWN`; a client cannot make them pass by supplying
+a label. A non-integer rate such as 24000/1001 is never represented as an
+integer rate with a cosmetic label. Drop-frame policy is reserved for a later
+timecode contract and is not inferred by this checkpoint baseline.
+The response identifies the newly created profile revision and its lifecycle
+state. The command never rewrites an existing revision or silently changes the
+project's timeline profile.
+
+`CreateTimelineRevision` accepts a complete typed snapshot for this bounded
+mode:
+
+```json
+{
+  "project_id": "project-id",
+  "timeline_id": "timeline-id",
+  "media_profile_revision_id": "profile-revision-id",
+  "expected_versions": {"timeline": 7},
+  "duration": {"num": 24000, "den": 1001},
+  "tracks": [
+    {"track_type": "VIDEO", "order_index": 0, "name": "Picture", "enabled": true, "clips": []}
+  ],
+  "markers": []
+}
+```
+
+The snapshot must be project-scoped, bounded in size, and contain only VIDEO
+tracks, clip instances and markers. Every clip pins an exact materialized
+`asset_revision_id`; source/timeline intervals and positive constant speed are
+validated as checked rationals. The command computes a deterministic
+`content_hash`, writes one `DRAFT_CHECKPOINT` revision in one transaction, and
+returns the revision identity, hash, pinned profile revision and validation
+summary. It is idempotent through the normal command envelope. An equivalent
+retry replays the original result; a reused key with changed content or
+preconditions returns `IDEMPOTENCY_KEY_REUSE_CONFLICT`.
+
+`TransitionTimelineRevision` is a separate explicit command. It accepts only an
+exact candidate revision and expected version, revalidates the pinned profile,
+asset availability/evidence and effective rights, and then promotes the
+revision while superseding the previous approved revision. `UNKNOWN`,
+`MISSING`, `CORRUPT`, `QUARANTINED`, `RESTRICTED`, `EXPIRED` or `REVOKED`
+inputs remain blocked. Approval never resolves a profile or asset by
+`latest`.
+
+The bounded read surface is:
+
+- `query.media_profile.workspace` returns the project profile, immutable
+  revisions, approved revision and candidate revisions.
+- `query.timeline.list` returns project-scoped timeline identities and row
+  versions.
+- `query.timeline.workspace` returns one timeline workspace with its pinned
+  profile revision, bounded checkpoint revisions, tracks, clips, markers,
+  readiness and `next_step`.
+
+All stale-capable responses include `projection_seq`, `generated_at` and
+relevant entity/revision versions. The loopback adapter exposes these reads as
+`GET /v1/projects/{project_id}/media-profile`,
+`GET /v1/projects/{project_id}/timelines` and
+`GET /v1/projects/{project_id}/timelines/{timeline_id}/workspace`. Mutations
+use the corresponding project-scoped POST routes and still reach Core's
+audited command gate, so audit and idempotency cannot be bypassed.
+
+The adapter maps malformed rationals, unsupported snapshot fields and bounds
+violations to `400 VALIDATION`; an unknown project/timeline/profile/checkpoint
+to `404`; stale expected versions, cross-project references, blocked rights or
+readiness and immutable-revision conflicts to `409 CONFLICT` (with
+`needs_user` where a decision is required). A `503` is reserved for an actual
+Core/worker availability failure. Internal paths, provider fields and raw
+snapshot payloads are redacted from public errors.
+
+The following are explicitly deferred from Issue #21: timeline working
+sessions, autosave/undo/redo edit operations, collaboration or branch merge,
+playback, thumbnail/waveform generation, audio/caption/transition editing,
+render, external-editor handoff, export and release integration. The methods
+and operation names below describe the later working-session contract and are
+not evidence that this bounded slice is implemented.
+
 Working session methods:
 - `timeline.begin_session`
 - `timeline.apply_ops`
@@ -531,6 +650,10 @@ Operations are typed:
 - REMOVE_TRANSITION
 - ADD_MARKER
 - UPDATE_CAPTION
+
+These operation names belong to the deferred working-session contract. They
+must not be accepted by the Issue #21 snapshot command; unsupported track or
+operation payloads fail validation instead of being silently ignored.
 
 Batch application is atomic at working-session level where possible.
 

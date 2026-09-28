@@ -795,3 +795,142 @@ test('HTTP local backup routes expose redacted metadata, admission and verificat
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('HTTP timeline/profile routes use typed commands and redact unsafe fields', async () => {
+  const calls = [];
+  const core = {
+    handle(request) {
+      calls.push(request);
+      if (request.method === 'query.media_profile.workspace') return {
+        ok: true,
+        result: {
+          profile: {
+            id: 'profile-1', project_id: 'project-1', provider_path: 'C:/private/provider',
+            revisions: [{
+              id: 'profile-rev-1', profile_id: 'profile-1', project_id: 'project-1', revision_number: 1,
+              lifecycle_state: 'CANDIDATE', row_version: 2,
+              timeline_rate: { num: 24000, den: 1001 }, time_base: { num: 1001, den: 24000 }, pixel_aspect: { num: 1, den: 1 },
+              width: 1920, height: 1080, working_color_space: 'REC709', transfer_function: 'SDR', hdr_policy: 'DISABLED',
+              audio_sample_rate: 48000, audio_channel_layout: 'STEREO', provider_id: 'secret-provider',
+            }],
+          },
+          projection_seq: 8, generated_at: '2026-01-01T00:00:00.000Z',
+        },
+      };
+      if (request.method === 'query.timeline.list') return {
+        ok: true,
+        result: { timelines: [{ id: 'timeline-1', project_id: 'project-1', scope_type: 'PROJECT', scope_id: 'project-1', title: 'Picture', row_version: 3, provider_path: 'C:/private' }], projection_seq: 9 },
+      };
+      if (request.method === 'query.timeline.workspace') return {
+        ok: true,
+        result: {
+          timeline: { id: 'timeline-1', project_id: 'project-1', scope_type: 'PROJECT', title: 'Picture', row_version: 3 },
+          media_profile: {
+            profile: { id: 'profile-1', project_id: 'project-1' },
+            revisions: [{ id: 'profile-rev-1', project_id: 'project-1', lifecycle_state: 'APPROVED', timeline_rate: { num: 24, den: 1 }, time_base: { num: 1, den: 24 }, pixel_aspect: { num: 1, den: 1 }, width: 1920, height: 1080 }],
+          },
+          revisions: [{
+            id: 'timeline-rev-1', timeline_id: 'timeline-1', media_profile_revision_id: 'profile-rev-1', lifecycle_state: 'DRAFT_CHECKPOINT',
+            duration: { num: 48, den: 1 }, edit_hash: 'hash-1',
+            tracks: [{ id: 'track-1', track_type: 'VIDEO', order_index: 0, name: 'Picture', clips: [{
+              id: 'clip-1', asset_revision_id: 'asset-rev-1', timeline_in: { num: 0, den: 1 }, timeline_out: { num: 48, den: 1 },
+              source_in: { num: 10, den: 1 }, source_out: { num: 58, den: 1 }, speed: { num: 1, den: 1 }, provider_path: 'C:/private',
+            }] }],
+            markers: [{ id: 'marker-1', time: { num: 12, den: 1 }, marker_type: 'NOTE', label: 'Beat', payload: { provider_path: 'C:/private' } }],
+          }],
+          needs_you: [], projection_seq: 10,
+        },
+      };
+      if (request.method === 'command.execute') {
+        const type = request.params.command_type;
+        if (type === 'CreateTimeline') return { ok: true, result: { id: 'timeline-2', project_id: 'project-1', scope_type: 'PROJECT', title: 'New timeline', row_version: 1 } };
+        if (type === 'CreateTimelineRevision' || type === 'TransitionTimelineRevision') return { ok: true, result: {
+          timeline: { id: 'timeline-1', project_id: 'project-1', title: 'Picture', row_version: 4 },
+          revision: { id: 'timeline-rev-1', timeline_id: 'timeline-1', media_profile_revision_id: 'profile-rev-1', lifecycle_state: type === 'TransitionTimelineRevision' ? 'CANDIDATE' : 'DRAFT_CHECKPOINT', row_version: 2, duration: { num: 48, den: 1 }, content_hash: 'c'.repeat(64), tracks: [], markers: [] },
+          media_profile_revision: { id: 'profile-rev-1', profile_id: 'profile-1', project_id: 'project-1', lifecycle_state: 'APPROVED', row_version: 2, timeline_rate: { num: 24, den: 1 }, time_base: { num: 1, den: 24 }, pixel_aspect: { num: 1, den: 1 } },
+        } };
+        if (type === 'CreateMediaProfileRevision' || type === 'TransitionMediaProfileRevision') return { ok: true, result: { profile: { id: 'profile-1', project_id: 'project-1', revisions: [{ id: 'profile-rev-2', project_id: 'project-1', lifecycle_state: 'CANDIDATE', timeline_rate: { num: 24, den: 1 }, time_base: { num: 1, den: 24 }, pixel_aspect: { num: 1, den: 1 } }] } } };
+      }
+      return { ok: false, error: { code: 'NOT_FOUND', category: 'VALIDATION' } };
+    },
+  };
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, {
+      ...options,
+      headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+    });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const profile = await jsonRequest('/v1/projects/project-1/media-profile');
+    assert.equal(profile.response.status, 200);
+    assert.equal(profile.payload.result.profile.id, 'profile-1');
+    assert.equal(profile.payload.result.revisions[0].timelineRate.num, 24000);
+    assert.equal(Object.hasOwn(profile.payload.result.revisions[0], 'providerId'), false);
+    assert.equal(Object.hasOwn(profile.payload.result.profile, 'provider_path'), false);
+
+    const createdProfile = await jsonRequest('/v1/projects/project-1/media-profile', {
+      method: 'POST', headers: { 'idempotency-key': 'profile-create' },
+      body: JSON.stringify({ timeline_rate: { num: 24, den: 1 }, time_base: { num: 1, den: 24 }, pixel_aspect: { num: 1, den: 1 }, width: 1920, height: 1080, working_color_space: 'REC709', transfer_function: 'SDR', hdr_policy: 'DISABLED', audio_sample_rate: 48000, audio_channel_layout: 'STEREO' }),
+    });
+    assert.equal(createdProfile.response.status, 200);
+    assert.equal(createdProfile.payload.result.revisions[0].id, 'profile-rev-2');
+
+    const transitionedProfile = await jsonRequest('/v1/projects/project-1/media-profile/revisions/profile-rev-1/transition', {
+      method: 'POST', headers: { 'idempotency-key': 'profile-transition' }, body: JSON.stringify({ next_state: 'APPROVED', expected_version: 2 }),
+    });
+    assert.equal(transitionedProfile.response.status, 200);
+
+    const timelines = await jsonRequest('/v1/projects/project-1/timelines');
+    assert.equal(timelines.response.status, 200);
+    assert.equal(timelines.payload.result.timelines[0].id, 'timeline-1');
+    assert.equal(Object.hasOwn(timelines.payload.result.timelines[0], 'provider_path'), false);
+
+    const workspace = await jsonRequest('/v1/projects/project-1/timelines/timeline-1/workspace');
+    assert.equal(workspace.response.status, 200);
+    assert.equal(workspace.payload.result.currentRevision.id, 'timeline-rev-1');
+    assert.equal(workspace.payload.result.currentRevision.tracks[0].clips[0].assetRevisionId, 'asset-rev-1');
+    assert.equal(Object.hasOwn(workspace.payload.result.currentRevision.tracks[0].clips[0], 'provider_path'), false);
+    assert.equal(Object.hasOwn(workspace.payload.result.currentRevision.markers[0], 'payload'), false);
+
+    const timeline = await jsonRequest('/v1/projects/project-1/timelines', {
+      method: 'POST', headers: { 'idempotency-key': 'timeline-create' }, body: JSON.stringify({ title: 'New timeline', scope_type: 'PROJECT', media_profile_revision_id: 'profile-rev-1' }),
+    });
+    assert.equal(timeline.response.status, 200);
+    assert.equal(timeline.payload.result.id, 'timeline-2');
+
+    const revision = await jsonRequest('/v1/projects/project-1/timelines/timeline-1/revisions', {
+      method: 'POST', headers: { 'idempotency-key': 'timeline-revision' }, body: JSON.stringify({ media_profile_revision_id: 'profile-rev-1', snapshot: { duration: { num: 48, den: 1 }, tracks: [], clips: [], markers: [] }, expected_version: 3 }),
+    });
+    assert.equal(revision.response.status, 200);
+    assert.equal(revision.payload.result.currentRevision.id, 'timeline-rev-1');
+    assert.equal(revision.payload.result.currentRevision.editHash, 'c'.repeat(64));
+    assert.equal(revision.payload.result.mediaProfile.approvedRevision.id, 'profile-rev-1');
+
+    const transitioned = await jsonRequest('/v1/projects/project-1/timelines/timeline-1/revisions/timeline-rev-1/transition', {
+      method: 'POST', headers: { 'idempotency-key': 'timeline-transition' }, body: JSON.stringify({ next_state: 'CANDIDATE', expected_version: 1 }),
+    });
+    assert.equal(transitioned.response.status, 200);
+
+    const queries = calls.filter((call) => call.method.startsWith('query.'));
+    assert.equal(queries.find((call) => call.method === 'query.media_profile.workspace').params.project_id, 'project-1');
+    assert.equal(queries.find((call) => call.method === 'query.timeline.list').params.project_id, 'project-1');
+    assert.equal(queries.find((call) => call.method === 'query.timeline.workspace').params.timeline_id, 'timeline-1');
+    const commands = calls.filter((call) => call.method === 'command.execute');
+    assert.deepEqual(commands.map((call) => call.params.command_type), ['CreateMediaProfileRevision', 'TransitionMediaProfileRevision', 'CreateTimeline', 'CreateTimelineRevision', 'TransitionTimelineRevision']);
+    assert.equal(commands[0].params.payload.project_id, 'project-1');
+    assert.equal(commands[0].params.idempotency_key, 'profile-create');
+    assert.equal(commands[1].params.payload.revision_id, 'profile-rev-1');
+    assert.equal(commands[2].params.payload.project_id, 'project-1');
+    assert.equal(commands[2].params.payload.media_profile_revision_id, 'profile-rev-1');
+    assert.equal(commands[3].params.payload.timeline_id, 'timeline-1');
+    assert.deepEqual(commands[3].params.payload.duration, { num: 48, den: 1 });
+    assert.deepEqual(commands[3].params.payload.tracks, []);
+    assert.equal(commands[3].params.payload.snapshot, undefined);
+    assert.equal(commands[4].params.payload.revision_id, 'timeline-rev-1');
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+  }
+});

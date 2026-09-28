@@ -434,7 +434,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 8);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 10);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -573,7 +573,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 8);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 10);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -724,7 +724,7 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(fs.existsSync(persisted.snapshot_path), true);
   const manifest = JSON.parse(fs.readFileSync(persisted.manifest_path, 'utf8'));
   assert.equal(manifest.format_version, 1);
-  assert.equal(manifest.schema_version, 8);
+  assert.equal(manifest.schema_version, 10);
   assert.equal(manifest.objects.length, 1);
   assert.equal(manifest.objects[0].materialization, 'COPIED');
   assert.equal(fs.existsSync(path.join(persisted.destination_path, manifest.objects[0].relative_path)), true);
@@ -982,6 +982,150 @@ test('character canon keeps identity, visual, voice and performance revisions se
   }, { REVISION: 1 }, 'character-locked-transition');
   assert.equal(blockedTransition.ok, false);
   assert.equal(blockedTransition.error.code, 'PROJECT_NOT_WRITABLE');
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('canonical timeline pins an approved media profile and stores immutable rational checkpoints', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const project = execute(core, 'CreateProject', { title: 'Timeline film', code: 'timeline-film' }, {}, 'timeline-project');
+  const projectId = project.result.id;
+  const profilePayload = {
+    project_id: projectId,
+    timeline_rate: { num: 24, den: 1 },
+    time_base: { num: 1, den: 24 },
+    width: 1920,
+    height: 1080,
+    pixel_aspect: { num: 1, den: 1 },
+    working_color_space: 'sRGB',
+    transfer_function: 'SDR',
+    hdr_policy: 'NONE',
+    audio_sample_rate: 48000,
+    audio_channel_layout: 'STEREO',
+  };
+  const profile = execute(core, 'CreateMediaProfileRevision', profilePayload, {}, 'timeline-profile');
+  assert.equal(profile.ok, true, JSON.stringify(profile));
+  assert.equal(execute(core, 'CreateMediaProfileRevision', profilePayload, {}, 'timeline-profile').result.id, profile.result.id);
+  const candidate = profile.result.candidate_revisions[0];
+  const nestedProfile = execute(core, 'CreateMediaProfileRevision', {
+    project_id: projectId,
+    profile: {
+      timeline_rate_num: 24000, timeline_rate_den: 1001,
+      timeline_time_base_num: 1001, timeline_time_base_den: 24000,
+      width: 1920, height: 1080, pixel_aspect_num: 1, pixel_aspect_den: 1,
+      working_color_space: 'sRGB', transfer_function: 'SDR', hdr_policy: 'NONE',
+      audio_sample_rate: 48000, audio_channel_layout: 'STEREO',
+    },
+  }, {}, 'timeline-profile-nested');
+  assert.equal(nestedProfile.ok, true, JSON.stringify(nestedProfile));
+  const reducedProfile = execute(core, 'CreateMediaProfileRevision', {
+    project_id: projectId,
+    timeline_rate: { num: 48, den: 2 },
+    time_base: { num: 2, den: 48 },
+    width: 1920, height: 1080, pixel_aspect: { num: 2, den: 2 },
+    working_color_space: 'sRGB', transfer_function: 'SDR', hdr_policy: 'NONE',
+    audio_sample_rate: 48000, audio_channel_layout: 'STEREO',
+  }, {}, 'timeline-profile-reduced');
+  assert.equal(reducedProfile.ok, true, JSON.stringify(reducedProfile));
+  const reducedRevision = reducedProfile.result.candidate_revisions[0];
+  assert.deepEqual(reducedRevision.timeline_rate, { num: 24, den: 1 });
+  assert.deepEqual(reducedRevision.time_base, { num: 1, den: 24 });
+  assert.deepEqual(reducedRevision.pixel_aspect, { num: 1, den: 1 });
+  const approvedProfile = execute(core, 'TransitionMediaProfileRevision', {
+    project_id: projectId, revision_id: candidate.id, next_state: 'APPROVED',
+  }, { REVISION: candidate.row_version }, 'timeline-profile-approve');
+  assert.equal(approvedProfile.ok, true, JSON.stringify(approvedProfile));
+  const mediaProfileRevisionId = approvedProfile.result.approved_revision.id;
+
+  const timeline = execute(core, 'CreateTimeline', {
+    project_id: projectId, code: 'MAIN', title: 'Main timeline', media_profile_revision_id: mediaProfileRevisionId,
+  }, {}, 'timeline-create');
+  assert.equal(timeline.ok, true, JSON.stringify(timeline));
+  const timelineId = timeline.result.timeline.id;
+  const checkpointPayload = {
+    project_id: projectId,
+    timeline_id: timelineId,
+    media_profile_revision_id: mediaProfileRevisionId,
+    duration: { num: 24000, den: 1000 },
+    tracks: [{ track_type: 'VIDEO', order_index: 0, name: 'Picture', clips: [
+      { timeline_in: { num: 0, den: 1 }, timeline_out: { num: 12, den: 1 } },
+      { timeline_in: { num: 12, den: 1 }, timeline_out: { num: 24, den: 1 } },
+    ] }],
+    markers: [{ time: { num: 6, den: 1 }, marker_type: 'NOTE', label: 'First beat', payload: { source: 'test' } }],
+  };
+  const checkpoint = execute(core, 'CreateTimelineRevision', checkpointPayload, { TIMELINE: 1 }, 'timeline-checkpoint');
+  assert.equal(checkpoint.ok, true, JSON.stringify(checkpoint));
+  assert.equal(checkpoint.result.revision.duration.num, 24);
+  assert.equal(checkpoint.result.revision.duration.den, 1);
+  assert.equal(checkpoint.result.revision.tracks[0].clips.length, 2);
+  assert.equal(checkpoint.result.revision.markers[0].label, 'First beat');
+  const markerId = checkpoint.result.revision.markers[0].id;
+  assert.throws(
+    () => core.db.prepare('UPDATE timeline_markers SET label = ? WHERE id = ?').run('tampered', markerId),
+    /timeline_markers are append-only/,
+  );
+  assert.throws(
+    () => core.db.prepare('DELETE FROM timeline_markers WHERE id = ?').run(markerId),
+    /timeline_markers are append-only/,
+  );
+  assert.equal(execute(core, 'CreateTimelineRevision', checkpointPayload, { TIMELINE: 1 }, 'timeline-checkpoint').result.idempotent_replay, true);
+  const revisionId = checkpoint.result.revision.id;
+  assert.equal(execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: revisionId, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'timeline-candidate').ok, true);
+  const approved = execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: revisionId, next_state: 'APPROVED',
+  }, { REVISION: 2 }, 'timeline-approve');
+  assert.equal(approved.ok, true, JSON.stringify(approved));
+  assert.equal(approved.result.revision.lifecycle_state, 'APPROVED');
+  assert.throws(
+    () => core.db.prepare('UPDATE timeline_revisions SET duration_num = ? WHERE id = ?').run(99, revisionId),
+    /timeline_revision content is immutable/,
+  );
+  const workspace = core.handle(request('query.timeline.workspace', { project_id: projectId, timeline_id: timelineId }));
+  assert.equal(workspace.ok, true, JSON.stringify(workspace));
+  assert.equal(workspace.result.approved_revision.id, revisionId);
+  assert.equal(workspace.result.approved_revision.readiness_state, 'READY');
+
+  const overlap = execute(core, 'CreateTimelineRevision', {
+    project_id: projectId, timeline_id: timelineId, media_profile_revision_id: mediaProfileRevisionId,
+    duration: { num: 24, den: 1 }, tracks: [{ track_type: 'VIDEO', clips: [
+      { timeline_in: { num: 0, den: 1 }, timeline_out: { num: 2, den: 1 } },
+      { timeline_in: { num: 3, den: 2 }, timeline_out: { num: 3, den: 1 } },
+    ] }],
+  }, { TIMELINE: 4 }, 'timeline-overlap');
+  assert.equal(overlap.ok, false);
+  assert.equal(overlap.error.code, 'TIMELINE_CLIP_OVERLAP');
+  const unsupported = execute(core, 'CreateTimelineRevision', {
+    project_id: projectId, timeline_id: timelineId, media_profile_revision_id: mediaProfileRevisionId,
+    duration: { num: 24, den: 1 }, tracks: [{ track_type: 'AUDIO', clips: [] }],
+  }, { TIMELINE: 4 }, 'timeline-audio');
+  assert.equal(unsupported.ok, false);
+  assert.equal(unsupported.error.code, 'UNSUPPORTED_TIMELINE_TRACK');
+  const secondCheckpoint = execute(core, 'CreateTimelineRevision', {
+    project_id: projectId, timeline_id: timelineId, media_profile_revision_id: mediaProfileRevisionId,
+    duration: { num: 12, den: 1 }, tracks: [{ track_type: 'VIDEO', clips: [] }], markers: [],
+  }, { TIMELINE: 4 }, 'timeline-checkpoint-second');
+  assert.equal(secondCheckpoint.ok, true, JSON.stringify(secondCheckpoint));
+  const secondRevisionId = secondCheckpoint.result.revision.id;
+  assert.equal(execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: secondRevisionId, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'timeline-candidate-second').ok, true);
+  const secondApproved = execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: secondRevisionId, next_state: 'APPROVED',
+  }, { REVISION: 2 }, 'timeline-approve-second');
+  assert.equal(secondApproved.ok, true, JSON.stringify(secondApproved));
+  assert.equal(core.db.prepare('SELECT lifecycle_state FROM timeline_revisions WHERE id = ?').get(revisionId).lifecycle_state, 'SUPERSEDED');
+  const timelineSupersedeEvent = core.db.prepare('SELECT payload_json FROM domain_events WHERE command_id = ?').get(secondApproved.result.command_id);
+  assert.equal(JSON.parse(timelineSupersedeEvent.payload_json).superseded_revision_id, revisionId);
+  const secondProfile = execute(core, 'CreateMediaProfileRevision', { ...profilePayload, width: 1280 }, {}, 'timeline-profile-second');
+  assert.equal(secondProfile.ok, true, JSON.stringify(secondProfile));
+  const invalidProfile = execute(core, 'CreateTimeline', {
+    project_id: projectId, code: 'SECOND', title: 'Second', media_profile_revision_id: secondProfile.result.candidate_revisions[0].id,
+  }, {}, 'timeline-unapproved-profile');
+  assert.equal(invalidProfile.ok, false);
+  assert.equal(invalidProfile.error.code, 'MEDIA_PROFILE_NOT_APPROVED');
   core.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });

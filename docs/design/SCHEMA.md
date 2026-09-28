@@ -18,6 +18,7 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
+> Executable Core schema: version 10 (the Issue #21 marker table is included).
 > This document describes canonical data. Search indexes, embeddings, thumbnails, previews and caches are derived data.
 
 # 1. Physical conventions
@@ -317,6 +318,8 @@ Logical profile.
 - profile_id FK
 - timeline_rate_num
 - timeline_rate_den
+- timeline_time_base_num
+- timeline_time_base_den
 - width
 - height
 - pixel_aspect_num
@@ -328,6 +331,16 @@ Logical profile.
 - audio_channel_layout
 - proxy_profile_json
 - mastering_targets_json
+
+Issue #21 uses this revision as an explicit timeline dependency. The frame
+rate, time-base and pixel-aspect pairs are positive canonical rationals
+(denominator > 0, reduced before persistence); width, height and audio sample
+rate are bounded
+positive integers. Drop-frame policy is reserved for a later timecode contract
+and is not inferred by this checkpoint baseline. A missing technical value remains `UNKNOWN` and cannot be
+silently replaced with a UI or project default. A timeline checkpoint stores
+the exact `media_profile_revision_id` it was validated against; it never
+resolves the project's current or latest profile at read or approval time.
 
 ## sequences
 - id PK
@@ -910,7 +923,8 @@ PK(parent_asset_revision_id, child_asset_revision_id, relationship_type)
 - media_profile_revision_id FK
 - duration_num
 - duration_den
-- edit_hash
+- content_hash
+- lifecycle_state: DRAFT_CHECKPOINT | CANDIDATE | APPROVED | SUPERSEDED
 
 ## timeline_tracks
 - id PK
@@ -920,7 +934,7 @@ PK(parent_asset_revision_id, child_asset_revision_id, relationship_type)
 - name
 - enabled
 
-## clip_instances
+## timeline_clip_instances
 - id PK
 - track_id FK
 - asset_revision_id FK
@@ -953,8 +967,8 @@ PK(parent_asset_revision_id, child_asset_revision_id, relationship_type)
 ## timeline_markers
 - id PK
 - timeline_revision_id FK
-- time_num
-- time_den
+- position_num
+- position_den
 - marker_type
 - label
 - payload_json
@@ -989,6 +1003,47 @@ Mutable draft editing state; never canonical.
 - actor_id FK
 - created_at_utc_us
 UNIQUE(working_session_id, op_seq)
+
+## Issue #21 bounded timeline checkpoint baseline
+
+The schema above is the complete compatibility shape. The first executable
+timeline slice is deliberately smaller so that an immutable checkpoint can be
+validated without pretending that an editor, renderer or playback engine
+already exists:
+
+- A V1 timeline is project-scoped (`scope_type=PROJECT` and
+  `scope_id=project_id`). Sequence, scene and nested-sequence timelines are
+  reserved until those ownership and DAG contracts are implemented.
+- A checkpoint must name one immutable `media_profile_revision_id`. The
+  profile revision, all clip timing, duration and marker positions use checked
+  rational values; floating-point seconds and implicit millisecond rounding
+  are not canonical storage formats.
+- V1 checkpoint content is a bounded, typed snapshot containing VIDEO tracks,
+  clip instances and markers. Each clip pins an exact `asset_revision_id` and
+  has ordered source/timeline intervals plus a positive constant speed. The
+  source revision must be materialized and available with verified evidence;
+  `UNKNOWN`, `MISSING`, `CORRUPT`, `QUARANTINED`, unresolved rights, and an
+  unresolved `latest` reference block the checkpoint.
+- `content_hash` covers the canonical profile reference, track order, clip
+  intervals/speed, marker order/payload and schema version. Equivalent JSON
+  key ordering must produce the same hash, while any content or pinned
+  revision change produces a new immutable revision.
+- A checkpoint write is one audited, idempotent Core command and one database
+  transaction. It creates `DRAFT_CHECKPOINT` and never updates an existing
+  revision in place. Candidate promotion/approval is a separate explicit
+  command and may only promote an exact candidate after
+  profile, asset, rights and evidence revalidation; the previous approved
+  revision becomes `SUPERSEDED`.
+- The `timeline_working_sessions`, `timeline_edit_ops`, `working_copies`,
+  autosave, undo/redo and collaborative branch tables remain compatibility
+  shape only for this issue. They are not opened or mutated by the bounded
+  checkpoint command. A future working-session slice must preserve the same
+  immutable checkpoint and exact-pin rules.
+- Audio, captions, transitions, links, transforms/effects, variable/reverse/
+  freeze retime, external handoff, render, playback and export are outside
+  this baseline. Their columns may remain reserved in the compatibility
+  schema, but V1 commands must reject them with a typed unsupported-scope
+  result rather than silently dropping data.
 
 # 12. Production workflow, generation and jobs
 
@@ -1584,6 +1639,24 @@ Tests must prove:
 13. External linked source content change is detected.
 14. Autosave working copy cannot become approved without explicit command.
 15. Deleting a connection does not delete historical provenance.
+
+Issue #21 checkpoint/profile tests must additionally prove:
+
+16. A profile with a zero/negative denominator, non-positive dimensions or
+    unsupported/unknown timing value is rejected before any profile or
+    checkpoint row is written.
+17. A checkpoint without an explicit profile revision, with a cross-project
+    profile/asset, or with a non-materialized/UNKNOWN/rights-blocked asset is
+    rejected without creating a partial revision.
+18. A checkpoint's canonical hash is deterministic, and an approved
+    checkpoint plus its pinned profile and asset revisions cannot be updated
+    or rebound in place.
+19. A checkpoint containing an unsupported track/op/payload is rejected as a
+    typed validation error; no field is silently discarded.
+20. Replaying the same checkpoint command with an equivalent idempotency
+    payload returns the original result, while reusing its key with different
+    content or expected versions returns a conflict and creates no second
+    revision/event.
 
 # 22. Schema rule for future modules
 

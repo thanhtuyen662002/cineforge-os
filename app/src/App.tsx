@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent } from 'react'
+import type { ChangeEvent, CSSProperties, FormEvent } from 'react'
 import {
   Activity,
   AlertCircle,
@@ -17,6 +17,7 @@ import {
   Database,
   File as FileIcon,
   FilePlus2,
+  Film,
   Filter,
   FolderKanban,
   HardDrive,
@@ -25,6 +26,7 @@ import {
   Info,
   ListChecks,
   Languages,
+  Layers3,
   LayoutDashboard,
   Menu,
   Moon,
@@ -43,14 +45,15 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, Locale, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, TaskStatus, TaskSummary, Theme, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineWorkspace, WorkState } from './types'
 
-type NavKey = 'home' | 'projects' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
+type NavKey = 'home' | 'projects' | 'timeline' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
 export const copy = {
   vi: {
     home: 'Trang chủ',
     projects: 'Dự án',
+    timeline: 'Timeline',
     characters: 'Nhân vật',
     needs: 'Cần bạn',
     activity: 'Hoạt động',
@@ -103,6 +106,7 @@ export const copy = {
   en: {
     home: 'Home',
     projects: 'Projects',
+    timeline: 'Timeline',
     characters: 'Characters',
     needs: 'Needs You',
     activity: 'Activity',
@@ -159,6 +163,7 @@ type Copy = (typeof copy)[Locale]
 const navItems: Array<{ key: NavKey; icon: typeof Home; label: keyof typeof copy.vi }> = [
   { key: 'home', icon: Home, label: 'home' },
   { key: 'projects', icon: FolderKanban, label: 'projects' },
+  { key: 'timeline', icon: Film, label: 'timeline' },
   { key: 'characters', icon: UserRound, label: 'characters' },
   { key: 'needs', icon: Inbox, label: 'needs' },
   { key: 'activity', icon: Activity, label: 'activity' },
@@ -351,6 +356,7 @@ function App() {
       {activeNav === 'projects' && (
         selectedProjectId ? <ProjectPlanningView snapshot={snapshot} projectId={selectedProjectId} locale={locale} client={client} onBack={() => setSelectedProjectId(null)} onWorkspaceChanged={syncProjectWorkspace} /> : <ProjectsView snapshot={snapshot} t={t} locale={locale} onNewProject={() => setNewProjectOpen(true)} onOpenProject={openProject} />
       )}
+      {activeNav === 'timeline' && <TimelineView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
       {activeNav === 'characters' && <CharactersView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
       {activeNav === 'needs' && (
         <NeedsView snapshot={snapshot} t={t} locale={locale} onOpenDecision={openDecision} onResolve={resolveDecision} onDismiss={dismissDecision} pendingId={decisionPendingId} decisionError={decisionError} onRefresh={() => void loadDashboard()} />
@@ -379,7 +385,7 @@ function App() {
         <nav className="main-nav" aria-label={locale === 'vi' ? 'Điều hướng chính' : 'Primary navigation'}>
           <div className="nav-label">{locale === 'vi' ? 'Không gian làm việc' : 'Workspace'}</div>
           {navItems.map(({ key, icon: Icon, label }) => (
-            <button key={key} className={`nav-item ${activeNav === key ? 'active' : ''}`} onClick={() => { setActiveNav(key); if (key === 'projects') setSelectedProjectId(null); setMobileNavOpen(false) }} aria-current={activeNav === key ? 'page' : undefined}>
+            <button key={key} className={`nav-item ${activeNav === key ? 'active' : ''}`} onClick={() => { setActiveNav(key); if (key === 'projects' || key === 'timeline') setSelectedProjectId(null); setMobileNavOpen(false) }} aria-current={activeNav === key ? 'page' : undefined}>
               <Icon size={18} />
               {!sidebarCollapsed && <span>{t[label]}</span>}
               {key === 'needs' && snapshot && snapshot.decisions.length > 0 && <span className="nav-badge">{snapshot.decisions.length}</span>}
@@ -402,7 +408,7 @@ function App() {
           <div className="topbar-left">
             <button className="icon-button mobile-menu" aria-label={locale === 'vi' ? 'Mở menu' : 'Open menu'} onClick={() => setMobileNavOpen(true)}><Menu size={19} /></button>
             <button className="icon-button collapse-button" aria-label={sidebarCollapsed ? (locale === 'vi' ? 'Mở rộng menu' : 'Expand menu') : (locale === 'vi' ? 'Thu gọn menu' : 'Collapse menu')} onClick={() => setSidebarCollapsed((value) => !value)}><PanelLeftClose size={18} /></button>
-            <div className="breadcrumbs"><span>{activeNav === 'home' ? t.home : activeNav === 'projects' ? t.projects : activeNav === 'characters' ? t.characters : activeNav === 'needs' ? t.needs : activeNav === 'activity' ? t.activity : activeNav === 'library' ? t.library : t.settings}</span>{activeNav === 'home' && <><span className="breadcrumb-separator">/</span><span className="muted">{locale === 'vi' ? 'Tổng quan' : 'Overview'}</span></>}</div>
+            <div className="breadcrumbs"><span>{activeNav === 'home' ? t.home : activeNav === 'projects' ? t.projects : activeNav === 'timeline' ? t.timeline : activeNav === 'characters' ? t.characters : activeNav === 'needs' ? t.needs : activeNav === 'activity' ? t.activity : activeNav === 'library' ? t.library : t.settings}</span>{activeNav === 'home' && <><span className="breadcrumb-separator">/</span><span className="muted">{locale === 'vi' ? 'Tổng quan' : 'Overview'}</span></>}</div>
           </div>
           <div className="topbar-actions">
             <button className="search-trigger" onClick={() => setSearchOpen(true)}><Search size={16} /><span>{t.searchPlaceholder}</span><kbd><Command size={11} /> K</kbd></button>
@@ -552,6 +558,17 @@ function workspaceErrorMessage(cause: unknown, locale: Locale) {
     CHARACTER_NOT_FOUND: { vi: 'Nhân vật không còn tồn tại trong Core.', en: 'The character no longer exists in Core.' },
     CHARACTER_REVISION_NOT_FOUND: { vi: 'Revision nhân vật không còn tồn tại trong Core.', en: 'The character revision no longer exists in Core.' },
     CHARACTER_PACKAGE_NOT_FOUND: { vi: 'Package nhân vật chưa sẵn sàng trong Core.', en: 'The character package is not available in Core.' },
+    MEDIA_PROFILE_NOT_APPROVED: { vi: 'Media Profile revision phải được approve trước khi pin vào timeline.', en: 'The Media Profile revision must be approved before it can be pinned to a timeline.' },
+    MEDIA_PROFILE_REVISION_NOT_FOUND: { vi: 'Media Profile revision không còn tồn tại trong Core.', en: 'The Media Profile revision no longer exists in Core.' },
+    TIMELINE_NOT_FOUND: { vi: 'Timeline không còn tồn tại trong Core.', en: 'The timeline no longer exists in Core.' },
+    TIMELINE_REVISION_NOT_FOUND: { vi: 'Timeline revision không còn tồn tại trong Core.', en: 'The timeline revision no longer exists in Core.' },
+    INVALID_MEDIA_PROFILE_TRANSITION: { vi: 'Media Profile không thể chuyển sang trạng thái này.', en: 'That Media Profile transition is not allowed.' },
+    INVALID_TIMELINE_REVISION_TRANSITION: { vi: 'Timeline revision không thể chuyển sang trạng thái này.', en: 'That timeline revision transition is not allowed.' },
+    TIMELINE_PROFILE_REQUIRED: { vi: 'Timeline cần pin một Media Profile revision.', en: 'The timeline must pin a Media Profile revision.' },
+    TIMELINE_PROFILE_NOT_APPROVED: { vi: 'Media Profile đang pin chưa được approve.', en: 'The pinned Media Profile is not approved.' },
+    TIMELINE_ASSET_NOT_READY: { vi: 'Asset trong timeline chưa đủ bằng chứng readiness.', en: 'A timeline asset does not have sufficient readiness evidence.' },
+    TIMELINE_RIGHTS_BLOCKED: { vi: 'Rights/consent của asset trong timeline đang chặn thao tác.', en: 'Rights or consent for a timeline asset is blocking the action.' },
+    TIMELINE_REVISION_IMMUTABLE: { vi: 'Revision đã được chốt và không thể sửa trực tiếp.', en: 'This revision is immutable and cannot be edited directly.' },
     CORE_OFFLINE: { vi: 'Core đang offline. Hãy kết nối lại rồi thử lại.', en: 'Core is offline. Reconnect and try again.' },
     EXTERNAL_UNAVAILABLE: { vi: 'Core hiện chưa phản hồi. Hãy thử lại.', en: 'Core is not responding yet. Try again.' },
     EXPECTED_VERSION_REQUIRED: { vi: 'Dữ liệu đã thay đổi; hãy tải lại workspace trước khi tiếp tục.', en: 'The data changed; reload the workspace before continuing.' },
@@ -1097,6 +1114,375 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
       </section>
       <section className="workspace-panel character-detail-card">{!selected ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một nhân vật' : 'Select a character'} detail={locale === 'vi' ? 'Workspace chi tiết sẽ xuất hiện sau khi Core xác nhận identity.' : 'The detailed workspace appears after Core confirms the identity.'} /> : <><div className="production-card-heading"><div><p className="eyebrow">{selected.stableCode ?? 'CHARACTER'}</p><h2>{selected.displayName}</h2><p>{selected.lifecycleState} · v{selected.rowVersion}</p></div><span className="state-label"><ShieldCheck size={13} />{locale === 'vi' ? 'Core-owned' : 'Core-owned'}</span></div>{workspaceLoading && <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc workspace…' : 'Reading workspace…'}</div>}{workspaceError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{workspaceError}</span><button className="subtle-button tiny" onClick={() => void loadWorkspace(selected.id)}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{selected.needsYou.length > 0 && <div className="inline-state warning"><UserRound size={14} /><span>{locale === 'vi' ? `Core cần bạn xử lý ${selected.needsYou.length} mục trước khi tiếp tục.` : `Core needs you to resolve ${selected.needsYou.length} item${selected.needsYou.length === 1 ? '' : 's'} before continuing.`}</span></div>}<div className="character-package-grid">{packageRows.map(({ key, label, package: packageValue }) => <div className="character-package" key={key}><div className="character-package-heading"><strong>{label}</strong><span>{packageValue?.candidateRevisions.length ?? 0} {locale === 'vi' ? 'candidate' : 'candidates'}</span></div>{packageValue?.approvedRevision && <div className="revision-row approved"><CheckCircle2 size={13} /><span><strong>{locale === 'vi' ? 'Đã duyệt' : 'Approved'}</strong><small>{packageValue.approvedRevision.id} · {characterRevisionMeta(packageValue.approvedRevision, locale)}</small></span></div>}{packageValue?.candidateRevisions.map((revision) => <div className="revision-row" key={revision.id}><CircleDot size={13} /><span><strong>{revision.id}</strong><small>{characterRevisionMeta(revision, locale)}</small></span></div>)}{!packageValue?.approvedRevision && !packageValue?.candidateRevisions.length && <span className="character-package-empty">{locale === 'vi' ? 'Chưa có revision' : 'No revision yet'}</span>}</div>)}</div><form className="workspace-form character-revision-form" onSubmit={createRevision}><div className="form-grid two"><label>{locale === 'vi' ? 'Loại revision' : 'Revision type'}<select value={revisionKind} onChange={(event) => setRevisionKind(event.target.value as CharacterRevisionKind)} disabled={!connected || revisionPending}><option value="visual">Visual identity</option><option value="voice">Voice identity</option><option value="performance">Performance bible</option></select></label>{revisionKind === 'voice' && <label>{locale === 'vi' ? 'Ngôn ngữ chuẩn' : 'Canonical language'}<input value={revisionLanguage} onChange={(event) => setRevisionLanguage(event.target.value)} disabled={!connected || revisionPending} /></label>}</div><label>{locale === 'vi' ? 'Mô tả semantic' : 'Semantic description'}<textarea value={revisionDescription} onChange={(event) => setRevisionDescription(event.target.value)} rows={3} placeholder={locale === 'vi' ? 'Mô tả có thể kiểm tra; không chèn provider id.' : 'Bounded, reviewable description; do not enter provider ids.'} disabled={!connected || revisionPending} /></label><button className="primary-button small" type="submit" disabled={!connected || !revisionDescription.trim() || revisionPending}>{revisionPending ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Lưu revision nháp' : 'Save draft revision'}</button></form><p className="workspace-boundary"><Info size={14} />{locale === 'vi' ? 'Revision nháp không tự động được approve, bind voice, generate hay pin vào shot.' : 'Draft revisions are not auto-approved, voice-bound, generated, or pinned to a shot.'}</p></>}</section>
     </div>
+  </div>
+}
+
+type TimelineProfileDraft = {
+  timelineRateNum: string
+  timelineRateDen: string
+  timeBaseNum: string
+  timeBaseDen: string
+  pixelAspectNum: string
+  pixelAspectDen: string
+  width: string
+  height: string
+  workingColorSpace: string
+  transferFunction: string
+  hdrPolicy: string
+  audioSampleRate: string
+  audioChannelLayout: string
+}
+
+function checkedRational(num: string, den: string, allowZero = true) {
+  const cleanNum = num.trim()
+  const cleanDen = den.trim()
+  if (!/^[0-9]+$/.test(cleanNum) || !/^[0-9]+$/.test(cleanDen) || cleanDen === '0') return null
+  const parsedNum = Number(cleanNum)
+  const parsedDen = Number(cleanDen)
+  if (!Number.isSafeInteger(parsedNum) || !Number.isSafeInteger(parsedDen) || (!allowZero && parsedNum === 0)) {
+    // Keep large exact integers as strings, but still reject values that are
+    // outside Core's practical V1 range when the browser can inspect them.
+    if (cleanDen === '0' || (!allowZero && parsedNum === 0)) return null
+  }
+  return { num: Number.isSafeInteger(parsedNum) ? parsedNum : cleanNum, den: Number.isSafeInteger(parsedDen) ? parsedDen : cleanDen }
+}
+
+function timelineStateLabel(state: string, locale: Locale) {
+  const labels: Record<string, { vi: string; en: string }> = {
+    DRAFT: { vi: 'Bản nháp', en: 'Draft' },
+    CANDIDATE: { vi: 'Chờ duyệt', en: 'Candidate' },
+    APPROVED: { vi: 'Đã duyệt', en: 'Approved' },
+    SUPERSEDED: { vi: 'Đã thay thế', en: 'Superseded' },
+    REJECTED: { vi: 'Từ chối', en: 'Rejected' },
+    DRAFT_CHECKPOINT: { vi: 'Checkpoint nháp', en: 'Draft checkpoint' },
+  }
+  return labels[state]?.[locale] ?? state
+}
+
+function timelineRevisionTransition(state: string) {
+  if (state === 'DRAFT_CHECKPOINT') return 'CANDIDATE'
+  if (state === 'CANDIDATE') return 'APPROVED'
+  return null
+}
+
+function mediaProfileTransition(state: string) {
+  if (state === 'DRAFT') return 'CANDIDATE'
+  if (state === 'CANDIDATE') return 'APPROVED'
+  return null
+}
+
+function rationalLabel(value: { num: number | string; den: number | string } | undefined | null) {
+  return value ? `${value.num}/${value.den}` : '—'
+}
+
+export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; onToast: (message: string) => void }) {
+  const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
+  const [mediaProfile, setMediaProfile] = useState<MediaProfileWorkspace | null>(null)
+  const [timelines, setTimelines] = useState<TimelineSummary[]>([])
+  const [selectedTimelineId, setSelectedTimelineId] = useState<string | null>(null)
+  const [workspace, setWorkspace] = useState<TimelineWorkspace | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [workspaceLoading, setWorkspaceLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [needsUser, setNeedsUser] = useState(false)
+  const [mutating, setMutating] = useState<string | null>(null)
+  const [timelineTitle, setTimelineTitle] = useState('')
+  const [timelineCode, setTimelineCode] = useState('MAIN')
+  const [durationNum, setDurationNum] = useState('1')
+  const [durationDen, setDurationDen] = useState('1')
+  const [tracksJson, setTracksJson] = useState('[]')
+  const [markersJson, setMarkersJson] = useState('[]')
+  const [profileDraft, setProfileDraft] = useState<TimelineProfileDraft>({
+    timelineRateNum: '24', timelineRateDen: '1', timeBaseNum: '1', timeBaseDen: '24',
+    pixelAspectNum: '1', pixelAspectDen: '1', width: '1920', height: '1080',
+    workingColorSpace: 'REC709', transferFunction: 'SDR', hdrPolicy: 'DISABLED',
+    audioSampleRate: '48000', audioChannelLayout: 'STEREO',
+  })
+  const loadGenerationRef = useRef(0)
+  const workspaceGenerationRef = useRef(0)
+
+  const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true)
+  const project = snapshot.projects.find((candidate) => candidate.id === projectId)
+  const approvedProfile = mediaProfile?.approvedRevision ?? workspace?.mediaProfile?.approvedRevision ?? null
+  const selectedTimeline = timelines.find((timeline) => timeline.id === selectedTimelineId) ?? null
+
+  useEffect(() => {
+    if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
+    if (projectId && !snapshot.projects.some((candidate) => candidate.id === projectId)) setProjectId(snapshot.projects[0]?.id ?? '')
+  }, [projectId, snapshot.projects])
+
+  const loadProjectData = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++loadGenerationRef.current
+    if (!projectId) {
+      setMediaProfile(null)
+      setTimelines([])
+      setSelectedTimelineId(null)
+      setWorkspace(null)
+      setLoading(false)
+      return
+    }
+    if (!client.getMediaProfile || !client.getTimelines) {
+      setError(locale === 'vi' ? 'Core chưa cung cấp workspace Timeline.' : 'Core does not expose the Timeline workspace yet.')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    setWorkspaceError(null)
+    try {
+      const [profileResult, timelineResult] = await Promise.all([
+        client.getMediaProfile(projectId, signal),
+        client.getTimelines(projectId, signal),
+      ])
+      if (signal?.aborted || generation !== loadGenerationRef.current) return
+      setMediaProfile(profileResult)
+      setTimelines(timelineResult)
+      setSelectedTimelineId((current) => current && timelineResult.some((item) => item.id === current) ? current : timelineResult[0]?.id ?? null)
+      if (timelineResult.length === 0) setWorkspace(null)
+    } catch (cause) {
+      if ((cause instanceof DOMException && cause.name === 'AbortError') || generation !== loadGenerationRef.current) return
+      setError(workspaceErrorMessage(cause, locale))
+      setMediaProfile(null)
+      setTimelines([])
+      setSelectedTimelineId(null)
+      setWorkspace(null)
+    } finally {
+      if (!signal?.aborted && generation === loadGenerationRef.current) setLoading(false)
+    }
+  }, [client, locale, projectId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    // A project switch must never leave the previous project's records
+    // visible if this bridge lacks the new query methods or the request fails.
+    setMediaProfile(null)
+    setTimelines([])
+    setSelectedTimelineId(null)
+    setWorkspace(null)
+    setActionError(null)
+    setNeedsUser(false)
+    void loadProjectData(controller.signal)
+    return () => controller.abort()
+  }, [loadProjectData])
+
+  const loadWorkspace = useCallback(async (timelineId: string, signal?: AbortSignal) => {
+    const generation = ++workspaceGenerationRef.current
+    if (!client.getTimelineWorkspace) {
+      setWorkspaceError(locale === 'vi' ? 'Core chưa cung cấp chi tiết Timeline.' : 'Core does not expose Timeline details yet.')
+      return
+    }
+    setWorkspaceLoading(true)
+    setWorkspaceError(null)
+    try {
+      const next = await client.getTimelineWorkspace(projectId, timelineId, signal)
+      if (signal?.aborted || generation !== workspaceGenerationRef.current) return
+      setWorkspace(next)
+    } catch (cause) {
+      if ((cause instanceof DOMException && cause.name === 'AbortError') || generation !== workspaceGenerationRef.current) return
+      setWorkspaceError(workspaceErrorMessage(cause, locale))
+      setWorkspace(null)
+    } finally {
+      if (!signal?.aborted && generation === workspaceGenerationRef.current) setWorkspaceLoading(false)
+    }
+  }, [client, locale, projectId])
+
+  useEffect(() => {
+    if (!selectedTimelineId || !projectId) {
+      setWorkspace(null)
+      setWorkspaceError(null)
+      return
+    }
+    const controller = new AbortController()
+    void loadWorkspace(selectedTimelineId, controller.signal)
+    return () => controller.abort()
+  }, [loadWorkspace, projectId, selectedTimelineId])
+
+  const updateProfileDraft = (key: keyof TimelineProfileDraft) => (event: ChangeEvent<HTMLInputElement>) => {
+    setProfileDraft((current) => ({ ...current, [key]: event.target.value }))
+  }
+
+  const createProfile = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!client.createMediaProfileRevision || !projectId || mutating) return
+    const timelineRate = checkedRational(profileDraft.timelineRateNum, profileDraft.timelineRateDen, false)
+    const timeBase = checkedRational(profileDraft.timeBaseNum, profileDraft.timeBaseDen, false)
+    const pixelAspect = checkedRational(profileDraft.pixelAspectNum, profileDraft.pixelAspectDen, false)
+    const width = Number(profileDraft.width)
+    const height = Number(profileDraft.height)
+    const audioSampleRate = Number(profileDraft.audioSampleRate)
+    if (!timelineRate || !timeBase || !pixelAspect || !Number.isSafeInteger(width) || width <= 0 || !Number.isSafeInteger(height) || height <= 0 || !Number.isSafeInteger(audioSampleRate) || audioSampleRate <= 0) {
+      setActionError(locale === 'vi' ? 'Media Profile cần rational hợp lệ và kích thước dương.' : 'Media Profile needs valid rationals and positive dimensions.')
+      setNeedsUser(true)
+      return
+    }
+    setMutating('profile-create')
+    setActionError(null)
+    setNeedsUser(false)
+    try {
+      const next = await client.createMediaProfileRevision(projectId, {
+        timelineRate, timeBase, pixelAspect, width, height,
+        workingColorSpace: profileDraft.workingColorSpace.trim() || 'UNKNOWN',
+        transferFunction: profileDraft.transferFunction.trim() || 'UNKNOWN',
+        hdrPolicy: profileDraft.hdrPolicy.trim() || 'UNKNOWN',
+        audioSampleRate,
+        audioChannelLayout: profileDraft.audioChannelLayout.trim() || 'UNKNOWN',
+      }, `media-profile-create:${projectId}:${JSON.stringify(profileDraft)}`)
+      setMediaProfile(next)
+      onToast(locale === 'vi' ? 'Đã lưu Media Profile candidate. Cần chuyển trạng thái riêng trước khi pin vào timeline.' : 'Media Profile candidate saved. Transition it separately before pinning it to a timeline.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const transitionProfile = async (revision: MediaProfileRevision, nextState: string) => {
+    if (!client.transitionMediaProfileRevision || !projectId || !revision.id || mutating) return
+    setMutating(`profile-transition:${revision.id}`)
+    setActionError(null)
+    setNeedsUser(false)
+    try {
+      const next = await client.transitionMediaProfileRevision(projectId, revision.id, nextState, revision.rowVersion, `media-profile-transition:${revision.id}:${revision.rowVersion}:${nextState}`)
+      setMediaProfile(next)
+      onToast(locale === 'vi' ? `Media Profile đã chuyển sang ${timelineStateLabel(nextState, locale)}.` : `Media Profile moved to ${timelineStateLabel(nextState, locale)}.`)
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const createTimeline = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!client.createTimeline || !projectId || !approvedProfile?.id || !timelineTitle.trim() || !timelineCode.trim() || mutating) return
+    setMutating('timeline-create')
+    setActionError(null)
+    setNeedsUser(false)
+    try {
+      const created = await client.createTimeline(projectId, {
+        title: timelineTitle.trim(), code: timelineCode.trim().toUpperCase(), scopeType: 'PROJECT', mediaProfileRevisionId: approvedProfile.id,
+      }, `timeline-create:${projectId}:${timelineCode.trim().toUpperCase()}`)
+      const nextTimelines = [created, ...timelines.filter((item) => item.id !== created.id)]
+      setTimelines(nextTimelines)
+      setSelectedTimelineId(created.id ?? null)
+      setTimelineTitle('')
+      onToast(locale === 'vi' ? `Đã tạo timeline “${created.title}”.` : `Timeline “${created.title}” created.`)
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const createRevision = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!client.createTimelineRevision || !projectId || !selectedTimelineId || !workspace || !approvedProfile?.id || mutating) return
+    const duration = checkedRational(durationNum, durationDen, false)
+    if (!duration) {
+      setActionError(locale === 'vi' ? 'Duration phải là rational dương, ví dụ 24000/1001.' : 'Duration must be a positive rational, for example 24000/1001.')
+      setNeedsUser(true)
+      return
+    }
+    let parsedTracks: unknown
+    let parsedMarkers: unknown
+    try {
+      parsedTracks = JSON.parse(tracksJson)
+      parsedMarkers = JSON.parse(markersJson)
+    } catch {
+      setActionError(locale === 'vi' ? 'Tracks và markers phải là JSON hợp lệ.' : 'Tracks and markers must be valid JSON.')
+      setNeedsUser(true)
+      return
+    }
+    if (!Array.isArray(parsedTracks) || !Array.isArray(parsedMarkers)
+      || parsedTracks.some((track) => !track || typeof track !== 'object' || Array.isArray(track)
+        || ((track as Record<string, unknown>).trackType ?? (track as Record<string, unknown>).track_type ?? 'VIDEO') !== 'VIDEO'
+        || !Array.isArray((track as Record<string, unknown>).clips ?? []))) {
+      setActionError(locale === 'vi' ? 'Tracks phải là mảng VIDEO có clips; markers phải là mảng object.' : 'Tracks must be a VIDEO array with clips; markers must be an object array.')
+      setNeedsUser(true)
+      return
+    }
+    if (parsedMarkers.some((marker) => !marker || typeof marker !== 'object' || Array.isArray(marker))) {
+      setActionError(locale === 'vi' ? 'Markers phải là mảng object hợp lệ.' : 'Markers must be an array of valid objects.')
+      setNeedsUser(true)
+      return
+    }
+    setMutating('timeline-revision-create')
+    setActionError(null)
+    setNeedsUser(false)
+    try {
+      const next = await client.createTimelineRevision(projectId, selectedTimelineId, {
+        mediaProfileRevisionId: approvedProfile.id,
+        duration,
+        tracks: parsedTracks as TimelineSnapshotInput['tracks'],
+        markers: parsedMarkers as TimelineSnapshotInput['markers'],
+      }, workspace.timeline.rowVersion, `timeline-revision-create:${selectedTimelineId}:${workspace.timeline.rowVersion}:${duration.num}/${duration.den}:${tracksJson}:${markersJson}`)
+      setWorkspace(next)
+      setTimelines((current) => current.map((item) => item.id === next.timeline.id ? next.timeline : item))
+      onToast(locale === 'vi' ? 'Đã lưu checkpoint timeline bất biến.' : 'Immutable timeline checkpoint saved.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const transitionRevision = async (revision: TimelineRevision, nextState: string) => {
+    if (!client.transitionTimelineRevision || !projectId || !selectedTimelineId || !revision.id || mutating) return
+    setMutating(`timeline-transition:${revision.id}`)
+    setActionError(null)
+    setNeedsUser(false)
+    try {
+      const next = await client.transitionTimelineRevision(projectId, selectedTimelineId, revision.id, nextState, revision.rowVersion, `timeline-transition:${revision.id}:${revision.rowVersion}:${nextState}`)
+      setWorkspace(next)
+      setTimelines((current) => current.map((item) => item.id === next.timeline.id ? next.timeline : item))
+      onToast(locale === 'vi' ? `Revision timeline đã chuyển sang ${timelineStateLabel(nextState, locale)}.` : `Timeline revision moved to ${timelineStateLabel(nextState, locale)}.`)
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const currentRevision = workspace?.currentRevision
+  const revisions = workspace?.revisions ?? []
+  const profileRevisions = mediaProfile?.revisions ?? []
+
+  return <div className="page timeline-page">
+    <div className="page-heading"><div><p className="eyebrow">CANONICAL TIMELINE</p><h1>{locale === 'vi' ? 'Timeline' : 'Timeline'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Media Profile và checkpoint bất biến được Core quản lý; playback, render và export sẽ triển khai ở phase sau.' : 'Core-owned Media Profiles and immutable checkpoints; playback, render and export are deferred to a later phase.'}</p></div><div className="page-heading-actions"><button className="subtle-button tiny" onClick={() => void loadProjectData()}><RefreshCw size={13} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip"><Film size={15} />{timelines.length}</span></div></div>
+    <div className="timeline-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="timeline-project-select" value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label={locale === 'vi' ? 'Project Timeline' : 'Timeline project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className="state-label"><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>
+    {!connected && <div className="inline-state warning"><CloudOff size={14} /><span>{locale === 'vi' ? 'Core đang offline. Có thể xem dữ liệu đã tải; command thay đổi canonical sẽ bị khoá.' : 'Core is offline. Loaded data remains visible; canonical mutations are disabled.'}</span></div>}
+    {error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button className="subtle-button tiny" onClick={() => void loadProjectData()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}
+    {actionError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{actionError}</span>{needsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện hoặc xung đột rồi thử lại.' : 'Core needs you to resolve the condition or conflict before retrying.'}</small>}</div>}
+    {!project ? <EmptyState icon={Film} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi xây dựng timeline.' : 'Create a project before building a timeline.'} /> : loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc Media Profile và timeline từ Core…' : 'Reading Media Profile and timelines from Core…'} /> : <div className="timeline-grid">
+      <section className="workspace-panel timeline-card timeline-list-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><Film size={16} /></span><div><h2>{locale === 'vi' ? 'Timeline của project' : 'Project timelines'}</h2><p>{locale === 'vi' ? 'Chọn một timeline để xem checkpoint.' : 'Select a timeline to inspect its checkpoints.'}</p></div></div><span className="count-chip">{timelines.length}</span></div>{timelines.length === 0 ? <EmptyState icon={Film} title={locale === 'vi' ? 'Chưa có timeline' : 'No timelines yet'} detail={locale === 'vi' ? 'Cần Media Profile đã duyệt để tạo timeline đầu tiên.' : 'An approved Media Profile is required before creating the first timeline.'} /> : <div className="timeline-record-list">{timelines.map((timeline) => <button type="button" className={`timeline-row ${timeline.id === selectedTimelineId ? 'active' : ''}`} key={timeline.id} onClick={() => setSelectedTimelineId(timeline.id ?? null)}><span className="timeline-row-icon"><Layers3 size={15} /></span><span className="workspace-record-main"><strong>{timeline.title}</strong><small>{timeline.code ?? timeline.id} · v{timeline.rowVersion}</small></span><ArrowRight size={14} /></button>)}</div>}
+        <form className="workspace-form timeline-form" onSubmit={createTimeline}><div className="form-grid two"><label>{locale === 'vi' ? 'Tên timeline' : 'Timeline title'}<input value={timelineTitle} onChange={(event) => setTimelineTitle(event.target.value)} placeholder={locale === 'vi' ? 'Ví dụ: Bản dựng chính' : 'For example: Main cut'} disabled={!connected || mutating !== null} /></label><label>{locale === 'vi' ? 'Mã ổn định' : 'Stable code'}<input value={timelineCode} onChange={(event) => setTimelineCode(event.target.value.toUpperCase())} placeholder="MAIN" disabled={!connected || mutating !== null} /></label></div><button className="primary-button small" type="submit" disabled={!connected || !approvedProfile?.id || !timelineTitle.trim() || !timelineCode.trim() || mutating !== null || !client.createTimeline}>{mutating === 'timeline-create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Tạo timeline' : 'Create timeline'}</button>{!approvedProfile && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Timeline chỉ pin Media Profile revision đã APPROVED.' : 'A timeline can only pin an APPROVED Media Profile revision.'}</p>}</form>
+      </section>
+      <section className="workspace-panel timeline-card timeline-profile-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon amber"><Database size={16} /></span><div><h2>{locale === 'vi' ? 'Media Profile' : 'Media Profile'}</h2><p>{locale === 'vi' ? 'Rational rõ ràng; không tự động approve.' : 'Explicit rationals; approval is always separate.'}</p></div></div>{approvedProfile && <span className="health-pill healthy"><span />{locale === 'vi' ? 'Đã duyệt' : 'Approved'}</span>}</div>{profileRevisions.length === 0 && <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có revision Media Profile.' : 'No Media Profile revision yet.'} />}<div className="timeline-profile-revisions">{profileRevisions.map((revision) => { const nextState = mediaProfileTransition(revision.state); return <div className="timeline-profile-revision" key={revision.id}><div><strong>{revision.id ?? 'revision'}</strong><small>{timelineStateLabel(revision.state, locale)} · {revision.width}×{revision.height} · {rationalLabel(revision.timelineRate)} · v{revision.rowVersion}</small></div>{nextState && <button className="subtle-button tiny" disabled={!connected || mutating !== null} onClick={() => void transitionProfile(revision, nextState)}>{mutating === `profile-transition:${revision.id}` ? <RefreshCw size={12} className="spin" /> : <ArrowRight size={12} />}{timelineStateLabel(nextState, locale)}</button>}</div> })}</div><form className="workspace-form timeline-profile-form" onSubmit={createProfile}><div className="form-grid two"><label>{locale === 'vi' ? 'Frame rate (num)' : 'Frame rate (num)'}<input value={profileDraft.timelineRateNum} onChange={updateProfileDraft('timelineRateNum')} inputMode="numeric" disabled={!connected || mutating !== null} /></label><label>{locale === 'vi' ? 'Frame rate (den)' : 'Frame rate (den)'}<input value={profileDraft.timelineRateDen} onChange={updateProfileDraft('timelineRateDen')} inputMode="numeric" disabled={!connected || mutating !== null} /></label><label>{locale === 'vi' ? 'Time base (num)' : 'Time base (num)'}<input value={profileDraft.timeBaseNum} onChange={updateProfileDraft('timeBaseNum')} inputMode="numeric" disabled={!connected || mutating !== null} /></label><label>{locale === 'vi' ? 'Time base (den)' : 'Time base (den)'}<input value={profileDraft.timeBaseDen} onChange={updateProfileDraft('timeBaseDen')} inputMode="numeric" disabled={!connected || mutating !== null} /></label><label>{locale === 'vi' ? 'Chiều rộng' : 'Width'}<input value={profileDraft.width} onChange={updateProfileDraft('width')} inputMode="numeric" disabled={!connected || mutating !== null} /></label><label>{locale === 'vi' ? 'Chiều cao' : 'Height'}<input value={profileDraft.height} onChange={updateProfileDraft('height')} inputMode="numeric" disabled={!connected || mutating !== null} /></label></div><button type="submit" className="primary-button small" disabled={!connected || mutating !== null || !client.createMediaProfileRevision}>{mutating === 'profile-create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Lưu Media Profile candidate' : 'Save Media Profile candidate'}</button></form></section>
+      <section className="workspace-panel timeline-card timeline-workspace-card">
+        <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon green"><Layers3 size={16} /></span><div><h2>{locale === 'vi' ? 'Checkpoint workspace' : 'Checkpoint workspace'}</h2><p>{selectedTimeline ? `${selectedTimeline.title} · ${selectedTimeline.code ?? '—'}` : (locale === 'vi' ? 'Chọn timeline bên trái.' : 'Select a timeline on the left.')}</p></div></div>{currentRevision && <span className="state-label">{timelineStateLabel(currentRevision.state, locale)}</span>}</div>
+        {workspaceLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc checkpoint…' : 'Reading checkpoint…'} /> : workspaceError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{workspaceError}</span><button className="subtle-button tiny" onClick={() => selectedTimelineId && void loadWorkspace(selectedTimelineId)}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : !workspace ? <EmptyState icon={Layers3} title={locale === 'vi' ? 'Chọn timeline' : 'Select a timeline'} detail={locale === 'vi' ? 'Workspace sẽ hiển thị revision cụ thể sau khi Core trả về.' : 'The workspace appears after Core returns a specific revision.'} /> : <>
+          <div className="timeline-metrics"><div><span>{locale === 'vi' ? 'Revision' : 'Revision'}</span><strong>{currentRevision?.id ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Duration' : 'Duration'}</span><strong>{rationalLabel(currentRevision?.duration)}</strong></div><div><span>{locale === 'vi' ? 'Tracks' : 'Tracks'}</span><strong>{currentRevision?.tracks.length ?? 0}</strong></div><div><span>{locale === 'vi' ? 'Readiness' : 'Readiness'}</span><strong>{currentRevision?.readinessState ?? 'UNKNOWN'}</strong></div></div>
+          {workspace.needsYou.length > 0 && <div className="inline-state warning"><UserRound size={14} /><span>{locale === 'vi' ? `Core cần bạn xử lý ${workspace.needsYou.length} mục.` : `Core needs you to resolve ${workspace.needsYou.length} item${workspace.needsYou.length === 1 ? '' : 's'}.`}</span></div>}
+          <div className="timeline-revision-list">{revisions.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có checkpoint.' : 'No checkpoints yet.'} /> : revisions.map((revision) => { const nextState = timelineRevisionTransition(revision.state); return <div className="timeline-revision-row" key={revision.id}><div><strong>{revision.id ?? 'revision'}</strong><small>{timelineStateLabel(revision.state, locale)} · {rationalLabel(revision.duration)} · {revision.tracks.length} {locale === 'vi' ? 'track' : 'tracks'} · v{revision.rowVersion}</small></div>{nextState && <button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null} onClick={() => void transitionRevision(revision, nextState)}>{mutating === `timeline-transition:${revision.id}` ? <RefreshCw size={12} className="spin" /> : <ArrowRight size={12} />}{timelineStateLabel(nextState, locale)}</button>}</div> })}</div>
+          {currentRevision && <div className="timeline-track-list">{currentRevision.tracks.map((track) => <div className="timeline-track-row" key={track.id ?? `${track.trackType}-${track.orderIndex}`}><span><strong>{track.name}</strong><small>{track.trackType} · {track.clips.length} {locale === 'vi' ? 'clip' : 'clips'}</small></span><span className="record-code">{track.enabled ? 'ON' : 'OFF'}</span></div>)}</div>}
+          <form className="workspace-form timeline-checkpoint-form" onSubmit={createRevision}>
+            <div className="form-grid two"><label>{locale === 'vi' ? 'Duration num' : 'Duration num'}<input value={durationNum} onChange={(event) => setDurationNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label><label>{locale === 'vi' ? 'Duration den' : 'Duration den'}<input value={durationDen} onChange={(event) => setDurationDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label></div>
+            <label>{locale === 'vi' ? 'Tracks JSON (VIDEO)' : 'Tracks JSON (VIDEO)'}<textarea aria-label="Tracks JSON" value={tracksJson} onChange={(event) => setTracksJson(event.target.value)} rows={5} spellCheck={false} placeholder={'[{"trackType":"VIDEO","orderIndex":0,"name":"Picture","enabled":true,"clips":[]}]'} disabled={!connected || mutating !== null || !approvedProfile} /></label>
+            <label>{locale === 'vi' ? 'Markers JSON' : 'Markers JSON'}<textarea aria-label="Markers JSON" value={markersJson} onChange={(event) => setMarkersJson(event.target.value)} rows={3} spellCheck={false} placeholder={'[{"time":{"num":0,"den":1},"markerType":"NOTE","label":"Beat"}]'} disabled={!connected || mutating !== null || !approvedProfile} /></label>
+            <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chỉ track VIDEO; clip phải dùng rational timelineIn/timelineOut. Core sẽ kiểm tra overlap, bounds, asset readiness và rights.' : 'VIDEO tracks only; clips use rational timelineIn/timelineOut. Core validates overlap, bounds, asset readiness, and rights.'}</p>
+            <button type="submit" className="primary-button small" disabled={!connected || !approvedProfile?.id || !workspace || mutating !== null || !client.createTimelineRevision}>{mutating === 'timeline-revision-create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Lưu checkpoint' : 'Save checkpoint'}</button>
+          </form>
+          <p className="timeline-deferred"><Info size={14} />{locale === 'vi' ? 'V1 chỉ ghi checkpoint duration/tracks/markers qua Core. Playback, render và export chưa có control trong workspace này.' : 'V1 only records duration/tracks/markers through Core. Playback, render and export controls are deferred.'}</p>
+        </>}
+      </section>
+    </div>}
   </div>
 }
 

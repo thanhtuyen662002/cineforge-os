@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 10;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -59,6 +59,47 @@ export function initializeDatabase(db) {
       row_version INTEGER NOT NULL DEFAULT 1,
       UNIQUE(studio_id, code)
     );
+
+    /*
+     * A media profile is the explicit technical contract that a timeline
+     * pins.  Rate/time-base values are rational integers; no timeline may
+     * silently invent a 24/25/30 fps or millisecond default.
+     */
+    CREATE TABLE IF NOT EXISTS project_media_profiles (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL UNIQUE REFERENCES projects(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_media_profile_revisions (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT NOT NULL REFERENCES project_media_profiles(id),
+      revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+      lifecycle_state TEXT NOT NULL DEFAULT 'CANDIDATE'
+        CHECK (lifecycle_state IN ('DRAFT', 'CANDIDATE', 'APPROVED', 'SUPERSEDED', 'REJECTED')),
+      timeline_rate_num INTEGER NOT NULL CHECK (timeline_rate_num > 0),
+      timeline_rate_den INTEGER NOT NULL CHECK (timeline_rate_den > 0),
+      time_base_num INTEGER NOT NULL CHECK (time_base_num > 0),
+      time_base_den INTEGER NOT NULL CHECK (time_base_den > 0),
+      width INTEGER NOT NULL CHECK (width > 0),
+      height INTEGER NOT NULL CHECK (height > 0),
+      pixel_aspect_num INTEGER NOT NULL CHECK (pixel_aspect_num > 0),
+      pixel_aspect_den INTEGER NOT NULL CHECK (pixel_aspect_den > 0),
+      working_color_space TEXT NOT NULL,
+      transfer_function TEXT NOT NULL,
+      hdr_policy TEXT NOT NULL,
+      audio_sample_rate INTEGER NOT NULL CHECK (audio_sample_rate > 0),
+      audio_channel_layout TEXT NOT NULL,
+      proxy_profile_json TEXT NOT NULL DEFAULT '{}',
+      mastering_targets_json TEXT NOT NULL DEFAULT '{}',
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(profile_id, revision_number)
+    );
+    CREATE INDEX IF NOT EXISTS project_media_profile_revisions_idx
+      ON project_media_profile_revisions(profile_id, revision_number DESC);
 
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
@@ -500,6 +541,167 @@ export function initializeDatabase(db) {
     );
     CREATE INDEX IF NOT EXISTS performance_bible_revisions_bible_idx
       ON performance_bible_revisions(performance_bible_id, revision_number DESC);
+
+    /*
+     * Provider-neutral editorial checkpoint baseline.  Tracks and clips are
+     * immutable children of an immutable revision; lifecycle/row_version on
+     * the revision are the only mutable fields.  Rational ranges are stored
+     * as integer numerator/denominator pairs so floating-point time can never
+     * become canonical state.
+     */
+    CREATE TABLE IF NOT EXISTS timelines (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      scope_type TEXT NOT NULL DEFAULT 'PROJECT' CHECK (scope_type = 'PROJECT'),
+      scope_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      title TEXT NOT NULL,
+      lifecycle_state TEXT NOT NULL DEFAULT 'ACTIVE'
+        CHECK (lifecycle_state IN ('ACTIVE', 'ARCHIVED', 'TRASHED')),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(project_id, code),
+      UNIQUE(scope_type, scope_id)
+    );
+    CREATE INDEX IF NOT EXISTS timelines_project_idx
+      ON timelines(project_id, lifecycle_state, created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS timeline_revisions (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timelines(id),
+      media_profile_revision_id TEXT NOT NULL REFERENCES project_media_profile_revisions(id),
+      revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+      lifecycle_state TEXT NOT NULL DEFAULT 'DRAFT_CHECKPOINT'
+        CHECK (lifecycle_state IN ('DRAFT_CHECKPOINT', 'CANDIDATE', 'APPROVED', 'SUPERSEDED')),
+      duration_num INTEGER NOT NULL CHECK (duration_num > 0),
+      duration_den INTEGER NOT NULL CHECK (duration_den > 0),
+      content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(timeline_id, revision_number)
+    );
+    CREATE INDEX IF NOT EXISTS timeline_revisions_timeline_idx
+      ON timeline_revisions(timeline_id, revision_number DESC);
+
+    CREATE TABLE IF NOT EXISTS timeline_tracks (
+      id TEXT PRIMARY KEY,
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      track_type TEXT NOT NULL CHECK (track_type IN ('VIDEO', 'AUDIO', 'CAPTION', 'DATA')),
+      order_index INTEGER NOT NULL CHECK (order_index >= 0),
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(timeline_revision_id, order_index)
+    );
+    CREATE INDEX IF NOT EXISTS timeline_tracks_revision_idx
+      ON timeline_tracks(timeline_revision_id, order_index ASC, id ASC);
+
+    CREATE TABLE IF NOT EXISTS timeline_clip_instances (
+      id TEXT PRIMARY KEY,
+      track_id TEXT NOT NULL REFERENCES timeline_tracks(id),
+      asset_revision_id TEXT REFERENCES asset_revisions(id),
+      source_in_num INTEGER,
+      source_in_den INTEGER,
+      source_out_num INTEGER,
+      source_out_den INTEGER,
+      timeline_in_num INTEGER NOT NULL CHECK (timeline_in_num >= 0),
+      timeline_in_den INTEGER NOT NULL CHECK (timeline_in_den > 0),
+      timeline_out_num INTEGER NOT NULL CHECK (timeline_out_num > 0),
+      timeline_out_den INTEGER NOT NULL CHECK (timeline_out_den > 0),
+      speed_num INTEGER NOT NULL DEFAULT 1 CHECK (speed_num > 0),
+      speed_den INTEGER NOT NULL DEFAULT 1 CHECK (speed_den > 0),
+      created_at_utc_us INTEGER NOT NULL,
+      CHECK ((asset_revision_id IS NULL AND source_in_num IS NULL AND source_in_den IS NULL AND source_out_num IS NULL AND source_out_den IS NULL)
+        OR (asset_revision_id IS NOT NULL AND source_in_num IS NOT NULL AND source_in_den IS NOT NULL AND source_out_num IS NOT NULL AND source_out_den IS NOT NULL)),
+      CHECK (source_in_num IS NULL OR source_in_num >= 0),
+      CHECK (source_in_den IS NULL OR source_in_den > 0),
+      CHECK (source_out_num IS NULL OR source_out_num > 0),
+      CHECK (source_out_den IS NULL OR source_out_den > 0)
+    );
+    CREATE INDEX IF NOT EXISTS timeline_clips_track_idx
+      ON timeline_clip_instances(track_id, timeline_in_num, timeline_in_den, id);
+
+    CREATE TABLE IF NOT EXISTS timeline_markers (
+      id TEXT PRIMARY KEY,
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      position_num INTEGER NOT NULL CHECK (position_num >= 0),
+      position_den INTEGER NOT NULL CHECK (position_den > 0),
+      marker_type TEXT NOT NULL,
+      label TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS timeline_markers_revision_idx
+      ON timeline_markers(timeline_revision_id, position_num, position_den, id);
+
+    CREATE TRIGGER IF NOT EXISTS project_media_profiles_no_update
+      BEFORE UPDATE ON project_media_profiles
+      BEGIN SELECT RAISE(ABORT, 'project_media_profiles are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS project_media_profiles_no_delete
+      BEFORE DELETE ON project_media_profiles
+      BEGIN SELECT RAISE(ABORT, 'project_media_profiles are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS project_media_profile_revisions_no_delete
+      BEFORE DELETE ON project_media_profile_revisions
+      BEGIN SELECT RAISE(ABORT, 'project_media_profile_revisions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS project_media_profile_revisions_identity_no_update
+      BEFORE UPDATE ON project_media_profile_revisions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.profile_id IS NOT OLD.profile_id
+        OR NEW.revision_number IS NOT OLD.revision_number
+        OR NEW.timeline_rate_num IS NOT OLD.timeline_rate_num
+        OR NEW.timeline_rate_den IS NOT OLD.timeline_rate_den
+        OR NEW.time_base_num IS NOT OLD.time_base_num
+        OR NEW.time_base_den IS NOT OLD.time_base_den
+        OR NEW.width IS NOT OLD.width
+        OR NEW.height IS NOT OLD.height
+        OR NEW.pixel_aspect_num IS NOT OLD.pixel_aspect_num
+        OR NEW.pixel_aspect_den IS NOT OLD.pixel_aspect_den
+        OR NEW.working_color_space IS NOT OLD.working_color_space
+        OR NEW.transfer_function IS NOT OLD.transfer_function
+        OR NEW.hdr_policy IS NOT OLD.hdr_policy
+        OR NEW.audio_sample_rate IS NOT OLD.audio_sample_rate
+        OR NEW.audio_channel_layout IS NOT OLD.audio_channel_layout
+        OR NEW.proxy_profile_json IS NOT OLD.proxy_profile_json
+        OR NEW.mastering_targets_json IS NOT OLD.mastering_targets_json
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'project_media_profile_revision content is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_revisions_no_delete
+      BEFORE DELETE ON timeline_revisions
+      BEGIN SELECT RAISE(ABORT, 'timeline_revisions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_revisions_identity_no_update
+      BEFORE UPDATE ON timeline_revisions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.timeline_id IS NOT OLD.timeline_id
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.revision_number IS NOT OLD.revision_number
+        OR NEW.duration_num IS NOT OLD.duration_num
+        OR NEW.duration_den IS NOT OLD.duration_den
+        OR NEW.content_hash IS NOT OLD.content_hash
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'timeline_revision content is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_tracks_no_update
+      BEFORE UPDATE ON timeline_tracks
+      BEGIN SELECT RAISE(ABORT, 'timeline_tracks are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_tracks_no_delete
+      BEFORE DELETE ON timeline_tracks
+      BEGIN SELECT RAISE(ABORT, 'timeline_tracks are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_clip_instances_no_update
+      BEFORE UPDATE ON timeline_clip_instances
+      BEGIN SELECT RAISE(ABORT, 'timeline_clip_instances are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_clip_instances_no_delete
+      BEFORE DELETE ON timeline_clip_instances
+      BEGIN SELECT RAISE(ABORT, 'timeline_clip_instances are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_markers_no_update
+      BEFORE UPDATE ON timeline_markers
+      BEGIN SELECT RAISE(ABORT, 'timeline_markers are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_markers_no_delete
+      BEFORE DELETE ON timeline_markers
+      BEGIN SELECT RAISE(ABORT, 'timeline_markers are append-only'); END;
 
     CREATE TRIGGER IF NOT EXISTS storage_objects_no_update
       BEFORE UPDATE ON storage_objects
