@@ -1041,7 +1041,10 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
     }
   }
 
-  const selected = workspace ?? characters.find((item) => item.id === selectedId) ?? null
+  // Keep the detail panel aligned with the selected row while a new workspace
+  // request is in flight. A previous character's workspace may still be in
+  // state until the response arrives, so it must never win for a different id.
+  const selected = (workspace?.id === selectedId ? workspace : null) ?? characters.find((item) => item.id === selectedId) ?? null
   const packageRows: Array<{ key: CharacterRevisionKind; label: string; package: CharacterSummary['visualIdentityPackage'] }> = [
     { key: 'visual', label: locale === 'vi' ? 'Visual identity' : 'Visual identity', package: selected?.visualIdentityPackage ?? null },
     { key: 'voice', label: locale === 'vi' ? 'Voice identity' : 'Voice identity', package: selected?.voiceIdentityPackage ?? null },

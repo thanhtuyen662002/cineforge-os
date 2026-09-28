@@ -52,7 +52,7 @@ describe('CharactersView', () => {
     fireEvent.change(screen.getByLabelText('Mã ổn định (tuỳ chọn)'), { target: { value: 'LINH' } })
     fireEvent.click(screen.getByRole('button', { name: 'Tạo CharacterIdentity' }))
     await waitFor(() => expect(core.createCharacter).toHaveBeenCalledWith(project.id, 'Linh', 'LINH', expect.any(String)))
-    expect(await screen.findByText('Linh')).toBeTruthy()
+    expect((await screen.findAllByText('Linh')).length).toBeGreaterThan(0)
   })
 
   it('keeps an English load failure visible and retryable', async () => {
