@@ -2917,15 +2917,15 @@ export class CoreService {
     const source = payload?.profile && typeof payload.profile === 'object' && !Array.isArray(payload.profile)
       ? { ...payload, ...payload.profile }
       : payload;
-    const timelineRate = rationalValue(source.timeline_rate ?? source.timelineRate ?? {
+    const timelineRate = normalizeRational(source.timeline_rate ?? source.timelineRate ?? {
       num: source.timeline_rate_num ?? source.timelineRateNum,
       den: source.timeline_rate_den ?? source.timelineRateDen,
     }, 'timeline_rate', { allowZero: false });
-    const timeBase = rationalValue(source.time_base ?? source.timeBase ?? source.timeline_time_base ?? source.timelineTimeBase ?? {
+    const timeBase = normalizeRational(source.time_base ?? source.timeBase ?? source.timeline_time_base ?? source.timelineTimeBase ?? {
       num: source.time_base_num ?? source.timeBaseNum ?? source.timeline_time_base_num ?? source.timelineTimeBaseNum,
       den: source.time_base_den ?? source.timeBaseDen ?? source.timeline_time_base_den ?? source.timelineTimeBaseDen,
     }, 'time_base', { allowZero: false });
-    const pixelAspect = rationalValue(source.pixel_aspect ?? source.pixelAspect ?? {
+    const pixelAspect = normalizeRational(source.pixel_aspect ?? source.pixelAspect ?? {
       num: source.pixel_aspect_num ?? source.pixelAspectNum,
       den: source.pixel_aspect_den ?? source.pixelAspectDen,
     }, 'pixel_aspect', { allowZero: false });

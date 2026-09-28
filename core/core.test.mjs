@@ -1019,6 +1019,19 @@ test('canonical timeline pins an approved media profile and stores immutable rat
     },
   }, {}, 'timeline-profile-nested');
   assert.equal(nestedProfile.ok, true, JSON.stringify(nestedProfile));
+  const reducedProfile = execute(core, 'CreateMediaProfileRevision', {
+    project_id: projectId,
+    timeline_rate: { num: 48, den: 2 },
+    time_base: { num: 2, den: 48 },
+    width: 1920, height: 1080, pixel_aspect: { num: 2, den: 2 },
+    working_color_space: 'sRGB', transfer_function: 'SDR', hdr_policy: 'NONE',
+    audio_sample_rate: 48000, audio_channel_layout: 'STEREO',
+  }, {}, 'timeline-profile-reduced');
+  assert.equal(reducedProfile.ok, true, JSON.stringify(reducedProfile));
+  const reducedRevision = reducedProfile.result.candidate_revisions[0];
+  assert.deepEqual(reducedRevision.timeline_rate, { num: 24, den: 1 });
+  assert.deepEqual(reducedRevision.time_base, { num: 1, den: 24 });
+  assert.deepEqual(reducedRevision.pixel_aspect, { num: 1, den: 1 });
   const approvedProfile = execute(core, 'TransitionMediaProfileRevision', {
     project_id: projectId, revision_id: candidate.id, next_state: 'APPROVED',
   }, { REVISION: candidate.row_version }, 'timeline-profile-approve');
