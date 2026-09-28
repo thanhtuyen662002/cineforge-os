@@ -1,0 +1,30 @@
+{
+  "issue": 19,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-character-baseline",
+  "run_id_at_claim": "WORK-character-baseline-20260928-A1",
+  "slot_id": "WORK-character-baseline",
+  "claim_base_sha": "8181738c1beb36c7724363cfaa2389001b9315e2",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:3e2c0fb8d44680fb1a2c1065f2f1476ff669b1704a0479a891d55dc6690d6f9c",
+  "context_base_sha": "8181738c1beb36c7724363cfaa2389001b9315e2",
+  "arch_context": [
+    "docs/architecture/FINAL_ARCHITECTURE.md#6-character-voice-prop-costume-and-world-domain",
+    "docs/architecture/CHARACTER_IDENTITY_SYSTEM.md#2-character-stable-identity-versioned-packages-story-state",
+    "docs/architecture/CHARACTER_IDENTITY_SYSTEM.md#5-voice-identity",
+    "docs/architecture/CHARACTER_IDENTITY_SYSTEM.md#13-performance-identity"
+  ],
+  "design_context": [
+    "docs/design/SCHEMA.md#6-character-and-canon",
+    "docs/design/STATE_MACHINES.md#6-canon-revision-lifecycle",
+    "docs/design/STATE_MACHINES.md#7-character-lock-state",
+    "docs/design/API_CONTRACTS.md#5-query-api",
+    "docs/design/UI_COMPONENT_SYSTEM.md#12-character-workspace"
+  ],
+  "risk_context": [
+    "docs/design/DETAILED_DESIGN_RED_TEAM.md#character-voice-continuity",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#rights-and-consent"
+  ],
+  "risk": "HIGH",
+  "status": "CLAIMED"
+}
