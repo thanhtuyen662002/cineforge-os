@@ -276,6 +276,12 @@ function mapCharacter(source) {
   const visual = value.visual_identity_package ?? value.visualIdentityPackage ?? value.visual_identity;
   const voice = value.voice_identity_package ?? value.voiceIdentityPackage ?? value.voice_identity;
   const performance = value.performance_bible_package ?? value.performanceBiblePackage ?? value.performance_bible;
+  const visualApproved = Boolean(visual && typeof visual === 'object' && (visual.approved_revision || visual.approvedRevision
+    || String(visual.lifecycle_state ?? visual.state ?? '').toUpperCase() === 'APPROVED'));
+  const voiceApproved = Boolean(voice && typeof voice === 'object' && (voice.approved_revision || voice.approvedRevision
+    || String(voice.lifecycle_state ?? voice.state ?? '').toUpperCase() === 'APPROVED'));
+  const performanceApproved = Boolean(performance && typeof performance === 'object' && (performance.approved_revision || performance.approvedRevision
+    || String(performance.lifecycle_state ?? performance.state ?? '').toUpperCase() === 'APPROVED'));
   return {
     id: readString(identity, 'id', 'character_id', 'characterId') ?? crypto.randomUUID(),
     projectId: readString(identity, 'project_id', 'projectId'),
@@ -291,7 +297,7 @@ function mapCharacter(source) {
         ? mapRevision(visual.approved_revision ?? visual.approvedRevision ?? visual, 'visual') : null,
       candidateRevisions: Array.isArray(visual.candidate_revisions ?? visual.candidateRevisions)
         ? (visual.candidate_revisions ?? visual.candidateRevisions).map((item) => mapRevision(item, 'visual'))
-        : visualRevisions.length ? visualRevisions : [mapRevision(visual, 'visual')],
+        : visualApproved ? [] : visualRevisions.length ? visualRevisions : [mapRevision(visual, 'visual')],
     } : (visualRevisions.length ? { approvedRevision: null, candidateRevisions: visualRevisions } : null),
     voiceIdentityPackage: voice && typeof voice === 'object' ? {
       id: readString(voice, 'id', 'package_id', 'packageId'),
@@ -299,7 +305,7 @@ function mapCharacter(source) {
         ? mapRevision(voice.approved_revision ?? voice.approvedRevision ?? voice, 'voice') : null,
       candidateRevisions: Array.isArray(voice.candidate_revisions ?? voice.candidateRevisions)
         ? (voice.candidate_revisions ?? voice.candidateRevisions).map((item) => mapRevision(item, 'voice'))
-        : voiceRevisions.length ? voiceRevisions : [mapRevision(voice, 'voice')],
+        : voiceApproved ? [] : voiceRevisions.length ? voiceRevisions : [mapRevision(voice, 'voice')],
     } : (voiceRevisions.length ? { approvedRevision: null, candidateRevisions: voiceRevisions } : null),
     performanceBible: performance && typeof performance === 'object' ? {
       id: readString(performance, 'id', 'performance_bible_id', 'performanceBibleId'),
@@ -307,7 +313,7 @@ function mapCharacter(source) {
         ? mapRevision(performance.approved_revision ?? performance.approvedRevision ?? performance, 'performance') : null,
       candidateRevisions: Array.isArray(performance.candidate_revisions ?? performance.candidateRevisions)
         ? (performance.candidate_revisions ?? performance.candidateRevisions).map((item) => mapRevision(item, 'performance'))
-        : performanceRevisions.length ? performanceRevisions : [mapRevision(performance, 'performance')],
+        : performanceApproved ? [] : performanceRevisions.length ? performanceRevisions : [mapRevision(performance, 'performance')],
     } : (performanceRevisions.length ? { approvedRevision: null, candidateRevisions: performanceRevisions } : null),
     costumeState: value.costume_state ?? value.costumeState ?? null,
     propState: value.prop_state ?? value.propState ?? null,
