@@ -6,8 +6,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED'].includes(code)) return 400;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
@@ -389,6 +389,199 @@ function mapCharacterWorkspace(result) {
   };
 }
 
+function safeRational(value, numKey = 'num', denKey = 'den') {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const num = source[numKey] ?? source.num ?? source.numerator;
+  const den = source[denKey] ?? source.den ?? source.denominator;
+  const valid = (item) => (typeof item === 'number' && Number.isSafeInteger(item)) || (typeof item === 'string' && /^-?[0-9]+$/.test(item));
+  if (!valid(num) || !valid(den) || String(den) === '0') return null;
+  return { num, den };
+}
+
+function mapMediaProfileRevision(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const timelineRate = safeRational(value.timeline_rate ?? value.timelineRate) ?? safeRational({
+    num: value.timeline_rate_num ?? value.timelineRateNum,
+    den: value.timeline_rate_den ?? value.timelineRateDen,
+  });
+  const timeBase = safeRational(value.time_base ?? value.timeBase) ?? safeRational({
+    num: value.time_base_num ?? value.timeBaseNum,
+    den: value.time_base_den ?? value.timeBaseDen,
+  });
+  const pixelAspect = safeRational(value.pixel_aspect ?? value.pixelAspect) ?? safeRational({
+    num: value.pixel_aspect_num ?? value.pixelAspectNum,
+    den: value.pixel_aspect_den ?? value.pixelAspectDen,
+  });
+  return {
+    id: readString(value, 'id', 'revision_id', 'revisionId'),
+    profileId: readString(value, 'profile_id', 'profileId'),
+    projectId: readString(value, 'project_id', 'projectId'),
+    revisionNumber: Number.isSafeInteger(Number(value.revision_number ?? value.revisionNumber)) ? Number(value.revision_number ?? value.revisionNumber) : undefined,
+    state: readString(value, 'lifecycle_state', 'lifecycleState', 'state') ?? 'DRAFT',
+    rowVersion: Number.isSafeInteger(Number(value.row_version ?? value.rowVersion)) ? Number(value.row_version ?? value.rowVersion) : 1,
+    timelineRate: timelineRate ?? { num: 0, den: 1 },
+    timeBase: timeBase ?? { num: 0, den: 1 },
+    dropFramePolicy: readString(value, 'drop_frame_policy', 'dropFramePolicy') ?? 'UNKNOWN',
+    width: Number.isSafeInteger(Number(value.width)) ? Number(value.width) : 0,
+    height: Number.isSafeInteger(Number(value.height)) ? Number(value.height) : 0,
+    pixelAspect: pixelAspect ?? { num: 0, den: 1 },
+    workingColorSpace: readString(value, 'working_color_space', 'workingColorSpace') ?? 'UNKNOWN',
+    transferFunction: readString(value, 'transfer_function', 'transferFunction') ?? 'UNKNOWN',
+    hdrPolicy: readString(value, 'hdr_policy', 'hdrPolicy') ?? 'UNKNOWN',
+    audioSampleRate: Number.isSafeInteger(Number(value.audio_sample_rate ?? value.audioSampleRate)) ? Number(value.audio_sample_rate ?? value.audioSampleRate) : 0,
+    audioChannelLayout: readString(value, 'audio_channel_layout', 'audioChannelLayout') ?? 'UNKNOWN',
+    createdAt: readString(value, 'created_at', 'createdAt'),
+  };
+}
+
+function mapMediaProfileWorkspace(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const profileValue = value.profile ?? value.media_profile ?? value.mediaProfile ?? value;
+  const revisions = Array.isArray(profileValue.revisions ?? value.revisions)
+    ? (profileValue.revisions ?? value.revisions).map(mapMediaProfileRevision)
+    : [];
+  const approved = value.approved_revision ?? value.approvedRevision ?? profileValue.approved_revision ?? profileValue.approvedRevision;
+  const candidates = value.candidate_revisions ?? value.candidateRevisions ?? profileValue.candidate_revisions ?? profileValue.candidateRevisions;
+  return {
+    profile: {
+      id: readString(profileValue, 'id', 'profile_id', 'profileId'),
+      projectId: readString(profileValue, 'project_id', 'projectId') ?? readString(value, 'project_id', 'projectId'),
+    },
+    revisions,
+    approvedRevision: approved ? mapMediaProfileRevision(approved) : revisions.find((item) => item.state === 'APPROVED') ?? null,
+    candidateRevisions: Array.isArray(candidates) ? candidates.map(mapMediaProfileRevision) : revisions.filter((item) => ['DRAFT', 'CANDIDATE'].includes(item.state)),
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
+function mapTimelineMarker(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const time = safeRational(value.time ?? value.position) ?? safeRational({ num: value.time_num ?? value.timeNum, den: value.time_den ?? value.timeDen });
+  return {
+    id: readString(value, 'id', 'marker_id', 'markerId'),
+    time: time ?? { num: 0, den: 1 },
+    markerType: readString(value, 'marker_type', 'markerType', 'type') ?? 'NOTE',
+    label: readString(value, 'label', 'name') ?? '',
+  };
+}
+
+function mapTimelineClip(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const rational = (nested, prefix) => safeRational(value[nested]) ?? safeRational({ num: value[`${prefix}_num`], den: value[`${prefix}_den`] });
+  return {
+    id: readString(value, 'id', 'clip_id', 'clipId'),
+    assetRevisionId: readString(value, 'asset_revision_id', 'assetRevisionId'),
+    timelineIn: rational('timeline_in', 'timeline_in') ?? { num: 0, den: 1 },
+    timelineOut: rational('timeline_out', 'timeline_out') ?? { num: 0, den: 1 },
+    sourceIn: rational('source_in', 'source_in'),
+    sourceOut: rational('source_out', 'source_out'),
+    speed: rational('speed', 'speed') ?? { num: 1, den: 1 },
+    label: readString(value, 'label', 'name', 'display_name', 'displayName') ?? undefined,
+  };
+}
+
+function mapTimelineTrack(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  return {
+    id: readString(value, 'id', 'track_id', 'trackId'),
+    trackType: readString(value, 'track_type', 'trackType', 'type') ?? 'VIDEO',
+    orderIndex: Number.isSafeInteger(Number(value.order_index ?? value.orderIndex)) ? Number(value.order_index ?? value.orderIndex) : 0,
+    name: readString(value, 'name') ?? 'Track',
+    enabled: value.enabled !== false,
+    clips: Array.isArray(value.clips ?? value.clip_instances ?? value.clipInstances)
+      ? (value.clips ?? value.clip_instances ?? value.clipInstances).map(mapTimelineClip)
+      : [],
+  };
+}
+
+function mapTimelineRevision(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const duration = safeRational(value.duration) ?? safeRational({ num: value.duration_num ?? value.durationNum, den: value.duration_den ?? value.durationDen });
+  const tracks = Array.isArray(value.tracks ?? value.timeline_tracks ?? value.timelineTracks)
+    ? (value.tracks ?? value.timeline_tracks ?? value.timelineTracks).map(mapTimelineTrack)
+    : [];
+  return {
+    id: readString(value, 'id', 'timeline_revision_id', 'timelineRevisionId'),
+    timelineId: readString(value, 'timeline_id', 'timelineId'),
+    mediaProfileRevisionId: readString(value, 'media_profile_revision_id', 'mediaProfileRevisionId'),
+    revisionNumber: Number.isSafeInteger(Number(value.revision_number ?? value.revisionNumber)) ? Number(value.revision_number ?? value.revisionNumber) : undefined,
+    state: readString(value, 'lifecycle_state', 'lifecycleState', 'state') ?? 'DRAFT_CHECKPOINT',
+    rowVersion: Number.isSafeInteger(Number(value.row_version ?? value.rowVersion)) ? Number(value.row_version ?? value.rowVersion) : 1,
+    duration: duration ?? { num: 0, den: 1 },
+    editHash: readString(value, 'edit_hash', 'editHash', 'content_hash', 'contentHash'),
+    tracks,
+    markers: Array.isArray(value.markers ?? value.timeline_markers ?? value.timelineMarkers)
+      ? (value.markers ?? value.timeline_markers ?? value.timelineMarkers).map(mapTimelineMarker)
+      : [],
+    readinessState: readString(value, 'readiness_state', 'readinessState') ?? 'UNKNOWN',
+    nextStep: readString(value, 'next_step', 'nextStep'),
+    createdAt: readString(value, 'created_at', 'createdAt'),
+  };
+}
+
+function mapTimeline(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  return {
+    id: readString(value, 'id', 'timeline_id', 'timelineId'),
+    projectId: readString(value, 'project_id', 'projectId'),
+    scopeType: readString(value, 'scope_type', 'scopeType') ?? 'PROJECT',
+    scopeId: readString(value, 'scope_id', 'scopeId'),
+    code: readString(value, 'code', 'stable_code', 'stableCode'),
+    title: readString(value, 'title', 'name') ?? 'Timeline',
+    state: readString(value, 'lifecycle_state', 'lifecycleState', 'state') ?? 'ACTIVE',
+    rowVersion: Number.isSafeInteger(Number(value.row_version ?? value.rowVersion)) ? Number(value.row_version ?? value.rowVersion) : 1,
+    createdAt: readString(value, 'created_at', 'createdAt'),
+    updatedAt: readString(value, 'updated_at', 'updatedAt'),
+  };
+}
+
+function mapTimelineList(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const rows = Array.isArray(result) ? result : value.timelines ?? value.items ?? value.results ?? [];
+  return {
+    timelines: Array.isArray(rows) ? rows.map(mapTimeline) : [],
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+  };
+}
+
+function mapTimelineWorkspace(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const timelineValue = value.timeline ?? value;
+  const revisionValues = value.revisions ?? value.timeline_revisions ?? value.timelineRevisions;
+  const revisions = Array.isArray(revisionValues) ? revisionValues.map(mapTimelineRevision) : [];
+  // Core's command projection intentionally returns one immutable `revision`
+  // plus the pinned media profile revision. Accept both that compact shape and
+  // the expanded workspace shape used by list/query consumers.
+  const singleRevision = value.revision ?? value.timeline_revision ?? value.timelineRevision;
+  const currentValue = value.current_revision ?? value.currentRevision ?? value.approved_revision ?? value.approvedRevision ?? singleRevision;
+  const mappedCurrent = currentValue ? mapTimelineRevision(currentValue) : null;
+  const allRevisions = mappedCurrent && !revisions.some((revision) => revision.id && revision.id === mappedCurrent.id)
+    ? [mappedCurrent, ...revisions]
+    : revisions;
+  const profileRevision = value.media_profile_revision ?? value.mediaProfileRevision;
+  const profileValue = value.media_profile ?? value.mediaProfile
+    ?? (profileRevision ? {
+      profile: {
+        id: profileRevision.profile_id ?? profileRevision.profileId,
+        project_id: profileRevision.project_id ?? profileRevision.projectId,
+      },
+      revisions: [profileRevision],
+      approved_revision: profileRevision.state === 'APPROVED' ? profileRevision : undefined,
+      candidate_revisions: ['DRAFT', 'CANDIDATE'].includes(String(profileRevision.state ?? '').toUpperCase()) ? [profileRevision] : [],
+    } : null);
+  return {
+    timeline: mapTimeline(timelineValue),
+    mediaProfile: profileValue ? mapMediaProfileWorkspace(profileValue) : null,
+    revisions: allRevisions,
+    currentRevision: mappedCurrent ?? allRevisions.find((item) => item.state === 'APPROVED') ?? allRevisions[0] ?? null,
+    needsYou: Array.isArray(value.needs_you ?? value.needsYou) ? (value.needs_you ?? value.needsYou) : [],
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
 function mapDashboard(result) {
   const health = result?.system_health ?? result?.systemHealth ?? {};
   const backupState = String(health.backup_state ?? health.backupState ?? '').toUpperCase();
@@ -590,6 +783,41 @@ export function createCoreHttpServer(core, options = {}) {
         result = command(core, request, 'CreateVoiceIdentityRevision', { ...body, project_id: parts[2], character_id: parts[4] }, expectedVersions(body, 'CHARACTER'), commandKey(request, body));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'characters' && parts[4] && parts[5] === 'performance-bibles' && parts.length === 6) {
         result = command(core, request, 'CreatePerformanceBibleRevision', { ...body, project_id: parts[2], character_id: parts[4] }, expectedVersions(body, 'CHARACTER'), commandKey(request, body));
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'media-profile' && parts.length === 4) {
+        const workspace = query(core, request, 'query.media_profile.workspace', { project_id: parts[2] });
+        result = workspace.ok ? { ...workspace, result: mapMediaProfileWorkspace(workspace.result) } : workspace;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'media-profile' && parts.length === 4) {
+        const created = command(core, request, 'CreateMediaProfileRevision', { ...body, project_id: parts[2] }, expectedVersions(body, 'PROJECT'), commandKey(request, body));
+        result = created.ok ? { ...created, result: mapMediaProfileWorkspace(created.result) } : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'media-profile' && parts[4] === 'revisions' && parts[5] && parts[6] === 'transition' && parts.length === 7) {
+        const transitioned = command(core, request, 'TransitionMediaProfileRevision', {
+          ...body, project_id: parts[2], revision_id: parts[5],
+        }, expectedVersions(body, 'REVISION'), commandKey(request, body));
+        result = transitioned.ok ? { ...transitioned, result: mapMediaProfileWorkspace(transitioned.result) } : transitioned;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts.length === 4) {
+        const listed = query(core, request, 'query.timeline.list', { project_id: parts[2], limit: url.searchParams.get('limit') ?? 100 });
+        result = listed.ok ? { ...listed, result: mapTimelineList(listed.result) } : listed;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts.length === 4) {
+        const created = command(core, request, 'CreateTimeline', { ...body, project_id: parts[2] }, expectedVersions(body, 'PROJECT'), commandKey(request, body));
+        result = created.ok ? { ...created, result: mapTimeline(created.result?.timeline ?? created.result) } : created;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'workspace' && parts.length === 6) {
+        const workspace = query(core, request, 'query.timeline.workspace', { project_id: parts[2], timeline_id: parts[4] });
+        result = workspace.ok ? { ...workspace, result: mapTimelineWorkspace(workspace.result) } : workspace;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'revisions' && parts.length === 6) {
+        // Older desktop clients wrapped the immutable snapshot under
+        // `snapshot`; flatten it at the HTTP boundary so Core always receives
+        // the explicit duration/tracks contract.
+        const snapshot = body.snapshot && typeof body.snapshot === 'object' && !Array.isArray(body.snapshot) ? body.snapshot : {};
+        const { snapshot: _ignoredSnapshot, ...bodyWithoutSnapshot } = body;
+        const created = command(core, request, 'CreateTimelineRevision', {
+          ...bodyWithoutSnapshot, ...snapshot, project_id: parts[2], timeline_id: parts[4],
+        }, expectedVersions(body, 'TIMELINE'), commandKey(request, body));
+        result = created.ok ? { ...created, result: mapTimelineWorkspace(created.result) } : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'revisions' && parts[6] && parts[7] === 'transition' && parts.length === 8) {
+        const transitioned = command(core, request, 'TransitionTimelineRevision', {
+          ...body, project_id: parts[2], timeline_id: parts[4], revision_id: parts[6],
+        }, expectedVersions(body, 'REVISION'), commandKey(request, body));
+        result = transitioned.ok ? { ...transitioned, result: mapTimelineWorkspace(transitioned.result) } : transitioned;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
         result = query(core, request, 'query.project.list', { include_trashed: url.searchParams.get('include_trashed') === 'true' });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {

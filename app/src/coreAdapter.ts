@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -31,6 +31,14 @@ export interface CoreBridge {
   createVisualIdentityRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
   createVoiceIdentityRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
   createPerformanceBibleRevision?(characterId: string, input: CharacterRevisionInput, idempotencyKey?: string): Promise<CharacterRevision>
+  getMediaProfile?(projectId: string, signal?: AbortSignal): Promise<MediaProfileWorkspace>
+  createMediaProfileRevision?(projectId: string, input: MediaProfileInput, idempotencyKey?: string): Promise<MediaProfileWorkspace>
+  transitionMediaProfileRevision?(projectId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string): Promise<MediaProfileWorkspace>
+  getTimelines?(projectId: string, signal?: AbortSignal): Promise<TimelineSummary[]>
+  getTimelineWorkspace?(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace>
+  createTimeline?(projectId: string, input: TimelineInput, idempotencyKey?: string): Promise<TimelineSummary>
+  createTimelineRevision?(projectId: string, timelineId: string, input: TimelineSnapshotInput, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
+  transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
 }
 
 const LOCAL_SNAPSHOT_KEY = 'cineforge-dashboard-v1'
@@ -644,6 +652,103 @@ export class HttpCoreClient implements CoreClient {
     return arrayValue(result.assets).map(mapAssetRecord)
   }
 
+  async getMediaProfile(projectId: string, signal?: AbortSignal): Promise<MediaProfileWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Media profile requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/media-profile`, { signal, headers: { Accept: 'application/json' } })
+    return mapMediaProfileWorkspaceRecord(await readCorePayload(response, 'media profile'))
+  }
+
+  async createMediaProfileRevision(projectId: string, input: MediaProfileInput, idempotencyKey: string = crypto.randomUUID()): Promise<MediaProfileWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Media profile changes require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/media-profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({
+        timeline_rate: input.timelineRate,
+        time_base: input.timeBase,
+        pixel_aspect: input.pixelAspect,
+        width: input.width,
+        height: input.height,
+        drop_frame_policy: input.dropFramePolicy ?? 'NON_DROP',
+        working_color_space: input.workingColorSpace,
+        transfer_function: input.transferFunction,
+        hdr_policy: input.hdrPolicy,
+        audio_sample_rate: input.audioSampleRate,
+        audio_channel_layout: input.audioChannelLayout,
+        proxy_profile: input.proxyProfile ?? {},
+        mastering_targets: input.masteringTargets ?? {},
+      }),
+    })
+    return mapMediaProfileWorkspaceRecord(await readCorePayload(response, 'media profile creation'))
+  }
+
+  async transitionMediaProfileRevision(projectId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<MediaProfileWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Media profile transitions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/media-profile/revisions/${encodeURIComponent(revisionId)}/transition`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ next_state: nextState, expected_version: expectedVersion }),
+    })
+    return mapMediaProfileWorkspaceRecord(await readCorePayload(response, 'media profile transition'))
+  }
+
+  async getTimelines(projectId: string, signal?: AbortSignal): Promise<TimelineSummary[]> {
+    if (!this.baseUrl) throw new CoreClientError('Timeline requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines`, { signal, headers: { Accept: 'application/json' } })
+    const payload = asRecord(await readCorePayload(response, 'timelines'))
+    return arrayValue(payload.timelines ?? payload.items ?? payload).map(mapTimelineSummaryRecord)
+  }
+
+  async getTimelineWorkspace(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Timeline workspace requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/workspace`, { signal, headers: { Accept: 'application/json' } })
+    return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline workspace'))
+  }
+
+  async createTimeline(projectId: string, input: TimelineInput, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineSummary> {
+    if (!this.baseUrl) throw new CoreClientError('Timeline creation requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const title = input.title.trim()
+    if (!title || title.length > 500) throw new CoreClientError('A timeline title is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({
+        title,
+        ...(input.code?.trim() ? { code: input.code.trim() } : {}),
+        scope_type: input.scopeType ?? 'PROJECT',
+        ...(input.scopeId ? { scope_id: input.scopeId } : {}),
+        media_profile_revision_id: input.mediaProfileRevisionId,
+      }),
+    })
+    return mapTimelineSummaryRecord(await readCorePayload(response, 'timeline creation'))
+  }
+
+  async createTimelineRevision(projectId: string, timelineId: string, input: TimelineSnapshotInput, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Timeline checkpoints require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/revisions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({
+        media_profile_revision_id: input.mediaProfileRevisionId,
+        duration: input.duration,
+        tracks: input.tracks,
+        markers: input.markers,
+        expected_version: expectedVersion,
+      }),
+    })
+    return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline checkpoint'))
+  }
+
+  async transitionTimelineRevision(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Timeline transitions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/revisions/${encodeURIComponent(revisionId)}/transition`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ next_state: nextState, expected_version: expectedVersion }),
+    })
+    return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline revision transition'))
+  }
+
   async getCharacters(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]> {
     if (!this.baseUrl) return []
     const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
@@ -1179,6 +1284,164 @@ function mapCharacterWorkspaceRecord(value: unknown): CharacterWorkspace {
     usage: null,
     rights: null,
     needsYou: arrayValue(envelope.needs_you ?? envelope.needsYou),
+  }
+}
+
+function safeRationalRecord(value: unknown, fallback: { num: number | string; den: number | string } = { num: 0, den: 1 }): { num: number | string; den: number | string } {
+  const source = asRecord(value)
+  const num = source.num ?? source.numerator
+  const den = source.den ?? source.denominator
+  const valid = (item: unknown) => (typeof item === 'number' && Number.isSafeInteger(item)) || (typeof item === 'string' && /^-?[0-9]+$/.test(item))
+  return valid(num) && valid(den) && String(den) !== '0' ? { num: num as number | string, den: den as number | string } : fallback
+}
+
+function mapMediaProfileRevisionRecord(value: unknown): MediaProfileRevision {
+  const source = asRecord(value)
+  const timelineRate = safeRationalRecord(source.timeline_rate ?? source.timelineRate ?? { num: source.timeline_rate_num ?? source.timelineRateNum, den: source.timeline_rate_den ?? source.timelineRateDen })
+  const timeBase = safeRationalRecord(source.time_base ?? source.timeBase ?? { num: source.time_base_num ?? source.timeBaseNum, den: source.time_base_den ?? source.timeBaseDen })
+  const pixelAspect = safeRationalRecord(source.pixel_aspect ?? source.pixelAspect ?? { num: source.pixel_aspect_num ?? source.pixelAspectNum, den: source.pixel_aspect_den ?? source.pixelAspectDen })
+  return {
+    id: stringValue(source.id ?? source.revision_id ?? source.revisionId),
+    profileId: stringValue(source.profile_id ?? source.profileId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    revisionNumber: numberValue(source.revision_number ?? source.revisionNumber, 0) || undefined,
+    state: stringValue(source.state ?? source.lifecycle_state ?? source.lifecycleState) ?? 'DRAFT',
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    timelineRate,
+    timeBase,
+    dropFramePolicy: stringValue(source.drop_frame_policy ?? source.dropFramePolicy) ?? 'UNKNOWN',
+    width: numberValue(source.width, 0),
+    height: numberValue(source.height, 0),
+    pixelAspect,
+    workingColorSpace: stringValue(source.working_color_space ?? source.workingColorSpace) ?? 'UNKNOWN',
+    transferFunction: stringValue(source.transfer_function ?? source.transferFunction) ?? 'UNKNOWN',
+    hdrPolicy: stringValue(source.hdr_policy ?? source.hdrPolicy) ?? 'UNKNOWN',
+    audioSampleRate: numberValue(source.audio_sample_rate ?? source.audioSampleRate, 0),
+    audioChannelLayout: stringValue(source.audio_channel_layout ?? source.audioChannelLayout) ?? 'UNKNOWN',
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapMediaProfileWorkspaceRecord(value: unknown): MediaProfileWorkspace {
+  const envelope = asRecord(value)
+  const profileSource = asRecord(envelope.profile ?? envelope.media_profile ?? envelope.mediaProfile ?? envelope)
+  const revisions = arrayValue(profileSource.revisions ?? envelope.revisions).map(mapMediaProfileRevisionRecord)
+  const approved = envelope.approved_revision ?? envelope.approvedRevision ?? profileSource.approved_revision ?? profileSource.approvedRevision
+  const candidates = envelope.candidate_revisions ?? envelope.candidateRevisions ?? profileSource.candidate_revisions ?? profileSource.candidateRevisions
+  return {
+    profile: {
+      id: stringValue(profileSource.id ?? profileSource.profile_id ?? profileSource.profileId),
+      projectId: stringValue(profileSource.project_id ?? profileSource.projectId ?? envelope.project_id ?? envelope.projectId),
+    },
+    revisions,
+    approvedRevision: approved ? mapMediaProfileRevisionRecord(approved) : revisions.find((revision) => revision.state === 'APPROVED') ?? null,
+    candidateRevisions: Array.isArray(candidates) ? candidates.map(mapMediaProfileRevisionRecord) : revisions.filter((revision) => ['DRAFT', 'CANDIDATE'].includes(revision.state)),
+    projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
+    generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
+  }
+}
+
+function mapTimelineMarkerRecord(value: unknown): TimelineMarker {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.marker_id ?? source.markerId),
+    time: safeRationalRecord(source.time ?? source.position ?? { num: source.time_num ?? source.timeNum, den: source.time_den ?? source.timeDen }),
+    markerType: stringValue(source.marker_type ?? source.markerType ?? source.type) ?? 'NOTE',
+    label: stringValue(source.label ?? source.name) ?? '',
+  }
+}
+
+function mapTimelineClipRecord(value: unknown): TimelineClip {
+  const source = asRecord(value)
+  const rational = (nested: string, prefix: string, fallback: { num: number | string; den: number | string } = { num: 0, den: 1 }) => {
+    const nestedValue = source[nested]
+    const flatValue = { num: source[`${prefix}_num`], den: source[`${prefix}_den`] }
+    if (nestedValue === undefined && flatValue.num === undefined && flatValue.den === undefined) return null
+    return safeRationalRecord(nestedValue ?? flatValue, fallback)
+  }
+  return {
+    id: stringValue(source.id ?? source.clip_id ?? source.clipId),
+    assetRevisionId: stringValue(source.asset_revision_id ?? source.assetRevisionId),
+    timelineIn: rational('timeline_in', 'timeline_in') ?? { num: 0, den: 1 },
+    timelineOut: rational('timeline_out', 'timeline_out') ?? { num: 0, den: 1 },
+    sourceIn: source.source_in === null || source.sourceIn === null ? null : rational('source_in', 'source_in'),
+    sourceOut: source.source_out === null || source.sourceOut === null ? null : rational('source_out', 'source_out'),
+    speed: rational('speed', 'speed', { num: 1, den: 1 }) ?? { num: 1, den: 1 },
+    label: stringValue(source.label ?? source.name ?? source.display_name ?? source.displayName),
+  }
+}
+
+function mapTimelineTrackRecord(value: unknown): TimelineTrack {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.track_id ?? source.trackId),
+    trackType: stringValue(source.track_type ?? source.trackType ?? source.type) ?? 'VIDEO',
+    orderIndex: numberValue(source.order_index ?? source.orderIndex, 0),
+    name: stringValue(source.name) ?? 'Track',
+    enabled: source.enabled !== false,
+    clips: arrayValue(source.clips ?? source.clip_instances ?? source.clipInstances).map(mapTimelineClipRecord),
+  }
+}
+
+function mapTimelineRevisionRecord(value: unknown): TimelineRevision {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.timeline_revision_id ?? source.timelineRevisionId),
+    timelineId: stringValue(source.timeline_id ?? source.timelineId),
+    mediaProfileRevisionId: stringValue(source.media_profile_revision_id ?? source.mediaProfileRevisionId),
+    revisionNumber: numberValue(source.revision_number ?? source.revisionNumber, 0) || undefined,
+    state: stringValue(source.state ?? source.lifecycle_state ?? source.lifecycleState) ?? 'DRAFT_CHECKPOINT',
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    duration: safeRationalRecord(source.duration ?? { num: source.duration_num ?? source.durationNum, den: source.duration_den ?? source.durationDen }),
+    editHash: stringValue(source.edit_hash ?? source.editHash ?? source.content_hash ?? source.contentHash),
+    tracks: arrayValue(source.tracks ?? source.timeline_tracks ?? source.timelineTracks).map(mapTimelineTrackRecord),
+    markers: arrayValue(source.markers ?? source.timeline_markers ?? source.timelineMarkers).map(mapTimelineMarkerRecord),
+    readinessState: stringValue(source.readiness_state ?? source.readinessState) ?? 'UNKNOWN',
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapTimelineSummaryRecord(value: unknown): TimelineSummary {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.timeline ?? envelope.result ?? value)
+  return {
+    id: stringValue(source.id ?? source.timeline_id ?? source.timelineId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    scopeType: stringValue(source.scope_type ?? source.scopeType) ?? 'PROJECT',
+    scopeId: stringValue(source.scope_id ?? source.scopeId),
+    code: stringValue(source.code ?? source.stable_code ?? source.stableCode),
+    title: stringValue(source.title ?? source.name) ?? 'Timeline',
+    state: stringValue(source.state ?? source.lifecycle_state ?? source.lifecycleState) ?? 'ACTIVE',
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapTimelineWorkspaceRecord(value: unknown): TimelineWorkspace {
+  const envelope = asRecord(value)
+  const timelineSource = asRecord(envelope.timeline ?? envelope)
+  const revisionValues = envelope.revisions ?? envelope.timeline_revisions ?? envelope.timelineRevisions
+  const revisions = arrayValue(revisionValues).map(mapTimelineRevisionRecord)
+  const singleRevision = envelope.revision ?? envelope.timeline_revision
+  const current = envelope.current_revision ?? envelope.currentRevision ?? envelope.approved_revision ?? envelope.approvedRevision ?? singleRevision
+  const mappedCurrent = current ? mapTimelineRevisionRecord(current) : null
+  const allRevisions = mappedCurrent && !revisions.some((revision) => revision.id && revision.id === mappedCurrent.id)
+    ? [mappedCurrent, ...revisions]
+    : revisions
+  const mediaProfileRevision = envelope.media_profile_revision ?? envelope.mediaProfileRevision
+  const profileRevision = asRecord(mediaProfileRevision)
+  const mediaProfileValue = envelope.media_profile ?? envelope.mediaProfile
+    ?? (mediaProfileRevision ? { profile: { id: profileRevision.profile_id ?? profileRevision.profileId, project_id: profileRevision.project_id ?? profileRevision.projectId }, revisions: [mediaProfileRevision] } : null)
+  return {
+    timeline: mapTimelineSummaryRecord(timelineSource),
+    mediaProfile: mediaProfileValue ? mapMediaProfileWorkspaceRecord(mediaProfileValue) : null,
+    revisions: allRevisions,
+    currentRevision: mappedCurrent ?? allRevisions.find((revision) => revision.state === 'APPROVED') ?? allRevisions[0] ?? null,
+    needsYou: arrayValue(envelope.needs_you ?? envelope.needsYou),
+    projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
+    generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
   }
 }
 
