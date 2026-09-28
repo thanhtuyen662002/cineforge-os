@@ -448,7 +448,21 @@ Resolve request includes:
 - choice_id
 - expected_decision_version
 
-Core rejects stale/obsolete decision resolution.
+Dismiss request includes:
+- decision_request_id
+- expected_decision_version
+
+The loopback HTTP adapter exposes `GET /v1/decisions`,
+`GET /v1/decisions/{id}`, `POST /v1/decisions/{id}/resolve`, and
+`POST /v1/decisions/{id}/dismiss`. Every mutating route accepts an
+`Idempotency-Key` and returns the canonical decision plus command/event
+metadata. `query.home` and `query.needs_you.list` project the same OPEN
+requests; the dashboard is not a second source of truth.
+
+Core rejects stale, obsolete, expired, closed, or invalid-choice decision
+mutations with a structured conflict and leaves the aggregate unchanged.
+Choice command templates are opaque consequence metadata; resolving a choice
+does not execute arbitrary shell, LLM, provider, or connector instructions.
 
 # 14. Import API detail
 

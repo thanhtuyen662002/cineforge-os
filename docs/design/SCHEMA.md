@@ -1101,12 +1101,19 @@ PK(connection_id, permission_code, scope_type, scope_id)
 - reason_args_json
 - blocking_scope_type
 - blocking_scope_id nullable
+- affected_entities_json
+- evidence_json
+- default_behavior_json
 - severity
 - state: OPEN | RESOLVED | DISMISSED | EXPIRED | OBSOLETE
 - recommended_choice_id nullable
 - deadline_at_utc_us nullable
 - required_authority
 - created_by_event_seq
+- created_at_utc_us
+- updated_at_utc_us
+- row_version (exposed as decision_version)
+- resolved_choice_id nullable
 - resolved_by_actor_id nullable
 - resolved_at_utc_us nullable
 
@@ -1117,6 +1124,13 @@ PK(connection_id, permission_code, scope_type, scope_id)
 - command_template_json
 - consequence_summary_json
 - recommended BOOL
+- sort_order
+- created_at_utc_us
+
+Decision choices are append-only. Their command templates are opaque
+descriptive data and are never executed by Core as shell, LLM, or provider
+instructions. Decision state changes are audited commands and append domain
+events; resolving or dismissing requires the current decision_version.
 
 ## review_sessions
 - id PK

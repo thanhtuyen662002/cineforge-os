@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -11,6 +11,8 @@ declare global {
 export interface CoreBridge {
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
   acknowledgeDecision(id: string): Promise<void>
+  resolveDecision?(id: string, choiceId: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
+  dismissDecision?(id: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
   createProject(name: string): Promise<ProjectSummary>
   addProductionItem(projectId: string, title: string): Promise<ProductionItem>
   createTask?(projectId: string, title: string, options?: { description?: string; priority?: number; idempotencyKey?: string }): Promise<TaskSummary>
@@ -51,12 +53,20 @@ export class CoreClientError extends Error {
 
 function localSnapshot(): DashboardSnapshot {
   const stored = localStorage.getItem(LOCAL_SNAPSHOT_KEY)
-  if (!stored) return structuredClone(mockSnapshot)
+  if (!stored) {
+    const snapshot = structuredClone(mockSnapshot)
+    snapshot.decisions = snapshot.decisions.map(mapDecisionRecord)
+    return snapshot
+  }
   try {
-    return JSON.parse(stored) as DashboardSnapshot
+    const snapshot = JSON.parse(stored) as DashboardSnapshot
+    snapshot.decisions = Array.isArray(snapshot.decisions) ? snapshot.decisions.map(mapDecisionRecord) : []
+    return snapshot
   } catch {
     localStorage.removeItem(LOCAL_SNAPSHOT_KEY)
-    return structuredClone(mockSnapshot)
+    const snapshot = structuredClone(mockSnapshot)
+    snapshot.decisions = snapshot.decisions.map(mapDecisionRecord)
+    return snapshot
   }
 }
 
@@ -235,7 +245,11 @@ export class HttpCoreClient implements CoreClient {
       headers: { Accept: 'application/json' },
     })
     if (!response.ok) throw new Error(`Core dashboard request failed (${response.status})`)
-    const next = await response.json() as DashboardSnapshot
+    const raw = await response.json() as DashboardSnapshot
+    const next: DashboardSnapshot = {
+      ...raw,
+      decisions: Array.isArray(raw.decisions) ? raw.decisions.map(mapDecisionRecord) : [],
+    }
     if (!next || !Array.isArray(next.projects)) throw new Error('Core dashboard response is invalid')
     // The dashboard route is intentionally lightweight. Enrich each project
     // from the canonical workspace/activity read models when the server
@@ -284,6 +298,73 @@ export class HttpCoreClient implements CoreClient {
       body: JSON.stringify({ source: 'desktop-ui' }),
     })
     if (!response.ok) throw new Error(`Core decision acknowledgement failed (${response.status})`)
+  }
+
+  async resolveDecision(id: string, choiceId: string, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<DecisionRequest> {
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !choiceId.trim()) {
+      throw new CoreClientError('A decision choice and current version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    }
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/decisions/${encodeURIComponent(id)}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ decision_request_id: id, choice_id: choiceId, expected_decision_version: expectedVersion }),
+      })
+      return mapDecisionRecord(await readCorePayload(response, 'decision resolution'))
+    }
+    const fingerprint = localCommandFingerprint({ id, choiceId }, { DECISION_REQUEST: expectedVersion })
+    const replay = localCommandReplay<DecisionRequest>('ResolveDecisionRequest', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as DecisionRequest
+    try {
+      const snapshot = localSnapshot()
+      const current = snapshot.decisions.find((decision) => decision.id === id)
+      if (!current) throw new CoreClientError('Decision request not found or already closed.', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (current.decisionVersion !== expectedVersion) throw new CoreClientError('Decision changed. Refresh before resolving it.', { code: 'STALE_DECISION', category: 'STALE_REVISION', needsUser: true })
+      if (current.state !== 'OPEN') throw new CoreClientError('This decision is no longer open.', { code: 'DECISION_NOT_OPEN', category: 'CONFLICT', needsUser: true })
+      if (!current.choices.some((choice) => choice.id === choiceId)) throw new CoreClientError('That choice is no longer available.', { code: 'INVALID_DECISION_CHOICE', category: 'VALIDATION', needsUser: true })
+      const resolved: DecisionRequest = { ...current, state: 'RESOLVED', resolvedChoiceId: choiceId, decisionVersion: current.decisionVersion + 1, resolvedAt: new Date().toISOString() }
+      snapshot.decisions = snapshot.decisions.filter((decision) => decision.id !== id)
+      snapshot.generatedAt = new Date().toISOString()
+      saveLocalSnapshot(snapshot)
+      localCommandSuccess('ResolveDecisionRequest', idempotencyKey, fingerprint, resolved)
+      return resolved
+    } catch (cause) {
+      localCommandFailure('ResolveDecisionRequest', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async dismissDecision(id: string, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<DecisionRequest> {
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new CoreClientError('A current decision version is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    }
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/decisions/${encodeURIComponent(id)}/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ decision_request_id: id, expected_decision_version: expectedVersion }),
+      })
+      return mapDecisionRecord(await readCorePayload(response, 'decision dismissal'))
+    }
+    const fingerprint = localCommandFingerprint({ id }, { DECISION_REQUEST: expectedVersion })
+    const replay = localCommandReplay<DecisionRequest>('DismissDecisionRequest', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as DecisionRequest
+    try {
+      const snapshot = localSnapshot()
+      const current = snapshot.decisions.find((decision) => decision.id === id)
+      if (!current) throw new CoreClientError('Decision request not found or already closed.', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (current.decisionVersion !== expectedVersion) throw new CoreClientError('Decision changed. Refresh before dismissing it.', { code: 'STALE_DECISION', category: 'STALE_REVISION', needsUser: true })
+      if (current.state !== 'OPEN') throw new CoreClientError('This decision is no longer open.', { code: 'DECISION_NOT_OPEN', category: 'CONFLICT', needsUser: true })
+      const dismissed: DecisionRequest = { ...current, state: 'DISMISSED', decisionVersion: current.decisionVersion + 1, resolvedAt: new Date().toISOString() }
+      snapshot.decisions = snapshot.decisions.filter((decision) => decision.id !== id)
+      snapshot.generatedAt = new Date().toISOString()
+      saveLocalSnapshot(snapshot)
+      localCommandSuccess('DismissDecisionRequest', idempotencyKey, fingerprint, dismissed)
+      return dismissed
+    } catch (cause) {
+      localCommandFailure('DismissDecisionRequest', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
   }
 
   async createProject(name: string): Promise<ProjectSummary> {
@@ -763,6 +844,90 @@ function shotTransitionsFor(state: ShotLifecycleState): ShotLifecycleState[] {
     TRASHED: ['ACTIVE'],
   }
   return transitions[state]
+}
+
+function humanizeDecisionKey(value: string | undefined, fallback: string): string {
+  if (!value) return fallback
+  const text = value.replace(/^[a-z0-9]+\./i, '').replace(/[_-]+/g, ' ').trim()
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : fallback
+}
+
+function decisionAge(createdAt: string | undefined): string {
+  if (!createdAt) return 'Vừa cập nhật'
+  const timestamp = Date.parse(createdAt)
+  if (!Number.isFinite(timestamp)) return 'Vừa cập nhật'
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000))
+  if (minutes < 1) return 'Vừa xong'
+  if (minutes < 60) return `${minutes} phút trước`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} giờ trước`
+  const days = Math.floor(hours / 24)
+  return days === 1 ? 'Hôm qua' : `${days} ngày trước`
+}
+
+function mapDecisionRecord(value: unknown): DecisionRequest {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.decision ?? envelope.decision_request ?? envelope.result ?? value)
+  const rawState = stringValue(source.state) ?? 'OPEN'
+  const state: DecisionRequest['state'] = ['OPEN', 'RESOLVED', 'DISMISSED', 'EXPIRED', 'OBSOLETE'].includes(rawState) ? rawState as DecisionRequest['state'] : 'OPEN'
+  const rawSeverity = stringValue(source.severity ?? source.priority) ?? 'NORMAL'
+  const severity = rawSeverity.toUpperCase()
+  const createdAt = stringValue(source.created_at ?? source.createdAt)
+  const titleKey = stringValue(source.title_key ?? source.titleKey)
+  const reasonKey = stringValue(source.reason_key ?? source.reasonKey)
+  const title = stringValue(source.title) ?? humanizeDecisionKey(titleKey, 'Decision needed')
+  const reason = stringValue(source.reason ?? source.detail) ?? humanizeDecisionKey(reasonKey, 'Core is waiting for your decision.')
+  const choices = arrayValue(source.choices ?? source.decision_choices).map((value, index) => {
+    const choice = asRecord(value)
+    const labelKey = stringValue(choice.label_key ?? choice.labelKey)
+    return {
+      id: stringValue(choice.id) ?? `choice-${index + 1}`,
+      labelKey,
+      label: stringValue(choice.label) ?? humanizeDecisionKey(labelKey, `Choice ${index + 1}`),
+      commandTemplate: choice.command_template ?? choice.commandTemplate,
+      consequenceSummary: choice.consequence_summary ?? choice.consequenceSummary,
+      recommended: Boolean(choice.recommended),
+    }
+  })
+  const projectId = stringValue(source.project_id ?? source.projectId) ?? 'studio'
+  const rawDefaultBehavior = source.default_behavior ?? source.defaultBehavior
+  const defaultBehavior = typeof rawDefaultBehavior === 'string'
+    ? rawDefaultBehavior
+    : asRecord(rawDefaultBehavior).label_key
+      ? humanizeDecisionKey(stringValue(asRecord(rawDefaultBehavior).label_key), '')
+      : asRecord(rawDefaultBehavior).action
+        ? humanizeDecisionKey(stringValue(asRecord(rawDefaultBehavior).action), '')
+        : undefined
+  const rawAge = stringValue(source.age)
+  return {
+    id: stringValue(source.id ?? source.decision_request_id) ?? `decision-${crypto.randomUUID()}`,
+    projectId,
+    projectName: stringValue(source.project_name ?? source.projectName ?? source.project_title ?? source.projectTitle) ?? (projectId === 'studio' ? 'Studio' : projectId),
+    decisionType: stringValue(source.decision_type ?? source.decisionType) ?? 'GENERAL',
+    title,
+    titleKey,
+    detail: stringValue(source.detail) ?? reason,
+    reason,
+    reasonKey,
+    reasonArgs: asRecord(source.reason_args ?? source.reasonArgs),
+    blockingScopeType: stringValue(source.blocking_scope_type ?? source.blockingScopeType) ?? 'SYSTEM',
+    blockingScopeId: stringValue(source.blocking_scope_id ?? source.blockingScopeId),
+    severity,
+    state,
+    decisionVersion: numberValue(source.decision_version ?? source.decisionVersion ?? source.row_version, 1),
+    choices,
+    recommendedChoiceId: stringValue(source.recommended_choice_id ?? source.recommendedChoiceId),
+    deadlineAt: stringValue(source.deadline_at ?? source.deadlineAt),
+    defaultBehavior,
+    requiredAuthority: stringValue(source.required_authority ?? source.requiredAuthority),
+    evidence: Array.isArray(source.evidence) ? source.evidence : [],
+    resolvedChoiceId: stringValue(source.resolved_choice_id ?? source.resolvedChoiceId),
+    createdAt,
+    resolvedAt: stringValue(source.resolved_at ?? source.resolvedAt),
+    age: rawAge && !Number.isFinite(Date.parse(rawAge)) ? rawAge : decisionAge(createdAt),
+    priority: severity === 'HIGH' || severity === 'CRITICAL' ? 'high' : 'normal',
+    actionLabel: stringValue(source.action_label ?? source.actionLabel) ?? (choices[0]?.label ?? 'Review'),
+  }
 }
 
 function mapActivityRecord(value: unknown, projectId: string, index: number): ActivityItem {

@@ -468,7 +468,7 @@ export function createCoreHttpServer(core, options = {}) {
             ...body, decision_request_id: parts[2], expected_decision_version: body.expected_decision_version ?? currentVersion,
           }, { DECISION_REQUEST: body.expected_decision_version ?? currentVersion }, commandKey(request, body));
         } else {
-          result = { ok: true, decision_id: parts[2], status: 'ACKNOWLEDGED' };
+          result = errorBody('NOT_FOUND', 'errors.decision_request_not_found', { decision_request_id: parts[2] }, { category: 'VALIDATION', needsUser: true });
         }
       } else {
         result = errorBody('NOT_FOUND', 'errors.route_not_found', { path: url.pathname });

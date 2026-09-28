@@ -793,6 +793,24 @@ internal static class Program
     {
         var path = context.Request.Url?.AbsolutePath ?? string.Empty;
         var method = context.Request.HttpMethod.ToUpperInvariant();
+        if (method == "POST" && path.Equals("/v1/commands", StringComparison.OrdinalIgnoreCase))
+        {
+            using var body = await ParseRequestBodyAsync(context.Request, cancellationToken);
+            var commandType = ReadString(body, "command_type");
+            if (string.IsNullOrWhiteSpace(commandType)) { await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes("{\"error\":\"command_type is required\"}"), "application/json; charset=utf-8", 400); return; }
+            var payload = body.RootElement.TryGetProperty("payload", out var payloadElement) ? payloadElement.Clone() : JsonSerializer.SerializeToElement(new Dictionary<string, object?>());
+            var expectedVersions = body.RootElement.TryGetProperty("expected_versions", out var expectedElement) ? expectedElement.Clone() : JsonSerializer.SerializeToElement(new Dictionary<string, object?>());
+            var idempotencyKey = context.Request.Headers["Idempotency-Key"] ?? ReadString(body, "idempotency_key");
+            using var response = await core.SendAsync(new
+            {
+                request_id = Guid.NewGuid().ToString("N"), api_version = "1", method = "command.execute",
+                @params = new { command_type = commandType, payload, expected_versions = expectedVersions, idempotency_key = idempotencyKey },
+            }, cancellationToken);
+            var commandError = "Core command failed.";
+            if (response is null || !TryRpcResult(response.RootElement, out var result, out commandError)) { await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes(commandError), "application/json; charset=utf-8", 409); return; }
+            await WriteJsonAsync(context.Response, new { ok = true, result = result.Clone() }, 200);
+            return;
+        }
         if (method == "GET" && path.Equals("/v1/dashboard", StringComparison.OrdinalIgnoreCase))
         {
             using var response = await core.SendAsync(new
@@ -835,9 +853,66 @@ internal static class Program
             await WriteJsonAsync(context.Response, MapProductionItem(result, title), 200);
             return;
         }
+        if (method == "GET" && path.Equals("/v1/decisions", StringComparison.OrdinalIgnoreCase))
+        {
+            using var response = await core.SendAsync(new
+            {
+                request_id = Guid.NewGuid().ToString("N"), api_version = "1", method = "query.needs_you.list",
+                @params = new
+                {
+                    state = context.Request.QueryString["state"] ?? "OPEN",
+                    project_id = context.Request.QueryString["project_id"],
+                    severity = context.Request.QueryString["severity"],
+                    limit = context.Request.QueryString["limit"],
+                },
+            }, cancellationToken);
+            var decisionListError = "Core decision list failed.";
+            if (response is null || !TryRpcResult(response.RootElement, out var result, out decisionListError)) { await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes(decisionListError), "application/json; charset=utf-8", 502); return; }
+            await WriteJsonAsync(context.Response, new { ok = true, result = result.Clone() }, 200);
+            return;
+        }
+        if (method == "GET" && path.StartsWith("/v1/decisions/", StringComparison.OrdinalIgnoreCase))
+        {
+            var decisionId = Uri.UnescapeDataString(path["/v1/decisions/".Length..]);
+            if (decisionId.EndsWith("/resolve", StringComparison.OrdinalIgnoreCase) || decisionId.EndsWith("/dismiss", StringComparison.OrdinalIgnoreCase) || decisionId.EndsWith("/ack", StringComparison.OrdinalIgnoreCase))
+            {
+                await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes("{\"error\":\"method not allowed\"}"), "application/json; charset=utf-8", 405);
+                return;
+            }
+            using var response = await core.SendAsync(new
+            {
+                request_id = Guid.NewGuid().ToString("N"), api_version = "1", method = "query.needs_you.get",
+                @params = new { decision_request_id = decisionId },
+            }, cancellationToken);
+            var decisionGetError = "Core decision read failed.";
+            if (response is null || !TryRpcResult(response.RootElement, out var result, out decisionGetError)) { await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes(decisionGetError), "application/json; charset=utf-8", 502); return; }
+            await WriteJsonAsync(context.Response, new { ok = true, result = result.Clone() }, 200);
+            return;
+        }
+        if (method == "POST" && path.StartsWith("/v1/decisions/", StringComparison.OrdinalIgnoreCase)
+            && (path.EndsWith("/resolve", StringComparison.OrdinalIgnoreCase) || path.EndsWith("/dismiss", StringComparison.OrdinalIgnoreCase)))
+        {
+            var suffix = path.EndsWith("/resolve", StringComparison.OrdinalIgnoreCase) ? "/resolve" : "/dismiss";
+            var decisionId = Uri.UnescapeDataString(path["/v1/decisions/".Length..^suffix.Length]);
+            using var body = await ParseRequestBodyAsync(context.Request, cancellationToken);
+            var expectedVersion = ReadInt64(body, "expected_decision_version") ?? ReadInt64(body, "decision_version");
+            var idempotencyKey = context.Request.Headers["Idempotency-Key"];
+            object payload = suffix == "/resolve"
+                ? new { decision_request_id = decisionId, choice_id = ReadString(body, "choice_id"), expected_decision_version = expectedVersion }
+                : new { decision_request_id = decisionId, expected_decision_version = expectedVersion };
+            using var response = await core.SendAsync(new
+            {
+                request_id = Guid.NewGuid().ToString("N"), api_version = "1", method = "command.execute",
+                @params = new { command_type = suffix == "/resolve" ? "ResolveDecisionRequest" : "DismissDecisionRequest", payload, expected_versions = new Dictionary<string, long?> { ["DECISION_REQUEST"] = expectedVersion }, idempotency_key = idempotencyKey },
+            }, cancellationToken);
+            var decisionCommandError = "Core decision command failed.";
+            if (response is null || !TryRpcResult(response.RootElement, out var result, out decisionCommandError)) { await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes(decisionCommandError), "application/json; charset=utf-8", 409); return; }
+            await WriteJsonAsync(context.Response, new { ok = true, result = result.Clone() }, 200);
+            return;
+        }
         if (method == "POST" && path.StartsWith("/v1/decisions/", StringComparison.OrdinalIgnoreCase) && path.EndsWith("/ack", StringComparison.OrdinalIgnoreCase))
         {
-            await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes("{\"ok\":true}"), "application/json; charset=utf-8", 200);
+            await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":{\"code\":\"LEGACY_ACK_UNSUPPORTED\",\"message\":\"Use a canonical decision resolution or dismissal.\"}}"), "application/json; charset=utf-8", 410);
             return;
         }
         await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes("{\"error\":\"unsupported endpoint\"}"), "application/json; charset=utf-8", 404);
@@ -855,6 +930,14 @@ internal static class Program
         return document.RootElement.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     }
 
+    private static long? ReadInt64(JsonDocument document, string property)
+    {
+        if (!document.RootElement.TryGetProperty(property, out var value)) return null;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var numeric)) return numeric;
+        if (value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), out numeric)) return numeric;
+        return null;
+    }
+
     private static bool TryRpcResult(JsonElement envelope, out JsonElement result, out string error)
     {
         if (envelope.TryGetProperty("ok", out var ok) && ok.GetBoolean() && envelope.TryGetProperty("result", out result)) { error = string.Empty; return true; }
@@ -870,11 +953,16 @@ internal static class Program
         {
             foreach (var row in rows.EnumerateArray()) projects.Add(MapProject(row));
         }
+        var decisions = new List<JsonElement>();
+        if (result.TryGetProperty("needs_you", out var needsYou) && needsYou.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in needsYou.EnumerateArray()) decisions.Add(row.Clone());
+        }
         return new
         {
             generatedAt = result.TryGetProperty("generated_at", out var generated) ? generated.GetString() : DateTime.UtcNow.ToString("O"),
             projects,
-            decisions = Array.Empty<object>(),
+            decisions,
             activity = Array.Empty<object>(),
             system = new { connected = true, offline = false, storageUsed = "—", storageTotal = "—", storageAttention = false },
         };

@@ -47,7 +47,7 @@ import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, Decisio
 
 type NavKey = 'home' | 'projects' | 'needs' | 'activity' | 'library' | 'settings'
 
-const copy = {
+export const copy = {
   vi: {
     home: 'Trang chủ',
     projects: 'Dự án',
@@ -85,6 +85,18 @@ const copy = {
     cancel: 'Để sau',
     create: 'Tạo dự án',
     acknowledged: 'Đã ghi nhận. Quyết định vẫn được giữ trong lịch sử.',
+    decisionResolved: 'Đã lưu lựa chọn. Core đã ghi nhận quyết định.',
+    decisionDismissed: 'Đã bỏ qua quyết định. Trạng thái đã được Core ghi lại.',
+    resolveDecision: 'Chọn',
+    dismissDecision: 'Bỏ qua',
+    recommended: 'Khuyến nghị',
+    decisionScope: 'Phạm vi chặn',
+    decisionDeadline: 'Hạn phản hồi',
+    decisionDefault: 'Nếu không chọn',
+    decisionAuthority: 'Quyền quyết định',
+    decisionEvidence: 'Bằng chứng',
+    staleDecision: 'Quyết định đã thay đổi. Tải lại để xem bản mới nhất trước khi chọn.',
+    decisionActionUnavailable: 'Core chưa cung cấp thao tác quyết định này. Không có thay đổi nào được ghi.',
     commandHint: 'Nhấn Ctrl K để tìm nhanh',
   },
   en: {
@@ -124,6 +136,18 @@ const copy = {
     cancel: 'Maybe later',
     create: 'Create project',
     acknowledged: 'Acknowledged. The decision remains in history.',
+    decisionResolved: 'Choice saved. Core recorded the decision.',
+    decisionDismissed: 'Decision dismissed. Core recorded the outcome.',
+    resolveDecision: 'Choose',
+    dismissDecision: 'Dismiss',
+    recommended: 'Recommended',
+    decisionScope: 'Blocking scope',
+    decisionDeadline: 'Response deadline',
+    decisionDefault: 'If you do nothing',
+    decisionAuthority: 'Decision authority',
+    decisionEvidence: 'Evidence',
+    staleDecision: 'This decision changed. Refresh before choosing so you see the latest state.',
+    decisionActionUnavailable: 'Core does not expose this decision action yet. Nothing was changed.',
     commandHint: 'Press Ctrl K to search quickly',
   },
 } as const
@@ -150,6 +174,8 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [decisionPendingId, setDecisionPendingId] = useState<string | null>(null)
+  const [decisionError, setDecisionError] = useState<{ id: string; message: string } | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const t = copy[locale]
@@ -208,16 +234,45 @@ function App() {
 
   const openDecision = (decision: DecisionRequest) => {
     setActiveNav('needs')
-    setToast(locale === 'vi' ? `Đang mở ${decision.title}` : `Opening ${decision.title}`)
+    setDecisionError(null)
+    setToast(locale === 'vi' ? `Đang xem ${decision.title}` : `Reviewing ${decision.title}`)
   }
 
-  const acknowledgeDecision = async (decision: DecisionRequest) => {
+  const resolveDecision = async (decision: DecisionRequest, choiceId: string) => {
+    if (!client.resolveDecision) {
+      setDecisionError({ id: decision.id, message: t.decisionActionUnavailable })
+      return
+    }
+    setDecisionPendingId(decision.id)
+    setDecisionError(null)
     try {
-      await client.acknowledgeDecision(decision.id)
+      await client.resolveDecision(decision.id, choiceId, decision.decisionVersion, `decision-resolve:${decision.id}:${decision.decisionVersion}:${choiceId}`)
       setSnapshot((current) => current ? { ...current, decisions: current.decisions.filter((candidate) => candidate.id !== decision.id), generatedAt: new Date().toISOString() } : current)
-      setToast(t.acknowledged)
+      setToast(t.decisionResolved)
     } catch (error) {
-      setToast(error instanceof Error ? error.message : t.loadError)
+      const code = error instanceof CoreClientError ? error.code : ''
+      setDecisionError({ id: decision.id, message: code === 'STALE_DECISION' || code === 'STALE_REVISION' ? t.staleDecision : error instanceof Error ? error.message : t.loadError })
+    } finally {
+      setDecisionPendingId(null)
+    }
+  }
+
+  const dismissDecision = async (decision: DecisionRequest) => {
+    if (!client.dismissDecision) {
+      setDecisionError({ id: decision.id, message: t.decisionActionUnavailable })
+      return
+    }
+    setDecisionPendingId(decision.id)
+    setDecisionError(null)
+    try {
+      await client.dismissDecision(decision.id, decision.decisionVersion, `decision-dismiss:${decision.id}:${decision.decisionVersion}`)
+      setSnapshot((current) => current ? { ...current, decisions: current.decisions.filter((candidate) => candidate.id !== decision.id), generatedAt: new Date().toISOString() } : current)
+      setToast(t.decisionDismissed)
+    } catch (error) {
+      const code = error instanceof CoreClientError ? error.code : ''
+      setDecisionError({ id: decision.id, message: code === 'STALE_DECISION' || code === 'STALE_REVISION' ? t.staleDecision : error instanceof Error ? error.message : t.loadError })
+    } finally {
+      setDecisionPendingId(null)
     }
   }
 
@@ -294,7 +349,7 @@ function App() {
         selectedProjectId ? <ProjectPlanningView snapshot={snapshot} projectId={selectedProjectId} locale={locale} client={client} onBack={() => setSelectedProjectId(null)} onWorkspaceChanged={syncProjectWorkspace} /> : <ProjectsView snapshot={snapshot} t={t} locale={locale} onNewProject={() => setNewProjectOpen(true)} onOpenProject={openProject} />
       )}
       {activeNav === 'needs' && (
-        <NeedsView snapshot={snapshot} t={t} locale={locale} onOpenDecision={openDecision} onAcknowledge={acknowledgeDecision} />
+        <NeedsView snapshot={snapshot} t={t} locale={locale} onOpenDecision={openDecision} onResolve={resolveDecision} onDismiss={dismissDecision} pendingId={decisionPendingId} decisionError={decisionError} onRefresh={() => void loadDashboard()} />
       )}
       {activeNav === 'activity' && <ActivityView snapshot={snapshot} locale={locale} onOpenProject={openProject} />}
       {activeNav === 'library' && <LibraryView snapshot={snapshot} locale={locale} client={client} onOpenProject={openProject} />}
@@ -665,8 +720,8 @@ function NoteRecord({ note, tasks, shots, locale }: { note: NoteSummary; tasks: 
   return <article className="workspace-note"><div className="workspace-note-meta"><span>{target}</span><time dateTime={note.createdAt}>{renderedDate}</time></div><p>{note.body}</p></article>
 }
 
-function NeedsView({ snapshot, t, locale, onOpenDecision, onAcknowledge }: { snapshot: DashboardSnapshot; t: Copy; locale: Locale; onOpenDecision: (decision: DecisionRequest) => void; onAcknowledge: (decision: DecisionRequest) => void }) {
-  return <div className="page"><div className="page-heading"><div><p className="eyebrow">{t.needs}</p><h1>{t.needsYou}</h1><p className="page-subtitle">{t.needsHint}</p></div><span className="count-chip"><Inbox size={15} />{snapshot.decisions.length}</span></div><section className="needs-page-list">{snapshot.decisions.length === 0 ? <EmptyState icon={CheckCircle2} title={t.noDecisions} detail="" /> : snapshot.decisions.map((decision) => <DecisionCard key={decision.id} decision={decision} locale={locale} onOpen={() => onOpenDecision(decision)} onAcknowledge={() => onAcknowledge(decision)} />)}</section></div>
+export function NeedsView({ snapshot, t, locale, onOpenDecision, onResolve, onDismiss, pendingId, decisionError, onRefresh }: { snapshot: DashboardSnapshot; t: Copy; locale: Locale; onOpenDecision: (decision: DecisionRequest) => void; onResolve: (decision: DecisionRequest, choiceId: string) => void; onDismiss: (decision: DecisionRequest) => void; pendingId: string | null; decisionError: { id: string; message: string } | null; onRefresh: () => void }) {
+  return <div className="page"><div className="page-heading"><div><p className="eyebrow">{t.needs}</p><h1>{t.needsYou}</h1><p className="page-subtitle">{t.needsHint}</p></div><div className="page-heading-actions"><button type="button" className="subtle-button tiny" onClick={onRefresh}><RefreshCw size={13} />{t.refresh}</button><span className="count-chip"><Inbox size={15} />{snapshot.decisions.length}</span></div></div><section className="needs-page-list">{snapshot.decisions.length === 0 ? <EmptyState icon={CheckCircle2} title={t.noDecisions} detail="" /> : snapshot.decisions.map((decision) => <DecisionCard key={decision.id} decision={decision} locale={locale} copy={t} onOpen={() => onOpenDecision(decision)} onResolve={(choiceId) => onResolve(decision, choiceId)} onDismiss={() => onDismiss(decision)} pending={pendingId === decision.id} error={decisionError?.id === decision.id ? decisionError.message : undefined} onRefresh={onRefresh} />)}</section></div>
 }
 
 function ActivityView({ snapshot, locale, onOpenProject }: { snapshot: DashboardSnapshot; locale: Locale; onOpenProject: (project: ProjectSummary) => void }) {
@@ -827,8 +882,10 @@ function DecisionRow({ decision, locale, onOpen }: { decision: DecisionRequest; 
   return <button className="decision-row" onClick={onOpen}><span className={`decision-marker ${decision.priority}`}><Inbox size={14} /></span><span className="decision-row-content"><strong>{decision.title}</strong><small>{decision.projectName} <span>·</span> {decision.age}</small></span><ArrowRight size={15} className="row-arrow" /><span className="sr-only">{locale === 'vi' ? 'Mở quyết định' : 'Open decision'}</span></button>
 }
 
-function DecisionCard({ decision, locale, onOpen, onAcknowledge }: { decision: DecisionRequest; locale: Locale; onOpen: () => void; onAcknowledge: () => void }) {
-  return <article className={`decision-card ${decision.priority}`}><div className="decision-card-icon"><Inbox size={19} /></div><div className="decision-card-main"><div className="decision-card-top"><div><span className="decision-project">{decision.projectName}</span><h2>{decision.title}</h2></div><span className={`priority-label ${decision.priority}`}>{decision.priority === 'high' ? (locale === 'vi' ? 'Ưu tiên' : 'Priority') : (locale === 'vi' ? 'Đang chờ' : 'Waiting')}</span></div><p className="decision-detail">{decision.detail}</p><p className="decision-reason"><CircleHelp size={14} />{decision.reason}</p><div className="decision-card-actions"><button className="primary-button small" onClick={onOpen}>{decision.actionLabel}<ArrowRight size={15} /></button><button className="subtle-button" onClick={onAcknowledge}><Check size={15} />{locale === 'vi' ? 'Đã xem' : 'Acknowledge'}</button><span className="decision-age"><Clock3 size={13} />{decision.age}</span></div></div></article>
+function DecisionCard({ decision, locale, copy: t, onOpen, onResolve, onDismiss, pending, error, onRefresh }: { decision: DecisionRequest; locale: Locale; copy: Copy; onOpen: () => void; onResolve: (choiceId: string) => void; onDismiss: () => void; pending: boolean; error?: string; onRefresh: () => void }) {
+  const evidence = (decision.evidence ?? []).map((item) => typeof item === 'string' ? item : JSON.stringify(item)).filter(Boolean)
+  const scope = decision.blockingScopeId ? `${decision.blockingScopeType} · ${decision.blockingScopeId}` : decision.blockingScopeType
+  return <article className={`decision-card ${decision.priority}`}><div className="decision-card-icon"><Inbox size={19} /></div><div className="decision-card-main"><div className="decision-card-top"><div><span className="decision-project">{decision.projectName}</span><h2>{decision.title}</h2></div><span className={`priority-label ${decision.priority}`}>{decision.priority === 'high' ? (locale === 'vi' ? 'Ưu tiên' : 'Priority') : (locale === 'vi' ? 'Đang chờ' : 'Waiting')}</span></div><p className="decision-detail">{decision.detail}</p><p className="decision-reason"><CircleHelp size={14} />{decision.reason}</p><div className="decision-meta-grid"><span><strong>{t.decisionScope}</strong>{scope}</span>{decision.deadlineAt && <span><strong>{t.decisionDeadline}</strong>{new Date(decision.deadlineAt).toLocaleString(locale === 'vi' ? 'vi-VN' : 'en-US')}</span>}{decision.defaultBehavior && <span><strong>{t.decisionDefault}</strong>{decision.defaultBehavior}</span>}{decision.requiredAuthority && <span><strong>{t.decisionAuthority}</strong>{decision.requiredAuthority}</span>}</div>{evidence.length > 0 && <div className="decision-evidence"><strong>{t.decisionEvidence}</strong>{evidence.map((item, index) => <span key={`${decision.id}-evidence-${index}`}>{item}</span>)}</div>}<div className="decision-choices" aria-label={locale === 'vi' ? 'Các lựa chọn quyết định' : 'Decision choices'}>{decision.choices.length === 0 ? <span className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Core chưa cung cấp lựa chọn. Không thể ghi quyết định.' : 'Core has not provided a choice. The decision cannot be recorded.'}</span> : decision.choices.map((choice) => <button type="button" className={`decision-choice ${choice.id === decision.recommendedChoiceId || choice.recommended ? 'recommended' : ''}`} key={choice.id} disabled={pending} onClick={() => onResolve(choice.id)}><span>{choice.label}</span>{(choice.id === decision.recommendedChoiceId || choice.recommended) && <small>{t.recommended}</small>}</button>)}</div>{error && <div className="inline-state warning decision-inline-error" role="alert"><AlertCircle size={14} /><span>{error}</span><button type="button" className="subtle-button tiny" onClick={onRefresh}>{t.refresh}</button></div>}<div className="decision-card-actions"><button type="button" className="subtle-button" onClick={onOpen} disabled={pending}><Info size={15} />{decision.actionLabel}</button><button type="button" className="subtle-button" onClick={onDismiss} disabled={pending}>{pending ? <RefreshCw size={15} className="spin" /> : <X size={15} />}{t.dismissDecision}</button><span className="decision-age"><Clock3 size={13} />{decision.age} · v{decision.decisionVersion}</span></div></div></article>
 }
 
 function ActivityRow({ item, locale, onOpen }: { item: ActivityItem; locale: Locale; onOpen?: () => void }) {

@@ -50,7 +50,9 @@ The adapter calls:
   machine path. The first successful import binds that handle to its
   idempotency key so a retry is safe and a second import with a new key is
   rejected.
-- `POST /v1/decisions/{decisionId}/ack`
+- `GET /v1/decisions` and `GET /v1/decisions/{decisionId}`
+- `POST /v1/decisions/{decisionId}/resolve` with a choice and decision version
+- `POST /v1/decisions/{decisionId}/dismiss` with the current decision version
 
 The UI never writes a database directly. When no URL is configured, the local
 adapter gives the first-run shell a clearly bounded, persisted demo workspace,
@@ -69,9 +71,9 @@ npm test
 npm run build
 ```
 
-`npm test` covers local persistence, decision acknowledgement, malformed
-snapshot recovery, workspace records, idempotent retries, stale conflicts,
-and the HTTP adapter mapping. `npm run build` runs the strict TypeScript
+`npm test` covers local persistence, canonical decision resolution/dismissal,
+malformed snapshot recovery, workspace records, idempotent retries, stale
+conflicts, and the HTTP adapter mapping. `npm run build` runs the strict TypeScript
 project build before producing `dist/`.
 
 ## Windows desktop package

@@ -1585,7 +1585,7 @@ export class CoreService {
         const expectedValue = target.kind === 'DECISION_REQUEST'
           ? payload.expected_decision_version ?? payload.expectedDecisionVersion ?? this._planExpected(expected, target.kind, target.id)
           : this._planExpected(expected, target.kind, target.id);
-        if (expectedValue !== null && Number(expectedValue) !== Number(target.row.row_version)) precondition = { ok: false, code: 'STALE_REVISION' };
+        if (expectedValue !== null && Number(expectedValue) !== Number(target.row.row_version)) precondition = { ok: false, code: target.kind === 'DECISION_REQUEST' ? 'STALE_DECISION' : 'STALE_REVISION' };
       }
     } catch (error) {
       if (error instanceof CoreError) precondition = { ok: false, code: error.code, message_key: error.messageKey };

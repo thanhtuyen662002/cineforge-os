@@ -29,6 +29,16 @@ export interface ProductionItem {
 export type TaskStatus = 'PLANNED' | 'IN_PROGRESS' | 'BLOCKED' | 'DONE' | 'CANCELLED'
 export type ShotLifecycleState = 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'TRASHED'
 export type WorkspaceNoteEntityType = 'PROJECT' | 'TASK' | 'SHOT'
+export type DecisionState = 'OPEN' | 'RESOLVED' | 'DISMISSED' | 'EXPIRED' | 'OBSOLETE'
+
+export interface DecisionChoice {
+  id: string
+  labelKey?: string
+  label: string
+  commandTemplate?: unknown
+  consequenceSummary?: unknown
+  recommended?: boolean
+}
 
 /** First-class planning records. A task is not a shot and a planning shot is
  * not evidence that media has been generated, reviewed, or approved. */
@@ -68,9 +78,27 @@ export interface DecisionRequest {
   id: string
   projectId: string
   projectName: string
+  decisionType: string
   title: string
+  titleKey?: string
   detail: string
   reason: string
+  reasonKey?: string
+  reasonArgs?: Record<string, unknown>
+  blockingScopeType: string
+  blockingScopeId?: string
+  severity: 'HIGH' | 'NORMAL' | string
+  state: DecisionState
+  decisionVersion: number
+  choices: DecisionChoice[]
+  recommendedChoiceId?: string
+  deadlineAt?: string
+  defaultBehavior?: string
+  requiredAuthority?: string
+  evidence?: unknown[]
+  resolvedChoiceId?: string
+  createdAt?: string
+  resolvedAt?: string
   age: string
   priority: 'high' | 'normal'
   actionLabel: string
@@ -167,6 +195,8 @@ export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
   acknowledgeDecision(id: string): Promise<void>
+  resolveDecision?(id: string, choiceId: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
+  dismissDecision?(id: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
   createProject(name: string): Promise<ProjectSummary>
   addProductionItem(projectId: string, title: string): Promise<ProductionItem>
   createTask?(projectId: string, title: string, options?: { description?: string; priority?: number; idempotencyKey?: string }): Promise<TaskSummary>

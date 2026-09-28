@@ -78,8 +78,8 @@ test('HTTP presentation adapter exposes dashboard, project and production-item f
     assert.equal(importDetails.result.items[0].source_path_or_uri, 'file://[redacted]');
 
     const acknowledged = await fetch(`${base}/v1/decisions/decision-1/ack`, { method: 'POST' });
-    assert.equal(acknowledged.status, 200);
-    assert.deepEqual(await acknowledged.json(), { ok: true, decision_id: 'decision-1', status: 'ACKNOWLEDGED' });
+    assert.equal(acknowledged.status, 404);
+    assert.equal((await acknowledged.json()).error.code, 'NOT_FOUND');
 
     const health = await fetch(`${base}/v1/health`);
     assert.equal(health.status, 200);

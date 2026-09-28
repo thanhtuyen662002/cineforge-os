@@ -145,6 +145,48 @@ try {
         if (@($workspaceRecord.shots | Where-Object { $_.id -eq $shotRecord.id }).Count -ne 1) { throw 'Canonical shot was not present in the workspace projection.' }
         if (@($workspaceRecord.notes | Where-Object { $_.id -eq $taskNoteRecord.id }).Count -ne 1) { throw 'Canonical note was not present in the workspace projection.' }
 
+        # DecisionRequest is canonical user-blocking state. The packaged
+        # boundary must expose choices and stale-safe resolution; a dashboard
+        # notification alone is not evidence that a decision exists.
+        $decisionCommandHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-decision'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $decisionPayload = @{
+            command_type = 'CreateDecisionRequest'
+            payload = @{
+                project_id = [string]$project.id
+                decision_type = 'PACKAGING_REVIEW'
+                title_key = 'packaging.smoke.title'
+                reason_key = 'packaging.smoke.reason'
+                blocking_scope_type = 'PROJECT'
+                blocking_scope_id = [string]$project.id
+                severity = 'HIGH'
+                evidence = @(@{ kind = 'SMOKE'; status = 'UNKNOWN' })
+                default_behavior = @{ action = 'DO_NOTHING' }
+                choices = @(@{ id = 'continue'; label_key = 'packaging.smoke.continue'; recommended = $true }, @{ id = 'hold'; label_key = 'packaging.smoke.hold' })
+            }
+        } | ConvertTo-Json -Depth 10
+        $decisionEnvelope = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers $decisionCommandHeaders -ContentType 'application/json' -Body $decisionPayload -TimeoutSec 5
+        $decisionRecord = $decisionEnvelope.result.decision
+        if ($null -eq $decisionRecord) { $decisionRecord = $decisionEnvelope.result }
+        if ([string]::IsNullOrWhiteSpace([string]$decisionRecord.id) -or [string]$decisionRecord.state -ne 'OPEN') { throw 'DecisionRequest creation returned an invalid open request.' }
+        if (@($decisionRecord.choices).Count -ne 2 -or [int]$decisionRecord.decision_version -ne 1) { throw 'DecisionRequest choices or version are invalid.' }
+        $decisionDashboard = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/dashboard" -TimeoutSec 5
+        if (@($decisionDashboard.decisions | Where-Object { $_.id -eq $decisionRecord.id }).Count -ne 1) { throw 'Open DecisionRequest was missing from the dashboard.' }
+        $decisionList = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/decisions?project_id=$([Uri]::EscapeDataString([string]$project.id))" -TimeoutSec 5
+        if (@($decisionList.result.items | Where-Object { $_.id -eq $decisionRecord.id }).Count -ne 1) { throw 'Open DecisionRequest was missing from the canonical list.' }
+        $staleDecisionStatus = 0
+        try {
+            Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/decisions/{1}/resolve" -f $webPort, [Uri]::EscapeDataString([string]$decisionRecord.id)) -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-decision-stale'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ choice_id = 'continue'; expected_decision_version = 2 } | ConvertTo-Json) -TimeoutSec 5 | Out-Null
+        }
+        catch { if ($null -ne $_.Exception.Response) { $staleDecisionStatus = [int]$_.Exception.Response.StatusCode } }
+        if ($staleDecisionStatus -ne 409) { throw "Stale DecisionRequest resolution was not rejected with HTTP 409 (actual: $staleDecisionStatus)." }
+        $decisionResolveUri = "http://127.0.0.1:{0}/v1/decisions/{1}/resolve" -f $webPort, [Uri]::EscapeDataString([string]$decisionRecord.id)
+        $resolvedDecision = Invoke-RestMethod -Uri $decisionResolveUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-decision-resolve'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ choice_id = 'continue'; expected_decision_version = [int]$decisionRecord.decision_version } | ConvertTo-Json) -TimeoutSec 5
+        $resolvedDecisionRecord = $resolvedDecision.result.decision
+        if ($null -eq $resolvedDecisionRecord) { $resolvedDecisionRecord = $resolvedDecision.result }
+        if ([string]$resolvedDecisionRecord.state -ne 'RESOLVED' -or [string]$resolvedDecisionRecord.resolved_choice_id -ne 'continue') { throw 'DecisionRequest did not resolve to the selected choice.' }
+        $resolvedReplay = Invoke-RestMethod -Uri $decisionResolveUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-decision-resolve'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ choice_id = 'continue'; expected_decision_version = [int]$decisionRecord.decision_version } | ConvertTo-Json) -TimeoutSec 5
+        if (-not $resolvedReplay.result.idempotent_replay) { throw 'DecisionRequest resolve retry was not an idempotent replay.' }
+
         # Exercise the user-facing asset path through the packaged bootstrap.
         # The source is deliberately created inside the temporary data root so
         # this test also proves that COPY materializes bytes into the managed

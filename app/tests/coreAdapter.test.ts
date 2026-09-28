@@ -32,6 +32,33 @@ describe('local Core adapter', () => {
     expect(after.activity.some((item) => item.state === 'running')).toBe(true)
   })
 
+  it('maps canonical live decisions and sends stale-safe resolve commands', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/v1/dashboard')) {
+        return new Response(JSON.stringify({ generatedAt: new Date().toISOString(), projects: [], decisions: [{ id: 'decision-live', project_id: 'project-1', project_title: 'Live film', decision_type: 'RIGHTS', title_key: 'rights.title', reason_key: 'rights.reason', blocking_scope_type: 'PROJECT', blocking_scope_id: 'project-1', severity: 'HIGH', state: 'OPEN', decision_version: 4, choices: [{ id: 'hold', label_key: 'rights.hold', recommended: true }] }], activity: [], system: { connected: true, offline: false, storageUsed: '0 B', storageTotal: '—', storageAttention: false } }), { status: 200 })
+      }
+      expect(init?.method).toBe('POST')
+      expect((init?.headers as Record<string, string>)['Idempotency-Key']).toBe('decision-resolve-1')
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body.choice_id).toBe('hold')
+      expect(body.expected_decision_version).toBe(4)
+      return new Response(JSON.stringify({ ok: true, result: { id: 'decision-live', project_id: 'project-1', project_title: 'Live film', decision_type: 'RIGHTS', title: 'rights.title', reason: 'rights.reason', blocking_scope_type: 'PROJECT', blocking_scope_id: 'project-1', severity: 'HIGH', state: 'RESOLVED', decision_version: 5, resolved_choice_id: 'hold', choices: [{ id: 'hold', label_key: 'rights.hold', recommended: true }] } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const dashboard = await client.getDashboard()
+      expect(dashboard.decisions[0].decisionVersion).toBe(4)
+      expect(dashboard.decisions[0].projectName).toBe('Live film')
+      const resolved = await client.resolveDecision?.('decision-live', 'hold', 4, 'decision-resolve-1')
+      expect(resolved?.state).toBe('RESOLVED')
+      expect(resolved?.resolvedChoiceId).toBe('hold')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('recovers from a malformed local snapshot', async () => {
     localStorage.setItem('cineforge-dashboard-v1', '{broken')
     const snapshot = await createCoreClient().getDashboard()

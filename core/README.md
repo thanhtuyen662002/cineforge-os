@@ -91,7 +91,11 @@ The desktop-facing routes are:
 | GET | `/v1/assets` | List assets across the studio |
 | POST | `/v1/assets` | Hash and register a studio-wide local file |
 | GET | `/v1/imports/{id}` | Read an import session and its item state |
-| POST | `/v1/decisions/{id}/ack` | Idempotent desktop acknowledgement receipt |
+| GET | `/v1/decisions` | List canonical open decision requests (state/project filters supported) |
+| GET | `/v1/decisions/{id}` | Read one decision request with immutable choices and evidence |
+| POST | `/v1/decisions/{id}/resolve` | Resolve a request with a choice and expected decision version |
+| POST | `/v1/decisions/{id}/dismiss` | Dismiss a request with an expected decision version |
+| POST | `/v1/decisions/{id}/ack` | Legacy compatibility route; canonical clients must resolve or dismiss |
 | GET | `/v1/events?after_seq=N` | Replay domain activity after a cursor |
 
 Advanced clients can use `POST /v1/commands` with the canonical command
