@@ -911,12 +911,15 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
   const [revisionPending, setRevisionPending] = useState(false)
   const createIntentRef = useRef<{ fingerprint: string; key: string } | null>(null)
   const revisionIntentRef = useRef<{ fingerprint: string; key: string } | null>(null)
+  const characterLoadGenerationRef = useRef(0)
+  const workspaceLoadGenerationRef = useRef(0)
 
   useEffect(() => {
     if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
   }, [projectId, snapshot.projects])
 
   const loadCharacters = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++characterLoadGenerationRef.current
     if (!client.getCharacters) {
       setCharacters([])
       setError(locale === 'vi' ? 'Core chưa cung cấp không gian nhân vật.' : 'Core does not expose the character workspace yet.')
@@ -926,15 +929,16 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
     setError(null)
     try {
       const next = await client.getCharacters(projectId || undefined, signal)
+      if (signal?.aborted || generation !== characterLoadGenerationRef.current) return
       setCharacters(next)
       setSelectedId((current) => current && next.some((item) => item.id === current) ? current : next[0]?.id ?? null)
     } catch (cause) {
-      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      if ((cause instanceof DOMException && cause.name === 'AbortError') || generation !== characterLoadGenerationRef.current) return
       setError(workspaceErrorMessage(cause, locale))
       setCharacters([])
       setSelectedId(null)
     } finally {
-      if (!signal?.aborted) setLoading(false)
+      if (!signal?.aborted && generation === characterLoadGenerationRef.current) setLoading(false)
     }
   }, [client, locale, projectId])
 
@@ -945,6 +949,7 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
   }, [loadCharacters])
 
   const loadWorkspace = useCallback(async (characterId: string, signal?: AbortSignal) => {
+    const generation = ++workspaceLoadGenerationRef.current
     setSelectedId(characterId)
     if (!client.getCharacterWorkspace) {
       setWorkspace(characters.find((item) => item.id === characterId) ?? null)
@@ -955,13 +960,14 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
     setWorkspaceError(null)
     try {
       const next = await client.getCharacterWorkspace(characterId, signal)
+      if (signal?.aborted || generation !== workspaceLoadGenerationRef.current) return
       setWorkspace(next.character)
     } catch (cause) {
-      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      if ((cause instanceof DOMException && cause.name === 'AbortError') || generation !== workspaceLoadGenerationRef.current) return
       setWorkspaceError(workspaceErrorMessage(cause, locale))
       setWorkspace(characters.find((item) => item.id === characterId) ?? null)
     } finally {
-      if (!signal?.aborted) setWorkspaceLoading(false)
+      if (!signal?.aborted && generation === workspaceLoadGenerationRef.current) setWorkspaceLoading(false)
     }
   }, [characters, client, locale])
 
