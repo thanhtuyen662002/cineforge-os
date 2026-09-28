@@ -229,6 +229,33 @@ try {
         if (-not $rightsConsent.ok) { throw 'Packaged consent command failed.' }
         $rightsAllowed = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/assets/{1}/rights?territory=VN" -f $webPort, [Uri]::EscapeDataString([string]$asset.id)) -TimeoutSec 5
         if ([string]$rightsAllowed.result.status -ne 'ALLOWED' -or -not $rightsAllowed.result.eligible) { throw 'Packaged rights evaluation did not become ALLOWED after consent.' }
+        $rightsConsentReplay = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-consent'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            command_type = 'RecordConsent'
+            payload = @{ rights_identity_id = $rightsIdentityId; consent_type = 'SOURCE_USE'; granted_by = 'packaging-smoke'; evidence_asset_revision_id = [string]$asset.revisionId }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        if (-not $rightsConsentReplay.result.idempotent_replay) { throw 'Packaged consent retry was not an idempotent replay.' }
+        $rightsRestricted = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/assets/{1}/rights?territory=US" -f $webPort, [Uri]::EscapeDataString([string]$asset.id)) -TimeoutSec 5
+        if ([string]$rightsRestricted.result.status -ne 'RESTRICTED' -or $rightsRestricted.result.eligible) { throw 'Packaged territory restriction did not fail closed.' }
+        $expiredNowUs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() * 1000
+        $expiredAtUs = $expiredNowUs - 2000000
+        $expiredIdentity = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-expired-identity'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            command_type = 'CreateRightsIdentity'
+            payload = @{ project_id = [string]$project.id; subject_type = 'PERSON'; subject_id = 'packaging-expired-person' }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        $expiredIdentityId = [string]$expiredIdentity.result.id
+        if ([string]::IsNullOrWhiteSpace($expiredIdentityId)) { throw 'Packaged expired rights identity command returned no identity id.' }
+        $expiredRecord = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-expired-record'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            command_type = 'CreateRightsRecord'
+            payload = @{ rights_identity_id = $expiredIdentityId; right_type = 'SOURCE_USE'; status = 'ALLOWED'; valid_from_utc_us = ($expiredAtUs - 1000000); valid_to_utc_us = $expiredAtUs }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        if (-not $expiredRecord.ok) { throw 'Packaged expired rights record command failed.' }
+        $expiredConsent = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-expired-consent'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            command_type = 'RecordConsent'
+            payload = @{ rights_identity_id = $expiredIdentityId; consent_type = 'SOURCE_USE'; granted_by = 'packaging-smoke'; valid_from_utc_us = ($expiredAtUs - 1000000); valid_to_utc_us = $expiredAtUs }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        if (-not $expiredConsent.ok) { throw 'Packaged expired consent command failed.' }
+        $rightsExpired = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/rights/evaluate?rights_identity_id={1}" -f $webPort, [Uri]::EscapeDataString($expiredIdentityId)) -TimeoutSec 5
+        if ([string]$rightsExpired.result.status -ne 'EXPIRED' -or $rightsExpired.result.eligible) { throw 'Packaged expired rights evaluation did not fail closed.' }
         $rightsRevoked = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-revoke'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
             command_type = 'RevokeRights'
             payload = @{ rights_identity_id = $rightsIdentityId; right_type = 'SOURCE_USE'; reason = 'packaging smoke revocation' }
