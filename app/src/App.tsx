@@ -973,7 +973,9 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
 
   useEffect(() => {
     if (!selectedId) {
+      workspaceLoadGenerationRef.current += 1
       setWorkspace(null)
+      setWorkspaceError(null)
       return
     }
     const controller = new AbortController()
