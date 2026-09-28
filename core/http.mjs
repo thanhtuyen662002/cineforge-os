@@ -6,8 +6,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'STORAGE_PRESSURE', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED'].includes(code)) return 400;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
@@ -245,7 +245,10 @@ function mapDashboard(result) {
       offline: false,
       storageUsed: formatBytes(Number(health.bytes ?? 0) + Number(health.object_store_bytes ?? health.objectStoreBytes ?? 0)),
       storageTotal: '—',
-      storageAttention: String(health.status ?? 'READY').toUpperCase() !== 'READY',
+      storageAttention: String(health.status ?? 'READY').toUpperCase() !== 'READY' || Boolean(health.storage_pressure ?? health.storagePressure),
+      backupState: readString(health, 'backup_state', 'backupState') ?? undefined,
+      backupAt: readString(health, 'last_backup_at', 'lastBackupAt') ?? undefined,
+      storagePressure: Boolean(health.storage_pressure ?? health.storagePressure),
     },
   };
 }
@@ -359,6 +362,25 @@ export function createCoreHttpServer(core, options = {}) {
         });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'rights' && parts[2] && parts[3] === 'identity' && parts.length === 4) {
         result = query(core, request, 'query.rights.identity', { rights_identity_id: parts[2] });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'backups' && parts.length === 2) {
+        result = query(core, request, 'query.backup.list', {
+          state: url.searchParams.get('state') ?? undefined,
+          durability_class: url.searchParams.get('durability_class') ?? url.searchParams.get('durabilityClass') ?? undefined,
+          limit: url.searchParams.get('limit') ?? 100,
+        });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'backups' && parts[2] && parts.length === 3) {
+        result = query(core, request, 'query.backup.get', { backup_id: parts[2] });
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'backups' && parts.length === 2) {
+        result = command(core, request, 'CreateBackup', body, {}, commandKey(request, body));
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'backups' && parts[2] && parts[3] === 'verify' && parts.length === 4) {
+        result = command(core, request, 'VerifyBackup', { ...body, backup_id: parts[2] }, {}, commandKey(request, body));
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'storage' && parts[2] === 'admission' && parts.length === 3) {
+        result = query(core, request, 'query.storage.admission', {
+          destination_path: url.searchParams.get('destination_path') ?? url.searchParams.get('destinationPath') ?? undefined,
+          durability_class: url.searchParams.get('durability_class') ?? url.searchParams.get('durabilityClass') ?? undefined,
+          max_backup_bytes: url.searchParams.get('max_backup_bytes') ?? url.searchParams.get('maxBackupBytes') ?? undefined,
+          reserve_bytes: url.searchParams.get('reserve_bytes') ?? url.searchParams.get('reserveBytes') ?? undefined,
+        });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'storage' && parts[2] === 'staging' && parts.length === 3) {
         result = query(core, request, 'query.storage.staging_orphans', {
           state: url.searchParams.get('state') ?? undefined,

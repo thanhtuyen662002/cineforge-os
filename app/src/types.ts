@@ -206,6 +206,12 @@ export interface DashboardSnapshot {
     storageUsed: string
     storageTotal: string
     storageAttention: boolean
+    /** Latest local backup state reported by Core (MISSING when none exists). */
+    backupState?: string
+    /** RFC3339 timestamp for the latest local backup, when available. */
+    backupAt?: string
+    /** Admission probe indicates that the configured storage reserve is at risk. */
+    storagePressure?: boolean
   }
 }
 
