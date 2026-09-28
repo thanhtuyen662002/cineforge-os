@@ -1090,6 +1090,22 @@ test('canonical timeline pins an approved media profile and stores immutable rat
   }, { TIMELINE: 4 }, 'timeline-audio');
   assert.equal(unsupported.ok, false);
   assert.equal(unsupported.error.code, 'UNSUPPORTED_TIMELINE_TRACK');
+  const secondCheckpoint = execute(core, 'CreateTimelineRevision', {
+    project_id: projectId, timeline_id: timelineId, media_profile_revision_id: mediaProfileRevisionId,
+    duration: { num: 12, den: 1 }, tracks: [{ track_type: 'VIDEO', clips: [] }], markers: [],
+  }, { TIMELINE: 4 }, 'timeline-checkpoint-second');
+  assert.equal(secondCheckpoint.ok, true, JSON.stringify(secondCheckpoint));
+  const secondRevisionId = secondCheckpoint.result.revision.id;
+  assert.equal(execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: secondRevisionId, next_state: 'CANDIDATE',
+  }, { REVISION: 1 }, 'timeline-candidate-second').ok, true);
+  const secondApproved = execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: secondRevisionId, next_state: 'APPROVED',
+  }, { REVISION: 2 }, 'timeline-approve-second');
+  assert.equal(secondApproved.ok, true, JSON.stringify(secondApproved));
+  assert.equal(core.db.prepare('SELECT lifecycle_state FROM timeline_revisions WHERE id = ?').get(revisionId).lifecycle_state, 'SUPERSEDED');
+  const timelineSupersedeEvent = core.db.prepare('SELECT payload_json FROM domain_events WHERE command_id = ?').get(secondApproved.result.command_id);
+  assert.equal(JSON.parse(timelineSupersedeEvent.payload_json).superseded_revision_id, revisionId);
   const secondProfile = execute(core, 'CreateMediaProfileRevision', { ...profilePayload, width: 1280 }, {}, 'timeline-profile-second');
   assert.equal(secondProfile.ok, true, JSON.stringify(secondProfile));
   const invalidProfile = execute(core, 'CreateTimeline', {
