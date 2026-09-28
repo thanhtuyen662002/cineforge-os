@@ -279,6 +279,76 @@ try {
         } | ConvertTo-Json) -TimeoutSec 5
         if ([string]$reference.availability -ne 'UNKNOWN' -or [string]$reference.readinessState -ne 'UNKNOWN') { throw 'Packaged REFERENCE intake did not preserve UNKNOWN availability/readiness.' }
 
+        # Exercise the local, verified backup boundary against the managed
+        # object store populated above.  The command is intentionally sent
+        # through the same canonical /v1/commands endpoint used by desktop
+        # clients so the packaged path proves audit/idempotency behavior too.
+        $backupRoot = Join-Path $dataRoot 'backup-smoke'
+        $backupHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-backup-create'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $backupCreateBody = @{
+            command_type = 'CreateBackup'
+            payload = @{
+                destination_path = $backupRoot
+                durability_class = 'LOCAL_WRITABLE'
+                failure_domain = 'PACKAGING_SMOKE'
+                reserve_bytes = 0
+            }
+        } | ConvertTo-Json -Depth 10
+        $backupCreate = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers $backupHeaders -ContentType 'application/json' -Body $backupCreateBody -TimeoutSec 20
+        $backupRecord = $backupCreate.result.backup
+        if ($null -eq $backupRecord) { $backupRecord = $backupCreate.result }
+        if (-not $backupCreate.ok -or [string]$backupRecord.state -ne 'VERIFIED' -or [string]$backupCreate.result.verification.outcome -ne 'VERIFIED') { throw 'Packaged local backup did not complete with VERIFIED state.' }
+        if ([string]::IsNullOrWhiteSpace([string]$backupRecord.id)) { throw 'Packaged local backup returned no backup id.' }
+        if ($backupRecord.PSObject.Properties.Name -contains 'destination_path' -or $backupRecord.PSObject.Properties.Name -contains 'manifest_path' -or $backupRecord.PSObject.Properties.Name -contains 'snapshot_path') { throw 'Packaged backup response leaked an internal absolute path field.' }
+        $backupResponseJson = $backupCreate | ConvertTo-Json -Depth 20 -Compress
+        if ($backupResponseJson.Contains($dataRoot) -or $backupResponseJson -match '(?i)[A-Z]:\\') { throw 'Packaged backup response leaked an absolute machine path.' }
+        $backupId = [string]$backupRecord.id
+        $backupArtifactRoot = Join-Path $backupRoot $backupId
+        $backupManifest = Join-Path $backupArtifactRoot 'manifest.json'
+        if (-not (Test-Path -LiteralPath $backupManifest -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $backupArtifactRoot 'cineforge.sqlite') -PathType Leaf)) { throw 'Packaged verified backup artifact is incomplete.' }
+
+        $backupReplay = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers $backupHeaders -ContentType 'application/json' -Body $backupCreateBody -TimeoutSec 20
+        if (-not $backupReplay.idempotent_replay -or [string]$backupReplay.result.backup.id -ne $backupId) { throw 'Packaged backup command retry was not an idempotent replay.' }
+
+        $backupList = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/backups" -TimeoutSec 5
+        $backupItems = @()
+        if ($null -ne $backupList.result -and $backupList.result.PSObject.Properties.Name -contains 'items') { $backupItems = @($backupList.result.items) }
+        elseif ($null -ne $backupList.result -and $backupList.result.PSObject.Properties.Name -contains 'backups') { $backupItems = @($backupList.result.backups) }
+        elseif ($backupList.PSObject.Properties.Name -contains 'backups') { $backupItems = @($backupList.backups) }
+        if (@($backupItems | Where-Object { [string]$_.id -eq $backupId -and [string]$_.state -eq 'VERIFIED' }).Count -ne 1) { throw 'Packaged backup list did not expose the verified backup.' }
+        $backupDetail = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/backups/{1}" -f $webPort, [Uri]::EscapeDataString($backupId)) -TimeoutSec 5
+        $backupDetailRecord = $backupDetail.result.backup
+        if ($null -eq $backupDetailRecord) { $backupDetailRecord = $backupDetail.result }
+        if ([string]$backupDetailRecord.id -ne $backupId -or [string]$backupDetailRecord.state -ne 'VERIFIED') { throw 'Packaged backup detail did not return the verified backup.' }
+        if ($backupDetailRecord.PSObject.Properties.Name -contains 'destination_path' -or ([string]($backupDetail | ConvertTo-Json -Depth 20)).Contains($dataRoot)) { throw 'Packaged backup detail leaked an internal path.' }
+
+        # A changed manifest must be observable as a failed verification while
+        # preserving the append-only verification history and failed state.
+        [IO.File]::AppendAllText($backupManifest, "`n", [Text.UTF8Encoding]::new($false))
+        $verifyHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-backup-verify-tampered'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $verifyBody = @{ command_type = 'VerifyBackup'; payload = @{ backup_id = $backupId } } | ConvertTo-Json -Depth 10
+        $tamperedVerification = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers $verifyHeaders -ContentType 'application/json' -Body $verifyBody -TimeoutSec 20
+        if (-not $tamperedVerification.ok -or [string]$tamperedVerification.result.verification.outcome -ne 'FAILED' -or [string]$tamperedVerification.result.backup.state -ne 'FAILED') { throw 'Tampered packaged backup did not fail closed during verification.' }
+
+        # Admission must fail before creating a destination or partial bytes
+        # when the caller supplies an impossible max budget.
+        $pressureRoot = Join-Path $dataRoot 'backup-pressure'
+        $pressureHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-backup-pressure'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $pressureBody = @{ command_type = 'CreateBackup'; payload = @{ destination_path = $pressureRoot; durability_class = 'LOCAL_WRITABLE'; reserve_bytes = 0; max_backup_bytes = 1 } } | ConvertTo-Json -Depth 10
+        $pressureStatus = 0
+        $pressureCode = ''
+        try {
+            Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers $pressureHeaders -ContentType 'application/json' -Body $pressureBody -TimeoutSec 20 | Out-Null
+        }
+        catch {
+            if ($null -ne $_.Exception.Response) {
+                $pressureStatus = [int]$_.Exception.Response.StatusCode
+                try { $pressureCode = [string](($_.ErrorDetails.Message | ConvertFrom-Json).error.code) } catch { }
+            }
+        }
+        if ($pressureStatus -ne 409 -or $pressureCode -ne 'STORAGE_PRESSURE') { throw "Backup storage admission did not fail closed with HTTP 409/STORAGE_PRESSURE (actual: $pressureStatus/$pressureCode)." }
+        if (Test-Path -LiteralPath $pressureRoot) { throw 'Storage-pressure rejection created a backup destination or partial artifact.' }
+
         # Exercise the browser file-picker boundary. The bootstrap accepts the
         # raw stream only from the exact local UI origin, stores it under an
         # opaque handle, and rewrites the subsequent Core command internally;
