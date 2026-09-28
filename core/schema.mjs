@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -637,6 +637,49 @@ export function initializeDatabase(db) {
     CREATE INDEX IF NOT EXISTS timeline_markers_revision_idx
       ON timeline_markers(timeline_revision_id, position_num, position_den, id);
 
+    /*
+     * Review evidence is a separate immutable aggregate.  A session pins one
+     * exact subject/dependency snapshot; the submitted human decision is an
+     * append-only fact and can never be rewritten to make a stale approval
+     * look current.
+     */
+    CREATE TABLE IF NOT EXISTS review_sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      subject_type TEXT NOT NULL CHECK (subject_type IN ('TIMELINE_REVISION')),
+      subject_id TEXT NOT NULL,
+      subject_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      representation_asset_revision_id TEXT REFERENCES asset_revisions(id),
+      dependency_snapshot_hash TEXT NOT NULL CHECK (length(dependency_snapshot_hash) = 64),
+      subject_content_hash TEXT NOT NULL CHECK (length(subject_content_hash) = 64),
+      media_profile_revision_id TEXT NOT NULL REFERENCES project_media_profile_revisions(id),
+      state TEXT NOT NULL DEFAULT 'OPEN'
+        CHECK (state IN ('OPEN', 'IN_PROGRESS', 'SUBMITTED')),
+      reviewer_actor_id TEXT NOT NULL REFERENCES actors(id),
+      opened_at_utc_us INTEGER NOT NULL,
+      submitted_at_utc_us INTEGER,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(subject_type, subject_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS review_sessions_project_state_idx
+      ON review_sessions(project_id, state, opened_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS review_sessions_subject_idx
+      ON review_sessions(subject_type, subject_id, opened_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS human_reviews (
+      id TEXT PRIMARY KEY,
+      review_session_id TEXT NOT NULL UNIQUE REFERENCES review_sessions(id),
+      decision TEXT NOT NULL CHECK (decision IN ('APPROVE', 'REJECT', 'REPAIR', 'ABSTAIN')),
+      notes TEXT NOT NULL DEFAULT '',
+      reason_codes_json TEXT NOT NULL DEFAULT '[]',
+      dependency_snapshot_hash TEXT NOT NULL CHECK (length(dependency_snapshot_hash) = 64),
+      subject_content_hash TEXT NOT NULL CHECK (length(subject_content_hash) = 64),
+      reviewer_actor_id TEXT NOT NULL REFERENCES actors(id),
+      reviewed_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS human_reviews_session_idx
+      ON human_reviews(review_session_id, reviewed_at_utc_us DESC, id DESC);
+
     CREATE TRIGGER IF NOT EXISTS project_media_profiles_no_update
       BEFORE UPDATE ON project_media_profiles
       BEGIN SELECT RAISE(ABORT, 'project_media_profiles are append-only'); END;
@@ -702,6 +745,29 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS timeline_markers_no_delete
       BEFORE DELETE ON timeline_markers
       BEGIN SELECT RAISE(ABORT, 'timeline_markers are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS review_sessions_no_delete
+      BEFORE DELETE ON review_sessions
+      BEGIN SELECT RAISE(ABORT, 'review_sessions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS review_sessions_identity_no_update
+      BEFORE UPDATE ON review_sessions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.subject_type IS NOT OLD.subject_type
+        OR NEW.subject_id IS NOT OLD.subject_id
+        OR NEW.subject_revision_id IS NOT OLD.subject_revision_id
+        OR NEW.representation_asset_revision_id IS NOT OLD.representation_asset_revision_id
+        OR NEW.dependency_snapshot_hash IS NOT OLD.dependency_snapshot_hash
+        OR NEW.subject_content_hash IS NOT OLD.subject_content_hash
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.reviewer_actor_id IS NOT OLD.reviewer_actor_id
+        OR NEW.opened_at_utc_us IS NOT OLD.opened_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'review session identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS human_reviews_no_update
+      BEFORE UPDATE ON human_reviews
+      BEGIN SELECT RAISE(ABORT, 'human_reviews are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS human_reviews_no_delete
+      BEFORE DELETE ON human_reviews
+      BEGIN SELECT RAISE(ABORT, 'human_reviews are append-only'); END;
 
     CREATE TRIGGER IF NOT EXISTS storage_objects_no_update
       BEFORE UPDATE ON storage_objects

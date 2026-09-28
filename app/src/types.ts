@@ -264,6 +264,51 @@ export interface TimelineWorkspace {
   generatedAt?: string
 }
 
+export type ReviewSessionState = 'OPEN' | 'IN_PROGRESS' | 'SUBMITTED' | 'STALE' | string
+export type HumanReviewDecision = 'APPROVE' | 'REJECT' | 'REPAIR' | 'ABSTAIN' | string
+
+export interface HumanReview {
+  id?: string
+  reviewSessionId?: string
+  decision: HumanReviewDecision
+  notes: string
+  reasonCodes: string[]
+  dependencySnapshotHash?: string
+  subjectContentHash?: string
+  reviewerActorId?: string
+  reviewedAt?: string
+}
+
+export interface ReviewSession {
+  id?: string
+  projectId?: string
+  subjectType: 'TIMELINE_REVISION' | string
+  subjectId?: string
+  subjectRevisionId?: string
+  representationAssetRevisionId?: string | null
+  dependencySnapshotHash?: string
+  subjectContentHash?: string
+  mediaProfileRevisionId?: string
+  state: ReviewSessionState
+  stale: boolean
+  reviewerActorId?: string
+  openedAt?: string
+  submittedAt?: string
+  rowVersion: number
+  nextStep?: string | null
+  humanReview?: HumanReview | null
+}
+
+export interface ReviewWorkspace {
+  review: ReviewSession | null
+  subject: TimelineRevision | null
+  timeline: TimelineSummary | null
+  mediaProfileRevision?: MediaProfileRevision | null
+  snapshot: { hash?: string; currentHash?: string; stale: boolean } | null
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface TimelineInput {
   title: string
   code?: string
@@ -454,5 +499,9 @@ export interface CoreClient {
   getTimelineWorkspace?(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace>
   createTimeline?(projectId: string, input: TimelineInput, idempotencyKey?: string): Promise<TimelineSummary>
   createTimelineRevision?(projectId: string, timelineId: string, input: TimelineSnapshotInput, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
-  transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
+  transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string, reviewSessionId?: string, dependencySnapshotHash?: string): Promise<TimelineWorkspace>
+  getReviews?(projectId: string, state?: string, signal?: AbortSignal): Promise<ReviewSession[]>
+  getReview?(projectId: string, reviewSessionId: string, signal?: AbortSignal): Promise<ReviewWorkspace>
+  openReview?(projectId: string, subjectRevisionId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReviewWorkspace>
+  submitReview?(projectId: string, reviewSessionId: string, decision: HumanReviewDecision, expectedVersion: number, notes?: string, reasonCodes?: string[], idempotencyKey?: string): Promise<ReviewWorkspace>
 }

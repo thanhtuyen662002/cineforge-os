@@ -439,6 +439,15 @@ Submission decision:
 A submitted review is immutable.
 If subject dependencies change, the review becomes STALE by projection and a new review session may be required.
 
+For the Issue #23 timeline slice, `TransitionTimelineRevision` may enter
+`APPROVED` only when it carries a matching `SUBMITTED` review session whose
+decision is `APPROVE`. The session must pin the same `TIMELINE_REVISION`, exact
+subject content hash and current dependency snapshot hash; the transition
+command must also echo that exact 64-hex dependency snapshot hash. A missing,
+non-APPROVE, superseded or stale review is a typed conflict and leaves the
+revision in its current state. Readiness and rights gates remain independent
+checks after the review gate; a review never turns `UNKNOWN` into `PASS`.
+
 # 18. Evaluation result
 
 Result state:
@@ -519,8 +528,9 @@ place.
 `CreateTimelineRevision` is the bounded snapshot command: it validates a complete
 project-scoped VIDEO/clip/marker snapshot and atomically creates one immutable
 `DRAFT_CHECKPOINT` with a deterministic content hash. `TransitionTimelineRevision`
-is a separate explicit transition that rechecks profile, asset, evidence and
-rights dependencies before superseding the previous approved checkpoint.
+is a separate explicit transition that first requires the exact submitted human
+review described above, then rechecks profile, asset, evidence and rights
+dependencies before superseding the previous approved checkpoint.
 
 Issue #21 does not implement or expose a mutable working session, autosave,
 undo/redo, collaboration branch, playback, render, export or release state.

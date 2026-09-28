@@ -45,15 +45,16 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineWorkspace, WorkState } from './types'
 
-type NavKey = 'home' | 'projects' | 'timeline' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
+type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
 export const copy = {
   vi: {
     home: 'Trang chủ',
     projects: 'Dự án',
     timeline: 'Timeline',
+    review: 'Duyệt',
     characters: 'Nhân vật',
     needs: 'Cần bạn',
     activity: 'Hoạt động',
@@ -107,6 +108,7 @@ export const copy = {
     home: 'Home',
     projects: 'Projects',
     timeline: 'Timeline',
+    review: 'Review',
     characters: 'Characters',
     needs: 'Needs You',
     activity: 'Activity',
@@ -164,6 +166,7 @@ const navItems: Array<{ key: NavKey; icon: typeof Home; label: keyof typeof copy
   { key: 'home', icon: Home, label: 'home' },
   { key: 'projects', icon: FolderKanban, label: 'projects' },
   { key: 'timeline', icon: Film, label: 'timeline' },
+  { key: 'review', icon: CheckCircle2, label: 'review' },
   { key: 'characters', icon: UserRound, label: 'characters' },
   { key: 'needs', icon: Inbox, label: 'needs' },
   { key: 'activity', icon: Activity, label: 'activity' },
@@ -357,6 +360,7 @@ function App() {
         selectedProjectId ? <ProjectPlanningView snapshot={snapshot} projectId={selectedProjectId} locale={locale} client={client} onBack={() => setSelectedProjectId(null)} onWorkspaceChanged={syncProjectWorkspace} /> : <ProjectsView snapshot={snapshot} t={t} locale={locale} onNewProject={() => setNewProjectOpen(true)} onOpenProject={openProject} />
       )}
       {activeNav === 'timeline' && <TimelineView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
+      {activeNav === 'review' && <ReviewView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
       {activeNav === 'characters' && <CharactersView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
       {activeNav === 'needs' && (
         <NeedsView snapshot={snapshot} t={t} locale={locale} onOpenDecision={openDecision} onResolve={resolveDecision} onDismiss={dismissDecision} pendingId={decisionPendingId} decisionError={decisionError} onRefresh={() => void loadDashboard()} />
@@ -385,7 +389,7 @@ function App() {
         <nav className="main-nav" aria-label={locale === 'vi' ? 'Điều hướng chính' : 'Primary navigation'}>
           <div className="nav-label">{locale === 'vi' ? 'Không gian làm việc' : 'Workspace'}</div>
           {navItems.map(({ key, icon: Icon, label }) => (
-            <button key={key} className={`nav-item ${activeNav === key ? 'active' : ''}`} onClick={() => { setActiveNav(key); if (key === 'projects' || key === 'timeline') setSelectedProjectId(null); setMobileNavOpen(false) }} aria-current={activeNav === key ? 'page' : undefined}>
+            <button key={key} className={`nav-item ${activeNav === key ? 'active' : ''}`} onClick={() => { setActiveNav(key); if (key === 'projects' || key === 'timeline' || key === 'review') setSelectedProjectId(null); setMobileNavOpen(false) }} aria-current={activeNav === key ? 'page' : undefined}>
               <Icon size={18} />
               {!sidebarCollapsed && <span>{t[label]}</span>}
               {key === 'needs' && snapshot && snapshot.decisions.length > 0 && <span className="nav-badge">{snapshot.decisions.length}</span>}
@@ -408,7 +412,7 @@ function App() {
           <div className="topbar-left">
             <button className="icon-button mobile-menu" aria-label={locale === 'vi' ? 'Mở menu' : 'Open menu'} onClick={() => setMobileNavOpen(true)}><Menu size={19} /></button>
             <button className="icon-button collapse-button" aria-label={sidebarCollapsed ? (locale === 'vi' ? 'Mở rộng menu' : 'Expand menu') : (locale === 'vi' ? 'Thu gọn menu' : 'Collapse menu')} onClick={() => setSidebarCollapsed((value) => !value)}><PanelLeftClose size={18} /></button>
-            <div className="breadcrumbs"><span>{activeNav === 'home' ? t.home : activeNav === 'projects' ? t.projects : activeNav === 'timeline' ? t.timeline : activeNav === 'characters' ? t.characters : activeNav === 'needs' ? t.needs : activeNav === 'activity' ? t.activity : activeNav === 'library' ? t.library : t.settings}</span>{activeNav === 'home' && <><span className="breadcrumb-separator">/</span><span className="muted">{locale === 'vi' ? 'Tổng quan' : 'Overview'}</span></>}</div>
+            <div className="breadcrumbs"><span>{activeNav === 'home' ? t.home : activeNav === 'projects' ? t.projects : activeNav === 'timeline' ? t.timeline : activeNav === 'review' ? t.review : activeNav === 'characters' ? t.characters : activeNav === 'needs' ? t.needs : activeNav === 'activity' ? t.activity : activeNav === 'library' ? t.library : t.settings}</span>{activeNav === 'home' && <><span className="breadcrumb-separator">/</span><span className="muted">{locale === 'vi' ? 'Tổng quan' : 'Overview'}</span></>}</div>
           </div>
           <div className="topbar-actions">
             <button className="search-trigger" onClick={() => setSearchOpen(true)}><Search size={16} /><span>{t.searchPlaceholder}</span><kbd><Command size={11} /> K</kbd></button>
@@ -569,6 +573,15 @@ function workspaceErrorMessage(cause: unknown, locale: Locale) {
     TIMELINE_ASSET_NOT_READY: { vi: 'Asset trong timeline chưa đủ bằng chứng readiness.', en: 'A timeline asset does not have sufficient readiness evidence.' },
     TIMELINE_RIGHTS_BLOCKED: { vi: 'Rights/consent của asset trong timeline đang chặn thao tác.', en: 'Rights or consent for a timeline asset is blocking the action.' },
     TIMELINE_REVISION_IMMUTABLE: { vi: 'Revision đã được chốt và không thể sửa trực tiếp.', en: 'This revision is immutable and cannot be edited directly.' },
+    REVIEW_SESSION_NOT_FOUND: { vi: 'Review không còn tồn tại trong Core.', en: 'The review session no longer exists in Core.' },
+    REVIEW_REQUIRED_FOR_APPROVAL: { vi: 'Timeline phải có review APPROVE còn hiệu lực trước khi chốt.', en: 'The timeline needs a current APPROVE review before it can be approved.' },
+    REVIEW_SNAPSHOT_REQUIRED: { vi: 'Cần gửi đúng dependency snapshot hash của review trước khi chốt timeline.', en: 'The exact dependency snapshot hash is required before approving the timeline.' },
+    REVIEW_ALREADY_OPEN: { vi: 'Revision này đã có một review đang mở.', en: 'This revision already has an open review.' },
+    REVIEW_NOT_READY: { vi: 'Checkpoint chưa đủ readiness để reviewer approve.', en: 'The checkpoint is not ready for an approval review.' },
+    REVIEW_APPROVAL_REQUIRED: { vi: 'Chỉ quyết định APPROVE mới được chốt timeline.', en: 'Only an APPROVE decision can approve the timeline.' },
+    REVIEW_NOT_SUBMITTED: { vi: 'Review chưa được gửi; hãy hoàn tất quyết định trước.', en: 'The review has not been submitted yet.' },
+    REVIEW_DECISION_IMMUTABLE: { vi: 'Review đã gửi và không thể sửa quyết định.', en: 'A submitted review decision cannot be edited.' },
+    STALE_REVIEW: { vi: 'Review đã cũ vì checkpoint hoặc dependency thay đổi. Hãy mở review mới.', en: 'This review is stale because the checkpoint or dependency changed. Open a new review.' },
     CORE_OFFLINE: { vi: 'Core đang offline. Hãy kết nối lại rồi thử lại.', en: 'Core is offline. Reconnect and try again.' },
     EXTERNAL_UNAVAILABLE: { vi: 'Core hiện chưa phản hồi. Hãy thử lại.', en: 'Core is not responding yet. Try again.' },
     EXPECTED_VERSION_REQUIRED: { vi: 'Dữ liệu đã thay đổi; hãy tải lại workspace trước khi tiếp tục.', en: 'The data changed; reload the workspace before continuing.' },
@@ -1433,12 +1446,20 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
   }
 
   const transitionRevision = async (revision: TimelineRevision, nextState: string) => {
-    if (!client.transitionTimelineRevision || !projectId || !selectedTimelineId || !revision.id || mutating) return
+    const transition = client.transitionTimelineRevision
+    if ((!transition && !(nextState === 'APPROVED' && client.openReview)) || !projectId || !selectedTimelineId || !revision.id || mutating) return
     setMutating(`timeline-transition:${revision.id}`)
     setActionError(null)
     setNeedsUser(false)
     try {
-      const next = await client.transitionTimelineRevision(projectId, selectedTimelineId, revision.id, nextState, revision.rowVersion, `timeline-transition:${revision.id}:${revision.rowVersion}:${nextState}`)
+      if (nextState === 'APPROVED') {
+        if (!client.openReview) throw new CoreClientError('Review workspace is not available.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', needsUser: true })
+        await client.openReview(projectId, revision.id, revision.rowVersion, `review-open:${revision.id}:${revision.rowVersion}`)
+        onToast(locale === 'vi' ? 'Đã mở review cho checkpoint. Chuyển sang Duyệt để ghi quyết định.' : 'Review opened for this checkpoint. Go to Review to record the decision.')
+        return
+      }
+      if (!transition) throw new CoreClientError('Timeline transitions are not available.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', needsUser: true })
+      const next = await transition(projectId, selectedTimelineId, revision.id, nextState, revision.rowVersion, `timeline-transition:${revision.id}:${revision.rowVersion}:${nextState}`)
       setWorkspace(next)
       setTimelines((current) => current.map((item) => item.id === next.timeline.id ? next.timeline : item))
       onToast(locale === 'vi' ? `Revision timeline đã chuyển sang ${timelineStateLabel(nextState, locale)}.` : `Timeline revision moved to ${timelineStateLabel(nextState, locale)}.`)
@@ -1470,7 +1491,7 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
         {workspaceLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc checkpoint…' : 'Reading checkpoint…'} /> : workspaceError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{workspaceError}</span><button className="subtle-button tiny" onClick={() => selectedTimelineId && void loadWorkspace(selectedTimelineId)}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : !workspace ? <EmptyState icon={Layers3} title={locale === 'vi' ? 'Chọn timeline' : 'Select a timeline'} detail={locale === 'vi' ? 'Workspace sẽ hiển thị revision cụ thể sau khi Core trả về.' : 'The workspace appears after Core returns a specific revision.'} /> : <>
           <div className="timeline-metrics"><div><span>{locale === 'vi' ? 'Revision' : 'Revision'}</span><strong>{currentRevision?.id ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Duration' : 'Duration'}</span><strong>{rationalLabel(currentRevision?.duration)}</strong></div><div><span>{locale === 'vi' ? 'Tracks' : 'Tracks'}</span><strong>{currentRevision?.tracks.length ?? 0}</strong></div><div><span>{locale === 'vi' ? 'Readiness' : 'Readiness'}</span><strong>{currentRevision?.readinessState ?? 'UNKNOWN'}</strong></div></div>
           {workspace.needsYou.length > 0 && <div className="inline-state warning"><UserRound size={14} /><span>{locale === 'vi' ? `Core cần bạn xử lý ${workspace.needsYou.length} mục.` : `Core needs you to resolve ${workspace.needsYou.length} item${workspace.needsYou.length === 1 ? '' : 's'}.`}</span></div>}
-          <div className="timeline-revision-list">{revisions.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có checkpoint.' : 'No checkpoints yet.'} /> : revisions.map((revision) => { const nextState = timelineRevisionTransition(revision.state); return <div className="timeline-revision-row" key={revision.id}><div><strong>{revision.id ?? 'revision'}</strong><small>{timelineStateLabel(revision.state, locale)} · {rationalLabel(revision.duration)} · {revision.tracks.length} {locale === 'vi' ? 'track' : 'tracks'} · v{revision.rowVersion}</small></div>{nextState && <button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null} onClick={() => void transitionRevision(revision, nextState)}>{mutating === `timeline-transition:${revision.id}` ? <RefreshCw size={12} className="spin" /> : <ArrowRight size={12} />}{timelineStateLabel(nextState, locale)}</button>}</div> })}</div>
+          <div className="timeline-revision-list">{revisions.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có checkpoint.' : 'No checkpoints yet.'} /> : revisions.map((revision) => { const nextState = timelineRevisionTransition(revision.state); return <div className="timeline-revision-row" key={revision.id}><div><strong>{revision.id ?? 'revision'}</strong><small>{timelineStateLabel(revision.state, locale)} · {rationalLabel(revision.duration)} · {revision.tracks.length} {locale === 'vi' ? 'track' : 'tracks'} · v{revision.rowVersion}</small></div>{nextState && <button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || (nextState === 'APPROVED' && !client.openReview)} onClick={() => void transitionRevision(revision, nextState)}>{mutating === `timeline-transition:${revision.id}` ? <RefreshCw size={12} className="spin" /> : nextState === 'APPROVED' ? <CheckCircle2 size={12} /> : <ArrowRight size={12} />}{nextState === 'APPROVED' ? (locale === 'vi' ? 'Mở review' : 'Open review') : timelineStateLabel(nextState, locale)}</button>}</div> })}</div>
           {currentRevision && <div className="timeline-track-list">{currentRevision.tracks.map((track) => <div className="timeline-track-row" key={track.id ?? `${track.trackType}-${track.orderIndex}`}><span><strong>{track.name}</strong><small>{track.trackType} · {track.clips.length} {locale === 'vi' ? 'clip' : 'clips'}</small></span><span className="record-code">{track.enabled ? 'ON' : 'OFF'}</span></div>)}</div>}
           <form className="workspace-form timeline-checkpoint-form" onSubmit={createRevision}>
             <div className="form-grid two"><label>{locale === 'vi' ? 'Duration num' : 'Duration num'}<input value={durationNum} onChange={(event) => setDurationNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label><label>{locale === 'vi' ? 'Duration den' : 'Duration den'}<input value={durationDen} onChange={(event) => setDurationDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label></div>
@@ -1482,6 +1503,185 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
           <p className="timeline-deferred"><Info size={14} />{locale === 'vi' ? 'V1 chỉ ghi checkpoint duration/tracks/markers qua Core. Playback, render và export chưa có control trong workspace này.' : 'V1 only records duration/tracks/markers through Core. Playback, render and export controls are deferred.'}</p>
         </>}
       </section>
+    </div>}
+  </div>
+}
+
+export function ReviewView({ snapshot, locale, client, onToast }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; onToast: (message: string) => void }) {
+  const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
+  const [reviews, setReviews] = useState<ReviewSession[]>([])
+  const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null)
+  const [reviewWorkspace, setReviewWorkspace] = useState<ReviewWorkspace | null>(null)
+  const [timelines, setTimelines] = useState<TimelineSummary[]>([])
+  const [timelineId, setTimelineId] = useState<string | null>(null)
+  const [timelineWorkspace, setTimelineWorkspace] = useState<TimelineWorkspace | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [needsUser, setNeedsUser] = useState(false)
+  const [mutating, setMutating] = useState<string | null>(null)
+  const [decision, setDecision] = useState<'APPROVE' | 'REJECT' | 'REPAIR' | 'ABSTAIN'>('APPROVE')
+  const [notes, setNotes] = useState('')
+  const [reasonCodes, setReasonCodes] = useState('')
+  const loadGenerationRef = useRef(0)
+  const detailGenerationRef = useRef(0)
+
+  const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true)
+  const project = snapshot.projects.find((candidate) => candidate.id === projectId) ?? null
+  const selectedReview = reviewWorkspace?.review ?? reviews.find((item) => item.id === selectedReviewId) ?? null
+  const candidateRevisions = (timelineWorkspace?.revisions ?? []).filter((revision) => ['DRAFT_CHECKPOINT', 'CANDIDATE'].includes(revision.state))
+
+  useEffect(() => {
+    if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
+    if (projectId && !snapshot.projects.some((candidate) => candidate.id === projectId)) setProjectId(snapshot.projects[0]?.id ?? '')
+  }, [projectId, snapshot.projects])
+
+  const loadProject = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++loadGenerationRef.current
+    if (!projectId) {
+      setReviews([]); setTimelines([]); setSelectedReviewId(null); setReviewWorkspace(null); setTimelineId(null); setTimelineWorkspace(null); setLoading(false); return
+    }
+    if (!client.getReviews || !client.getTimelines) {
+      setError(locale === 'vi' ? 'Core chưa cung cấp workspace Review.' : 'Core does not expose the Review workspace yet.')
+      setLoading(false)
+      return
+    }
+    setLoading(true); setError(null); setActionError(null); setNeedsUser(false)
+    try {
+      const [reviewResult, timelineResult] = await Promise.all([client.getReviews(projectId, undefined, signal), client.getTimelines(projectId, signal)])
+      if (signal?.aborted || generation !== loadGenerationRef.current) return
+      setReviews(reviewResult)
+      setSelectedReviewId((current) => current && reviewResult.some((item) => item.id === current) ? current : reviewResult[0]?.id ?? null)
+      setTimelines(timelineResult)
+      setTimelineId((current) => current && timelineResult.some((item) => item.id === current) ? current : timelineResult[0]?.id ?? null)
+    } catch (cause) {
+      if ((cause instanceof DOMException && cause.name === 'AbortError') || generation !== loadGenerationRef.current) return
+      setError(workspaceErrorMessage(cause, locale)); setReviews([]); setTimelines([]); setSelectedReviewId(null); setReviewWorkspace(null); setTimelineId(null); setTimelineWorkspace(null)
+    } finally {
+      if (!signal?.aborted && generation === loadGenerationRef.current) setLoading(false)
+    }
+  }, [client, locale, projectId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setReviews([]); setSelectedReviewId(null); setReviewWorkspace(null); setTimelines([]); setTimelineId(null); setTimelineWorkspace(null)
+    void loadProject(controller.signal)
+    return () => controller.abort()
+  }, [loadProject])
+
+  const loadReview = useCallback(async (reviewId: string, signal?: AbortSignal) => {
+    if (!client.getReview || !projectId) return
+    const generation = ++detailGenerationRef.current
+    setDetailLoading(true); setActionError(null)
+    try {
+      const next = await client.getReview(projectId, reviewId, signal)
+      if (signal?.aborted || generation !== detailGenerationRef.current) return
+      setReviewWorkspace(next)
+      if (next.review?.humanReview) {
+        setDecision(next.review.humanReview.decision as 'APPROVE' | 'REJECT' | 'REPAIR' | 'ABSTAIN')
+        setNotes(next.review.humanReview.notes ?? '')
+        setReasonCodes(next.review.humanReview.reasonCodes.join(', '))
+      } else {
+        setDecision('APPROVE'); setNotes(''); setReasonCodes('')
+      }
+    } catch (cause) {
+      if ((cause instanceof DOMException && cause.name === 'AbortError') || generation !== detailGenerationRef.current) return
+      setActionError(workspaceErrorMessage(cause, locale)); setReviewWorkspace(null)
+    } finally {
+      if (!signal?.aborted && generation === detailGenerationRef.current) setDetailLoading(false)
+    }
+  }, [client, locale, projectId])
+
+  useEffect(() => {
+    if (!selectedReviewId || !projectId) { setReviewWorkspace(null); return }
+    const controller = new AbortController()
+    void loadReview(selectedReviewId, controller.signal)
+    return () => controller.abort()
+  }, [loadReview, projectId, selectedReviewId])
+
+  const loadTimeline = useCallback(async (selectedId: string, signal?: AbortSignal) => {
+    if (!client.getTimelineWorkspace || !projectId) return
+    try {
+      const next = await client.getTimelineWorkspace(projectId, selectedId, signal)
+      if (!signal?.aborted) setTimelineWorkspace(next)
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      setActionError(workspaceErrorMessage(cause, locale)); setTimelineWorkspace(null)
+    }
+  }, [client, locale, projectId])
+
+  useEffect(() => {
+    if (!timelineId || !projectId) { setTimelineWorkspace(null); return }
+    const controller = new AbortController()
+    setTimelineWorkspace(null)
+    void loadTimeline(timelineId, controller.signal)
+    return () => controller.abort()
+  }, [loadTimeline, projectId, timelineId])
+
+  const openReview = async (revision: TimelineRevision) => {
+    if (!client.openReview || !projectId || !revision.id || mutating) return
+    setMutating(`review-open:${revision.id}`); setActionError(null); setNeedsUser(false)
+    try {
+      const next = await client.openReview(projectId, revision.id, revision.rowVersion, `review-open:${revision.id}:${revision.rowVersion}`)
+      if (next.review?.id) setSelectedReviewId(next.review.id)
+      setReviewWorkspace(next)
+      setReviews((current) => next.review ? [next.review, ...current.filter((item) => item.id !== next.review?.id)] : current)
+      onToast(locale === 'vi' ? 'Đã mở review cho checkpoint.' : 'Review opened for the checkpoint.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser); setActionError(workspaceErrorMessage(cause, locale))
+    } finally { setMutating(null) }
+  }
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!client.submitReview || !projectId || !selectedReview?.id || !['OPEN', 'IN_PROGRESS'].includes(selectedReview.state) || mutating) return
+    setMutating(`review-submit:${selectedReview.id}`); setActionError(null); setNeedsUser(false)
+    try {
+      const next = await client.submitReview(projectId, selectedReview.id, decision, selectedReview.rowVersion, notes.trim(), reasonCodes.split(',').map((item) => item.trim()).filter(Boolean), `review-submit:${selectedReview.id}:${selectedReview.rowVersion}:${decision}:${notes}`)
+      setReviewWorkspace(next)
+      if (next.review) setReviews((current) => [next.review as ReviewSession, ...current.filter((item) => item.id !== next.review?.id)])
+      onToast(locale === 'vi' ? 'Đã ghi quyết định review vào Core.' : 'The review decision was recorded in Core.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser); setActionError(workspaceErrorMessage(cause, locale))
+    } finally { setMutating(null) }
+  }
+
+  const approveTimeline = async () => {
+    const transition = client.transitionTimelineRevision
+    if (!transition || !projectId || !reviewWorkspace?.review?.id || !reviewWorkspace.subject?.id || !reviewWorkspace.subject.timelineId || !['SUBMITTED'].includes(reviewWorkspace.review.state) || reviewWorkspace.review.humanReview?.decision !== 'APPROVE' || mutating) return
+    setMutating(`timeline-approve:${reviewWorkspace.subject.id}`); setActionError(null); setNeedsUser(false)
+    try {
+      const dependencySnapshotHash = reviewWorkspace.review.dependencySnapshotHash ?? reviewWorkspace.snapshot?.hash
+      if (!dependencySnapshotHash) {
+        throw new CoreClientError(locale === 'vi' ? 'Review thiếu dependency snapshot hash.' : 'The review is missing its dependency snapshot hash.', { code: 'REVIEW_SNAPSHOT_REQUIRED', category: 'VALIDATION', needsUser: true })
+      }
+      await transition(projectId, reviewWorkspace.subject.timelineId, reviewWorkspace.subject.id, 'APPROVED', reviewWorkspace.subject.rowVersion, `timeline-approve:${reviewWorkspace.subject.id}:${reviewWorkspace.subject.rowVersion}:${reviewWorkspace.review.id}`, reviewWorkspace.review.id, dependencySnapshotHash)
+      onToast(locale === 'vi' ? 'Timeline đã được approve bằng review hiện tại.' : 'The timeline was approved with the current review.')
+      await loadProject()
+      await loadReview(reviewWorkspace.review.id)
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser); setActionError(workspaceErrorMessage(cause, locale))
+    } finally { setMutating(null) }
+  }
+
+  return <div className="page review-page">
+    <div className="page-heading"><div><p className="eyebrow">HUMAN REVIEW</p><h1>{locale === 'vi' ? 'Duyệt checkpoint' : 'Review checkpoints'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Ghi quyết định trên đúng revision và dependency snapshot. Không có playback hoặc render giả trong workspace này.' : 'Record a decision against an exact revision and dependency snapshot. Playback and rendering are intentionally absent here.'}</p></div><div className="page-heading-actions"><button className="subtle-button tiny" onClick={() => void loadProject()}><RefreshCw size={13} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip"><CheckCircle2 size={15} />{reviews.length}</span></div></div>
+    <div className="timeline-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="timeline-project-select" value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label={locale === 'vi' ? 'Project review' : 'Review project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className="state-label"><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>
+    {!connected && <div className="inline-state warning"><CloudOff size={14} /><span>{locale === 'vi' ? 'Core đang offline. Review là dữ liệu canonical nên thao tác ghi bị khoá.' : 'Core is offline. Review is canonical data, so mutations are disabled.'}</span></div>}
+    {error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button className="subtle-button tiny" onClick={() => void loadProject()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}
+    {actionError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{actionError}</span>{needsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện hoặc xung đột rồi thử lại.' : 'Core needs you to resolve the condition or conflict before retrying.'}</small>}</div>}
+    {!project ? <EmptyState icon={CheckCircle2} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi mở review.' : 'Create a project before opening a review.'} /> : loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc review từ Core…' : 'Reading reviews from Core…'} /> : <div className="review-grid">
+      <section className="workspace-panel review-list-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><CheckCircle2 size={16} /></span><div><h2>{locale === 'vi' ? 'Review đã ghi' : 'Recorded reviews'}</h2><p>{locale === 'vi' ? 'Mỗi mục pin một revision cụ thể.' : 'Each item pins one exact revision.'}</p></div></div><span className="count-chip">{reviews.length}</span></div>{reviews.length === 0 ? <EmptyState icon={CheckCircle2} title={locale === 'vi' ? 'Chưa có review' : 'No reviews yet'} detail={locale === 'vi' ? 'Chọn candidate checkpoint bên phải để mở review.' : 'Choose a candidate checkpoint on the right to open a review.'} /> : <div className="workspace-record-list">{reviews.map((item) => <button type="button" className={`timeline-row ${item.id === selectedReview?.id ? 'active' : ''}`} key={item.id} onClick={() => setSelectedReviewId(item.id ?? null)}><span className="timeline-row-icon"><CheckCircle2 size={15} /></span><span className="workspace-record-main"><strong>{item.humanReview?.decision ?? (locale === 'vi' ? 'Đang mở' : 'Open')}</strong><small>{item.subjectRevisionId ?? item.subjectId} · v{item.rowVersion}</small></span><span className={`record-code ${item.stale ? 'warning-text' : ''}`}>{item.state}</span><ArrowRight size={14} /></button>)}</div>}
+        <div className="review-candidate-picker"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Candidate checkpoint' : 'Candidate checkpoints'}</h3><p>{locale === 'vi' ? 'Mở review mới khi checkpoint đã đủ điều kiện.' : 'Open a new review once the checkpoint is ready.'}</p></div><select value={timelineId ?? ''} onChange={(event) => setTimelineId(event.target.value || null)} aria-label={locale === 'vi' ? 'Timeline cần review' : 'Timeline for review'}><option value="">{locale === 'vi' ? 'Chọn timeline' : 'Choose timeline'}</option>{timelines.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></div>{timelineWorkspace && candidateRevisions.length > 0 ? <div className="timeline-revision-list">{candidateRevisions.map((revision) => <div className="timeline-revision-row" key={revision.id}><div><strong>{revision.id}</strong><small>{timelineStateLabel(revision.state, locale)} · {rationalLabel(revision.duration)} · {revision.readinessState}</small></div><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !client.openReview} onClick={() => void openReview(revision)}>{mutating === `review-open:${revision.id}` ? <RefreshCw size={12} className="spin" /> : <Plus size={12} />}{locale === 'vi' ? 'Mở review' : 'Open review'}</button></div>)}</div> : <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có candidate checkpoint.' : 'No candidate checkpoint is available.'} />}</div>
+      </section>
+      <section className="workspace-panel review-detail-card">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc bằng chứng review…' : 'Reading review evidence…'} /> : !selectedReview ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một review' : 'Select a review'} detail={locale === 'vi' ? 'Review detail sẽ hiển thị snapshot, readiness và quyết định.' : 'Review details will show the snapshot, readiness and decision.'} /> : <>
+        <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon green"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Review workspace' : 'Review workspace'}</h2><p>{selectedReview.subjectRevisionId ?? selectedReview.subjectId} · v{selectedReview.rowVersion}</p></div></div><span className={`state-label ${selectedReview.stale ? 'warning-text' : ''}`}>{selectedReview.stale ? (locale === 'vi' ? 'STALE' : 'STALE') : selectedReview.state}</span></div>
+        {selectedReview.stale && <div className="inline-state warning"><AlertCircle size={14} /><span>{locale === 'vi' ? 'Snapshot review không còn khớp với revision hiện tại. Không thể approve bằng bằng chứng cũ.' : 'The review snapshot no longer matches the current revision. Old evidence cannot approve it.'}</span></div>}
+        <div className="timeline-metrics"><div><span>{locale === 'vi' ? 'Revision' : 'Revision'}</span><strong>{reviewWorkspace?.subject?.id ?? selectedReview.subjectRevisionId ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Readiness' : 'Readiness'}</span><strong>{reviewWorkspace?.subject?.readinessState ?? 'UNKNOWN'}</strong></div><div><span>{locale === 'vi' ? 'Snapshot' : 'Snapshot'}</span><strong title={reviewWorkspace?.snapshot?.hash}>{reviewWorkspace?.snapshot?.stale ? 'STALE' : (reviewWorkspace?.snapshot?.hash?.slice(0, 12) ?? '—')}</strong></div><div><span>{locale === 'vi' ? 'Tracks' : 'Tracks'}</span><strong>{reviewWorkspace?.subject?.tracks.length ?? 0}</strong></div></div>
+        <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Core chỉ cho approve khi review SUBMITTED, quyết định APPROVE, readiness READY và snapshot hash vẫn khớp.' : 'Core approves only when the review is SUBMITTED with APPROVE, readiness is READY, and the snapshot hash still matches.'}</p>
+        {selectedReview.state === 'SUBMITTED' ? <div className="review-submitted-card"><strong>{locale === 'vi' ? 'Đã gửi quyết định' : 'Decision submitted'}</strong><span>{selectedReview.humanReview?.decision ?? '—'} · {selectedReview.humanReview?.reviewedAt ?? selectedReview.submittedAt ?? '—'}</span>{selectedReview.humanReview?.notes && <p>{selectedReview.humanReview.notes}</p>}{selectedReview.humanReview?.decision === 'APPROVE' && !selectedReview.stale && <button className="primary-button small" type="button" disabled={!connected || mutating !== null || !client.transitionTimelineRevision} onClick={() => void approveTimeline()}>{mutating?.startsWith('timeline-approve:') ? <RefreshCw size={14} className="spin" /> : <Check size={14} />}{locale === 'vi' ? 'Approve timeline bằng review này' : 'Approve timeline with this review'}</button>}</div> : <form className="workspace-form review-submit-form" onSubmit={submit}><div className="form-grid two"><label>{locale === 'vi' ? 'Quyết định' : 'Decision'}<select value={decision} onChange={(event) => setDecision(event.target.value as typeof decision)} disabled={!connected || mutating !== null || selectedReview.stale}><option value="APPROVE">APPROVE</option><option value="REJECT">REJECT</option><option value="REPAIR">REPAIR</option><option value="ABSTAIN">ABSTAIN</option></select></label><label>{locale === 'vi' ? 'Review version' : 'Review version'}<input value={selectedReview.rowVersion} readOnly /></label></div><label>{locale === 'vi' ? 'Ghi chú' : 'Notes'}<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} maxLength={8000} disabled={!connected || mutating !== null || selectedReview.stale} placeholder={locale === 'vi' ? 'Nêu nhận xét có thể audit.' : 'Add an auditable note.'} /></label><label>{locale === 'vi' ? 'Mã lý do (phân cách bằng dấu phẩy)' : 'Reason codes (comma separated)'}<input value={reasonCodes} onChange={(event) => setReasonCodes(event.target.value)} disabled={!connected || mutating !== null || selectedReview.stale} /></label><button className="primary-button small" type="submit" disabled={!connected || mutating !== null || selectedReview.stale || !client.submitReview}>{mutating?.startsWith('review-submit:') ? <RefreshCw size={14} className="spin" /> : <CheckCircle2 size={14} />}{locale === 'vi' ? 'Gửi quyết định' : 'Submit decision'}</button></form>}
+      </>}</section>
     </div>}
   </div>
 }

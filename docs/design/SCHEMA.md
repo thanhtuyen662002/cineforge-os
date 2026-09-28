@@ -1244,16 +1244,24 @@ events; resolving or dismissing requires the current decision_version.
 ## review_sessions
 - id PK
 - project_id FK
-- subject_type
+- subject_type: TIMELINE_REVISION in the Issue #23 executable slice
 - subject_id
-- subject_revision_id
-- representation_asset_revision_id
-- dependency_snapshot_hash
-- policy_revision_id
-- state
-- reviewer_actor_id
-- started_at_utc_us
+- subject_revision_id FK timeline_revisions
+- representation_asset_revision_id nullable FK asset_revisions
+- dependency_snapshot_hash (SHA-256 of the exact review dependency snapshot)
+- subject_content_hash (exact pinned timeline revision content hash)
+- media_profile_revision_id FK project_media_profile_revisions
+- state: OPEN | IN_PROGRESS | SUBMITTED
+- reviewer_actor_id FK actors
+- opened_at_utc_us
 - submitted_at_utc_us nullable
+- row_version
+
+The review session pins one exact timeline revision and its dependency snapshot.
+The `review_sessions_identity_no_update` trigger protects subject, hash, actor,
+profile and opening fields; only the state, submission timestamp and row version
+may advance through a Core command. A second OPEN/IN_PROGRESS session for the
+same subject is rejected by the command boundary.
 
 ## human_reviews
 - id PK
@@ -1261,7 +1269,25 @@ events; resolving or dismissing requires the current decision_version.
 - decision: APPROVE | REJECT | REPAIR | ABSTAIN
 - notes
 - reason_codes_json
+- dependency_snapshot_hash
+- subject_content_hash
+- reviewer_actor_id FK actors
 - reviewed_at_utc_us
+
+`human_reviews` is append-only and unique per review session. The submitted
+decision is immutable evidence; it is not a mutable approval flag on the
+timeline revision.
+
+## Issue #23 executable review baseline
+
+The first review implementation is intentionally project-scoped and supports
+`TIMELINE_REVISION` subjects only. Core computes a deterministic dependency
+snapshot from the timeline revision, pinned media profile, exact asset revision
+readiness/storage evidence and effective rights projection. The snapshot hash is
+stored at open time and must match again at submit and at timeline approval.
+`UNKNOWN` readiness or rights never becomes PASS through the review UI. A stale
+session remains queryable with `review_state=STALE`, but cannot be submitted or
+used to approve; the user must open a new session for the current checkpoint.
 
 ## evaluations
 - id PK

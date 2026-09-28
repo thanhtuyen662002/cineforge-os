@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HumanReviewDecision, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -38,7 +38,11 @@ export interface CoreBridge {
   getTimelineWorkspace?(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace>
   createTimeline?(projectId: string, input: TimelineInput, idempotencyKey?: string): Promise<TimelineSummary>
   createTimelineRevision?(projectId: string, timelineId: string, input: TimelineSnapshotInput, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
-  transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
+  transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string, reviewSessionId?: string, dependencySnapshotHash?: string): Promise<TimelineWorkspace>
+  getReviews?(projectId: string, state?: string, signal?: AbortSignal): Promise<ReviewSession[]>
+  getReview?(projectId: string, reviewSessionId: string, signal?: AbortSignal): Promise<ReviewWorkspace>
+  openReview?(projectId: string, subjectRevisionId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReviewWorkspace>
+  submitReview?(projectId: string, reviewSessionId: string, decision: HumanReviewDecision, expectedVersion: number, notes?: string, reasonCodes?: string[], idempotencyKey?: string): Promise<ReviewWorkspace>
 }
 
 const LOCAL_SNAPSHOT_KEY = 'cineforge-dashboard-v1'
@@ -739,14 +743,55 @@ export class HttpCoreClient implements CoreClient {
     return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline checkpoint'))
   }
 
-  async transitionTimelineRevision(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkspace> {
+  async transitionTimelineRevision(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID(), reviewSessionId?: string, dependencySnapshotHash?: string): Promise<TimelineWorkspace> {
     if (!this.baseUrl) throw new CoreClientError('Timeline transitions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/revisions/${encodeURIComponent(revisionId)}/transition`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({ next_state: nextState, expected_version: expectedVersion }),
+      body: JSON.stringify({
+        next_state: nextState,
+        expected_version: expectedVersion,
+        ...(reviewSessionId ? { review_session_id: reviewSessionId } : {}),
+        ...(dependencySnapshotHash ? { dependency_snapshot_hash: dependencySnapshotHash } : {}),
+      }),
     })
     return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline revision transition'))
+  }
+
+  async getReviews(projectId: string, state?: string, signal?: AbortSignal): Promise<ReviewSession[]> {
+    if (!this.baseUrl) throw new CoreClientError('Review requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const query = state ? `?state=${encodeURIComponent(state)}` : ''
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/reviews${query}`, { signal, headers: { Accept: 'application/json' } })
+    const payload = asRecord(await readCorePayload(response, 'reviews'))
+    return arrayValue(payload.reviews ?? payload.items ?? payload).map(mapReviewSessionRecord)
+  }
+
+  async getReview(projectId: string, reviewSessionId: string, signal?: AbortSignal): Promise<ReviewWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Review details require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewSessionId)}`, { signal, headers: { Accept: 'application/json' } })
+    return mapReviewWorkspaceRecord(await readCorePayload(response, 'review details'))
+  }
+
+  async openReview(projectId: string, subjectRevisionId: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<ReviewWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Opening a review requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!subjectRevisionId.trim() || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new CoreClientError('A timeline revision and current version are required to open a review.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ subject_type: 'TIMELINE_REVISION', subject_revision_id: subjectRevisionId, expected_version: expectedVersion }),
+    })
+    return mapReviewWorkspaceRecord(await readCorePayload(response, 'review opening'))
+  }
+
+  async submitReview(projectId: string, reviewSessionId: string, decision: HumanReviewDecision, expectedVersion: number, notes = '', reasonCodes: string[] = [], idempotencyKey: string = crypto.randomUUID()): Promise<ReviewWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Submitting a review requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!reviewSessionId.trim() || !['APPROVE', 'REJECT', 'REPAIR', 'ABSTAIN'].includes(decision) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new CoreClientError('A review decision and current review version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewSessionId)}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ decision, notes, reason_codes: reasonCodes, expected_version: expectedVersion }),
+    })
+    return mapReviewWorkspaceRecord(await readCorePayload(response, 'review submission'))
   }
 
   async getCharacters(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]> {
@@ -1440,6 +1485,68 @@ function mapTimelineWorkspaceRecord(value: unknown): TimelineWorkspace {
     revisions: allRevisions,
     currentRevision: mappedCurrent ?? allRevisions.find((revision) => revision.state === 'APPROVED') ?? allRevisions[0] ?? null,
     needsYou: arrayValue(envelope.needs_you ?? envelope.needsYou),
+    projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
+    generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
+  }
+}
+
+function mapHumanReviewRecord(value: unknown) {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.human_review_id ?? source.humanReviewId),
+    reviewSessionId: stringValue(source.review_session_id ?? source.reviewSessionId),
+    decision: stringValue(source.decision) ?? 'ABSTAIN',
+    notes: stringValue(source.notes) ?? '',
+    reasonCodes: arrayValue(source.reason_codes ?? source.reasonCodes).filter((item): item is string => typeof item === 'string'),
+    dependencySnapshotHash: stringValue(source.dependency_snapshot_hash ?? source.dependencySnapshotHash),
+    subjectContentHash: stringValue(source.subject_content_hash ?? source.subjectContentHash),
+    reviewerActorId: stringValue(source.reviewer_actor_id ?? source.reviewerActorId),
+    reviewedAt: stringValue(source.reviewed_at ?? source.reviewedAt),
+  }
+}
+
+function mapReviewSessionRecord(value: unknown): ReviewSession {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.review ?? envelope.session ?? envelope.review_session ?? envelope.result ?? value)
+  const rawState = stringValue(source.review_state ?? source.reviewState ?? source.state) ?? 'UNKNOWN'
+  return {
+    id: stringValue(source.id ?? source.review_session_id ?? source.reviewSessionId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    subjectType: stringValue(source.subject_type ?? source.subjectType) ?? 'TIMELINE_REVISION',
+    subjectId: stringValue(source.subject_id ?? source.subjectId),
+    subjectRevisionId: stringValue(source.subject_revision_id ?? source.subjectRevisionId),
+    representationAssetRevisionId: stringValue(source.representation_asset_revision_id ?? source.representationAssetRevisionId),
+    dependencySnapshotHash: stringValue(source.dependency_snapshot_hash ?? source.dependencySnapshotHash),
+    subjectContentHash: stringValue(source.subject_content_hash ?? source.subjectContentHash),
+    mediaProfileRevisionId: stringValue(source.media_profile_revision_id ?? source.mediaProfileRevisionId),
+    state: rawState,
+    stale: Boolean(source.stale) || rawState === 'STALE',
+    reviewerActorId: stringValue(source.reviewer_actor_id ?? source.reviewerActorId),
+    openedAt: stringValue(source.opened_at ?? source.openedAt),
+    submittedAt: stringValue(source.submitted_at ?? source.submittedAt),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+    humanReview: source.human_review || source.humanReview ? mapHumanReviewRecord(source.human_review ?? source.humanReview) : null,
+  }
+}
+
+function mapReviewWorkspaceRecord(value: unknown): ReviewWorkspace {
+  const envelope = asRecord(value)
+  const timeline = envelope.timeline ? mapTimelineSummaryRecord(envelope.timeline) : null
+  const subject = envelope.subject ? mapTimelineRevisionRecord(envelope.subject) : null
+  const profile = envelope.media_profile_revision ?? envelope.mediaProfileRevision
+  return {
+    review: envelope.review ? mapReviewSessionRecord(envelope.review) : envelope.session ? mapReviewSessionRecord(envelope.session) : null,
+    subject,
+    timeline,
+    mediaProfileRevision: profile ? mapMediaProfileRevisionRecord(profile) : null,
+    snapshot: envelope.snapshot && typeof envelope.snapshot === 'object' && !Array.isArray(envelope.snapshot)
+      ? {
+          hash: stringValue(asRecord(envelope.snapshot).hash),
+          currentHash: stringValue(asRecord(envelope.snapshot).current_hash ?? asRecord(envelope.snapshot).currentHash),
+          stale: Boolean(asRecord(envelope.snapshot).stale),
+        }
+      : null,
     projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
     generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
   }

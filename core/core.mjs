@@ -43,6 +43,9 @@ const TIMELINE_REVISION_TRANSITIONS = Object.freeze({
   APPROVED: new Set(['SUPERSEDED']),
   SUPERSEDED: new Set(),
 });
+const REVIEW_SUBJECT_TYPES = new Set(['TIMELINE_REVISION']);
+const REVIEW_STATES = new Set(['OPEN', 'IN_PROGRESS', 'SUBMITTED']);
+const REVIEW_DECISIONS = new Set(['APPROVE', 'REJECT', 'REPAIR', 'ABSTAIN']);
 const TIMELINE_TRACK_TYPES = new Set(['VIDEO', 'AUDIO', 'CAPTION', 'DATA']);
 const MAX_RATIONAL_COMPONENT = 9_000_000_000;
 const MAX_TIMELINE_TRACKS = 64;
@@ -622,6 +625,30 @@ function publicTimelineRevision(row, tracks = [], options = {}) {
   out.next_step = options.nextStep ?? null;
   if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
   for (const field of ['created_at_utc_us', 'duration_num', 'duration_den']) delete out[field];
+  return out;
+}
+
+function publicHumanReview(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.reason_codes = parseJson(out.reason_codes_json, []);
+  if (out.reviewed_at_utc_us !== undefined && out.reviewed_at_utc_us !== null) out.reviewed_at = rfc3339FromUs(out.reviewed_at_utc_us);
+  delete out.reason_codes_json;
+  delete out.reviewed_at_utc_us;
+  return out;
+}
+
+function publicReviewSession(row, humanReview = null, options = {}) {
+  if (!row) return null;
+  const out = rowObject(row);
+  if (out.opened_at_utc_us !== undefined && out.opened_at_utc_us !== null) out.opened_at = rfc3339FromUs(out.opened_at_utc_us);
+  if (out.submitted_at_utc_us !== undefined && out.submitted_at_utc_us !== null) out.submitted_at = rfc3339FromUs(out.submitted_at_utc_us);
+  out.review_state = options.stale ? 'STALE' : out.state;
+  out.stale = Boolean(options.stale);
+  out.next_step = options.nextStep ?? null;
+  out.human_review = publicHumanReview(humanReview);
+  delete out.opened_at_utc_us;
+  delete out.submitted_at_utc_us;
   return out;
 }
 
@@ -2284,7 +2311,7 @@ export class CoreService {
           : commandType.includes('Note') || commandType === 'AddNote' ? 'note'
             : commandType.includes('Task') ? 'task'
               : commandType.includes('Shot') ? 'shot'
-                : commandType === 'ReconcileStaging' ? 'staging' : null;
+              : commandType === 'ReconcileStaging' ? 'staging' : null;
         const result = {
           ...operation.result,
           ...(canonicalKey ? { [canonicalKey]: operation.result } : {}),
@@ -2350,6 +2377,15 @@ export class CoreService {
       const timelineRevisionId = payload.timeline_revision_id ?? payload.timelineRevisionId ?? payload.revision_id ?? payload.revisionId;
       if (timelineRevisionId) return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r
         JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(timelineRevisionId)?.project_id ?? null;
+    }
+    if (commandType === 'OpenReview') {
+      const subjectId = payload.subject_revision_id ?? payload.subjectRevisionId ?? payload.subject_id ?? payload.subjectId ?? payload.timeline_revision_id ?? payload.timelineRevisionId;
+      if (subjectId) return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r
+        JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(subjectId)?.project_id ?? null;
+    }
+    if (commandType === 'SubmitReview') {
+      const reviewSessionId = payload.review_session_id ?? payload.reviewSessionId ?? payload.id;
+      if (reviewSessionId) return this.db.prepare('SELECT project_id FROM review_sessions WHERE id = ?').get(reviewSessionId)?.project_id ?? null;
     }
     const derivesTask = ['UpdateTask', 'AddTaskNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'TASK');
     const derivesShot = ['UpdateShot', 'AddShotNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'SHOT');
@@ -2433,6 +2469,7 @@ export class CoreService {
     if (['CreateBackup', 'VerifyBackup'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateCharacter', 'CreateVisualIdentityRevision', 'CreateVoiceIdentityRevision', 'CreatePerformanceBibleRevision', 'TransitionCharacterRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateMediaProfileRevision', 'TransitionMediaProfileRevision', 'CreateTimeline', 'CreateTimelineRevision', 'TransitionTimelineRevision'].includes(commandType)) return 'COMPENSATABLE';
+    if (['OpenReview', 'SubmitReview'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -2458,6 +2495,8 @@ export class CoreService {
       case 'CreateTimeline': return this._createTimeline(payload);
       case 'CreateTimelineRevision': return this._createTimelineRevision(payload, expectedVersions);
       case 'TransitionTimelineRevision': return this._transitionTimelineRevision(payload, expectedVersions);
+      case 'OpenReview': return this._openReview(payload, expectedVersions);
+      case 'SubmitReview': return this._submitReview(payload, expectedVersions);
       case 'CreateDecisionRequest': return this._createDecisionRequest(payload);
       case 'ResolveDecisionRequest': return this._resolveDecisionRequest(payload, expectedVersions);
       case 'DismissDecisionRequest': return this._dismissDecisionRequest(payload, expectedVersions);
@@ -3250,6 +3289,213 @@ export class CoreService {
     };
   }
 
+  _reviewSession(reviewSessionId) {
+    const id = requiredString(reviewSessionId, 'review_session_id');
+    const row = this.db.prepare('SELECT * FROM review_sessions WHERE id = ?').get(id);
+    if (!row) throw new CoreError('REVIEW_SESSION_NOT_FOUND', 'VALIDATION', 'errors.review_session_not_found', { review_session_id: id });
+    return row;
+  }
+
+  _reviewSubject(subjectType, subjectId) {
+    const normalized = String(subjectType ?? '').trim().toUpperCase();
+    if (!REVIEW_SUBJECT_TYPES.has(normalized)) {
+      throw new CoreError('INVALID_REVIEW_SUBJECT', 'VALIDATION', 'errors.invalid_review_subject', { subject_type: normalized });
+    }
+    const revision = this._timelineRevision(subjectId);
+    return { subjectType: normalized, revision };
+  }
+
+  _reviewSnapshot(revisionOrId) {
+    const revision = typeof revisionOrId === 'string' ? this._timelineRevision(revisionOrId) : revisionOrId;
+    const projection = this._timelineRevisionProjection(revision);
+    const assets = [];
+    for (const track of projection.revision.tracks ?? []) {
+      for (const clip of track.clips ?? []) {
+        if (!clip.asset_revision_id) continue;
+        const asset = this.db.prepare(`SELECT r.id, r.asset_id, r.availability_state, r.review_state,
+            r.availability_evidence_state, a.lifecycle_state AS asset_lifecycle_state,
+            so.storage_class, sol.state AS location_state
+          FROM asset_revisions r
+          JOIN assets a ON a.id = r.asset_id
+          LEFT JOIN storage_objects so ON so.id = r.storage_object_id
+          LEFT JOIN storage_object_locations sol ON sol.id = (
+            SELECT location.id FROM storage_object_locations location
+            WHERE location.storage_object_id = r.storage_object_id AND location.location_role = 'PRIMARY'
+            ORDER BY CASE WHEN location.state = 'AVAILABLE' THEN 0 ELSE 1 END, location.id ASC LIMIT 1
+          ) WHERE r.id = ?`).get(clip.asset_revision_id);
+        const rights = asset ? this._rightsForAsset(asset.asset_id) : { status: 'UNKNOWN', eligible: false };
+        assets.push({
+          asset_revision_id: clip.asset_revision_id,
+          availability_state: asset?.availability_state ?? 'UNKNOWN',
+          review_state: asset?.review_state ?? 'UNKNOWN',
+          availability_evidence_state: asset?.availability_evidence_state ?? 'UNKNOWN',
+          asset_lifecycle_state: asset?.asset_lifecycle_state ?? 'UNKNOWN',
+          storage_class: asset?.storage_class ?? 'UNKNOWN',
+          location_state: asset?.location_state ?? 'UNKNOWN',
+          rights_status: rights.status ?? 'UNKNOWN',
+          rights_eligible: Boolean(rights.eligible),
+        });
+      }
+    }
+    assets.sort((left, right) => left.asset_revision_id.localeCompare(right.asset_revision_id));
+    const snapshot = {
+      project_id: revision.project_id,
+      timeline_id: revision.timeline_id,
+      timeline_revision_id: revision.id,
+      subject_content_hash: revision.content_hash,
+      media_profile_revision_id: revision.media_profile_revision_id,
+      assets,
+      readiness_state: projection.revision.readiness_state,
+    };
+    const hash = crypto.createHash('sha256').update(canonicalJson(snapshot)).digest('hex');
+    return { hash, snapshot, projection };
+  }
+
+  _reviewProjection(sessionOrId, options = {}) {
+    const session = typeof sessionOrId === 'string' ? this._reviewSession(sessionOrId) : sessionOrId;
+    const revision = this._timelineRevision(session.subject_revision_id);
+    const current = this._reviewSnapshot(revision);
+    const stale = current.hash !== session.dependency_snapshot_hash
+      || revision.content_hash !== session.subject_content_hash
+      || revision.lifecycle_state === 'SUPERSEDED';
+    const review = this.db.prepare('SELECT * FROM human_reviews WHERE review_session_id = ?').get(session.id);
+    const nextStep = stale
+      ? 'Mở một review mới cho checkpoint hiện tại; review cũ không còn đủ điều kiện approve.'
+      : session.state === 'SUBMITTED'
+        ? review?.decision === 'APPROVE'
+          ? 'Có thể approve timeline bằng review này nếu revision vẫn ở CANDIDATE.'
+          : 'Review đã gửi; tạo checkpoint mới hoặc xử lý theo quyết định đã ghi.'
+        : 'Chọn quyết định và gửi review khi đã kiểm tra checkpoint.';
+    return {
+      review: publicReviewSession(session, review, { stale, nextStep }),
+      subject: current.projection.revision,
+      timeline: current.projection.timeline,
+      media_profile_revision: current.projection.media_profile_revision,
+      snapshot: { hash: session.dependency_snapshot_hash, current_hash: current.hash, stale },
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+      ...options,
+    };
+  }
+
+  _reviewExpectedVersion(payload, expectedVersions, session) {
+    let expected = payload.expected_review_version ?? payload.expectedReviewVersion;
+    if (expected === undefined || expected === null) {
+      for (const key of ['REVIEW_SESSION', 'REVIEW', 'review_session', 'review', session.id]) {
+        if (Object.prototype.hasOwnProperty.call(expectedVersions ?? {}, key)) {
+          expected = expectedVersions[key];
+          break;
+        }
+      }
+    }
+    if (expected === undefined || expected === null) {
+      throw new CoreError('EXPECTED_VERSION_REQUIRED', 'CONFLICT', 'errors.expected_review_version_required', { review_session_id: session.id }, { needsUser: true });
+    }
+    const numeric = Number(expected);
+    if (!Number.isSafeInteger(numeric) || numeric < 1) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_review_version', { review_session_id: session.id });
+    }
+    if (numeric !== Number(session.row_version)) {
+      throw new CoreError('STALE_REVIEW', 'CONFLICT', 'errors.stale_review', { review_session_id: session.id, expected: numeric, current: Number(session.row_version) }, { needsUser: true });
+    }
+  }
+
+  _openReview(payload, expectedVersions) {
+    const subjectType = String(payload.subject_type ?? payload.subjectType ?? 'TIMELINE_REVISION').trim().toUpperCase();
+    const subjectId = payload.subject_revision_id ?? payload.subjectRevisionId ?? payload.subject_id ?? payload.subjectId ?? payload.timeline_revision_id ?? payload.timelineRevisionId;
+    const { revision } = this._reviewSubject(subjectType, subjectId);
+    this._assertPayloadProjectScope(payload, revision.project_id, 'TIMELINE_REVISION', revision.id);
+    const project = this._project(revision.project_id);
+    this._assertProjectWritable(project);
+    if (!['DRAFT_CHECKPOINT', 'CANDIDATE'].includes(revision.lifecycle_state)) {
+      throw new CoreError('REVIEW_SUBJECT_NOT_REVIEWABLE', 'CONFLICT', 'errors.review_subject_not_reviewable', { state: revision.lifecycle_state }, { needsUser: true });
+    }
+    this._expectedVersion(expectedVersions, 'REVISION', revision.id, revision.row_version);
+    const active = this.db.prepare(`SELECT id FROM review_sessions
+      WHERE subject_type = ? AND subject_id = ? AND state IN ('OPEN', 'IN_PROGRESS') LIMIT 1`).get(subjectType, revision.id);
+    if (active) throw new CoreError('REVIEW_ALREADY_OPEN', 'CONFLICT', 'errors.review_already_open', { review_session_id: active.id }, { needsUser: true });
+    const snapshot = this._reviewSnapshot(revision);
+    const sessionId = uuidv7();
+    const opened = nowUtcUs();
+    this.db.prepare(`INSERT INTO review_sessions
+      (id, project_id, subject_type, subject_id, subject_revision_id,
+       representation_asset_revision_id, dependency_snapshot_hash, subject_content_hash,
+       media_profile_revision_id, state, reviewer_actor_id, opened_at_utc_us, row_version)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'OPEN', ?, ?, 1)`).run(
+      sessionId, project.id, subjectType, revision.id, revision.id, snapshot.hash,
+      revision.content_hash, revision.media_profile_revision_id, this.actorId, opened,
+    );
+    const session = this.db.prepare('SELECT * FROM review_sessions WHERE id = ?').get(sessionId);
+    const projection = this._reviewProjection(session);
+    return {
+      projectId: project.id,
+      result: projection,
+      event: { aggregateType: 'REVIEW_SESSION', aggregateId: sessionId, aggregateVersion: 1, eventType: 'REVIEW_OPENED', payload: { review_session_id: sessionId, project_id: project.id, subject_type: subjectType, subject_revision_id: revision.id, subject_content_hash: revision.content_hash, dependency_snapshot_hash: snapshot.hash } },
+      audit: { actionType: 'review.open', targetType: 'REVIEW_SESSION', targetId: sessionId, payload: { project_id: project.id, subject_type: subjectType, subject_revision_id: revision.id, dependency_snapshot_hash: snapshot.hash } },
+    };
+  }
+
+  _submitReview(payload, expectedVersions) {
+    const session = this._reviewSession(payload.review_session_id ?? payload.reviewSessionId ?? payload.id);
+    this._assertPayloadProjectScope(payload, session.project_id, 'REVIEW_SESSION', session.id);
+    const project = this._project(session.project_id);
+    this._assertProjectWritable(project);
+    this._reviewExpectedVersion(payload, expectedVersions, session);
+    if (!['OPEN', 'IN_PROGRESS'].includes(session.state)) {
+      throw new CoreError('REVIEW_DECISION_IMMUTABLE', 'CONFLICT', 'errors.review_decision_immutable', { review_session_id: session.id }, { needsUser: true });
+    }
+    const revision = this._timelineRevision(session.subject_revision_id);
+    const current = this._reviewSnapshot(revision);
+    if (current.hash !== session.dependency_snapshot_hash || revision.content_hash !== session.subject_content_hash) {
+      throw new CoreError('STALE_REVIEW', 'CONFLICT', 'errors.stale_review', { review_session_id: session.id }, { needsUser: true, technicalDetails: { expected_snapshot_hash: session.dependency_snapshot_hash, current_snapshot_hash: current.hash } });
+    }
+    if (revision.lifecycle_state === 'SUPERSEDED' || revision.lifecycle_state === 'APPROVED') {
+      throw new CoreError('STALE_REVIEW', 'CONFLICT', 'errors.stale_review', { review_session_id: session.id, state: revision.lifecycle_state }, { needsUser: true });
+    }
+    const decision = String(payload.decision ?? '').trim().toUpperCase();
+    if (!REVIEW_DECISIONS.has(decision)) throw new CoreError('INVALID_REVIEW_DECISION', 'VALIDATION', 'errors.invalid_review_decision', { decision });
+    if (decision === 'APPROVE' && current.projection.revision.readiness_state !== 'READY') {
+      throw new CoreError('REVIEW_NOT_READY', 'CONFLICT', 'errors.review_not_ready', { review_session_id: session.id }, { needsUser: true, technicalDetails: { next_step: current.projection.revision.next_step } });
+    }
+    const notes = optionalString(payload.notes, 'notes', 8000, '');
+    const reasonCodes = normalizeStringArray(payload.reason_codes ?? payload.reasonCodes ?? [], 'reason_codes', 32, 80);
+    const reviewId = uuidv7();
+    const reviewed = nowUtcUs();
+    this.db.prepare(`INSERT INTO human_reviews
+      (id, review_session_id, decision, notes, reason_codes_json, dependency_snapshot_hash,
+       subject_content_hash, reviewer_actor_id, reviewed_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      reviewId, session.id, decision, notes, json(reasonCodes), session.dependency_snapshot_hash,
+      session.subject_content_hash, this.actorId, reviewed,
+    );
+    const nextVersion = Number(session.row_version) + 1;
+    this.db.prepare(`UPDATE review_sessions SET state = 'SUBMITTED', submitted_at_utc_us = ?, row_version = ? WHERE id = ?`)
+      .run(reviewed, nextVersion, session.id);
+    const next = this.db.prepare('SELECT * FROM review_sessions WHERE id = ?').get(session.id);
+    const projection = this._reviewProjection(next);
+    return {
+      projectId: project.id,
+      result: projection,
+      event: { aggregateType: 'REVIEW_SESSION', aggregateId: session.id, aggregateVersion: nextVersion, eventType: 'REVIEW_SUBMITTED', payload: { review_session_id: session.id, human_review_id: reviewId, project_id: project.id, subject_revision_id: revision.id, decision, dependency_snapshot_hash: session.dependency_snapshot_hash } },
+      audit: { actionType: 'review.submit', targetType: 'REVIEW_SESSION', targetId: session.id, payload: { project_id: project.id, human_review_id: reviewId, decision, dependency_snapshot_hash: session.dependency_snapshot_hash } },
+    };
+  }
+
+  _reviewList(params = {}) {
+    const projectId = params.project_id ?? params.projectId ?? null;
+    if (projectId) this._project(projectId);
+    const stateInput = params.state ?? null;
+    const state = stateInput === null || stateInput === '' ? null : String(stateInput).trim().toUpperCase();
+    if (state !== null && !REVIEW_STATES.has(state) && state !== 'STALE') throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_review_state', { state });
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = this.db.prepare(`SELECT * FROM review_sessions
+      WHERE (? IS NULL OR project_id = ?) AND (? IS NULL OR state = ?)
+      ORDER BY opened_at_utc_us DESC, id DESC LIMIT ?`).all(projectId, projectId, state === 'STALE' ? null : state, state === 'STALE' ? null : state, limit);
+    const items = rows.map((row) => this._reviewProjection(row).review)
+      .filter((item) => state !== 'STALE' || item.stale);
+    return { items, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
   _createTimeline(payload) {
     const project = this._project(payload.project_id ?? payload.projectId);
     this._assertProjectWritable(project);
@@ -3378,6 +3624,36 @@ export class CoreService {
     }
     const profile = this._mediaProfileRevision(info.media_profile_revision_id);
     if (nextState === 'APPROVED') {
+      const reviewSessionId = payload.review_session_id ?? payload.reviewSessionId;
+      if (!reviewSessionId) {
+        throw new CoreError('REVIEW_REQUIRED_FOR_APPROVAL', 'CONFLICT', 'errors.review_required_for_approval', { timeline_revision_id: info.id }, { needsUser: true });
+      }
+      const reviewSession = this._reviewSession(reviewSessionId);
+      if (reviewSession.project_id !== info.project_id || reviewSession.subject_type !== 'TIMELINE_REVISION' || reviewSession.subject_revision_id !== info.id) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.review_scope_mismatch', { review_session_id: reviewSession.id, timeline_revision_id: info.id }, { needsUser: true });
+      }
+      if (reviewSession.state !== 'SUBMITTED') {
+        throw new CoreError('REVIEW_NOT_SUBMITTED', 'CONFLICT', 'errors.review_not_submitted', { review_session_id: reviewSession.id }, { needsUser: true });
+      }
+      const submittedReview = this.db.prepare('SELECT * FROM human_reviews WHERE review_session_id = ?').get(reviewSession.id);
+      if (!submittedReview || submittedReview.decision !== 'APPROVE') {
+        throw new CoreError('REVIEW_APPROVAL_REQUIRED', 'CONFLICT', 'errors.review_approval_required', { review_session_id: reviewSession.id }, { needsUser: true });
+      }
+      const currentSnapshot = this._reviewSnapshot(info);
+      const suppliedSnapshot = payload.dependency_snapshot_hash ?? payload.dependencySnapshotHash;
+      if (suppliedSnapshot === undefined || suppliedSnapshot === null || String(suppliedSnapshot).trim() === '') {
+        throw new CoreError('REVIEW_SNAPSHOT_REQUIRED', 'CONFLICT', 'errors.review_snapshot_required', { review_session_id: reviewSession.id }, { needsUser: true });
+      }
+      const suppliedSnapshotText = String(suppliedSnapshot).trim();
+      if (!/^[0-9a-f]{64}$/i.test(suppliedSnapshotText)) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_review_snapshot_hash', { review_session_id: reviewSession.id });
+      }
+      if (suppliedSnapshotText.toLowerCase() !== reviewSession.dependency_snapshot_hash.toLowerCase()
+        || currentSnapshot.hash !== reviewSession.dependency_snapshot_hash
+        || submittedReview.dependency_snapshot_hash !== reviewSession.dependency_snapshot_hash
+        || submittedReview.subject_content_hash !== info.content_hash) {
+        throw new CoreError('STALE_REVIEW', 'CONFLICT', 'errors.stale_review', { review_session_id: reviewSession.id }, { needsUser: true, technicalDetails: { expected_snapshot_hash: reviewSession.dependency_snapshot_hash, current_snapshot_hash: currentSnapshot.hash } });
+      }
       if (profile.lifecycle_state !== 'APPROVED') throw new CoreError('MEDIA_PROFILE_NOT_APPROVED', 'CONFLICT', 'errors.media_profile_not_approved', { media_profile_revision_id: profile.id }, { needsUser: true });
       const tracks = this.db.prepare('SELECT * FROM timeline_tracks WHERE timeline_revision_id = ? ORDER BY order_index ASC, id ASC').all(info.id);
       for (const track of tracks) {
@@ -4370,6 +4646,15 @@ export class CoreService {
       case 'query.media_profile.get': return this._mediaProfileWorkspace(params.project_id ?? params.projectId);
       case 'query.timeline.list': return this._timelineList(params);
       case 'query.timeline.workspace': return this._timelineWorkspace(params.timeline_id ?? params.timelineId, params.project_id ?? params.projectId ?? null);
+      case 'query.review.list': return this._reviewList(params);
+      case 'query.review.get': {
+        const session = this._reviewSession(params.review_session_id ?? params.reviewSessionId ?? params.id);
+        const requestedProject = params.project_id ?? params.projectId;
+        if (requestedProject !== undefined && requestedProject !== null && requestedProject !== session.project_id) {
+          throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'REVIEW_SESSION', entity_id: session.id, project_id: requestedProject, actual_project_id: session.project_id }, { needsUser: true });
+        }
+        return this._reviewProjection(session);
+      }
       case 'query.asset.rights': return this._rightsForAsset(params.asset_id ?? params.assetId, params);
       case 'query.rights.evaluate': return this._evaluateRights(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
       case 'query.rights.identity': return this._rightsIdentityDetails(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
@@ -4527,8 +4812,12 @@ export class CoreService {
        UNION SELECT id FROM decision_requests WHERE project_id = ?
        UNION SELECT id FROM characters WHERE project_id = ?
        UNION SELECT id FROM timelines WHERE project_id = ?
-       UNION SELECT id FROM project_media_profiles WHERE project_id = ?
-       ) ORDER BY seq DESC LIMIT ?`).all(projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit);
+       UNION SELECT id FROM review_sessions WHERE project_id = ?
+        UNION SELECT id FROM project_media_profiles WHERE project_id = ?
+        ) ORDER BY seq DESC LIMIT ?`).all(
+      projectId, projectId, projectId, projectId, projectId,
+      projectId, projectId, projectId, projectId, projectId, limit,
+    );
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 

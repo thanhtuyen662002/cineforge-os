@@ -1,0 +1,29 @@
+{
+  "issue": 23,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-review",
+  "run_id_at_claim": "WORK-review-20260929-A1",
+  "slot_id": "WORK-review",
+  "claim_base_sha": "e3d0a3a395b7822d1b2742e50938a7dd44d428fb",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:4d64098043320dd107c9cb37bede2c7e1e4ac99449a1114a49825c6db3acc6b5",
+  "context_base_sha": "e3d0a3a395b7822d1b2742e50938a7dd44d428fb",
+  "arch_context": [
+    "docs/architecture/FINAL_ARCHITECTURE.md#8-production-dependency-graph",
+    "docs/architecture/FINAL_ARCHITECTURE.md#15-review-and-approval",
+    "docs/architecture/FINAL_ARCHITECTURE.md#19-undo-autosave-and-branching"
+  ],
+  "design_context": [
+    "docs/design/FINAL_DETAILED_DESIGN.md#14-implementation-slices",
+    "docs/design/SCHEMA.md#14-decisions-review-and-evidence",
+    "docs/design/API_CONTRACTS.md#17-review-api-detail",
+    "docs/design/STATE_MACHINES.md#17-review-session",
+    "docs/design/UI_COMPONENT_SYSTEM.md#17-review-workspace"
+  ],
+  "risk_context": [
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#aa-aggregate-action-policy",
+    "docs/design/EXTREME_HARDENING_CONTRACTS.md#p-error-telemetry-and-temporary-data-privacy"
+  ],
+  "risk": "HIGH",
+  "status": "CLAIMED"
+}

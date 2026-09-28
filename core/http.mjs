@@ -6,8 +6,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED'].includes(code)) return 400;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
@@ -582,6 +582,75 @@ function mapTimelineWorkspace(result) {
   };
 }
 
+function mapHumanReview(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  return {
+    id: readString(value, 'id', 'human_review_id', 'humanReviewId'),
+    reviewSessionId: readString(value, 'review_session_id', 'reviewSessionId'),
+    decision: readString(value, 'decision') ?? 'ABSTAIN',
+    notes: readString(value, 'notes') ?? '',
+    reasonCodes: Array.isArray(value.reason_codes ?? value.reasonCodes) ? (value.reason_codes ?? value.reasonCodes) : [],
+    dependencySnapshotHash: readString(value, 'dependency_snapshot_hash', 'dependencySnapshotHash'),
+    subjectContentHash: readString(value, 'subject_content_hash', 'subjectContentHash'),
+    reviewerActorId: readString(value, 'reviewer_actor_id', 'reviewerActorId'),
+    reviewedAt: readString(value, 'reviewed_at', 'reviewedAt'),
+  };
+}
+
+function mapReviewSession(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const humanReview = value.human_review ?? value.humanReview;
+  return {
+    id: readString(value, 'id', 'review_session_id', 'reviewSessionId'),
+    projectId: readString(value, 'project_id', 'projectId'),
+    subjectType: readString(value, 'subject_type', 'subjectType') ?? 'TIMELINE_REVISION',
+    subjectId: readString(value, 'subject_id', 'subjectId'),
+    subjectRevisionId: readString(value, 'subject_revision_id', 'subjectRevisionId'),
+    representationAssetRevisionId: readString(value, 'representation_asset_revision_id', 'representationAssetRevisionId'),
+    dependencySnapshotHash: readString(value, 'dependency_snapshot_hash', 'dependencySnapshotHash'),
+    subjectContentHash: readString(value, 'subject_content_hash', 'subjectContentHash'),
+    mediaProfileRevisionId: readString(value, 'media_profile_revision_id', 'mediaProfileRevisionId'),
+    state: readString(value, 'review_state', 'reviewState', 'state') ?? 'UNKNOWN',
+    stale: Boolean(value.stale),
+    reviewerActorId: readString(value, 'reviewer_actor_id', 'reviewerActorId'),
+    openedAt: readString(value, 'opened_at', 'openedAt'),
+    submittedAt: readString(value, 'submitted_at', 'submittedAt'),
+    rowVersion: Number.isSafeInteger(Number(value.row_version ?? value.rowVersion)) ? Number(value.row_version ?? value.rowVersion) : 1,
+    nextStep: readString(value, 'next_step', 'nextStep'),
+    humanReview: humanReview ? mapHumanReview(humanReview) : null,
+  };
+}
+
+function mapReviewWorkspace(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const reviewValue = value.review ?? value.session ?? value.review_session ?? value.reviewSession;
+  return {
+    review: reviewValue ? mapReviewSession(reviewValue) : null,
+    subject: value.subject ? mapTimelineRevision(value.subject) : null,
+    timeline: value.timeline ? mapTimeline(value.timeline) : null,
+    mediaProfileRevision: value.media_profile_revision ?? value.mediaProfileRevision
+      ? mapMediaProfileRevision(value.media_profile_revision ?? value.mediaProfileRevision)
+      : null,
+    snapshot: value.snapshot && typeof value.snapshot === 'object' ? {
+      hash: readString(value.snapshot, 'hash'),
+      currentHash: readString(value.snapshot, 'current_hash', 'currentHash'),
+      stale: Boolean(value.snapshot.stale),
+    } : null,
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
+function mapReviewList(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const rows = Array.isArray(result) ? result : value.items ?? value.reviews ?? [];
+  return {
+    reviews: Array.isArray(rows) ? rows.map(mapReviewSession) : [],
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
 function mapDashboard(result) {
   const health = result?.system_health ?? result?.systemHealth ?? {};
   const backupState = String(health.backup_state ?? health.backupState ?? '').toUpperCase();
@@ -818,6 +887,24 @@ export function createCoreHttpServer(core, options = {}) {
           ...body, project_id: parts[2], timeline_id: parts[4], revision_id: parts[6],
         }, expectedVersions(body, 'REVISION'), commandKey(request, body));
         result = transitioned.ok ? { ...transitioned, result: mapTimelineWorkspace(transitioned.result) } : transitioned;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'reviews' && parts.length === 4) {
+        const listed = query(core, request, 'query.review.list', {
+          project_id: parts[2],
+          state: url.searchParams.get('state') ?? undefined,
+          limit: url.searchParams.get('limit') ?? 100,
+        });
+        result = listed.ok ? { ...listed, result: mapReviewList(listed.result) } : listed;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'reviews' && parts[4] && parts.length === 5) {
+        const review = query(core, request, 'query.review.get', { project_id: parts[2], review_session_id: parts[4] });
+        result = review.ok ? { ...review, result: mapReviewWorkspace(review.result) } : review;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'reviews' && parts.length === 4) {
+        const opened = command(core, request, 'OpenReview', { ...body, project_id: parts[2] }, expectedVersions(body, 'REVISION'), commandKey(request, body));
+        result = opened.ok ? { ...opened, result: mapReviewWorkspace(opened.result) } : opened;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'reviews' && parts[4] && parts[5] === 'submit' && parts.length === 6) {
+        const submitted = command(core, request, 'SubmitReview', {
+          ...body, project_id: parts[2], review_session_id: parts[4],
+        }, expectedVersions(body, 'REVIEW_SESSION'), commandKey(request, body));
+        result = submitted.ok ? { ...submitted, result: mapReviewWorkspace(submitted.result) } : submitted;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
         result = query(core, request, 'query.project.list', { include_trashed: url.searchParams.get('include_trashed') === 'true' });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {

@@ -934,3 +934,95 @@ test('HTTP timeline/profile routes use typed commands and redact unsafe fields',
     await new Promise((resolve) => listener.server.close(resolve));
   }
 });
+
+test('HTTP review routes expose exact timeline evidence and typed approval commands', async () => {
+  const calls = [];
+  const subject = {
+    id: 'timeline-rev-1', timeline_id: 'timeline-1', lifecycle_state: 'CANDIDATE', row_version: 2,
+    duration: { num: 24, den: 1 }, content_hash: 'a'.repeat(64), tracks: [], markers: [],
+  };
+  const session = {
+    id: 'review-1', project_id: 'project-1', subject_type: 'TIMELINE_REVISION', subject_id: 'timeline-rev-1',
+    subject_revision_id: 'timeline-rev-1', dependency_snapshot_hash: 'b'.repeat(64), subject_content_hash: 'a'.repeat(64),
+    media_profile_revision_id: 'profile-rev-1', state: 'OPEN', stale: false, row_version: 1,
+    next_step: 'Chọn quyết định', provider_path: 'C:/private',
+  };
+  const workspace = (submitted = false) => ({
+    review: {
+      ...session,
+      state: submitted ? 'SUBMITTED' : 'OPEN',
+      review_state: submitted ? 'SUBMITTED' : 'OPEN',
+      row_version: submitted ? 2 : 1,
+      human_review: submitted ? {
+        id: 'human-review-1', review_session_id: 'review-1', decision: 'APPROVE', notes: 'OK',
+        reason_codes: [], dependency_snapshot_hash: 'b'.repeat(64), subject_content_hash: 'a'.repeat(64),
+      } : null,
+    },
+    subject: { ...subject, provider_path: 'C:/private' },
+    timeline: { id: 'timeline-1', project_id: 'project-1', title: 'Main', row_version: 3 },
+    media_profile_revision: { id: 'profile-rev-1', project_id: 'project-1', lifecycle_state: 'APPROVED', provider_id: 'secret' },
+    snapshot: { hash: 'b'.repeat(64), current_hash: 'b'.repeat(64), stale: false },
+    projection_seq: 12,
+  });
+  const core = {
+    handle(request) {
+      calls.push(request);
+      if (request.method === 'query.review.list') return { ok: true, result: { items: [session], projection_seq: 11 } };
+      if (request.method === 'query.review.get') return { ok: true, result: workspace(false) };
+      if (request.method === 'command.execute' && request.params.command_type === 'OpenReview') return { ok: true, result: workspace(false) };
+      if (request.method === 'command.execute' && request.params.command_type === 'SubmitReview') return { ok: true, result: workspace(true) };
+      return { ok: false, error: { code: 'NOT_FOUND', category: 'VALIDATION' } };
+    },
+  };
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, {
+      ...options,
+      headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+    });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const listed = await jsonRequest('/v1/projects/project-1/reviews?state=OPEN');
+    assert.equal(listed.response.status, 200);
+    assert.equal(listed.payload.result.reviews[0].id, 'review-1');
+    assert.equal(listed.payload.result.reviews[0].state, 'OPEN');
+    assert.equal(Object.hasOwn(listed.payload.result.reviews[0], 'provider_path'), false);
+
+    const details = await jsonRequest('/v1/projects/project-1/reviews/review-1');
+    assert.equal(details.response.status, 200);
+    assert.equal(details.payload.result.review.id, 'review-1');
+    assert.equal(details.payload.result.subject.id, 'timeline-rev-1');
+    assert.equal(Object.hasOwn(details.payload.result.subject, 'provider_path'), false);
+    assert.equal(Object.hasOwn(details.payload.result.mediaProfileRevision, 'providerId'), false);
+
+    const opened = await jsonRequest('/v1/projects/project-1/reviews', {
+      method: 'POST', headers: { 'idempotency-key': 'review-open' },
+      body: JSON.stringify({ subject_type: 'TIMELINE_REVISION', subject_revision_id: 'timeline-rev-1', expected_version: 2 }),
+    });
+    assert.equal(opened.response.status, 200);
+    assert.equal(opened.payload.result.review.state, 'OPEN');
+
+    const submitted = await jsonRequest('/v1/projects/project-1/reviews/review-1/submit', {
+      method: 'POST', headers: { 'idempotency-key': 'review-submit' },
+      body: JSON.stringify({ decision: 'APPROVE', notes: 'OK', expected_version: 1 }),
+    });
+    assert.equal(submitted.response.status, 200);
+    assert.equal(submitted.payload.result.review.state, 'SUBMITTED');
+    assert.equal(submitted.payload.result.review.humanReview.decision, 'APPROVE');
+
+    const queries = calls.filter((call) => call.method.startsWith('query.'));
+    assert.equal(queries[0].method, 'query.review.list');
+    assert.equal(queries[0].params.project_id, 'project-1');
+    assert.equal(queries[1].params.review_session_id, 'review-1');
+    const commands = calls.filter((call) => call.method === 'command.execute');
+    assert.deepEqual(commands.map((call) => call.params.command_type), ['OpenReview', 'SubmitReview']);
+    assert.equal(commands[0].params.payload.project_id, 'project-1');
+    assert.equal(commands[0].params.expected_versions.REVISION, 2);
+    assert.equal(commands[1].params.payload.review_session_id, 'review-1');
+    assert.equal(commands[1].params.expected_versions.REVIEW_SESSION, 1);
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+  }
+});

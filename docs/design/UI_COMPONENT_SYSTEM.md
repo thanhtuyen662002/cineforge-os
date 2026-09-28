@@ -622,6 +622,27 @@ baseline therefore does not show play/pause controls, a fake editor lease or
 controls that imply those capabilities exist. Unsupported data is explained as
 unavailable in this baseline rather than silently omitted.
 
+## Issue #23 executable Review workspace
+
+The first runnable review surface is metadata-first and project-scoped. It
+contains:
+
+- project and timeline selectors;
+- recorded review sessions with exact subject revision and row version;
+- candidate-checkpoint list with an explicit `Open review` action;
+- readiness, track count, dependency snapshot hash and stale state;
+- decision, notes and reason-code fields for `APPROVE`, `REJECT`, `REPAIR` and
+  `ABSTAIN`;
+- an explicit `Approve timeline with this review` action only after Core has
+  returned a submitted `APPROVE` decision.
+
+The workspace has no playback, render or percentage progress control. It shows
+loading, empty, offline, validation, `needs_user`, stale and successful states
+using durable Core responses. A stale session is still visible for audit but its
+submit and approve controls are disabled; the recovery text tells the user to
+open a new review for the current checkpoint. vi-VN is the default locale and
+en-US is the secondary locale.
+
 ## TimelineCanvas
 The full editor target (deferred beyond Issue #21) must support:
 - clips;
