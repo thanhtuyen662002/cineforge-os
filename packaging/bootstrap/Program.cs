@@ -513,43 +513,55 @@ internal static class Program
         var target = new Uri(coreBase, context.Request.Url!.PathAndQuery);
         using var request = new HttpRequestMessage(new HttpMethod(context.Request.HttpMethod), target);
         RewrittenAssetRequest? stagedRequest = null;
-        if (IsAssetImportRequest(context.Request))
+        var stagedLease = false;
+        try
         {
-            var body = await ReadRequestBytesAsync(context.Request, 1 * 1024 * 1024, cancellationToken);
-            stagedRequest = RewriteStagedAssetRequest(body, dataRoot, context.Request.Headers["Idempotency-Key"]);
-            request.Content = new ByteArrayContent(stagedRequest.Body);
-            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            if (IsAssetImportRequest(context.Request))
+            {
+                var body = await ReadRequestBytesAsync(context.Request, 1 * 1024 * 1024, cancellationToken);
+                // Resolve + consume are one filesystem lease.  The lock is
+                // held across the Core request, so two concurrent idempotency
+                // keys cannot both import the same browser handle.
+                stagedRequest = RewriteStagedAssetRequest(body, dataRoot, context.Request.Headers["Idempotency-Key"]);
+                stagedLease = stagedRequest.Lease is not null;
+                request.Content = new ByteArrayContent(stagedRequest.Body);
+                request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            }
+            else if (context.Request.HasEntityBody)
+            {
+                request.Content = new StreamContent(context.Request.InputStream);
+                if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
+                    request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(context.Request.ContentType);
+            }
+            foreach (var headerName in new[] { "Accept", "Authorization", "Idempotency-Key", "If-Match", "If-None-Match", "X-Request-Id" })
+            {
+                var value = context.Request.Headers[headerName];
+                if (!string.IsNullOrWhiteSpace(value)) request.Headers.TryAddWithoutValidation(headerName, value);
+            }
+            // Only versioned API headers cross the desktop boundary. Browser
+            // cookies, Origin, forwarding headers, and hop-by-hop transport
+            // metadata must never reach Core or become part of its trust model.
+            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            context.Response.StatusCode = (int)response.StatusCode;
+            if (response.Content.Headers.ContentType is not null)
+                context.Response.ContentType = response.Content.Headers.ContentType.ToString();
+            foreach (var header in response.Headers)
+            {
+                if (header.Key.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase)) continue;
+                try { context.Response.Headers[header.Key] = string.Join(", ", header.Value); } catch (ArgumentException) { }
+            }
+            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            if (stagedRequest?.Handle is not null && (int)response.StatusCode is >= 200 and < 300)
+            {
+                try { MarkStagedUploadConsumed(dataRoot, stagedRequest.Handle, stagedRequest.IdempotencyKey!); }
+                catch { /* a successful Core command remains canonical if cleanup is interrupted */ }
+            }
+            await context.Response.OutputStream.WriteAsync(bytes, cancellationToken);
         }
-        else if (context.Request.HasEntityBody)
+        finally
         {
-            request.Content = new StreamContent(context.Request.InputStream);
-            if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
-                request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(context.Request.ContentType);
+            if (stagedLease) stagedRequest?.Lease?.Dispose();
         }
-        foreach (var headerName in new[] { "Accept", "Authorization", "Idempotency-Key", "If-Match", "If-None-Match", "X-Request-Id" })
-        {
-            var value = context.Request.Headers[headerName];
-            if (!string.IsNullOrWhiteSpace(value)) request.Headers.TryAddWithoutValidation(headerName, value);
-        }
-        // Only versioned API headers cross the desktop boundary. Browser
-        // cookies, Origin, forwarding headers, and hop-by-hop transport
-        // metadata must never reach Core or become part of its trust model.
-        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        context.Response.StatusCode = (int)response.StatusCode;
-        if (response.Content.Headers.ContentType is not null)
-            context.Response.ContentType = response.Content.Headers.ContentType.ToString();
-        foreach (var header in response.Headers)
-        {
-            if (header.Key.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase)) continue;
-            try { context.Response.Headers[header.Key] = string.Join(", ", header.Value); } catch (ArgumentException) { }
-        }
-        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-        if (stagedRequest?.Handle is not null && (int)response.StatusCode is >= 200 and < 300)
-        {
-            try { MarkStagedUploadConsumed(dataRoot, stagedRequest.Handle, stagedRequest.IdempotencyKey!); }
-            catch { /* a successful Core command remains canonical if cleanup is interrupted */ }
-        }
-        await context.Response.OutputStream.WriteAsync(bytes, cancellationToken);
     }
 
     private static bool IsAssetImportRequest(HttpListenerRequest request)
@@ -608,13 +620,14 @@ internal static class Program
         var bodyIdempotencyKey = payload["idempotency_key"] is JsonValue bodyKeyValue && bodyKeyValue.TryGetValue<string>(out var bodyKey) ? bodyKey : null;
         var idempotencyKey = string.IsNullOrWhiteSpace(headerIdempotencyKey) ? bodyIdempotencyKey : headerIdempotencyKey;
         if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 200) throw new StageUploadException(400, "IDEMPOTENCY_REQUIRED", "A bounded Idempotency-Key is required for staged imports.");
-        var staged = ResolveStagedUpload(dataRoot, handle, idempotencyKey);
+        var stagedLease = ResolveStagedUpload(dataRoot, handle, idempotencyKey);
+        var staged = stagedLease.Upload;
         payload.Remove("source_handle");
         payload["source_path"] = staged.Path;
         payload["storage_mode"] ??= "COPY";
         payload["original_name"] ??= staged.Name;
         if (!string.IsNullOrWhiteSpace(staged.MimeType)) payload["mime_type"] ??= staged.MimeType;
-        return new RewrittenAssetRequest(JsonSerializer.SerializeToUtf8Bytes(payload), handle, idempotencyKey);
+        return new RewrittenAssetRequest(JsonSerializer.SerializeToUtf8Bytes(payload), handle, idempotencyKey, stagedLease);
     }
 
     private static async Task StageBrowserUploadAsync(HttpListenerContext context, string dataRoot, CancellationToken cancellationToken)
@@ -705,7 +718,7 @@ internal static class Program
         }
     }
 
-    private static StagedUpload ResolveStagedUpload(string dataRoot, string handle, string? idempotencyKey = null)
+    private static StagedUploadLease ResolveStagedUpload(string dataRoot, string handle, string? idempotencyKey = null)
     {
         if (handle.Length != 32 || handle.Any(character => !Uri.IsHexDigit(character))) throw new StageUploadException(400, "INVALID_STAGE_HANDLE", "The staging handle is invalid.");
         var intakeRoot = Path.GetFullPath(Path.Combine(dataRoot, "intake"));
@@ -729,16 +742,42 @@ internal static class Program
             throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file manifest is invalid.");
         if (!string.IsNullOrWhiteSpace(manifest.ConsumedIdempotencyKey) && !string.Equals(manifest.ConsumedIdempotencyKey, idempotencyKey, StringComparison.Ordinal))
             throw new StageUploadException(409, "STAGE_CONSUMED", "The staged file has already been imported with another idempotency key.");
+        FileStream lease;
+        try
+        {
+            // A lock file is held until Core accepts/rejects this request. It
+            // is process- and machine-wide on Windows, unlike an in-memory
+            // semaphore, so a second bootstrap cannot consume the handle.
+            var leasePath = Path.Combine(directory, "consume.lock");
+            lease = new FileStream(leasePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.SequentialScan);
+        }
+        catch (IOException)
+        {
+            throw new StageUploadException(409, "STAGE_BUSY", "The staged file is currently being imported.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new StageUploadException(409, "STAGE_BUSY", "The staged file is currently being imported.");
+        }
         var payloadPath = Path.GetFullPath(Path.Combine(directory, manifest.RelativePath));
-        if (!IsWithinDirectory(payloadPath, directory) || !File.Exists(payloadPath) || IsReparsePoint(payloadPath)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file bytes are not trusted.");
+        if (!IsWithinDirectory(payloadPath, directory) || !File.Exists(payloadPath) || IsReparsePoint(payloadPath))
+        {
+            lease.Dispose();
+            throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file bytes are not trusted.");
+        }
         long size;
         try { size = new FileInfo(payloadPath).Length; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            lease.Dispose();
             throw new StageUploadException(409, "STAGE_CORRUPT", "The staged file bytes could not be inspected.");
         }
-        if (size != manifest.ByteSize || size > MaxStagedUploadBytes) throw new StageUploadException(409, "STAGE_CORRUPT", "The staged file size does not match its manifest.");
-        return new StagedUpload(payloadPath, manifest.Name, manifest.MimeType, size, manifest.ConsumedIdempotencyKey);
+        if (size != manifest.ByteSize || size > MaxStagedUploadBytes)
+        {
+            lease.Dispose();
+            throw new StageUploadException(409, "STAGE_CORRUPT", "The staged file size does not match its manifest.");
+        }
+        return new StagedUploadLease(new StagedUpload(payloadPath, manifest.Name, manifest.MimeType, size, manifest.ConsumedIdempotencyKey), lease);
     }
 
     private static void MarkStagedUploadConsumed(string dataRoot, string handle, string idempotencyKey)
@@ -1085,7 +1124,21 @@ internal static class Program
 
     private sealed record StagedUpload(string Path, string Name, string MimeType, long ByteSize, string? ConsumedIdempotencyKey);
 
-    private sealed record RewrittenAssetRequest(byte[] Body, string? Handle, string? IdempotencyKey);
+    private sealed class StagedUploadLease : IDisposable
+    {
+        public StagedUploadLease(StagedUpload upload, FileStream lockStream)
+        {
+            Upload = upload;
+            LockStream = lockStream;
+        }
+
+        public StagedUpload Upload { get; }
+        private FileStream LockStream { get; }
+
+        public void Dispose() => LockStream.Dispose();
+    }
+
+    private sealed record RewrittenAssetRequest(byte[] Body, string? Handle, string? IdempotencyKey, StagedUploadLease? Lease = null);
 
     private sealed class HealthState
     {

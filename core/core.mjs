@@ -26,6 +26,16 @@ const ASSET_ORIGIN_TYPES = new Set(['IMPORTED', 'GENERATED', 'RECORDED', 'EXTERN
 const ASSET_STORAGE_MODES = new Set(['COPY', 'REFERENCE']);
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 const MAX_ASSET_METADATA_BYTES = 64 * 1024;
+const STAGING_STATES = new Set(['WRITING', 'COMPLETE', 'VERIFIED', 'REGISTERED', 'ORPHANED', 'QUARANTINED', 'FAILED']);
+const STAGING_TRANSITIONS = Object.freeze({
+  WRITING: new Set(['COMPLETE', 'ORPHANED', 'FAILED', 'QUARANTINED']),
+  COMPLETE: new Set(['VERIFIED', 'ORPHANED', 'QUARANTINED']),
+  VERIFIED: new Set(['REGISTERED', 'ORPHANED', 'QUARANTINED']),
+  REGISTERED: new Set(),
+  ORPHANED: new Set(['QUARANTINED']),
+  QUARANTINED: new Set(),
+  FAILED: new Set(),
+});
 
 // The V1 schema uses a compact task vocabulary while the authoritative state
 // machine calls the active/ready stages out separately.  IN_PROGRESS is the
@@ -269,6 +279,26 @@ function publicStorageObject(row) {
   return out;
 }
 
+function publicStagingObject(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const field of ['created_at_utc_us', 'updated_at_utc_us']) {
+    if (out[field] !== undefined && out[field] !== null) out[field.replace('_utc_us', '')] = rfc3339FromUs(out[field]);
+    delete out[field];
+  }
+  // A staging path is an internal resolver detail.  A basename is sufficient
+  // for support/reconciliation while avoiding a local path disclosure.
+  if (out.temp_path) out.temp_name = path.basename(String(out.temp_path));
+  delete out.temp_path;
+  out.source_file_identity = parseJson(out.source_file_identity_json, null);
+  out.os_file_identity = parseJson(out.os_file_identity_json, null);
+  out.finalization_identity = parseJson(out.finalization_identity_json, null);
+  delete out.source_file_identity_json;
+  delete out.os_file_identity_json;
+  delete out.finalization_identity_json;
+  return out;
+}
+
 function publicProvenance(row) {
   if (!row) return null;
   const out = rowObject(row);
@@ -311,7 +341,18 @@ function publicAssetRevision(row, storage, provenance, locations = []) {
   // evidence.  Until an explicit verifier records that evidence, consumers
   // must keep the revision in UNKNOWN readiness rather than treating a
   // materialized object as a safe/approved input.
-  out.readiness_state = out.review_state === 'APPROVED' ? 'READY' : 'UNKNOWN';
+  const externalReference = out.storage_object?.storage_class === 'EXTERNAL_REFERENCE'
+    || locations.some((location) => location?.location_type === 'EXTERNAL_PATH');
+  if (externalReference) {
+    // The legacy availability CHECK predates external-link semantics.  The
+    // additive evidence state and this projection keep REFERENCE explicitly
+    // UNKNOWN until a verifier records current source availability.
+    out.availability_state = 'UNKNOWN';
+    out.availability_evidence_state = 'UNKNOWN';
+  }
+  out.readiness_state = !externalReference
+    && out.availability_evidence_state === 'VERIFIED'
+    && out.review_state === 'APPROVED' ? 'READY' : 'UNKNOWN';
   return out;
 }
 
@@ -412,6 +453,17 @@ export class CoreService {
     });
     this.studioId = this._getMeta('studio_id');
     this.actorId = this._getMeta('actor_id');
+    // Reconcile only durable, non-terminal staging rows.  This is an
+    // auditable system command so startup never silently adopts unknown bytes;
+    // missing/changed/reparse paths become ORPHANED or QUARANTINED.
+    try {
+      const pending = this.db.prepare(`SELECT 1 FROM staging_objects
+        WHERE state IN ('WRITING', 'COMPLETE', 'VERIFIED') LIMIT 1`).get();
+      if (pending) this.executeCommand({ command_type: 'ReconcileStaging', payload: {} });
+    } catch {
+      // Core remains available for read-only recovery even if reconciliation
+      // itself encounters a damaged staging row.
+    }
   }
 
   _getMeta(key) {
@@ -483,18 +535,39 @@ export class CoreService {
     return row;
   }
 
-  _assetSourcePath(value) {
+  _canonicalSourcePath(value) {
     const source = requiredString(value, 'source_path', 4096);
     if (/[\u0000-\u001f\u007f]/.test(source)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_source_path', {});
     }
-    let candidate = source;
     if (/^file:\/\//i.test(source)) {
-      try { candidate = fileURLToPath(source); } catch {
+      try { return path.resolve(fileURLToPath(source)); } catch {
         throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_source_path', {});
       }
     }
-    const absolute = path.resolve(candidate);
+    return path.resolve(source);
+  }
+
+  _assertNoReparsePath(absolute) {
+    const parsed = path.parse(absolute);
+    let current = parsed.root;
+    const remainder = absolute.slice(parsed.root.length).split(/[\\/]+/).filter(Boolean);
+    for (const segment of remainder) {
+      current = path.join(current, segment);
+      let entry;
+      try { entry = fs.lstatSync(current); } catch (error) {
+        if (error?.code === 'ENOENT') break;
+        throw new CoreError('SOURCE_UNREADABLE', 'VALIDATION', 'errors.source_unreadable', { source_name: path.basename(absolute) }, { technicalDetails: { message: error.message } });
+      }
+      if (entry.isSymbolicLink()) {
+        throw new CoreError('SOURCE_REPARSE_REJECTED', 'VALIDATION', 'errors.source_reparse_rejected', { source_name: path.basename(absolute) }, { needsUser: true });
+      }
+    }
+  }
+
+  _assetSourcePath(value) {
+    const absolute = this._canonicalSourcePath(value);
+    this._assertNoReparsePath(absolute);
     let link;
     try { link = fs.lstatSync(absolute); } catch (error) {
       if (error?.code === 'ENOENT') throw new CoreError('SOURCE_NOT_FOUND', 'VALIDATION', 'errors.source_not_found', { source_name: path.basename(absolute) });
@@ -505,41 +578,89 @@ export class CoreService {
     return absolute;
   }
 
-  _hashLocalFile(absolute) {
-    let descriptor;
+  _sourceIdentity(stat) {
+    return {
+      dev: String(stat.dev ?? ''),
+      ino: String(stat.ino ?? ''),
+      size: Number(stat.size),
+      mtime_ms: Number(stat.mtimeMs),
+      ctime_ms: Number(stat.ctimeMs),
+      mode: Number(stat.mode),
+      nlink: Number(stat.nlink ?? 1),
+    };
+  }
+
+  _sameSourceIdentity(left, right) {
+    if (!left || !right) return false;
+    return String(left.dev) === String(right.dev)
+      && String(left.ino) === String(right.ino)
+      && Number(left.size) === Number(right.size)
+      && Number(left.mtime_ms) === Number(right.mtime_ms)
+      && Number(left.ctime_ms) === Number(right.ctime_ms)
+      && Number(left.mode) === Number(right.mode)
+      && Number(left.nlink ?? 1) === Number(right.nlink ?? 1);
+  }
+
+  _openStableSource(absolute) {
     const noFollow = Number(fs.constants.O_NOFOLLOW ?? 0);
+    let descriptor;
     try { descriptor = fs.openSync(absolute, fs.constants.O_RDONLY | noFollow); } catch (error) {
       throw new CoreError('SOURCE_UNREADABLE', 'VALIDATION', 'errors.source_unreadable', { source_name: path.basename(absolute) }, { technicalDetails: { message: error.message } });
     }
     try {
-      const before = fs.fstatSync(descriptor);
-      if (!before.isFile()) throw new CoreError('SOURCE_NOT_REGULAR_FILE', 'VALIDATION', 'errors.source_not_regular_file', { source_name: path.basename(absolute) });
-      if (before.size > this.maxAssetBytes) {
-        throw new CoreError('SOURCE_TOO_LARGE', 'VALIDATION', 'errors.source_too_large', { max_bytes: this.maxAssetBytes });
+      const stat = fs.fstatSync(descriptor);
+      if (!stat.isFile()) throw new CoreError('SOURCE_NOT_REGULAR_FILE', 'VALIDATION', 'errors.source_not_regular_file', { source_name: path.basename(absolute) });
+      if (stat.size > this.maxAssetBytes) throw new CoreError('SOURCE_TOO_LARGE', 'VALIDATION', 'errors.source_too_large', { max_bytes: this.maxAssetBytes });
+      // Multiple hard links permit a second writable name to mutate bytes
+      // behind the stable path.  Reject them for ingest; callers can create a
+      // private copy explicitly when they need to import such a source.
+      if (Number(stat.nlink ?? 1) > 1) {
+        throw new CoreError('SOURCE_HARDLINK_REJECTED', 'VALIDATION', 'errors.source_hardlink_rejected', { source_name: path.basename(absolute) }, { needsUser: true });
       }
-      const digest = crypto.createHash('sha256');
-      const buffer = Buffer.allocUnsafe(1024 * 1024);
-      let position = 0;
-      let bytes = 0;
-      while (position < before.size) {
-        const wanted = Math.min(buffer.length, before.size - position);
-        const read = fs.readSync(descriptor, buffer, 0, wanted, position);
-        if (read <= 0) break;
-        digest.update(buffer.subarray(0, read));
-        position += read;
-        bytes += read;
-      }
+      return { descriptor, identity: this._sourceIdentity(stat), stat };
+    } catch (error) {
+      try { fs.closeSync(descriptor); } catch { /* preserve primary error */ }
+      throw error;
+    }
+  }
+
+  _hashDescriptor(descriptor, expectedSize, sourceName) {
+    const digest = crypto.createHash('sha256');
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    let bytes = 0;
+    while (position < expectedSize) {
+      const wanted = Math.min(buffer.length, expectedSize - position);
+      const read = fs.readSync(descriptor, buffer, 0, wanted, position);
+      if (read <= 0) break;
+      digest.update(buffer.subarray(0, read));
+      position += read;
+      bytes += read;
+    }
+    if (bytes !== expectedSize) {
+      throw new CoreError('SOURCE_CHANGED_DURING_HASH', 'CONFLICT', 'errors.source_changed_during_hash', { source_name: sourceName }, { retryable: true, needsUser: true });
+    }
+    return { hash_algorithm: 'SHA-256', content_hash: digest.digest('hex'), byte_size: bytes };
+  }
+
+  _hashLocalFile(absolute) {
+    this._assertNoReparsePath(absolute);
+    const stable = this._openStableSource(absolute);
+    const descriptor = stable.descriptor;
+    try {
+      const before = stable.stat;
+      const hashed = this._hashDescriptor(descriptor, before.size, path.basename(absolute));
       const after = fs.fstatSync(descriptor);
-      if (bytes !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      if (!this._sameSourceIdentity(stable.identity, this._sourceIdentity(after))) {
         throw new CoreError('SOURCE_CHANGED_DURING_HASH', 'CONFLICT', 'errors.source_changed_during_hash', { source_name: path.basename(absolute) }, { retryable: true, needsUser: true });
       }
       return {
-        hash_algorithm: 'SHA-256',
-        content_hash: digest.digest('hex'),
-        byte_size: bytes,
-        mtime_ms: before.mtimeMs,
-        ctime_ms: before.ctimeMs,
-        mode: before.mode,
+        ...hashed,
+        mtime_ms: stable.identity.mtime_ms,
+        ctime_ms: stable.identity.ctime_ms,
+        mode: stable.identity.mode,
+        nlink: stable.identity.nlink,
+        identity: stable.identity,
       };
     } finally {
       try { fs.closeSync(descriptor); } catch { /* preserve primary error */ }
@@ -567,52 +688,260 @@ export class CoreService {
     return path.join('objects', hashAlgorithm.toLowerCase(), contentHash.slice(0, 2), contentHash);
   }
 
-  _materializeObject(sourcePath, hashAlgorithm, contentHash, byteSize) {
-    const relativePath = this._objectRelativePath(hashAlgorithm, contentHash);
-    const target = path.resolve(this.assetStorePath, relativePath);
-    const source = path.resolve(sourcePath);
-    let created = false;
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    const samePath = process.platform === 'win32'
-      ? target.toLowerCase() === source.toLowerCase() : target === source;
-    if (samePath) return { relativePath, objectUri: `object://${hashAlgorithm.toLowerCase()}/${contentHash}`, target, created };
-
-    if (fs.existsSync(target)) {
-      const targetLink = fs.lstatSync(target);
-      if (targetLink.isSymbolicLink()) {
-        throw new CoreError('ASSET_STORE_CORRUPT', 'INTERNAL', 'errors.asset_store_corrupt', { content_hash: contentHash }, { needsUser: false });
-      }
-      const targetStat = fs.statSync(target);
-      if (!targetStat.isFile() || targetStat.size !== byteSize) {
-        throw new CoreError('ASSET_STORE_CORRUPT', 'INTERNAL', 'errors.asset_store_corrupt', { content_hash: contentHash }, { needsUser: false });
-      }
-      const targetHash = this._hashLocalFile(target);
-      if (targetHash.content_hash !== contentHash) {
-        throw new CoreError('ASSET_STORE_CORRUPT', 'INTERNAL', 'errors.asset_store_corrupt', { content_hash: contentHash }, { needsUser: false });
-      }
-      return { relativePath, objectUri: `object://${hashAlgorithm.toLowerCase()}/${contentHash}`, target, created };
+  _stagingPath(id) {
+    const root = path.resolve(this.assetStorePath, 'staging');
+    const candidate = path.resolve(root, `${id}.part`);
+    if (candidate !== path.join(root, `${id}.part`)) {
+      throw new CoreError('STAGING_PATH_ESCAPE', 'INTERNAL', 'errors.staging_path_escape', {}, { needsUser: false });
     }
+    return { root, candidate };
+  }
 
-    const temporary = `${target}.${uuidv7()}.part`;
+  _stagingRow(id) {
+    const row = this.db.prepare('SELECT * FROM staging_objects WHERE id = ?').get(id);
+    if (!row) throw new CoreError('STAGING_NOT_FOUND', 'VALIDATION', 'errors.staging_not_found', { staging_id: id });
+    return row;
+  }
+
+  _setStagingState(id, state, patch = {}) {
+    if (!STAGING_STATES.has(state)) throw new CoreError('INVALID_STAGING_STATE', 'INTERNAL', 'errors.invalid_staging_state', { state }, { needsUser: false });
+    const current = this._stagingRow(id);
+    if (current.state !== state && !STAGING_TRANSITIONS[current.state]?.has(state)) {
+      throw new CoreError('INVALID_STAGING_TRANSITION', 'CONFLICT', 'errors.invalid_staging_transition', { from: current.state, to: state }, { needsUser: true });
+    }
+    const allowed = new Set(['current_size', 'sha256', 'os_file_identity_json', 'finalization_identity_json', 'state']);
+    for (const key of Object.keys(patch)) if (!allowed.has(key)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: key });
+    const values = {
+      current_size: patch.current_size === undefined ? current.current_size : patch.current_size,
+      sha256: patch.sha256 === undefined ? current.sha256 : patch.sha256,
+      os_file_identity_json: patch.os_file_identity_json === undefined ? current.os_file_identity_json : patch.os_file_identity_json,
+      finalization_identity_json: patch.finalization_identity_json === undefined ? current.finalization_identity_json : patch.finalization_identity_json,
+      state,
+      row_version: Number(current.row_version) + (current.state === state && Object.keys(patch).length === 0 ? 0 : 1),
+      updated_at_utc_us: nowUtcUs(),
+    };
+    this.db.prepare(`UPDATE staging_objects SET current_size = ?, sha256 = ?, os_file_identity_json = ?,
+      finalization_identity_json = ?, state = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      values.current_size, values.sha256, values.os_file_identity_json, values.finalization_identity_json,
+      values.state, values.row_version, values.updated_at_utc_us, id,
+    );
+    return this._stagingRow(id);
+  }
+
+  _reserveImportStaging(payload, commandId) {
+    const sourcePath = this._assetSourcePath(payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path);
+    const hashAlgorithm = String(payload.hash_algorithm ?? payload.hashAlgorithm ?? 'SHA-256').trim().toUpperCase().replace(/_/g, '-');
+    if (hashAlgorithm !== 'SHA-256') {
+      throw new CoreError('UNSUPPORTED_HASH_ALGORITHM', 'VALIDATION', 'errors.unsupported_hash_algorithm', { hash_algorithm: hashAlgorithm });
+    }
+    const stable = this._openStableSource(sourcePath);
+    let digest;
     try {
-      fs.copyFileSync(source, temporary, fs.constants.COPYFILE_EXCL);
-      const staged = this._hashLocalFile(temporary);
-      if (staged.content_hash !== contentHash || staged.byte_size !== byteSize) {
-        throw new CoreError('ASSET_STORE_VERIFY_FAILED', 'INTERNAL', 'errors.asset_store_verify_failed', { content_hash: contentHash }, { needsUser: false });
-      }
-      fs.renameSync(temporary, target);
-      created = true;
-    } catch (error) {
-      try { fs.rmSync(temporary, { force: true }); } catch { /* preserve primary error */ }
-      if (error?.code === 'EEXIST' && fs.existsSync(target)) {
-        const existing = this._hashLocalFile(target);
-        if (existing.content_hash === contentHash && existing.byte_size === byteSize) {
-          return { relativePath, objectUri: `object://${hashAlgorithm.toLowerCase()}/${contentHash}`, target, created: false };
+      // Compute and validate the caller-supplied digest before creating the
+      // staging directory.  Invalid input therefore leaves no filesystem
+      // residue while the descriptor remains the same handle used to copy.
+      digest = this._hashDescriptor(stable.descriptor, stable.stat.size, path.basename(sourcePath));
+      const suppliedHash = payload.content_hash ?? payload.contentHash;
+      if (suppliedHash !== undefined && suppliedHash !== null) {
+        if (typeof suppliedHash !== 'string' || !SHA256_HEX.test(suppliedHash)) {
+          throw new CoreError('INVALID_CONTENT_HASH', 'VALIDATION', 'errors.invalid_content_hash', {});
+        }
+        if (suppliedHash.toLowerCase() !== digest.content_hash) {
+          throw new CoreError('HASH_MISMATCH', 'CONFLICT', 'errors.hash_mismatch', { expected: suppliedHash.toLowerCase(), actual: digest.content_hash }, { needsUser: true });
         }
       }
-      throw error;
+
+      const stagingId = uuidv7();
+      const { root, candidate } = this._stagingPath(stagingId);
+      fs.mkdirSync(root, { recursive: true });
+      const rootStat = fs.lstatSync(root);
+      if (rootStat.isSymbolicLink()) throw new CoreError('STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.staging_reparse_rejected', {}, { needsUser: false });
+      const sourceFingerprint = this._pathFingerprint(sourcePath);
+      const created = nowUtcUs();
+      this._transaction(() => {
+        this.db.prepare(`INSERT INTO staging_objects
+          (id, command_id, temp_path, expected_size, current_size, hash_algorithm, source_path_fingerprint,
+           source_file_identity_json, reparse_state, state, row_version, created_at_utc_us, updated_at_utc_us)
+          VALUES (?, ?, ?, ?, 0, ?, ?, ?, 'NOT_REPARSE', 'WRITING', 1, ?, ?)`).run(
+          stagingId, commandId, candidate, digest.byte_size, digest.hash_algorithm, sourceFingerprint,
+          json(stable.identity), created, created,
+        );
+      });
+
+      let outputDescriptor;
+      try {
+        outputDescriptor = fs.openSync(candidate, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+        const buffer = Buffer.allocUnsafe(1024 * 1024);
+        let position = 0;
+        while (position < stable.stat.size) {
+          const wanted = Math.min(buffer.length, stable.stat.size - position);
+          const read = fs.readSync(stable.descriptor, buffer, 0, wanted, position);
+          if (read <= 0) throw new CoreError('SOURCE_CHANGED_DURING_STAGE', 'CONFLICT', 'errors.source_changed_during_stage', { source_name: path.basename(sourcePath) }, { retryable: true, needsUser: true });
+          let written = 0;
+          while (written < read) written += fs.writeSync(outputDescriptor, buffer, written, read - written);
+          position += read;
+        }
+        fs.fsyncSync(outputDescriptor);
+        fs.closeSync(outputDescriptor);
+        outputDescriptor = null;
+        const afterSource = fs.fstatSync(stable.descriptor);
+        if (!this._sameSourceIdentity(stable.identity, this._sourceIdentity(afterSource))) {
+          throw new CoreError('SOURCE_CHANGED_DURING_STAGE', 'CONFLICT', 'errors.source_changed_during_stage', { source_name: path.basename(sourcePath) }, { retryable: true, needsUser: true });
+        }
+        const stagedStat = fs.lstatSync(candidate);
+        if (stagedStat.isSymbolicLink() || !stagedStat.isFile()) throw new CoreError('STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.staging_reparse_rejected', {}, { needsUser: false });
+        const stagedIdentity = this._sourceIdentity(stagedStat);
+        // The first pass and the copy pass use the same descriptor.  Hash the
+        // staged bytes as a second proof, then bind the resulting identity.
+        const stagedHash = this._hashLocalFile(candidate);
+        if (stagedHash.content_hash !== digest.content_hash || stagedHash.byte_size !== digest.byte_size) {
+          throw new CoreError('STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.staging_verify_failed', { content_hash: digest.content_hash }, { needsUser: false });
+        }
+        this._transaction(() => this._setStagingState(stagingId, 'COMPLETE', {
+          current_size: stagedHash.byte_size, sha256: stagedHash.content_hash, os_file_identity_json: json(stagedIdentity),
+        }));
+        return { id: stagingId, sourcePath, sourceIdentity: stable.identity, digest };
+      } catch (error) {
+        if (outputDescriptor !== undefined && outputDescriptor !== null) { try { fs.closeSync(outputDescriptor); } catch { /* preserve */ } }
+        this._transaction(() => {
+          try { this._setStagingState(stagingId, 'QUARANTINED'); } catch { /* preserve original error */ }
+        });
+        throw error;
+      }
+    } finally {
+      try { fs.closeSync(stable.descriptor); } catch { /* preserve primary error */ }
     }
+  }
+
+  _verifyStagingObject(stagingId) {
+    const row = this._stagingRow(stagingId);
+    if (!['COMPLETE', 'VERIFIED'].includes(row.state)) {
+      throw new CoreError('STAGING_NOT_READY', 'CONFLICT', 'errors.staging_not_ready', { staging_id: stagingId, state: row.state }, { needsUser: true });
+    }
+    const tempPath = path.resolve(row.temp_path);
+    const { root } = this._stagingPath(row.id);
+    if (!tempPath.startsWith(`${root}${path.sep}`)) {
+      this._setStagingState(row.id, 'QUARANTINED');
+      throw new CoreError('STAGING_PATH_ESCAPE', 'INTERNAL', 'errors.staging_path_escape', {}, { needsUser: false });
+    }
+    let stat;
+    try { stat = fs.lstatSync(tempPath); } catch {
+      this._setStagingState(row.id, 'QUARANTINED');
+      throw new CoreError('STAGING_MISSING', 'CONFLICT', 'errors.staging_missing', { staging_id: row.id }, { needsUser: true });
+    }
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      this._setStagingState(row.id, 'QUARANTINED');
+      throw new CoreError('STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.staging_reparse_rejected', {}, { needsUser: false });
+    }
+    const identity = this._sourceIdentity(stat);
+    const expectedIdentity = parseJson(row.os_file_identity_json, null);
+    if (!this._sameSourceIdentity(identity, expectedIdentity)) {
+      this._setStagingState(row.id, 'QUARANTINED');
+      throw new CoreError('STAGING_IDENTITY_CHANGED', 'CONFLICT', 'errors.staging_identity_changed', { staging_id: row.id }, { needsUser: true });
+    }
+    const digest = this._hashLocalFile(tempPath);
+    if (digest.content_hash !== row.sha256 || digest.byte_size !== Number(row.expected_size)) {
+      this._setStagingState(row.id, 'QUARANTINED');
+      throw new CoreError('STAGING_CONTENT_CHANGED', 'CONFLICT', 'errors.staging_content_changed', { staging_id: row.id }, { needsUser: true });
+    }
+    if (row.state === 'COMPLETE') this._setStagingState(row.id, 'VERIFIED');
+    return { ...this._stagingRow(row.id), identity, digest };
+  }
+
+  _materializeStagedObject(stagingId, hashAlgorithm, contentHash, byteSize) {
+    const staged = this._verifyStagingObject(stagingId);
+    const relativePath = this._objectRelativePath(hashAlgorithm, contentHash);
+    const target = path.resolve(this.assetStorePath, relativePath);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    this._assertNoReparsePath(path.dirname(target));
+    let created = false;
+    if (fs.existsSync(target)) {
+      const link = fs.lstatSync(target);
+      if (link.isSymbolicLink() || !link.isFile() || Number(link.nlink ?? 1) !== 1) throw new CoreError('ASSET_STORE_CORRUPT', 'INTERNAL', 'errors.asset_store_corrupt', { content_hash: contentHash }, { needsUser: false });
+      const existing = this._hashLocalFile(target);
+      if (existing.content_hash !== contentHash || existing.byte_size !== byteSize) throw new CoreError('ASSET_STORE_CORRUPT', 'INTERNAL', 'errors.asset_store_corrupt', { content_hash: contentHash }, { needsUser: false });
+      try { fs.rmSync(staged.temp_path, { force: true }); } catch { /* retain row; reconciliation can quarantine */ }
+    } else {
+      try {
+        // COPYFILE_EXCL closes the check/use race and never overwrites an
+        // object another importer won concurrently.
+        fs.copyFileSync(staged.temp_path, target, fs.constants.COPYFILE_EXCL);
+        const copiedLink = fs.lstatSync(target);
+        if (copiedLink.isSymbolicLink() || !copiedLink.isFile() || Number(copiedLink.nlink ?? 1) !== 1) {
+          throw new CoreError('ASSET_STORE_CORRUPT', 'INTERNAL', 'errors.asset_store_corrupt', { content_hash: contentHash }, { needsUser: false });
+        }
+        const copied = this._hashLocalFile(target);
+        if (copied.content_hash !== contentHash || copied.byte_size !== byteSize) throw new CoreError('ASSET_STORE_VERIFY_FAILED', 'INTERNAL', 'errors.asset_store_verify_failed', { content_hash: contentHash }, { needsUser: false });
+        created = true;
+        try { fs.rmSync(staged.temp_path, { force: true }); } catch { /* retain row; registration still has CAS proof */ }
+      } catch (error) {
+        if (error?.code === 'EEXIST' && fs.existsSync(target)) {
+          const existing = this._hashLocalFile(target);
+          if (existing.content_hash === contentHash && existing.byte_size === byteSize) {
+            try { fs.rmSync(staged.temp_path, { force: true }); } catch { /* preserve evidence */ }
+            created = false;
+          } else throw new CoreError('ASSET_STORE_CORRUPT', 'INTERNAL', 'errors.asset_store_corrupt', { content_hash: contentHash }, { needsUser: false });
+        } else throw error;
+      }
+    }
+    const finalIdentity = (() => { try { return this._sourceIdentity(fs.statSync(target)); } catch { return null; } })();
+    this._setStagingState(staged.id, 'REGISTERED', { finalization_identity_json: json(finalIdentity) });
     return { relativePath, objectUri: `object://${hashAlgorithm.toLowerCase()}/${contentHash}`, target, created };
+  }
+
+  _reconcileStaging(payload = {}) {
+    const requestedId = payload.staging_id ?? payload.stagingId ?? null;
+    const rows = requestedId
+      ? [this._stagingRow(requestedId)]
+      : this.db.prepare(`SELECT * FROM staging_objects
+          WHERE state IN ('WRITING', 'COMPLETE', 'VERIFIED')
+          ORDER BY updated_at_utc_us ASC, id ASC LIMIT 200`).all();
+    const changes = [];
+    for (const row of rows) {
+      if (!['WRITING', 'COMPLETE', 'VERIFIED'].includes(row.state)) continue;
+      let state = 'VERIFIED';
+      let reason = 'VERIFIED_CONTENT';
+      try {
+        const tempPath = path.resolve(row.temp_path);
+        const { root } = this._stagingPath(row.id);
+        if (!tempPath.startsWith(`${root}${path.sep}`)) throw new CoreError('STAGING_PATH_ESCAPE', 'INTERNAL', 'errors.staging_path_escape', {}, { needsUser: false });
+        const stat = fs.lstatSync(tempPath);
+        if (stat.isSymbolicLink() || !stat.isFile()) throw new CoreError('STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.staging_reparse_rejected', {}, { needsUser: false });
+        const expectedIdentity = parseJson(row.os_file_identity_json, null);
+        if (expectedIdentity && !this._sameSourceIdentity(this._sourceIdentity(stat), expectedIdentity)) {
+          throw new CoreError('STAGING_IDENTITY_CHANGED', 'CONFLICT', 'errors.staging_identity_changed', { staging_id: row.id }, { needsUser: true });
+        }
+        const digest = this._hashLocalFile(tempPath);
+        if (Number(row.expected_size) !== digest.byte_size || (row.sha256 && row.sha256 !== digest.content_hash)) {
+          throw new CoreError('STAGING_CONTENT_CHANGED', 'CONFLICT', 'errors.staging_content_changed', { staging_id: row.id }, { needsUser: true });
+        }
+        const evidence = {
+          current_size: digest.byte_size, sha256: digest.content_hash, os_file_identity_json: json(this._sourceIdentity(stat)),
+        };
+        if (row.state === 'WRITING') this._setStagingState(row.id, 'COMPLETE', evidence);
+        this._setStagingState(row.id, 'VERIFIED', evidence);
+      } catch (error) {
+        if (error?.code === 'STAGING_MISSING' || error?.code === 'ENOENT' || error?.code === 'STAGING_PATH_ESCAPE') {
+          state = 'ORPHANED';
+          reason = 'MISSING_OR_ESCAPED_TEMP';
+        } else {
+          state = 'QUARANTINED';
+          reason = error?.code ?? 'STAGING_VERIFICATION_FAILED';
+        }
+        try { this._setStagingState(row.id, state); } catch { /* preserve reconciliation evidence */ }
+      }
+      const current = this._stagingRow(row.id);
+      if (current.state !== row.state || state !== 'VERIFIED' || row.state !== 'VERIFIED') {
+        changes.push({ id: row.id, previous_state: row.state, state: current.state, reason });
+      }
+    }
+    const result = { items: changes.map((change) => ({ ...change })), checked_count: rows.length, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+    return {
+      projectId: null,
+      result,
+      event: { aggregateType: 'STAGING_RECONCILIATION', aggregateId: uuidv7(), aggregateVersion: 1, eventType: 'STAGING_RECONCILED', payload: result },
+      audit: { actionType: 'storage.staging_reconcile', targetType: 'STAGING_OBJECT', targetId: requestedId, payload: result },
+    };
   }
 
   _assertProjectWritable(project) {
@@ -772,17 +1101,27 @@ export class CoreService {
       );
     });
 
+    let stagingReservation = null;
     try {
+      // COPY imports reserve and populate a durable staging row before the
+      // canonical command transaction starts.  If the process stops during
+      // the file operation, the row and private temp bytes remain available
+      // for explicit reconciliation instead of becoming an untracked orphan.
+      const importCommand = ['ImportAsset', 'RegisterAsset', 'ImportLocalAsset'].includes(commandType);
+      const storageMode = String(payload.storage_mode ?? payload.storageMode ?? 'COPY').trim().toUpperCase();
+      if (importCommand && storageMode === 'COPY') stagingReservation = this._reserveImportStaging(payload, commandId);
       const applied = this._transaction(() => {
         this.db.prepare('UPDATE commands SET status = ?, started_at_utc_us = ? WHERE id = ?')
           .run('EXECUTING', nowUtcUs(), commandId);
-        const operation = this._applyCommand(commandType, payload, expectedVersions, commandId);
+        const executionPayload = stagingReservation ? { ...payload, __staging_id: stagingReservation.id } : payload;
+        const operation = this._applyCommand(commandType, executionPayload, expectedVersions, commandId);
         const eventSeq = this._insertEvent(operation.event, commandId, this.actorId, input.correlation_id ?? null, input.causation_id ?? null);
         this._insertAudit(operation.audit, commandId, this.actorId, 'SUCCEEDED');
         const canonicalKey = commandType.includes('Decision') ? 'decision'
           : commandType.includes('Note') || commandType === 'AddNote' ? 'note'
             : commandType.includes('Task') ? 'task'
-              : commandType.includes('Shot') ? 'shot' : null;
+              : commandType.includes('Shot') ? 'shot'
+                : commandType === 'ReconcileStaging' ? 'staging' : null;
         const result = {
           ...operation.result,
           ...(canonicalKey ? { [canonicalKey]: operation.result } : {}),
@@ -800,6 +1139,14 @@ export class CoreService {
       const coreError = error instanceof CoreError ? error : new CoreError(
         'INTERNAL_ERROR', 'INTERNAL', 'errors.internal', {}, { needsUser: false, technicalDetails: { message: String(error?.message ?? error) } },
       );
+      if (stagingReservation?.id) {
+        try {
+          this._transaction(() => {
+            const current = this._stagingRow(stagingReservation.id);
+            if (['WRITING', 'COMPLETE', 'VERIFIED'].includes(current.state)) this._setStagingState(stagingReservation.id, 'ORPHANED');
+          });
+        } catch { /* preserve command failure; evidence remains queryable */ }
+      }
       this._transaction(() => {
         this.db.prepare(`UPDATE commands SET status = 'FAILED', finished_at_utc_us = ?, error_code = ?, error_details_json = ? WHERE id = ?`)
           .run(nowUtcUs(), coreError.code, json(coreError.toEnvelope()), commandId);
@@ -892,6 +1239,7 @@ export class CoreService {
       case 'ImportAsset':
       case 'RegisterAsset':
       case 'ImportLocalAsset': return this._importAsset(payload);
+      case 'ReconcileStaging': return this._reconcileStaging(payload);
       case 'AddNote':
       case 'AddTaskNote':
       case 'AddShotNote': return this._addNote(payload, commandType);
@@ -1358,8 +1706,31 @@ export class CoreService {
     const projectId = payload.project_id ?? payload.projectId ?? null;
     const project = projectId ? this._project(projectId) : null;
     if (project) this._assertProjectWritable(project);
-    const sourcePath = this._assetSourcePath(payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path);
-    const file = this._hashLocalFile(sourcePath);
+    const storageMode = String(payload.storage_mode ?? payload.storageMode ?? 'COPY').trim().toUpperCase();
+    if (!ASSET_STORAGE_MODES.has(storageMode)) {
+      throw new CoreError('INVALID_STORAGE_MODE', 'VALIDATION', 'errors.invalid_storage_mode', { storage_mode: storageMode });
+    }
+    const stagingId = payload.__staging_id ?? payload.staging_id ?? payload.stagingId ?? null;
+    let sourcePath;
+    let staged = null;
+    let file;
+    if (storageMode === 'COPY') {
+      if (!stagingId) throw new CoreError('STAGING_REQUIRED', 'CONFLICT', 'errors.staging_required', {}, { needsUser: true });
+      staged = this._stagingRow(stagingId);
+      sourcePath = this._canonicalSourcePath(payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path);
+      file = {
+        hash_algorithm: staged.hash_algorithm ?? 'SHA-256',
+        content_hash: staged.sha256,
+        byte_size: Number(staged.expected_size),
+        ...(parseJson(staged.source_file_identity_json, {}) ?? {}),
+      };
+      if (!SHA256_HEX.test(String(file.content_hash ?? ''))) {
+        throw new CoreError('STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.staging_verify_failed', { staging_id: stagingId }, { needsUser: false });
+      }
+    } else {
+      sourcePath = this._assetSourcePath(payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path);
+      file = this._hashLocalFile(sourcePath);
+    }
     const hashAlgorithm = String(payload.hash_algorithm ?? payload.hashAlgorithm ?? 'SHA-256').trim().toUpperCase().replace(/_/g, '-');
     if (hashAlgorithm !== 'SHA-256') {
       throw new CoreError('UNSUPPORTED_HASH_ALGORITHM', 'VALIDATION', 'errors.unsupported_hash_algorithm', { hash_algorithm: hashAlgorithm });
@@ -1369,13 +1740,9 @@ export class CoreService {
       if (typeof suppliedHash !== 'string' || !SHA256_HEX.test(suppliedHash)) {
         throw new CoreError('INVALID_CONTENT_HASH', 'VALIDATION', 'errors.invalid_content_hash', {});
       }
-      if (suppliedHash.toLowerCase() !== file.content_hash) {
+      if (suppliedHash.toLowerCase() !== String(file.content_hash).toLowerCase()) {
         throw new CoreError('HASH_MISMATCH', 'CONFLICT', 'errors.hash_mismatch', { expected: suppliedHash.toLowerCase(), actual: file.content_hash }, { needsUser: true });
       }
-    }
-    const storageMode = String(payload.storage_mode ?? payload.storageMode ?? 'COPY').trim().toUpperCase();
-    if (!ASSET_STORAGE_MODES.has(storageMode)) {
-      throw new CoreError('INVALID_STORAGE_MODE', 'VALIDATION', 'errors.invalid_storage_mode', { storage_mode: storageMode });
     }
     const assetType = String(payload.asset_type ?? payload.assetType ?? 'GENERIC').trim().toUpperCase();
     if (!/^[A-Z][A-Z0-9_.-]{0,63}$/.test(assetType)) {
@@ -1391,6 +1758,9 @@ export class CoreService {
     }
     const sourceUri = pathToFileURL(sourcePath).href;
     const sourceFingerprint = this._pathFingerprint(sourcePath);
+    if (staged && staged.source_path_fingerprint !== sourceFingerprint) {
+      throw new CoreError('STAGING_SOURCE_MISMATCH', 'CONFLICT', 'errors.staging_source_mismatch', {}, { needsUser: true });
+    }
     const originalName = requiredString(payload.original_name ?? payload.originalName ?? path.basename(sourcePath), 'original_name', 500);
     const displayName = requiredString(payload.display_name ?? payload.displayName ?? originalName, 'display_name', 500);
     const sourceDescription = optionalString(payload.source_description ?? payload.sourceDescription, 'source_description', 2000, `Imported local file: ${originalName}`);
@@ -1402,6 +1772,7 @@ export class CoreService {
       mtime_ms: file.mtime_ms,
       ctime_ms: file.ctime_ms,
       mode: file.mode,
+      source_file_identity: file.identity ?? parseJson(staged?.source_file_identity_json, null),
       hash_algorithm: hashAlgorithm,
       content_hash: file.content_hash,
     };
@@ -1419,7 +1790,7 @@ export class CoreService {
     let materialized = null;
     let objectWasExisting = false;
     try {
-      if (storageMode === 'COPY') materialized = this._materializeObject(sourcePath, hashAlgorithm, file.content_hash, file.byte_size);
+      if (storageMode === 'COPY') materialized = this._materializeStagedObject(stagingId, hashAlgorithm, file.content_hash, file.byte_size);
       const existingObject = this.db.prepare('SELECT * FROM storage_objects WHERE hash_algorithm = ? AND content_hash = ?').get(hashAlgorithm, file.content_hash);
       objectWasExisting = Boolean(existingObject);
       const storageObject = existingObject ?? {
@@ -1451,16 +1822,17 @@ export class CoreService {
         assetId, project?.id ?? null, assetType, displayName, originType, this.actorId, now, now,
       );
       this.db.prepare(`INSERT INTO asset_revisions
-        (id, asset_id, revision_number, storage_object_id, provenance_record_id, semantic_role, availability_state, review_state, rebuildability, created_by_actor_id, created_at_utc_us)
-        VALUES (?, ?, 1, ?, ?, ?, 'AVAILABLE', 'UNREVIEWED', 'ORIGINAL', ?, ?)`).run(
-        revisionId, assetId, storageObject.id, provenanceId, semanticRole, this.actorId, now,
+        (id, asset_id, revision_number, storage_object_id, provenance_record_id, semantic_role, availability_state, review_state, rebuildability, availability_evidence_state, created_by_actor_id, created_at_utc_us)
+        VALUES (?, ?, 1, ?, ?, ?, 'AVAILABLE', 'UNREVIEWED', 'ORIGINAL', ?, ?, ?)`).run(
+        revisionId, assetId, storageObject.id, provenanceId, semanticRole, storageMode === 'COPY' ? 'VERIFIED' : 'UNKNOWN', this.actorId, now,
       );
       const locationType = storageMode === 'COPY' ? 'MANAGED_OBJECT' : 'EXTERNAL_PATH';
       const locationReference = storageMode === 'COPY' ? materialized.objectUri : sourceUri;
       this.db.prepare(`INSERT INTO asset_locations
         (id, asset_revision_id, location_type, path_or_uri, path_fingerprint, status, last_verified_at_utc_us, created_at_utc_us)
-        VALUES (?, ?, ?, ?, ?, 'AVAILABLE', ?, ?)`).run(
-        uuidv7(), revisionId, locationType, locationReference, sourceFingerprint, now, now,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        uuidv7(), revisionId, locationType, locationReference, sourceFingerprint,
+        storageMode === 'COPY' ? 'AVAILABLE' : 'UNVERIFIED', storageMode === 'COPY' ? now : null, now,
       );
       if (storageMode === 'COPY') {
         const relativePath = materialized.relativePath.split(path.sep).join('/');
@@ -1487,6 +1859,10 @@ export class CoreService {
         itemId, sessionId, originalName, mimeType, file.byte_size, sourceUri, sourceFingerprint,
         hashAlgorithm, file.content_hash, assetId, revisionId, now,
       );
+      if (stagingId) {
+        this.db.prepare(`UPDATE staging_objects SET import_item_id = ?, row_version = row_version + 1,
+          updated_at_utc_us = ? WHERE id = ? AND import_item_id IS NULL`).run(itemId, nowUtcUs(), stagingId);
+      }
       const asset = this.db.prepare('SELECT * FROM assets WHERE id = ?').get(assetId);
       const revision = this.db.prepare('SELECT * FROM asset_revisions WHERE id = ?').get(revisionId);
       const storedObject = this.db.prepare('SELECT * FROM storage_objects WHERE id = ?').get(storageObject.id);
@@ -1827,6 +2203,7 @@ export class CoreService {
       case 'query.entity.history': return this._entityHistory(params);
       case 'query.search': return this._search(params);
       case 'query.storage.summary': return this._storageSummary();
+      case 'query.storage.staging_orphans': return this._stagingObjects(params);
       case 'query.needs_you.list': return this._needsYou(params);
       case 'query.needs_you.get': return this._publicDecision(this._decision(params.decision_request_id ?? params.decisionRequestId ?? params.id));
       case 'query.decisions.list': return { items: this._decisions(params), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
@@ -2006,6 +2383,17 @@ export class CoreService {
         WHERE sol.storage_object_id = so.id AND sol.location_role = 'PRIMARY' AND sol.state = 'AVAILABLE'
       )`).get().bytes);
     return { db_path: this.dbPath, bytes, object_store_bytes: objectStoreBytes, object_store_path: this.assetStorePath, cache_bytes: 0, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _stagingObjects(params = {}) {
+    const stateInput = params.state ?? params.states ?? null;
+    const state = stateInput === null || stateInput === undefined || stateInput === '' ? null : String(stateInput).trim().toUpperCase();
+    if (state !== null && !STAGING_STATES.has(state)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_staging_state', { state });
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = this.db.prepare(`SELECT * FROM staging_objects
+      WHERE (? IS NULL OR state = ?)
+      ORDER BY updated_at_utc_us DESC, id DESC LIMIT ?`).all(state, state, limit);
+    return { items: rows.map(publicStagingObject), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
   subscribe(params = {}) {

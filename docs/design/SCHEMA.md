@@ -728,6 +728,7 @@ Legal/creative logical asset.
 - provenance_record_id FK
 - semantic_role
 - availability_state: AVAILABLE | MISSING | CORRUPT | QUARANTINED
+- availability_evidence_state: UNKNOWN | VERIFIED
 - review_state: UNREVIEWED | CANDIDATE | APPROVED | REJECTED
 - rebuildability: ORIGINAL | CANONICAL | REBUILDABLE | EPHEMERAL
 
@@ -1969,14 +1970,31 @@ PK(package_id, dependency_family)
 
 ## staging_objects
 - id PK
+- command_id nullable (unique when present)
 - job_attempt_id nullable
 - import_item_id nullable
 - temp_path
 - expected_size nullable
 - current_size
+- hash_algorithm nullable
 - sha256 nullable
+- source_path_fingerprint nullable
+- source_file_identity_json nullable
+- os_file_identity_json nullable
+- reparse_state: UNKNOWN | NOT_REPARSE | REPARSE_REJECTED
+- finalization_identity_json nullable
 - state: WRITING | COMPLETE | VERIFIED | REGISTERED | ORPHANED | QUARANTINED | FAILED
+- row_version
 - created_at_utc_us
+- updated_at_utc_us
+
+`staging_objects` identity/digest columns are immutable evidence after first
+observation; only lifecycle state, byte progress and finalization evidence may
+advance.  Core rejects reparse/symlink paths and hardlink aliases, verifies the
+same staged identity and SHA-256 before CAS finalization, and never adopts an
+orphan automatically.  `REFERENCE` imports bind an external path plus a
+cryptographic content hash but retain `availability_evidence_state=UNKNOWN`
+and an `UNVERIFIED` external location until a verifier revalidates the source.
 
 ## derived_recipes
 Proves rebuildability rather than using a label only.

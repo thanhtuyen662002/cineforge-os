@@ -1225,6 +1225,13 @@ For critical ingest/relink:
 The API returns the cryptographic fingerprint actually bound to the revision/review.
 mtime/size/path are hints, not identity.
 
+The V1 local adapter implements this boundary through `ImportAsset`/`RegisterAsset`:
+`COPY` reserves a durable `staging_objects` row, copies through a stable local
+handle, verifies the staged identity and SHA-256, and only then registers a
+content-addressed object.  `REFERENCE` records the external location and its
+cryptographic fingerprint but remains `availability=UNKNOWN`, with an
+`UNVERIFIED` location, until explicit revalidation evidence exists.
+
 # 67. Rebuildability dependency API
 
 - `query.rebuildability(asset_revision_id)`
@@ -1328,6 +1335,15 @@ Valid signature + wrong scope => quarantine, not acceptance.
 - destination CAS path is not exposed through a writable alias.
 
 On mismatch, quarantine and do not register READY bytes.
+
+The local Core adapter exposes the bounded recovery surface as:
+- `GET /v1/storage/staging` (`query.storage.staging_orphans`); and
+- `POST /v1/storage/staging/reconcile` (`ReconcileStaging`, idempotent and
+  auditable).
+
+Startup reconciliation checks at most the oldest 200 non-terminal rows and
+marks missing/escaped bytes `ORPHANED` or changed/reparse bytes `QUARANTINED`;
+it never promotes an ambiguous temp file to a canonical asset.
 
 
 # 77. Core ownership and IPC APIs

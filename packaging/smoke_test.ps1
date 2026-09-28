@@ -208,6 +208,19 @@ try {
         if ([string]::IsNullOrWhiteSpace([string]$asset.importSessionId)) { throw 'Packaged asset import returned no import session id.' }
         $projectAssets = Invoke-RestMethod -Uri $assetUri -TimeoutSec 5
         if (@($projectAssets.assets | Where-Object { $_.id -eq $asset.id }).Count -ne 1) { throw 'Imported asset was not present in the project asset library.' }
+        $stagingList = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/storage/staging?state=REGISTERED" -TimeoutSec 5
+        $stagedAsset = @($stagingList.result.items | Where-Object { $_.sha256 -eq $asset.contentHash }) | Select-Object -First 1
+        if ($null -eq $stagedAsset -or [string]$stagedAsset.state -ne 'REGISTERED') { throw 'Packaged asset staging evidence was not REGISTERED.' }
+        if ($stagedAsset.PSObject.Properties.Name -contains 'temp_path') { throw 'Packaged staging response leaked an internal temp path.' }
+        $reconcileHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-staging-reconcile'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $reconcile = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/storage/staging/reconcile" -Method Post -Headers $reconcileHeaders -ContentType 'application/json' -Body (@{ staging_id = [string]$stagedAsset.id } | ConvertTo-Json) -TimeoutSec 5
+        if (-not $reconcile.ok -or $null -eq $reconcile.result.staging) { throw 'Packaged staging reconciliation command returned an invalid result.' }
+        $reference = Invoke-RestMethod -Uri $assetUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-reference'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            source_path = $assetSource
+            asset_type = 'DOCUMENT'
+            storage_mode = 'REFERENCE'
+        } | ConvertTo-Json) -TimeoutSec 5
+        if ([string]$reference.availability -ne 'UNKNOWN' -or [string]$reference.readinessState -ne 'UNKNOWN') { throw 'Packaged REFERENCE intake did not preserve UNKNOWN availability/readiness.' }
 
         # Exercise the browser file-picker boundary. The bootstrap accepts the
         # raw stream only from the exact local UI origin, stores it under an
@@ -258,6 +271,15 @@ try {
         }
         if (-not $stagePayload.ok -or [string]$stagePayload.result.handle -notmatch '^[0-9a-fA-F]{32}$') { throw 'Browser staging did not return a valid opaque handle.' }
         if ([int64]$stagePayload.result.byteSize -ne (Get-Item -LiteralPath $stagedSource).Length) { throw 'Browser staging returned an incorrect byte size.' }
+        $leasePath = Join-Path (Join-Path $intakeRoot ([string]$stagePayload.result.handle)) 'consume.lock'
+        $heldLease = [IO.File]::Open($leasePath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $busyStageStatus = 0
+        try {
+            Invoke-RestMethod -Uri $assetUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-stage-busy'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ source_handle = [string]$stagePayload.result.handle; asset_type = 'DOCUMENT' } | ConvertTo-Json) -TimeoutSec 5 | Out-Null
+        }
+        catch { if ($null -ne $_.Exception.Response) { $busyStageStatus = [int]$_.Exception.Response.StatusCode } }
+        finally { $heldLease.Dispose() }
+        if ($busyStageStatus -ne 409) { throw "A leased staging handle was not rejected with HTTP 409 (actual: $busyStageStatus)." }
         $invalidHandleStatus = 0
         try {
             Invoke-RestMethod -Uri $assetUri -Method Post -Headers @{ Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ source_handle = 'not-a-valid-handle' } | ConvertTo-Json) -TimeoutSec 5 | Out-Null

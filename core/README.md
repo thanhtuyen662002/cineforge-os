@@ -11,8 +11,9 @@ The slice owns project truth in SQLite and provides:
 - local studio/actor bootstrap;
 - project create, metadata update, pause, archive, trash and restore;
 - task and shot records plus append-only project/task/shot notes;
-- local asset intake with SHA-256 verification, content-addressed object
-  storage, immutable revisions and redacted provenance-safe locations;
+- local asset intake with SHA-256 verification, durable `staging_objects`
+  lifecycle, content-addressed object storage, immutable revisions and
+  redacted provenance-safe locations;
 - optimistic `row_version` checks and deterministic idempotency keys;
 - append-only `commands`, `domain_events`, and `audit_records` ledgers;
 - query projections for home, project workspace, health, activity, search,
@@ -90,6 +91,8 @@ The desktop-facing routes are:
 | POST | `/v1/projects/{id}/assets` | Hash and register a local file (copy by default) |
 | GET | `/v1/assets` | List assets across the studio |
 | POST | `/v1/assets` | Hash and register a studio-wide local file |
+| GET | `/v1/storage/staging` | Inspect durable staging evidence (paths are redacted) |
+| POST | `/v1/storage/staging/reconcile` | Reconcile one staging row or bounded pending rows |
 | GET | `/v1/imports/{id}` | Read an import session and its item state |
 | GET | `/v1/decisions` | List canonical open decision requests (state/project filters supported) |
 | GET | `/v1/decisions/{id}` | Read one decision request with immutable choices and evidence |
@@ -104,13 +107,16 @@ envelope. The HTTP adapter binds to loopback only. Pass `--token` (or set
 
 The database path is user data, not an installer-owned file. Imported bytes
 remain outside SQLite in a content-addressed `asset-store/objects/...` tree by
-default. `ImportAsset` hashes the source through a file descriptor, rejects
-symlinks/directories, verifies an optional caller hash, atomically stages the
-copy, and then registers the object, immutable asset revision, provenance
-record, location and import session in one Core command. The `REFERENCE` mode
-records an external file location without copying it; its path is redacted in
-public projections and the revision remains `UNREVIEWED` with security/decode
-warnings until later scanners provide evidence.
+default. `ImportAsset` first reserves a durable private staging row, hashes and
+copies through one stable file handle, rejects symlink/reparse and hardlink
+aliases, verifies an optional caller hash, and rechecks staged identity/content
+before a race-safe CAS copy registers the immutable object, revision,
+provenance, location and import session. A startup or explicit reconciliation
+never adopts an ambiguous temp file: missing bytes become `ORPHANED`, changed
+or reparse bytes become `QUARANTINED`. The `REFERENCE` mode records an external
+file location and cryptographic content hash without copying it; its path is
+redacted, its location is `UNVERIFIED`, and public availability/readiness stay
+`UNKNOWN` until a verifier records current source evidence.
 
 Canonical JSON clients can call:
 

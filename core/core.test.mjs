@@ -434,7 +434,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 4);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 5);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -536,6 +536,70 @@ test('reference intake keeps an external location explicit without copying or ex
   assert.equal(details.ok, true);
   assert.equal(details.result.session.source_root, 'file://[redacted]');
   assert.equal(details.result.items[0].source_path_or_uri, 'file://[redacted]');
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('staging lifecycle is durable, race-safe and startup-reconciled without adopting unknown bytes', () => {
+  const { dbPath, directory } = tempDb();
+  const store = path.join(directory, 'asset-store');
+  const sourcePath = path.join(directory, 'staged.txt');
+  fs.writeFileSync(sourcePath, 'durable staged bytes', 'utf8');
+  const core = new CoreService({ dbPath, assetStorePath: store });
+  const first = execute(core, 'ImportAsset', { source_path: sourcePath, asset_type: 'DOCUMENT' }, {}, 'stage-first');
+  assert.equal(first.ok, true);
+  const firstStage = core.db.prepare('SELECT * FROM staging_objects WHERE command_id = ?').get(first.result.command_id);
+  assert.equal(firstStage.state, 'REGISTERED');
+  assert.equal(firstStage.sha256, first.result.asset.latest_revision.storage_object.content_hash);
+  assert.equal(fs.existsSync(firstStage.temp_path), false);
+  const visible = core.handle(request('query.storage.staging_orphans', { state: 'REGISTERED' }, 'stage-list'));
+  assert.equal(visible.ok, true);
+  assert.equal(visible.result.items[0].state, 'REGISTERED');
+  assert.equal(Object.hasOwn(visible.result.items[0], 'temp_path'), false);
+
+  const second = execute(core, 'ImportAsset', { source_path: sourcePath, asset_type: 'DOCUMENT' }, {}, 'stage-second');
+  assert.equal(second.ok, true);
+  assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM storage_objects').get().count, 1);
+  assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM storage_object_locations').get().count, 1);
+
+  const pending = core._reserveImportStaging({ source_path: sourcePath }, 'manual-reconcile-stage');
+  const pendingRow = core.db.prepare('SELECT * FROM staging_objects WHERE id = ?').get(pending.id);
+  assert.equal(pendingRow.state, 'COMPLETE');
+  fs.rmSync(pendingRow.temp_path, { force: true });
+  core.close();
+
+  const reopened = new CoreService({ dbPath, assetStorePath: store });
+  const reconciled = reopened.db.prepare('SELECT state FROM staging_objects WHERE id = ?').get(pending.id);
+  assert.equal(reconciled.state, 'ORPHANED');
+  const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
+  assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 5);
+  reopened.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('intake rejects hardlink aliases and cannot rebind a staged handle to another path', () => {
+  const { dbPath, directory } = tempDb();
+  const store = path.join(directory, 'asset-store');
+  const sourcePath = path.join(directory, 'source.txt');
+  const aliasPath = path.join(directory, 'alias.txt');
+  const otherPath = path.join(directory, 'other.txt');
+  fs.writeFileSync(sourcePath, 'identity protected', 'utf8');
+  fs.writeFileSync(otherPath, 'different source', 'utf8');
+  let hardlinkCreated = true;
+  try { fs.linkSync(sourcePath, aliasPath); } catch { hardlinkCreated = false; }
+  const core = new CoreService({ dbPath, assetStorePath: store });
+  if (hardlinkCreated) {
+    const rejected = execute(core, 'ImportAsset', { source_path: sourcePath }, {}, 'hardlink-reject');
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.error.code, 'SOURCE_HARDLINK_REJECTED');
+    fs.rmSync(aliasPath, { force: true });
+  }
+  const staged = core._reserveImportStaging({ source_path: sourcePath }, 'source-binding-check');
+  assert.throws(
+    () => core._importAsset({ __staging_id: staged.id, source_path: otherPath, storage_mode: 'COPY' }),
+    (error) => error?.code === 'STAGING_SOURCE_MISMATCH',
+  );
   core.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });

@@ -91,6 +91,58 @@ test('HTTP presentation adapter exposes dashboard, project and production-item f
   }
 });
 
+test('HTTP intake exposes durable staging evidence and keeps REFERENCE availability UNKNOWN', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-staging-'));
+  const core = new CoreService({ dbPath: path.join(directory, 'cineforge.sqlite'), assetStorePath: path.join(directory, 'asset-store') });
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, {
+      ...options,
+      headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+    });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const sourcePath = path.join(directory, 'staged-http.txt');
+    fs.writeFileSync(sourcePath, 'http durable staging', 'utf8');
+    const copied = await jsonRequest('/v1/assets', {
+      method: 'POST', headers: { 'idempotency-key': 'http-staging-copy' },
+      body: JSON.stringify({ source_path: sourcePath, asset_type: 'DOCUMENT', storage_mode: 'COPY' }),
+    });
+    assert.equal(copied.response.status, 200);
+    assert.equal(copied.payload.readinessState, 'UNKNOWN');
+    const listed = await jsonRequest('/v1/storage/staging?state=REGISTERED');
+    assert.equal(listed.response.status, 200);
+    assert.equal(listed.payload.ok, true);
+    assert.equal(listed.payload.result.items.length, 1);
+    const staging = listed.payload.result.items[0];
+    assert.equal(staging.state, 'REGISTERED');
+    assert.equal(Object.hasOwn(staging, 'temp_path'), false);
+    const reconciled = await jsonRequest('/v1/storage/staging/reconcile', {
+      method: 'POST', headers: { 'idempotency-key': 'http-staging-reconcile' },
+      body: JSON.stringify({ staging_id: staging.id }),
+    });
+    assert.equal(reconciled.response.status, 200);
+    assert.equal(reconciled.payload.ok, true);
+    assert.equal(reconciled.payload.result.staging.checked_count, 1);
+
+    const referenced = await jsonRequest('/v1/assets', {
+      method: 'POST', headers: { 'idempotency-key': 'http-staging-reference' },
+      body: JSON.stringify({ source_path: sourcePath, asset_type: 'DOCUMENT', storage_mode: 'REFERENCE' }),
+    });
+    assert.equal(referenced.response.status, 200);
+    assert.equal(referenced.payload.availability, 'UNKNOWN');
+    assert.equal(referenced.payload.readinessState, 'UNKNOWN');
+    assert.equal(referenced.payload.latestRevision.availability_state, 'UNKNOWN');
+    assert.equal(referenced.payload.latestRevision.availability_evidence_state, 'UNKNOWN');
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('HTTP task, shot and note routes preserve scope, optimistic concurrency and state machines', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-crud-'));
   const dbPath = path.join(directory, 'cineforge.sqlite');

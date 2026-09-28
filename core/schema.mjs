@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -171,6 +171,39 @@ export function initializeDatabase(db) {
       UNIQUE(hash_algorithm, content_hash)
     );
 
+    /*
+     * Durable ingest staging.  Bytes remain outside canonical asset identity
+     * until the REGISTERED transition is committed.  Identity/digest fields
+     * are immutable evidence; state/current_size are lifecycle fields.
+     */
+    CREATE TABLE IF NOT EXISTS staging_objects (
+      id TEXT PRIMARY KEY,
+      command_id TEXT,
+      job_attempt_id TEXT,
+      import_item_id TEXT,
+      temp_path TEXT NOT NULL,
+      expected_size INTEGER CHECK (expected_size IS NULL OR expected_size >= 0),
+      current_size INTEGER NOT NULL DEFAULT 0 CHECK (current_size >= 0),
+      hash_algorithm TEXT CHECK (hash_algorithm IS NULL OR hash_algorithm IN ('SHA-256')),
+      sha256 TEXT CHECK (sha256 IS NULL OR length(sha256) = 64),
+      source_path_fingerprint TEXT,
+      source_file_identity_json TEXT,
+      os_file_identity_json TEXT,
+      reparse_state TEXT NOT NULL DEFAULT 'UNKNOWN'
+        CHECK (reparse_state IN ('UNKNOWN', 'NOT_REPARSE', 'REPARSE_REJECTED')),
+      finalization_identity_json TEXT,
+      state TEXT NOT NULL DEFAULT 'WRITING'
+        CHECK (state IN ('WRITING', 'COMPLETE', 'VERIFIED', 'REGISTERED', 'ORPHANED', 'QUARANTINED', 'FAILED')),
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      UNIQUE(command_id)
+    );
+    CREATE INDEX IF NOT EXISTS staging_objects_state_idx
+      ON staging_objects(state, updated_at_utc_us DESC);
+    CREATE INDEX IF NOT EXISTS staging_objects_import_idx
+      ON staging_objects(import_item_id, created_at_utc_us DESC);
+
     CREATE TABLE IF NOT EXISTS storage_object_locations (
       id TEXT PRIMARY KEY,
       storage_object_id TEXT NOT NULL REFERENCES storage_objects(id),
@@ -221,6 +254,8 @@ export function initializeDatabase(db) {
         CHECK (review_state IN ('UNREVIEWED', 'CANDIDATE', 'APPROVED', 'REJECTED')),
       rebuildability TEXT NOT NULL DEFAULT 'ORIGINAL'
         CHECK (rebuildability IN ('ORIGINAL', 'CANONICAL', 'REBUILDABLE', 'EPHEMERAL')),
+      availability_evidence_state TEXT NOT NULL DEFAULT 'UNKNOWN'
+        CHECK (availability_evidence_state IN ('UNKNOWN', 'VERIFIED')),
       created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
       created_at_utc_us INTEGER NOT NULL,
       UNIQUE(asset_id, revision_number)
@@ -281,6 +316,26 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS storage_objects_no_delete
       BEFORE DELETE ON storage_objects
       BEGIN SELECT RAISE(ABORT, 'storage_objects is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS staging_objects_no_delete
+      BEFORE DELETE ON staging_objects
+      BEGIN SELECT RAISE(ABORT, 'staging_objects are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS staging_objects_identity_no_update
+      BEFORE UPDATE ON staging_objects
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.job_attempt_id IS NOT OLD.job_attempt_id
+        OR (OLD.import_item_id IS NOT NULL AND NEW.import_item_id IS NOT OLD.import_item_id)
+        OR NEW.temp_path IS NOT OLD.temp_path
+        OR NEW.expected_size IS NOT OLD.expected_size
+        OR NEW.hash_algorithm IS NOT OLD.hash_algorithm
+        OR (OLD.sha256 IS NOT NULL AND NEW.sha256 IS NOT OLD.sha256)
+        OR NEW.source_path_fingerprint IS NOT OLD.source_path_fingerprint
+        OR NEW.source_file_identity_json IS NOT OLD.source_file_identity_json
+        OR (OLD.os_file_identity_json IS NOT NULL AND NEW.os_file_identity_json IS NOT OLD.os_file_identity_json)
+        OR NEW.reparse_state IS NOT OLD.reparse_state
+        OR (OLD.finalization_identity_json IS NOT NULL AND NEW.finalization_identity_json IS NOT OLD.finalization_identity_json)
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'staging object identity is immutable'); END;
     CREATE TRIGGER IF NOT EXISTS asset_revisions_no_update
       BEFORE UPDATE ON asset_revisions
       BEGIN SELECT RAISE(ABORT, 'asset_revisions is append-only'); END;
@@ -427,7 +482,55 @@ export function initializeDatabase(db) {
     }
   }
 
-  // Keep a durable migration ledger.  The v2/v4 tables above are idempotent so
+  // v5 records whether an asset's storage/availability evidence was actually
+  // verified by Core.  The original availability_state vocabulary predates
+  // external-reference UNKNOWN semantics, so the additive evidence column is
+  // the migration-safe source of truth and public projections derive UNKNOWN
+  // for unmaterialized references without rewriting the legacy CHECK.
+  const revisionColumns = new Set(db.prepare('PRAGMA table_info(asset_revisions)').all().map((row) => String(row.name)));
+  if (!revisionColumns.has('availability_evidence_state')) {
+    db.exec(`ALTER TABLE asset_revisions ADD COLUMN availability_evidence_state TEXT NOT NULL DEFAULT 'UNKNOWN'
+      CHECK (availability_evidence_state IN ('UNKNOWN', 'VERIFIED'))`);
+  }
+
+  // A developer build may have created an early staging table before v5 was
+  // formalized.  Add missing columns idempotently so an interrupted upgrade
+  // remains resumable instead of silently dropping staged evidence.
+  const stagingColumns = new Set(db.prepare('PRAGMA table_info(staging_objects)').all().map((row) => String(row.name)));
+  const stagingAdditions = [
+    ['command_id', 'TEXT'], ['job_attempt_id', 'TEXT'], ['import_item_id', 'TEXT'],
+    ['expected_size', 'INTEGER'], ['current_size', 'INTEGER NOT NULL DEFAULT 0'],
+    ['hash_algorithm', 'TEXT'], ['sha256', 'TEXT'], ['source_path_fingerprint', 'TEXT'],
+    ['source_file_identity_json', 'TEXT'], ['os_file_identity_json', 'TEXT'],
+    ['reparse_state', "TEXT NOT NULL DEFAULT 'UNKNOWN'"], ['finalization_identity_json', 'TEXT'],
+    ['row_version', 'INTEGER NOT NULL DEFAULT 1'], ['updated_at_utc_us', 'INTEGER NOT NULL DEFAULT 0'],
+  ];
+  for (const [column, definition] of stagingAdditions) {
+    if (!stagingColumns.has(column)) db.exec(`ALTER TABLE staging_objects ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS staging_objects_command_uq ON staging_objects(command_id) WHERE command_id IS NOT NULL');
+  db.exec('CREATE INDEX IF NOT EXISTS staging_objects_state_idx ON staging_objects(state, updated_at_utc_us DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS staging_objects_import_idx ON staging_objects(import_item_id, created_at_utc_us DESC)');
+  db.exec(`DROP TRIGGER IF EXISTS staging_objects_identity_no_update;
+    CREATE TRIGGER staging_objects_identity_no_update
+      BEFORE UPDATE ON staging_objects
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.job_attempt_id IS NOT OLD.job_attempt_id
+        OR (OLD.import_item_id IS NOT NULL AND NEW.import_item_id IS NOT OLD.import_item_id)
+        OR NEW.temp_path IS NOT OLD.temp_path
+        OR NEW.expected_size IS NOT OLD.expected_size
+        OR NEW.hash_algorithm IS NOT OLD.hash_algorithm
+        OR (OLD.sha256 IS NOT NULL AND NEW.sha256 IS NOT OLD.sha256)
+        OR NEW.source_path_fingerprint IS NOT OLD.source_path_fingerprint
+        OR NEW.source_file_identity_json IS NOT OLD.source_file_identity_json
+        OR (OLD.os_file_identity_json IS NOT NULL AND NEW.os_file_identity_json IS NOT OLD.os_file_identity_json)
+        OR NEW.reparse_state IS NOT OLD.reparse_state
+        OR (OLD.finalization_identity_json IS NOT NULL AND NEW.finalization_identity_json IS NOT OLD.finalization_identity_json)
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'staging object identity is immutable'); END`);
+
+  // Keep a durable migration ledger.  The v2-v5 tables/columns above are idempotent so
   // an interrupted upgrade can be resumed safely; recording every historical
   // version for a fresh installation preserves the baseline.
   const migrationVersions = new Set(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => Number(row.version)));
