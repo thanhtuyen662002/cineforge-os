@@ -6,8 +6,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'INVALID_STATE_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED'].includes(code)) return 400;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
@@ -217,6 +217,7 @@ function mapAsset(source) {
     importSessionId: readString(source?.import_session, 'id'),
     importItemId: readString(source?.import_item, 'id'),
     warnings: Array.isArray(source?.warnings) ? source.warnings : [],
+    rights: source?.rights ?? asset?.rights ?? null,
     latestRevision: revision,
   };
 }
@@ -337,9 +338,27 @@ export function createCoreHttpServer(core, options = {}) {
           include_trashed: url.searchParams.get('include_trashed') === 'true',
         });
         result = assets.ok ? mapAssetList(assets.result) : assets;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'assets' && parts[2] && parts[3] === 'rights' && parts.length === 4) {
+        const rights = query(core, request, 'query.asset.rights', {
+          asset_id: parts[2], right_type: url.searchParams.get('right_type') ?? undefined,
+          consent_type: url.searchParams.get('consent_type') ?? undefined,
+          territory: url.searchParams.get('territory') ?? undefined,
+          purpose: url.searchParams.get('purpose') ?? undefined,
+        });
+        result = rights;
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'assets' && parts.length === 2) {
         const created = command(core, request, 'ImportAsset', body, {}, commandKey(request, body));
         result = created.ok ? mapAsset(created.result) : created;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'rights' && parts[2] === 'evaluate' && parts.length === 3) {
+        result = query(core, request, 'query.rights.evaluate', {
+          rights_identity_id: url.searchParams.get('rights_identity_id') ?? url.searchParams.get('identity_id'),
+          right_type: url.searchParams.get('right_type') ?? undefined,
+          consent_type: url.searchParams.get('consent_type') ?? undefined,
+          territory: url.searchParams.get('territory') ?? undefined,
+          purpose: url.searchParams.get('purpose') ?? undefined,
+        });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'rights' && parts[2] && parts[3] === 'identity' && parts.length === 4) {
+        result = query(core, request, 'query.rights.identity', { rights_identity_id: parts[2] });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'storage' && parts[2] === 'staging' && parts.length === 3) {
         result = query(core, request, 'query.storage.staging_orphans', {
           state: url.searchParams.get('state') ?? undefined,

@@ -74,6 +74,23 @@ export interface NoteSummary {
   createdAt?: string
 }
 
+export type RightsState = 'ALLOWED' | 'RESTRICTED' | 'UNKNOWN' | 'REVOKED' | 'EXPIRED'
+
+export interface RightsSummary {
+  status: RightsState
+  state?: RightsState
+  eligible: boolean
+  rightsIdentityId?: string
+  rightType?: string
+  consentType?: string | null
+  rightStatus?: RightsState
+  consentStatus?: RightsState
+  blockers: Array<Record<string, unknown>>
+  evidence: Array<Record<string, unknown>>
+  evaluatedAt?: string
+  identity?: Record<string, unknown> | null
+}
+
 export interface DecisionRequest {
   id: string
   projectId: string
@@ -135,6 +152,7 @@ export interface AssetSummary {
   importSessionId?: string
   importItemId?: string
   warnings: string[]
+  rights?: RightsSummary
   latestRevision?: unknown
 }
 

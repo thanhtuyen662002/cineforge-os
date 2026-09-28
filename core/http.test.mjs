@@ -143,6 +143,69 @@ test('HTTP intake exposes durable staging evidence and keeps REFERENCE availabil
   }
 });
 
+test('HTTP rights routes expose UNKNOWN, ALLOWED and REVOKED states with auditable commands', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-rights-'));
+  const core = new CoreService({ dbPath: path.join(directory, 'cineforge.sqlite'), assetStorePath: path.join(directory, 'asset-store') });
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, {
+      ...options,
+      headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+    });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const sourcePath = path.join(directory, 'rights-http.txt');
+    fs.writeFileSync(sourcePath, 'rights route bytes', 'utf8');
+    const imported = await jsonRequest('/v1/assets', {
+      method: 'POST', headers: { 'idempotency-key': 'http-rights-import' },
+      body: JSON.stringify({ source_path: sourcePath, storage_mode: 'REFERENCE', asset_type: 'DOCUMENT' }),
+    });
+    assert.equal(imported.response.status, 200);
+    assert.equal(imported.payload.rights.status, 'UNKNOWN');
+    const assetId = imported.payload.id;
+    const identityId = imported.payload.rights.rights_identity_id;
+    assert.ok(identityId);
+
+    const unknown = await jsonRequest(`/v1/assets/${assetId}/rights?territory=VN`);
+    assert.equal(unknown.response.status, 200);
+    assert.equal(unknown.payload.result.status, 'UNKNOWN');
+    const record = await jsonRequest('/v1/commands', {
+      method: 'POST', headers: { 'idempotency-key': 'http-rights-record' },
+      body: JSON.stringify({ command_type: 'CreateRightsRecord', payload: {
+        rights_identity_id: identityId, right_type: 'SOURCE_USE', status: 'ALLOWED', territory: ['VN'],
+      } }),
+    });
+    assert.equal(record.response.status, 200);
+    const consent = await jsonRequest('/v1/commands', {
+      method: 'POST', headers: { 'idempotency-key': 'http-rights-consent' },
+      body: JSON.stringify({ command_type: 'RecordConsent', payload: {
+        rights_identity_id: identityId, consent_type: 'SOURCE_USE', granted_by: 'rights-holder',
+      } }),
+    });
+    assert.equal(consent.response.status, 200);
+    const allowed = await jsonRequest(`/v1/assets/${assetId}/rights?territory=VN`);
+    assert.equal(allowed.payload.result.status, 'ALLOWED');
+    const evaluated = await jsonRequest(`/v1/rights/evaluate?rights_identity_id=${identityId}&territory=VN`);
+    assert.equal(evaluated.response.status, 200);
+    assert.equal(evaluated.payload.result.eligible, true);
+    const revoked = await jsonRequest('/v1/commands', {
+      method: 'POST', headers: { 'idempotency-key': 'http-rights-revoke' },
+      body: JSON.stringify({ command_type: 'RevokeRights', payload: {
+        rights_identity_id: identityId, right_type: 'SOURCE_USE', reason: 'Withdrawn by holder',
+      } }),
+    });
+    assert.equal(revoked.response.status, 200);
+    const after = await jsonRequest(`/v1/assets/${assetId}/rights?territory=VN`);
+    assert.equal(after.payload.result.status, 'REVOKED');
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('HTTP task, shot and note routes preserve scope, optimistic concurrency and state machines', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-crud-'));
   const dbPath = path.join(directory, 'cineforge.sqlite');

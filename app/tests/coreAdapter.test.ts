@@ -159,10 +159,10 @@ describe('local Core adapter', () => {
         return new Response(JSON.stringify({ ok: true, result: { handle: 'b'.repeat(32), name: 'Cảnh 🎬.mp4', mimeType: 'video/mp4', byteSize: 42 } }), { status: 200, headers: { 'content-type': 'application/json' } })
       }
       if (init?.method === 'POST') {
-        return new Response(JSON.stringify({ id: 'asset-1', projectId: 'project-1', name: 'shot.png', assetType: 'IMAGE', availability: 'AVAILABLE', revisionId: 'revision-1', contentHash: 'a'.repeat(64), byteSize: 42, storageUri: 'object://sha-256/a/aaa', warnings: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+        return new Response(JSON.stringify({ id: 'asset-1', projectId: 'project-1', name: 'shot.png', assetType: 'IMAGE', availability: 'AVAILABLE', revisionId: 'revision-1', contentHash: 'a'.repeat(64), byteSize: 42, storageUri: 'object://sha-256/a/aaa', rights: { status: 'UNKNOWN', eligible: false, rights_identity_id: 'rights-1', blockers: [{ code: 'CONSENT_MISSING' }], evidence: [] }, warnings: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
       }
       expect(url).toContain('/v1/assets')
-      return new Response(JSON.stringify({ assets: [{ id: 'asset-1', projectId: 'project-1', name: 'shot.png', assetType: 'IMAGE', availability: 'AVAILABLE', revisionId: 'revision-1', contentHash: 'a'.repeat(64), byteSize: 42, storageUri: 'object://sha-256/a/aaa', warnings: [] }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ assets: [{ id: 'asset-1', projectId: 'project-1', name: 'shot.png', assetType: 'IMAGE', availability: 'AVAILABLE', revisionId: 'revision-1', contentHash: 'a'.repeat(64), byteSize: 42, storageUri: 'object://sha-256/a/aaa', rights: { status: 'UNKNOWN', eligible: false, rights_identity_id: 'rights-1', blockers: [{ code: 'CONSENT_MISSING' }], evidence: [] }, warnings: [] }] }), { status: 200, headers: { 'content-type': 'application/json' } })
     })
     vi.stubGlobal('fetch', fetchMock)
     try {
@@ -170,6 +170,8 @@ describe('local Core adapter', () => {
       const assets = await client.getAssets?.()
       expect(assets?.[0].contentHash).toBe('a'.repeat(64))
       expect(assets?.[0].byteSize).toBe(42)
+      expect(assets?.[0].rights?.status).toBe('UNKNOWN')
+      expect(assets?.[0].rights?.rightsIdentityId).toBe('rights-1')
       const staged = await client.stageAsset?.(new File(['bytes'], 'Cảnh 🎬.mp4', { type: 'video/mp4' }))
       expect(staged?.handle).toBe('b'.repeat(32))
       expect(staged?.byteSize).toBe(42)

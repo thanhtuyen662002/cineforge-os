@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -955,6 +955,23 @@ function mapAssetRecord(value: unknown): AssetSummary {
   const storage = asRecord(revision.storage_object)
   const location = Array.isArray(revision.locations) ? asRecord(revision.locations[0]) : {}
   const warnings = Array.isArray(source.warnings) ? source.warnings.filter((item): item is string => typeof item === 'string') : []
+  const rightsSource = asRecord(asset.rights ?? source.rights)
+  const rightsStatus = String(rightsSource.status ?? rightsSource.state ?? 'UNKNOWN').toUpperCase()
+  const rightsStates = ['ALLOWED', 'RESTRICTED', 'UNKNOWN', 'REVOKED', 'EXPIRED']
+  const rights: RightsSummary = {
+    status: (rightsStates.includes(rightsStatus) ? rightsStatus : 'UNKNOWN') as RightsSummary['status'],
+    state: (rightsStates.includes(rightsStatus) ? rightsStatus : 'UNKNOWN') as RightsSummary['state'],
+    eligible: Boolean(rightsSource.eligible),
+    rightsIdentityId: stringValue(rightsSource.rights_identity_id ?? rightsSource.rightsIdentityId ?? rightsSource.identity_id ?? asRecord(rightsSource.identity).id),
+    rightType: stringValue(rightsSource.right_type ?? rightsSource.rightType),
+    consentType: stringValue(rightsSource.consent_type ?? rightsSource.consentType),
+    rightStatus: rightsStates.includes(String(rightsSource.right_status ?? '').toUpperCase()) ? String(rightsSource.right_status).toUpperCase() as RightsSummary['rightStatus'] : undefined,
+    consentStatus: rightsStates.includes(String(rightsSource.consent_status ?? '').toUpperCase()) ? String(rightsSource.consent_status).toUpperCase() as RightsSummary['consentStatus'] : undefined,
+    blockers: Array.isArray(rightsSource.blockers) ? rightsSource.blockers.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [],
+    evidence: Array.isArray(rightsSource.evidence) ? rightsSource.evidence.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [],
+    evaluatedAt: stringValue(rightsSource.evaluated_at ?? rightsSource.evaluatedAt),
+    identity: rightsSource.identity && typeof rightsSource.identity === 'object' && !Array.isArray(rightsSource.identity) ? rightsSource.identity as Record<string, unknown> : null,
+  }
   return {
     id: stringValue(asset.id) ?? `asset-${Math.random().toString(36).slice(2)}`,
     projectId: stringValue(asset.project_id ?? asset.projectId),
@@ -974,6 +991,7 @@ function mapAssetRecord(value: unknown): AssetSummary {
     importSessionId: stringValue(asset.importSessionId ?? asRecord(source.import_session).id ?? source.importSessionId),
     importItemId: stringValue(asset.importItemId ?? asRecord(source.import_item).id ?? source.importItemId),
     warnings,
+    rights,
     latestRevision: revision,
   }
 }

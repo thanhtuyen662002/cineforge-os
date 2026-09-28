@@ -14,6 +14,10 @@ The slice owns project truth in SQLite and provides:
 - local asset intake with SHA-256 verification, durable `staging_objects`
   lifecycle, content-addressed object storage, immutable revisions and
   redacted provenance-safe locations;
+- append-only rights identities, rights evidence, consent records and
+  effective-time fail-closed evaluation; imported assets start with an
+  `UNKNOWN` rights projection until an allowed right and matching consent are
+  both recorded;
 - optimistic `row_version` checks and deterministic idempotency keys;
 - append-only `commands`, `domain_events`, and `audit_records` ledgers;
 - query projections for home, project workspace, health, activity, search,
@@ -91,6 +95,9 @@ The desktop-facing routes are:
 | POST | `/v1/projects/{id}/assets` | Hash and register a local file (copy by default) |
 | GET | `/v1/assets` | List assets across the studio |
 | POST | `/v1/assets` | Hash and register a studio-wide local file |
+| GET | `/v1/assets/{id}/rights` | Evaluate an asset's effective right/consent state |
+| GET | `/v1/rights/evaluate` | Evaluate a rights identity at a requested effective time |
+| GET | `/v1/rights/{id}/identity` | Read identity and append-only rights evidence |
 | GET | `/v1/storage/staging` | Inspect durable staging evidence (paths are redacted) |
 | POST | `/v1/storage/staging/reconcile` | Reconcile one staging row or bounded pending rows |
 | GET | `/v1/imports/{id}` | Read an import session and its item state |
@@ -141,6 +148,15 @@ Canonical JSON clients can call:
 An import succeeds only after the bytes have been read and SHA-256 verified;
 security scanning and media decode remain explicit `UNKNOWN` evidence rather
 than being represented as a false pass.
+
+Rights and consent changes use the advanced `POST /v1/commands` boundary with
+`CreateRightsIdentity`, `CreateRightsRecord`, `RecordConsent`, and
+`RevokeRights`. Each command is idempotent and auditable. Effective evaluation
+returns `ALLOWED`, `RESTRICTED`, `UNKNOWN`, `EXPIRED`, or `REVOKED` plus
+structured blockers; only `ALLOWED` is eligible. Provider egress, generation,
+training, publish, legal parsing, multi-user authority, and signed provenance
+remain separate gates until their own bounded implementation slices are
+completed.
 
 Task and shot updates require an optimistic concurrency value. Send either
 `row_version`/`expected_version` in the JSON body or an `expected_versions`

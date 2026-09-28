@@ -94,6 +94,31 @@ Legal/creative identity remains in `assets` / `asset_revisions`.
 
 Same bytes may be referenced by multiple assets with different rights.
 
+## 1.6.1 Rights and consent identity baseline (schema v6)
+
+Rights are attached to a legal/consent identity, never inferred from a byte
+hash, filename, provider identifier, or search index.  Imported assets receive
+an `assets.rights_identity_id` that points to an immutable `rights_identities`
+row (`subject_type=ASSET`, `subject_id=<asset id>`).  The identity may be
+project-scoped or studio-wide and is deliberately separate from the asset
+revision graph.
+
+`rights_records` append immutable evidence for a typed right.  Each record has
+an explicit status (`ALLOWED`, `RESTRICTED`, `UNKNOWN`, `REVOKED`, or
+`EXPIRED`), optional effective interval, territory/purpose constraints,
+capability flags, and a redacted evidence summary.  `consents` are separate
+append-only grants with their own effective interval and optional evidence
+revision.  `revocations` are new facts with an effective timestamp and command
+reference; no historical rights or consent row is edited or deleted.
+
+Evaluation is effective-time based and fail-closed.  The requested right and
+consent type are evaluated independently, territory/purpose constraints can
+reduce an otherwise allowed record to `RESTRICTED`, and any matching
+revocation wins.  The public result includes `eligible`, blockers, and opaque
+evidence identifiers.  `UNKNOWN` is never treated as permission.  Generation,
+training, or release gates must call this evaluation with the concrete purpose
+and territory before dispatch.
+
 ## 1.7 SQLite baseline
 Writer connection:
 - foreign_keys = ON

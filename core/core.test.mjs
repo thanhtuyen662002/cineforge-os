@@ -434,7 +434,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 5);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 6);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -573,7 +573,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 5);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 6);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -600,6 +600,90 @@ test('intake rejects hardlink aliases and cannot rebind a staged handle to anoth
     () => core._importAsset({ __staging_id: staged.id, source_path: otherPath, storage_mode: 'COPY' }),
     (error) => error?.code === 'STAGING_SOURCE_MISMATCH',
   );
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('rights identity, consent and effective-time revocation fail closed and remain append-only', () => {
+  const { dbPath, directory } = tempDb();
+  const sourcePath = path.join(directory, 'rights.txt');
+  fs.writeFileSync(sourcePath, 'rights evidence', 'utf8');
+  const core = new CoreService({ dbPath, assetStorePath: path.join(directory, 'asset-store') });
+  const imported = execute(core, 'ImportAsset', { source_path: sourcePath, storage_mode: 'REFERENCE', asset_type: 'DOCUMENT' }, {}, 'rights-import');
+  assert.equal(imported.ok, true);
+  const asset = imported.result.asset;
+  assert.equal(asset.rights.status, 'UNKNOWN');
+  assert.ok(asset.rights.identity.id);
+  const identityId = asset.rights.identity.id;
+
+  const record = execute(core, 'CreateRightsRecord', {
+    rights_identity_id: identityId, right_type: 'SOURCE_USE', status: 'ALLOWED', territory: ['VN'],
+    purpose: { allowed: ['PRODUCTION'] }, evidence_summary: { source: 'test' },
+  }, {}, 'rights-record');
+  assert.equal(record.ok, true);
+  const withoutConsent = core.handle(request('query.asset.rights', { asset_id: asset.id, territory: 'VN' }, 'rights-unknown'));
+  assert.equal(withoutConsent.result.status, 'UNKNOWN');
+  assert.equal(withoutConsent.result.blockers.some((blocker) => blocker.code === 'CONSENT_MISSING'), true);
+
+  const consent = execute(core, 'RecordConsent', {
+    rights_identity_id: identityId, consent_type: 'SOURCE_USE', granted_by: 'rights-holder',
+    evidence_asset_revision_id: asset.latest_revision.id,
+  }, {}, 'rights-consent');
+  assert.equal(consent.ok, true);
+  const allowed = core.handle(request('query.asset.rights', { asset_id: asset.id, territory: 'VN' }, 'rights-allowed'));
+  assert.equal(allowed.result.status, 'ALLOWED');
+  assert.equal(allowed.result.eligible, true);
+  const restricted = core.handle(request('query.asset.rights', { asset_id: asset.id, territory: 'US' }, 'rights-restricted'));
+  assert.equal(restricted.result.status, 'RESTRICTED');
+  assert.equal(restricted.result.eligible, false);
+  assert.equal(restricted.result.blockers.some((blocker) => blocker.code === 'RIGHTS_TERRITORY_RESTRICTED'), true);
+  const details = core.handle(request('query.rights.identity', { rights_identity_id: identityId }, 'rights-details'));
+  assert.equal(details.result.records[0].evidence_summary_present, true);
+  assert.equal(JSON.stringify(details.result).includes('test'), false);
+
+  const now = Number(core.db.prepare('SELECT created_at_utc_us FROM rights_records WHERE id = ?').get(record.result.record.id).created_at_utc_us);
+  const revokeAt = now + 1_000_000;
+  const revoked = execute(core, 'RevokeRights', { rights_identity_id: identityId, right_type: 'SOURCE_USE', reason: 'Consent withdrawn', effective_at_utc_us: revokeAt }, {}, 'rights-revoke');
+  assert.equal(revoked.ok, true);
+  const before = core.handle(request('query.rights.evaluate', { rights_identity_id: identityId, territory: 'VN', at_utc_us: revokeAt - 1 }, 'rights-before'));
+  assert.equal(before.result.status, 'ALLOWED');
+  const after = core.handle(request('query.rights.evaluate', { rights_identity_id: identityId, territory: 'VN', at_utc_us: revokeAt }, 'rights-after'));
+  assert.equal(after.result.status, 'REVOKED');
+  const replay = execute(core, 'RevokeRights', { rights_identity_id: identityId, right_type: 'SOURCE_USE', reason: 'Consent withdrawn', effective_at_utc_us: revokeAt }, {}, 'rights-revoke');
+  assert.equal(replay.result.idempotent_replay, true);
+
+  const expiredIdentity = execute(core, 'CreateRightsIdentity', { subject_type: 'PERSON', subject_id: 'person-expired' }, {}, 'rights-expired-identity');
+  const expiredId = expiredIdentity.result.id;
+  const expiredAt = now - 2_000_000;
+  const expiredRecord = execute(core, 'CreateRightsRecord', {
+    rights_identity_id: expiredId, right_type: 'SOURCE_USE', status: 'ALLOWED', valid_from_utc_us: expiredAt - 1_000_000, valid_to_utc_us: expiredAt,
+  }, {}, 'rights-expired-record');
+  assert.equal(expiredRecord.ok, true);
+  const expiredConsent = execute(core, 'RecordConsent', {
+    rights_identity_id: expiredId, consent_type: 'SOURCE_USE', granted_by: 'rights-holder', valid_from_utc_us: expiredAt - 1_000_000, valid_to_utc_us: expiredAt,
+  }, {}, 'rights-expired-consent');
+  assert.equal(expiredConsent.ok, true);
+  const expired = core.handle(request('query.rights.evaluate', { rights_identity_id: expiredId }, 'rights-expired-eval'));
+  assert.equal(expired.result.status, 'EXPIRED');
+  assert.equal(expired.result.eligible, false);
+
+  const closureIdentity = execute(core, 'CreateRightsIdentity', { subject_type: 'PERSON', subject_id: 'person-closure' }, {}, 'rights-closure-identity');
+  const closureId = closureIdentity.result.id;
+  assert.equal(execute(core, 'CreateRightsRecord', { rights_identity_id: closureId, right_type: 'SOURCE_USE', status: 'ALLOWED' }, {}, 'rights-closure-allowed').ok, true);
+  assert.equal(execute(core, 'CreateRightsRecord', { rights_identity_id: closureId, right_type: 'SOURCE_USE', status: 'RESTRICTED' }, {}, 'rights-closure-restricted').ok, true);
+  assert.equal(execute(core, 'RecordConsent', { rights_identity_id: closureId, consent_type: 'SOURCE_USE', granted_by: 'rights-holder' }, {}, 'rights-closure-consent').ok, true);
+  const closure = core.handle(request('query.rights.evaluate', { rights_identity_id: closureId }, 'rights-closure-eval'));
+  assert.equal(closure.result.status, 'RESTRICTED');
+  assert.equal(closure.result.blockers.some((blocker) => blocker.code === 'RIGHTS_RECORD_RESTRICTED'), true);
+
+  const projectA = execute(core, 'CreateProject', { title: 'Rights scope A' }, {}, 'rights-scope-a');
+  const projectB = execute(core, 'CreateProject', { title: 'Rights scope B' }, {}, 'rights-scope-b');
+  const scopedIdentity = execute(core, 'CreateRightsIdentity', { project_id: projectA.result.id, subject_type: 'PERSON', subject_id: 'person-scoped' }, {}, 'rights-scoped-identity');
+  const scopeMismatch = execute(core, 'CreateRightsRecord', { project_id: projectB.result.id, rights_identity_id: scopedIdentity.result.id, right_type: 'SOURCE_USE', status: 'ALLOWED' }, {}, 'rights-scope-mismatch');
+  assert.equal(scopeMismatch.ok, false);
+  assert.equal(scopeMismatch.error.code, 'ENTITY_SCOPE_MISMATCH');
+  assert.throws(() => core.db.prepare('UPDATE rights_records SET status = ? WHERE id = ?').run('ALLOWED', record.result.record.id), /rights_records are append-only/);
+  assert.throws(() => core.db.prepare('DELETE FROM consents WHERE id = ?').run(consent.result.consent.id), /consents are append-only/);
   core.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });

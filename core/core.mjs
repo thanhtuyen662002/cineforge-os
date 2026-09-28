@@ -24,6 +24,12 @@ const DECISION_SCOPE_TYPES = new Set(['TASK', 'SHOT', 'SCENE', 'PROJECT', 'RELEA
 const DECISION_SEVERITIES = new Set(['LOW', 'NORMAL', 'HIGH', 'CRITICAL']);
 const ASSET_ORIGIN_TYPES = new Set(['IMPORTED', 'GENERATED', 'RECORDED', 'EXTERNAL_EDIT', 'HANDOFF_RETURN', 'SYSTEM']);
 const ASSET_STORAGE_MODES = new Set(['COPY', 'REFERENCE']);
+const RIGHTS_STATUSES = new Set(['ALLOWED', 'RESTRICTED', 'UNKNOWN', 'REVOKED', 'EXPIRED']);
+const RIGHTS_STATUS_RANK = Object.freeze({ ALLOWED: 0, RESTRICTED: 1, UNKNOWN: 2, EXPIRED: 3, REVOKED: 4 });
+const RIGHTS_SUBJECT_TYPES = /^[A-Z][A-Z0-9_.-]{0,63}$/;
+const RIGHTS_TYPE = /^[A-Z][A-Z0-9_.-]{0,63}$/;
+const DEFAULT_RIGHT_TYPE = 'SOURCE_USE';
+const DEFAULT_CONSENT_TYPE = 'SOURCE_USE';
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 const MAX_ASSET_METADATA_BYTES = 64 * 1024;
 const STAGING_STATES = new Set(['WRITING', 'COMPLETE', 'VERIFIED', 'REGISTERED', 'ORPHANED', 'QUARANTINED', 'FAILED']);
@@ -156,6 +162,38 @@ function arrayValue(value, field, fallback = []) {
     throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
   }
   return structuredValue(value, field, fallback, 'object');
+}
+
+function enumValue(value, field, pattern, fallback = null) {
+  if (value === undefined || value === null || value === '') {
+    if (fallback !== null) return fallback;
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.required_field', { field });
+  }
+  if (typeof value !== 'string') throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  const normalized = value.trim().toUpperCase();
+  if (!pattern.test(normalized)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+  return normalized;
+}
+
+function nullableBoolean(value, field) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  if (value === 0 || value === 1 || value === '0' || value === '1') return Number(value);
+  throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+}
+
+function rightStatus(value, fallback = 'UNKNOWN') {
+  const normalized = enumValue(value, 'status', RIGHTS_TYPE, fallback);
+  if (!RIGHTS_STATUSES.has(normalized)) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_rights_status', { status: normalized });
+  }
+  return normalized;
+}
+
+function normalizeStringArray(value, field, maxItems = 100, maxLength = 100) {
+  const array = arrayValue(value, field, []);
+  if (array.length > maxItems) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.field_too_large', { field, max_items: maxItems });
+  return array.map((item) => requiredString(item, field, maxLength).toUpperCase());
 }
 
 function utcUsValue(value, field) {
@@ -367,6 +405,74 @@ function publicAsset(row, revision, storage, provenance, locations = []) {
   return out;
 }
 
+function publicRightsIdentity(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  delete out.created_at_utc_us;
+  return out;
+}
+
+function publicRightsRecord(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  out.territory = parseJson(out.territory_json, []);
+  out.purpose = parseJson(out.purpose_json, {});
+  const evidenceSummary = parseJson(out.evidence_summary_json, {});
+  // Evidence details can contain contracts, private notes, or source paths.
+  // Public projections expose only presence, while the immutable row remains
+  // available to an authorized local forensic/review workflow.
+  out.evidence_summary_present = Boolean(evidenceSummary && typeof evidenceSummary === 'object' && Object.keys(evidenceSummary).length > 0);
+  for (const [source, target] of [
+    ['valid_from_utc_us', 'valid_from'], ['valid_to_utc_us', 'valid_to'], ['created_at_utc_us', 'created_at'],
+  ]) {
+    if (out[source] !== undefined && out[source] !== null) out[target] = rfc3339FromUs(out[source]);
+    delete out[source];
+  }
+  for (const field of ['commercial_allowed', 'derivative_allowed', 'training_allowed', 'cloning_allowed', 'attribution_required']) {
+    if (out[field] !== null && out[field] !== undefined) out[field] = Boolean(Number(out[field]));
+  }
+  delete out.territory_json;
+  delete out.purpose_json;
+  delete out.evidence_summary_json;
+  return out;
+}
+
+function publicConsent(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const [source, target] of [
+    ['valid_from_utc_us', 'valid_from'], ['valid_to_utc_us', 'valid_to'], ['created_at_utc_us', 'created_at'],
+  ]) {
+    if (out[source] !== undefined && out[source] !== null) out[target] = rfc3339FromUs(out[source]);
+    delete out[source];
+  }
+  return out;
+}
+
+function publicRevocation(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const [source, target] of [['effective_at_utc_us', 'effective_at'], ['created_at_utc_us', 'created_at']]) {
+    if (out[source] !== undefined && out[source] !== null) out[target] = rfc3339FromUs(out[source]);
+    delete out[source];
+  }
+  return out;
+}
+
+function publicRightsEvaluation(value) {
+  if (!value) return null;
+  const out = rowObject(value);
+  out.status = out.status ?? out.state ?? 'UNKNOWN';
+  out.state = out.status;
+  out.eligible = Boolean(out.eligible);
+  if (out.evaluated_at_utc_us !== undefined && out.evaluated_at_utc_us !== null) out.evaluated_at = rfc3339FromUs(out.evaluated_at_utc_us);
+  delete out.evaluated_at_utc_us;
+  out.blockers = Array.isArray(out.blockers) ? out.blockers : [];
+  out.evidence = Array.isArray(out.evidence) ? out.evidence : [];
+  return out;
+}
+
 function publicImportSession(row) {
   if (!row) return null;
   const out = rowObject(row);
@@ -533,6 +639,300 @@ export class CoreService {
     const row = this.db.prepare('SELECT * FROM assets WHERE id = ?').get(assetId);
     if (!row) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.asset_not_found', { asset_id: assetId });
     return row;
+  }
+
+  _rightsIdentity(identityId) {
+    const id = requiredString(identityId, 'rights_identity_id');
+    const row = this.db.prepare('SELECT * FROM rights_identities WHERE id = ?').get(id);
+    if (!row) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.rights_identity_not_found', { rights_identity_id: id });
+    return row;
+  }
+
+  _assertRightsProjectScope(payload, identity) {
+    const supplied = payload?.project_id ?? payload?.projectId;
+    if (supplied !== undefined && supplied !== null && supplied !== identity.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'RIGHTS_IDENTITY', entity_id: identity.id, project_id: supplied, actual_project_id: identity.project_id,
+      }, { needsUser: true });
+    }
+    if (supplied) this._project(supplied);
+  }
+
+  _rightsTerritoryMatches(value, requested) {
+    if (!requested) return true;
+    const territories = Array.isArray(value) ? value.map((item) => String(item).trim().toUpperCase()) : [];
+    if (territories.length === 0 || territories.includes('*') || territories.includes('WORLDWIDE')) return true;
+    return territories.includes(String(requested).trim().toUpperCase());
+  }
+
+  _rightsPurposeMatches(value, requested) {
+    if (!requested) return true;
+    const wanted = String(requested).trim().toUpperCase();
+    if (Array.isArray(value)) return value.map((item) => String(item).trim().toUpperCase()).includes(wanted);
+    if (!value || typeof value !== 'object') return true;
+    const list = value.allowed ?? value.allowed_purposes ?? value.purposes ?? value.types;
+    if (Array.isArray(list)) return list.map((item) => String(item).trim().toUpperCase()).includes(wanted);
+    if (Object.prototype.hasOwnProperty.call(value, wanted)) return Boolean(value[wanted]);
+    if (Object.prototype.hasOwnProperty.call(value, requested)) return Boolean(value[requested]);
+    return true;
+  }
+
+  _rightsActive(row, atUtcUs) {
+    return (row.valid_from_utc_us === null || row.valid_from_utc_us === undefined || Number(row.valid_from_utc_us) <= atUtcUs)
+      && (row.valid_to_utc_us === null || row.valid_to_utc_us === undefined || Number(row.valid_to_utc_us) > atUtcUs);
+  }
+
+  _rightsHistorical(row, atUtcUs) {
+    return (row.valid_from_utc_us === null || row.valid_from_utc_us === undefined || Number(row.valid_from_utc_us) <= atUtcUs)
+      && row.valid_to_utc_us !== null && row.valid_to_utc_us !== undefined && Number(row.valid_to_utc_us) <= atUtcUs;
+  }
+
+  _evaluateRights(identityId, options = {}) {
+    const identity = this._rightsIdentity(identityId);
+    const atUtcUs = utcUsValue(options.at_utc_us ?? options.atUtcUs ?? options.at, 'at_utc_us') ?? nowUtcUs();
+    const rightType = enumValue(options.right_type ?? options.rightType, 'right_type', RIGHTS_TYPE, DEFAULT_RIGHT_TYPE);
+    const requireConsent = options.require_consent === undefined && options.requireConsent === undefined
+      ? true : Boolean(options.require_consent ?? options.requireConsent);
+    const consentType = requireConsent
+      ? enumValue(options.consent_type ?? options.consentType, 'consent_type', RIGHTS_TYPE, DEFAULT_CONSENT_TYPE)
+      : null;
+    const territory = options.territory ?? options.territory_code ?? options.territoryCode ?? null;
+    if (territory !== null && (typeof territory !== 'string' || territory.trim().length > 100)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'territory' });
+    }
+    const purpose = options.purpose ?? options.purpose_type ?? options.purposeType ?? null;
+    const records = this.db.prepare(`SELECT * FROM rights_records
+      WHERE rights_identity_id = ? AND right_type = ?
+      ORDER BY created_at_utc_us DESC, id DESC`).all(identity.id, rightType);
+    const consents = consentType ? this.db.prepare(`SELECT * FROM consents
+      WHERE rights_identity_id = ? AND consent_type = ?
+      ORDER BY created_at_utc_us DESC, id DESC`).all(identity.id, consentType) : [];
+    const revocations = this.db.prepare(`SELECT * FROM revocations
+      WHERE rights_identity_id = ? AND effective_at_utc_us <= ?
+      ORDER BY effective_at_utc_us DESC, created_at_utc_us DESC, id DESC`).all(identity.id, atUtcUs);
+    const blockers = [];
+    const evidence = [];
+    const applicable = (row, dimension) => dimension === 'RIGHT'
+      ? (row.consent_type === null || row.consent_type === undefined)
+        && (row.right_type === null || row.right_type === rightType)
+      : (row.consent_type === null || row.consent_type === undefined || row.consent_type === consentType)
+        && (row.right_type === null || row.right_type === rightType);
+    const rightRevocation = revocations.find((row) => applicable(row, 'RIGHT'));
+    const consentRevocation = consentType ? revocations.find((row) => applicable(row, 'CONSENT')) : null;
+
+    let rightStatus = 'UNKNOWN';
+    const activeRecord = records.find((row) => this._rightsActive(row, atUtcUs));
+    if (rightRevocation) {
+      rightStatus = 'REVOKED';
+      blockers.push({ code: 'RIGHTS_REVOKED', dimension: 'RIGHT', status: rightStatus, evidence_id: rightRevocation.id });
+    } else if (activeRecord) {
+      const activeEvaluations = records.filter((row) => this._rightsActive(row, atUtcUs)).map((row) => {
+        const territoryMatches = this._rightsTerritoryMatches(parseJson(row.territory_json, []), territory);
+        const purposeMatches = this._rightsPurposeMatches(parseJson(row.purpose_json, {}), purpose);
+        const effectiveStatus = row.status === 'ALLOWED' && (!territoryMatches || !purposeMatches) ? 'RESTRICTED' : row.status;
+        return { row, territoryMatches, purposeMatches, effectiveStatus };
+      });
+      rightStatus = activeEvaluations.reduce((worst, current) => RIGHTS_STATUS_RANK[current.effectiveStatus] > RIGHTS_STATUS_RANK[worst] ? current.effectiveStatus : worst, 'ALLOWED');
+      for (const current of activeEvaluations) {
+        evidence.push({ dimension: 'RIGHT', id: current.row.id, right_type: rightType, status: current.row.status });
+        if (current.effectiveStatus !== 'ALLOWED') blockers.push({ code: `RIGHTS_RECORD_${current.effectiveStatus}`, dimension: 'RIGHT', status: current.effectiveStatus, evidence_id: current.row.id });
+        if (!current.territoryMatches) blockers.push({ code: 'RIGHTS_TERRITORY_RESTRICTED', dimension: 'RIGHT', status: 'RESTRICTED', territory, evidence_id: current.row.id });
+        if (!current.purposeMatches) blockers.push({ code: 'RIGHTS_PURPOSE_RESTRICTED', dimension: 'RIGHT', status: 'RESTRICTED', purpose, evidence_id: current.row.id });
+      }
+    } else if (records.some((row) => this._rightsHistorical(row, atUtcUs))) {
+      rightStatus = 'EXPIRED';
+      blockers.push({ code: 'RIGHTS_RECORD_EXPIRED', dimension: 'RIGHT', status: rightStatus });
+    } else {
+      blockers.push({ code: 'RIGHTS_RECORD_MISSING', dimension: 'RIGHT', status: rightStatus });
+    }
+
+    let consentStatus = 'ALLOWED';
+    if (consentType) {
+      consentStatus = 'UNKNOWN';
+      const activeConsent = consents.find((row) => this._rightsActive(row, atUtcUs));
+      if (consentRevocation) {
+        consentStatus = 'REVOKED';
+        blockers.push({ code: 'CONSENT_REVOKED', dimension: 'CONSENT', status: consentStatus, evidence_id: consentRevocation.id });
+      } else if (activeConsent) {
+        consentStatus = 'ALLOWED';
+        evidence.push({ dimension: 'CONSENT', id: activeConsent.id, consent_type: consentType, status: consentStatus });
+      } else if (consents.some((row) => this._rightsHistorical(row, atUtcUs))) {
+        consentStatus = 'EXPIRED';
+        blockers.push({ code: 'CONSENT_EXPIRED', dimension: 'CONSENT', status: consentStatus });
+      } else {
+        blockers.push({ code: 'CONSENT_MISSING', dimension: 'CONSENT', status: consentStatus });
+      }
+    }
+    const status = [rightStatus, consentStatus].sort((left, right) => RIGHTS_STATUS_RANK[right] - RIGHTS_STATUS_RANK[left])[0];
+    const result = {
+      status,
+      state: status,
+      eligible: status === 'ALLOWED',
+      rights_identity_id: identity.id,
+      identity: publicRightsIdentity(identity),
+      right_type: rightType,
+      consent_type: consentType,
+      territory: territory ?? null,
+      purpose: purpose ?? null,
+      right_status: rightStatus,
+      consent_status: consentStatus,
+      blockers,
+      evidence,
+      evaluated_at_utc_us: atUtcUs,
+    };
+    return publicRightsEvaluation(result);
+  }
+
+  _rightsForAsset(assetId, options = {}) {
+    const asset = this._asset(assetId);
+    const requestedRightType = enumValue(options.right_type ?? options.rightType, 'right_type', RIGHTS_TYPE, DEFAULT_RIGHT_TYPE);
+    const requestedConsentType = enumValue(options.consent_type ?? options.consentType, 'consent_type', RIGHTS_TYPE, DEFAULT_CONSENT_TYPE);
+    if (!asset.rights_identity_id) {
+      return publicRightsEvaluation({
+        status: 'UNKNOWN', state: 'UNKNOWN', eligible: false, rights_identity_id: null, identity: null,
+        right_type: requestedRightType,
+        consent_type: requestedConsentType,
+        blockers: [{ code: 'RIGHTS_IDENTITY_MISSING', dimension: 'IDENTITY', status: 'UNKNOWN' }],
+        evidence: [], evaluated_at_utc_us: nowUtcUs(),
+      });
+    }
+    return this._evaluateRights(asset.rights_identity_id, { ...options, right_type: requestedRightType, consent_type: requestedConsentType });
+  }
+
+  _rightsIdentityDetails(identityId, options = {}) {
+    const identity = this._rightsIdentity(identityId);
+    return {
+      identity: publicRightsIdentity(identity),
+      records: this.db.prepare('SELECT * FROM rights_records WHERE rights_identity_id = ? ORDER BY created_at_utc_us DESC, id DESC').all(identity.id).map(publicRightsRecord),
+      consents: this.db.prepare('SELECT * FROM consents WHERE rights_identity_id = ? ORDER BY created_at_utc_us DESC, id DESC').all(identity.id).map(publicConsent),
+      revocations: this.db.prepare('SELECT * FROM revocations WHERE rights_identity_id = ? ORDER BY effective_at_utc_us DESC, created_at_utc_us DESC, id DESC').all(identity.id).map(publicRevocation),
+      evaluation: this._evaluateRights(identity.id, options),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _createRightsIdentity(payload) {
+    const subjectType = enumValue(payload.subject_type ?? payload.subjectType, 'subject_type', RIGHTS_SUBJECT_TYPES);
+    const subjectId = requiredString(payload.subject_id ?? payload.subjectId, 'subject_id');
+    let projectId = payload.project_id ?? payload.projectId ?? null;
+    if (subjectType === 'ASSET') {
+      const asset = this._asset(subjectId);
+      if (projectId !== null && projectId !== asset.project_id) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'ASSET', entity_id: subjectId, project_id: projectId, actual_project_id: asset.project_id }, { needsUser: true });
+      }
+      projectId = asset.project_id ?? null;
+    } else if (projectId !== null) {
+      this._project(projectId);
+    }
+    const existing = this.db.prepare('SELECT * FROM rights_identities WHERE subject_type = ? AND subject_id = ?').get(subjectType, subjectId);
+    if (existing) throw new CoreError('CONFLICT', 'CONFLICT', 'errors.rights_identity_exists', { subject_type: subjectType, subject_id: subjectId }, { needsUser: true });
+    const identityId = uuidv7();
+    const created = nowUtcUs();
+    const notes = optionalString(payload.notes, 'notes', 4000, '');
+    this.db.prepare(`INSERT INTO rights_identities
+      (id, project_id, subject_type, subject_id, notes, created_by_actor_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(identityId, projectId, subjectType, subjectId, notes, this.actorId, created);
+    const identity = this.db.prepare('SELECT * FROM rights_identities WHERE id = ?').get(identityId);
+    const result = publicRightsIdentity(identity);
+    return {
+      projectId,
+      result,
+      event: { aggregateType: 'RIGHTS_IDENTITY', aggregateId: identityId, aggregateVersion: 1, eventType: 'RIGHTS_IDENTITY_CREATED', payload: result },
+      audit: { actionType: 'rights.identity.create', targetType: 'RIGHTS_IDENTITY', targetId: identityId, payload: { subject_type: subjectType, subject_id: subjectId, project_id: projectId } },
+    };
+  }
+
+  _createRightsRecord(payload) {
+    const identity = this._rightsIdentity(payload.rights_identity_id ?? payload.rightsIdentityId ?? payload.identity_id ?? payload.identityId);
+    this._assertRightsProjectScope(payload, identity);
+    const rightType = enumValue(payload.right_type ?? payload.rightType, 'right_type', RIGHTS_TYPE);
+    const status = rightStatus(payload.status, 'UNKNOWN');
+    const territory = normalizeStringArray(payload.territory ?? payload.territories, 'territory');
+    const purpose = structuredValue(payload.purpose ?? {}, 'purpose', {}, 'object');
+    const validFrom = utcUsValue(payload.valid_from ?? payload.validFrom ?? payload.valid_from_utc_us, 'valid_from');
+    const validTo = utcUsValue(payload.valid_to ?? payload.validTo ?? payload.valid_to_utc_us, 'valid_to');
+    if (validFrom !== null && validTo !== null && validTo <= validFrom) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_time_interval', { field: 'valid_to' });
+    const recordId = uuidv7();
+    const created = nowUtcUs();
+    const evidenceSnapshotId = optionalString(payload.evidence_snapshot_id ?? payload.evidenceSnapshotId, 'evidence_snapshot_id', 500, null);
+    const evidenceSummary = structuredValue(payload.evidence_summary ?? payload.evidenceSummary ?? {}, 'evidence_summary', {}, 'object');
+    this.db.prepare(`INSERT INTO rights_records
+      (id, rights_identity_id, right_type, status, territory_json, purpose_json, valid_from_utc_us, valid_to_utc_us,
+       commercial_allowed, derivative_allowed, training_allowed, cloning_allowed, attribution_required,
+       evidence_snapshot_id, evidence_summary_json, created_by_actor_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      recordId, identity.id, rightType, status, json(territory), json(purpose), validFrom, validTo,
+      nullableBoolean(payload.commercial_allowed ?? payload.commercialAllowed, 'commercial_allowed'),
+      nullableBoolean(payload.derivative_allowed ?? payload.derivativeAllowed, 'derivative_allowed'),
+      nullableBoolean(payload.training_allowed ?? payload.trainingAllowed, 'training_allowed'),
+      nullableBoolean(payload.cloning_allowed ?? payload.cloningAllowed, 'cloning_allowed'),
+      nullableBoolean(payload.attribution_required ?? payload.attributionRequired, 'attribution_required'),
+      evidenceSnapshotId, json(evidenceSummary), this.actorId, created,
+    );
+    const row = this.db.prepare('SELECT * FROM rights_records WHERE id = ?').get(recordId);
+    const result = publicRightsRecord(row);
+    return {
+      projectId: identity.project_id ?? null,
+      result: { record: result, evaluation: this._evaluateRights(identity.id, { right_type: rightType, at_utc_us: created }) },
+      event: { aggregateType: 'RIGHTS_RECORD', aggregateId: recordId, aggregateVersion: Number(this.db.prepare('SELECT COUNT(*) AS count FROM rights_records WHERE rights_identity_id = ?').get(identity.id).count), eventType: 'RIGHTS_RECORD_RECORDED', payload: { ...result, project_id: identity.project_id ?? null } },
+      audit: { actionType: 'rights.record.create', targetType: 'RIGHTS_RECORD', targetId: recordId, payload: { rights_identity_id: identity.id, right_type: rightType, status } },
+    };
+  }
+
+  _recordConsent(payload) {
+    const identity = this._rightsIdentity(payload.rights_identity_id ?? payload.rightsIdentityId ?? payload.identity_id ?? payload.identityId);
+    this._assertRightsProjectScope(payload, identity);
+    const consentType = enumValue(payload.consent_type ?? payload.consentType, 'consent_type', RIGHTS_TYPE);
+    const grantedBy = requiredString(payload.granted_by ?? payload.grantedBy, 'granted_by', 500);
+    const validFrom = utcUsValue(payload.valid_from ?? payload.validFrom ?? payload.valid_from_utc_us, 'valid_from') ?? nowUtcUs();
+    const validTo = utcUsValue(payload.valid_to ?? payload.validTo ?? payload.valid_to_utc_us, 'valid_to');
+    if (validTo !== null && validTo <= validFrom) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_time_interval', { field: 'valid_to' });
+    const evidenceRevisionId = optionalString(payload.evidence_asset_revision_id ?? payload.evidenceAssetRevisionId, 'evidence_asset_revision_id', 200, null);
+    if (evidenceRevisionId) {
+      const revision = this.db.prepare('SELECT asset_id FROM asset_revisions WHERE id = ?').get(evidenceRevisionId);
+      if (!revision) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.asset_revision_not_found', { asset_revision_id: evidenceRevisionId });
+      if (identity.subject_type === 'ASSET' && revision.asset_id !== identity.subject_id) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.rights_evidence_scope_mismatch', { rights_identity_id: identity.id, asset_revision_id: evidenceRevisionId }, { needsUser: true });
+      }
+    }
+    const consentId = uuidv7();
+    const created = nowUtcUs();
+    this.db.prepare(`INSERT INTO consents
+      (id, rights_identity_id, consent_type, granted_by, evidence_asset_revision_id, valid_from_utc_us, valid_to_utc_us, created_by_actor_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      consentId, identity.id, consentType, grantedBy, evidenceRevisionId, validFrom, validTo, this.actorId, created,
+    );
+    const row = this.db.prepare('SELECT * FROM consents WHERE id = ?').get(consentId);
+    const result = publicConsent(row);
+    return {
+      projectId: identity.project_id ?? null,
+      result: { consent: result, evaluation: this._evaluateRights(identity.id, { consent_type: consentType, at_utc_us: created }) },
+      event: { aggregateType: 'CONSENT', aggregateId: consentId, aggregateVersion: Number(this.db.prepare('SELECT COUNT(*) AS count FROM consents WHERE rights_identity_id = ?').get(identity.id).count), eventType: 'CONSENT_RECORDED', payload: { ...result, project_id: identity.project_id ?? null } },
+      audit: { actionType: 'rights.consent.record', targetType: 'CONSENT', targetId: consentId, payload: { rights_identity_id: identity.id, consent_type: consentType, granted_by: grantedBy } },
+    };
+  }
+
+  _revokeRights(payload, commandId) {
+    const identity = this._rightsIdentity(payload.rights_identity_id ?? payload.rightsIdentityId ?? payload.identity_id ?? payload.identityId);
+    this._assertRightsProjectScope(payload, identity);
+    const rightType = payload.right_type ?? payload.rightType ? enumValue(payload.right_type ?? payload.rightType, 'right_type', RIGHTS_TYPE) : null;
+    const consentType = payload.consent_type ?? payload.consentType ? enumValue(payload.consent_type ?? payload.consentType, 'consent_type', RIGHTS_TYPE) : null;
+    const reason = requiredString(payload.reason, 'reason', 4000);
+    const effectiveAt = utcUsValue(payload.effective_at ?? payload.effectiveAt ?? payload.effective_at_utc_us, 'effective_at') ?? nowUtcUs();
+    const revocationId = uuidv7();
+    const created = nowUtcUs();
+    this.db.prepare(`INSERT INTO revocations
+      (id, rights_identity_id, right_type, consent_type, reason, effective_at_utc_us, command_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(revocationId, identity.id, rightType, consentType, reason, effectiveAt, commandId, created);
+    const row = this.db.prepare('SELECT * FROM revocations WHERE id = ?').get(revocationId);
+    const result = publicRevocation(row);
+    return {
+      projectId: identity.project_id ?? null,
+      result: { revocation: result, evaluation: this._evaluateRights(identity.id, { right_type: rightType ?? DEFAULT_RIGHT_TYPE, consent_type: consentType ?? DEFAULT_CONSENT_TYPE, at_utc_us: effectiveAt }) },
+      event: { aggregateType: 'RIGHTS_REVOCATION', aggregateId: revocationId, aggregateVersion: Number(this.db.prepare('SELECT COUNT(*) AS count FROM revocations WHERE rights_identity_id = ?').get(identity.id).count), eventType: 'RIGHTS_REVOKED', payload: { ...result, project_id: identity.project_id ?? null } },
+      audit: { actionType: 'rights.revoke', targetType: 'RIGHTS_IDENTITY', targetId: identity.id, payload: { revocation_id: revocationId, right_type: rightType, consent_type: consentType } },
+    };
   }
 
   _canonicalSourcePath(value) {
@@ -1207,6 +1607,17 @@ export class CoreService {
       const derived = this.db.prepare('SELECT project_id FROM shots WHERE id = ?').get(entityId)?.project_id;
       if (derived) return derived;
     }
+    const rightsCommands = ['CreateRightsIdentity', 'CreateRightsRecord', 'RecordConsent', 'RevokeRights'];
+    if (rightsCommands.includes(commandType)) {
+      if (commandType === 'CreateRightsIdentity') {
+        const subjectType = String(payload.subject_type ?? payload.subjectType ?? '').trim().toUpperCase();
+        const subjectId = payload.subject_id ?? payload.subjectId;
+        if (subjectType === 'ASSET' && subjectId) return this.db.prepare('SELECT project_id FROM assets WHERE id = ?').get(subjectId)?.project_id ?? null;
+      } else {
+        const identityId = payload.rights_identity_id ?? payload.rightsIdentityId ?? payload.identity_id ?? payload.identityId;
+        if (identityId) return this.db.prepare('SELECT project_id FROM rights_identities WHERE id = ?').get(identityId)?.project_id ?? null;
+      }
+    }
     if (explicitProjectId) {
       return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
     }
@@ -1217,6 +1628,7 @@ export class CoreService {
   _reversibility(commandType) {
     if (['TrashProject', 'ArchiveProject'].includes(commandType)) return 'COMPENSATABLE';
     if (['ResolveDecisionRequest', 'DismissDecisionRequest', 'ObsoleteDecisionRequest'].includes(commandType)) return 'COMPENSATABLE';
+    if (['CreateRightsIdentity', 'CreateRightsRecord', 'RecordConsent', 'RevokeRights'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -1240,6 +1652,10 @@ export class CoreService {
       case 'RegisterAsset':
       case 'ImportLocalAsset': return this._importAsset(payload);
       case 'ReconcileStaging': return this._reconcileStaging(payload);
+      case 'CreateRightsIdentity': return this._createRightsIdentity(payload);
+      case 'CreateRightsRecord': return this._createRightsRecord(payload);
+      case 'RecordConsent': return this._recordConsent(payload);
+      case 'RevokeRights': return this._revokeRights(payload, commandId);
       case 'AddNote':
       case 'AddTaskNote':
       case 'AddShotNote': return this._addNote(payload, commandType);
@@ -1787,6 +2203,7 @@ export class CoreService {
     const revisionId = uuidv7();
     const provenanceId = uuidv7();
     const objectId = uuidv7();
+    const rightsIdentityId = uuidv7();
     let materialized = null;
     let objectWasExisting = false;
     try {
@@ -1817,9 +2234,14 @@ export class CoreService {
         provenanceId, originType, sourceDescription, sourceUri, sourceFingerprint, json(sourceMetadata), this.actorId, now,
       );
       this.db.prepare(`INSERT INTO assets
-        (id, project_id, asset_type, display_name, origin_type, lifecycle_state, created_by_actor_id, created_at_utc_us, updated_at_utc_us, row_version)
-        VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, 1)`).run(
-        assetId, project?.id ?? null, assetType, displayName, originType, this.actorId, now, now,
+        (id, project_id, rights_identity_id, asset_type, display_name, origin_type, lifecycle_state, created_by_actor_id, created_at_utc_us, updated_at_utc_us, row_version)
+        VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, 1)`).run(
+        assetId, project?.id ?? null, rightsIdentityId, assetType, displayName, originType, this.actorId, now, now,
+      );
+      this.db.prepare(`INSERT INTO rights_identities
+        (id, project_id, subject_type, subject_id, notes, created_by_actor_id, created_at_utc_us)
+        VALUES (?, ?, 'ASSET', ?, ?, ?, ?)`).run(
+        rightsIdentityId, project?.id ?? null, assetId, 'Imported asset rights scope', this.actorId, now,
       );
       this.db.prepare(`INSERT INTO asset_revisions
         (id, asset_id, revision_number, storage_object_id, provenance_record_id, semantic_role, availability_state, review_state, rebuildability, availability_evidence_state, created_by_actor_id, created_at_utc_us)
@@ -1869,6 +2291,7 @@ export class CoreService {
       const provenance = this.db.prepare('SELECT * FROM provenance_records WHERE id = ?').get(provenanceId);
       const locations = this.db.prepare('SELECT * FROM asset_locations WHERE asset_revision_id = ?').all(revisionId);
       const assetView = publicAsset(asset, revision, storedObject, provenance, locations);
+      assetView.rights = this._rightsForAsset(assetId);
       const session = this.db.prepare('SELECT * FROM import_sessions WHERE id = ?').get(sessionId);
       const item = this.db.prepare('SELECT * FROM import_items WHERE id = ?').get(itemId);
       const warnings = ['SECURITY_SCAN_PENDING', 'MEDIA_DECODE_PENDING'];
@@ -1889,7 +2312,7 @@ export class CoreService {
             display_name: displayName, asset_type: assetType, origin_type: originType,
             hash_algorithm: hashAlgorithm, content_hash: file.content_hash, byte_size: file.byte_size,
             storage_mode: storageMode, storage_uri: storageMode === 'COPY' ? materialized.objectUri : null,
-            provenance_id: provenanceId, import_session_id: sessionId,
+            provenance_id: provenanceId, import_session_id: sessionId, rights_identity_id: rightsIdentityId,
           },
         },
         audit: {
@@ -2097,6 +2520,10 @@ export class CoreService {
     if (aggregateType === 'NOTE') return this.db.prepare('SELECT project_id FROM notes WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'DECISION_REQUEST') return this.db.prepare('SELECT project_id FROM decision_requests WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'ASSET_REVISION') return this.db.prepare(`SELECT a.project_id FROM asset_revisions r JOIN assets a ON a.id = r.asset_id WHERE r.id = ?`).get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'RIGHTS_IDENTITY') return this.db.prepare('SELECT project_id FROM rights_identities WHERE id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'RIGHTS_RECORD') return this.db.prepare('SELECT ri.project_id FROM rights_records rr JOIN rights_identities ri ON ri.id = rr.rights_identity_id WHERE rr.id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'CONSENT') return this.db.prepare('SELECT ri.project_id FROM consents c JOIN rights_identities ri ON ri.id = c.rights_identity_id WHERE c.id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'RIGHTS_REVOCATION') return this.db.prepare('SELECT ri.project_id FROM revocations r JOIN rights_identities ri ON ri.id = r.rights_identity_id WHERE r.id = ?').get(aggregateId)?.project_id ?? null;
     return null;
   }
 
@@ -2196,6 +2623,9 @@ export class CoreService {
       case 'query.library.assets_page':
       case 'query.asset.list':
       case 'query.project.assets': return this._assets(params);
+      case 'query.asset.rights': return this._rightsForAsset(params.asset_id ?? params.assetId, params);
+      case 'query.rights.evaluate': return this._evaluateRights(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
+      case 'query.rights.identity': return this._rightsIdentityDetails(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
       case 'query.import.session': return this._importSession(params.import_session_id ?? params.importSessionId ?? params.id);
       case 'query.import.list': return this._importSessions(params);
       case 'query.command.get': return this.getCommand(params.command_id ?? params.commandId);
@@ -2229,11 +2659,17 @@ export class CoreService {
     const asset = this._asset(assetId);
     const revision = this.db.prepare(`SELECT * FROM asset_revisions
       WHERE asset_id = ? ORDER BY revision_number DESC LIMIT 1`).get(asset.id);
-    if (!revision) return publicAsset(asset, null, null, null, []);
+    if (!revision) {
+      const view = publicAsset(asset, null, null, null, []);
+      view.rights = this._rightsForAsset(asset.id);
+      return view;
+    }
     const storage = this.db.prepare('SELECT * FROM storage_objects WHERE id = ?').get(revision.storage_object_id);
     const provenance = this.db.prepare('SELECT * FROM provenance_records WHERE id = ?').get(revision.provenance_record_id);
     const locations = this.db.prepare('SELECT * FROM asset_locations WHERE asset_revision_id = ? ORDER BY created_at_utc_us ASC').all(revision.id);
-    return publicAsset(asset, revision, storage, provenance, locations);
+    const view = publicAsset(asset, revision, storage, provenance, locations);
+    view.rights = this._rightsForAsset(asset.id);
+    return view;
   }
 
   _assets(params = {}) {

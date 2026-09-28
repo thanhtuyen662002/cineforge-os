@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -87,6 +87,76 @@ export function initializeDatabase(db) {
       row_version INTEGER NOT NULL DEFAULT 1,
       UNIQUE(project_id, code)
     );
+
+    /*
+     * Rights identity is deliberately separate from bytes and asset identity.
+     * One asset can have multiple evidence revisions over time, and identical
+     * bytes can be used under different legal/consent scopes.  Evidence rows
+     * are append-only; a revocation is a new fact, never an edit to history.
+     */
+    CREATE TABLE IF NOT EXISTS rights_identities (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id),
+      subject_type TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(subject_type, subject_id)
+    );
+    CREATE INDEX IF NOT EXISTS rights_identities_project_idx
+      ON rights_identities(project_id, created_at_utc_us DESC);
+
+    CREATE TABLE IF NOT EXISTS rights_records (
+      id TEXT PRIMARY KEY,
+      rights_identity_id TEXT NOT NULL REFERENCES rights_identities(id),
+      right_type TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('ALLOWED', 'RESTRICTED', 'UNKNOWN', 'REVOKED', 'EXPIRED')),
+      territory_json TEXT NOT NULL DEFAULT '[]',
+      purpose_json TEXT NOT NULL DEFAULT '{}',
+      valid_from_utc_us INTEGER,
+      valid_to_utc_us INTEGER,
+      commercial_allowed INTEGER CHECK (commercial_allowed IS NULL OR commercial_allowed IN (0, 1)),
+      derivative_allowed INTEGER CHECK (derivative_allowed IS NULL OR derivative_allowed IN (0, 1)),
+      training_allowed INTEGER CHECK (training_allowed IS NULL OR training_allowed IN (0, 1)),
+      cloning_allowed INTEGER CHECK (cloning_allowed IS NULL OR cloning_allowed IN (0, 1)),
+      attribution_required INTEGER CHECK (attribution_required IS NULL OR attribution_required IN (0, 1)),
+      evidence_snapshot_id TEXT,
+      evidence_summary_json TEXT NOT NULL DEFAULT '{}',
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      CHECK (valid_to_utc_us IS NULL OR valid_from_utc_us IS NULL OR valid_to_utc_us > valid_from_utc_us)
+    );
+    CREATE INDEX IF NOT EXISTS rights_records_identity_idx
+      ON rights_records(rights_identity_id, right_type, created_at_utc_us DESC);
+
+    CREATE TABLE IF NOT EXISTS consents (
+      id TEXT PRIMARY KEY,
+      rights_identity_id TEXT NOT NULL REFERENCES rights_identities(id),
+      consent_type TEXT NOT NULL,
+      granted_by TEXT NOT NULL,
+      evidence_asset_revision_id TEXT,
+      valid_from_utc_us INTEGER NOT NULL,
+      valid_to_utc_us INTEGER,
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      CHECK (valid_to_utc_us IS NULL OR valid_to_utc_us > valid_from_utc_us)
+    );
+    CREATE INDEX IF NOT EXISTS consents_identity_idx
+      ON consents(rights_identity_id, consent_type, created_at_utc_us DESC);
+
+    CREATE TABLE IF NOT EXISTS revocations (
+      id TEXT PRIMARY KEY,
+      rights_identity_id TEXT NOT NULL REFERENCES rights_identities(id),
+      right_type TEXT,
+      consent_type TEXT,
+      reason TEXT NOT NULL,
+      effective_at_utc_us INTEGER NOT NULL,
+      command_id TEXT NOT NULL REFERENCES commands(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS revocations_identity_idx
+      ON revocations(rights_identity_id, effective_at_utc_us DESC);
 
     CREATE TABLE IF NOT EXISTS notes (
       id TEXT PRIMARY KEY,
@@ -230,6 +300,7 @@ export function initializeDatabase(db) {
     CREATE TABLE IF NOT EXISTS assets (
       id TEXT PRIMARY KEY,
       project_id TEXT REFERENCES projects(id),
+      rights_identity_id TEXT,
       asset_type TEXT NOT NULL,
       display_name TEXT NOT NULL,
       origin_type TEXT NOT NULL CHECK (origin_type IN ('IMPORTED', 'GENERATED', 'RECORDED', 'EXTERNAL_EDIT', 'HANDOFF_RETURN', 'SYSTEM')),
@@ -319,6 +390,30 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS staging_objects_no_delete
       BEFORE DELETE ON staging_objects
       BEGIN SELECT RAISE(ABORT, 'staging_objects are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS rights_identities_no_update
+      BEFORE UPDATE ON rights_identities
+      BEGIN SELECT RAISE(ABORT, 'rights_identities are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS rights_identities_no_delete
+      BEFORE DELETE ON rights_identities
+      BEGIN SELECT RAISE(ABORT, 'rights_identities are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS rights_records_no_update
+      BEFORE UPDATE ON rights_records
+      BEGIN SELECT RAISE(ABORT, 'rights_records are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS rights_records_no_delete
+      BEFORE DELETE ON rights_records
+      BEGIN SELECT RAISE(ABORT, 'rights_records are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS consents_no_update
+      BEFORE UPDATE ON consents
+      BEGIN SELECT RAISE(ABORT, 'consents are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS consents_no_delete
+      BEFORE DELETE ON consents
+      BEGIN SELECT RAISE(ABORT, 'consents are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS revocations_no_update
+      BEFORE UPDATE ON revocations
+      BEGIN SELECT RAISE(ABORT, 'revocations are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS revocations_no_delete
+      BEFORE DELETE ON revocations
+      BEGIN SELECT RAISE(ABORT, 'revocations are append-only'); END;
     CREATE TRIGGER IF NOT EXISTS staging_objects_identity_no_update
       BEFORE UPDATE ON staging_objects
       WHEN NEW.id IS NOT OLD.id
@@ -493,6 +588,39 @@ export function initializeDatabase(db) {
       CHECK (availability_evidence_state IN ('UNKNOWN', 'VERIFIED'))`);
   }
 
+  const assetColumns = new Set(db.prepare('PRAGMA table_info(assets)').all().map((row) => String(row.name)));
+  if (!assetColumns.has('rights_identity_id')) db.exec('ALTER TABLE assets ADD COLUMN rights_identity_id TEXT');
+
+  // Recreate append-only evidence triggers for installations that were opened
+  // before the v6 DDL existed.  DROP is safe because these tables are
+  // append-only and the triggers have no persisted state.
+  db.exec(`
+    DROP TRIGGER IF EXISTS rights_identities_no_update;
+    DROP TRIGGER IF EXISTS rights_identities_no_delete;
+    DROP TRIGGER IF EXISTS rights_records_no_update;
+    DROP TRIGGER IF EXISTS rights_records_no_delete;
+    DROP TRIGGER IF EXISTS consents_no_update;
+    DROP TRIGGER IF EXISTS consents_no_delete;
+    DROP TRIGGER IF EXISTS revocations_no_update;
+    DROP TRIGGER IF EXISTS revocations_no_delete;
+    CREATE TRIGGER rights_identities_no_update BEFORE UPDATE ON rights_identities
+      BEGIN SELECT RAISE(ABORT, 'rights_identities are append-only'); END;
+    CREATE TRIGGER rights_identities_no_delete BEFORE DELETE ON rights_identities
+      BEGIN SELECT RAISE(ABORT, 'rights_identities are append-only'); END;
+    CREATE TRIGGER rights_records_no_update BEFORE UPDATE ON rights_records
+      BEGIN SELECT RAISE(ABORT, 'rights_records are append-only'); END;
+    CREATE TRIGGER rights_records_no_delete BEFORE DELETE ON rights_records
+      BEGIN SELECT RAISE(ABORT, 'rights_records are append-only'); END;
+    CREATE TRIGGER consents_no_update BEFORE UPDATE ON consents
+      BEGIN SELECT RAISE(ABORT, 'consents are append-only'); END;
+    CREATE TRIGGER consents_no_delete BEFORE DELETE ON consents
+      BEGIN SELECT RAISE(ABORT, 'consents are append-only'); END;
+    CREATE TRIGGER revocations_no_update BEFORE UPDATE ON revocations
+      BEGIN SELECT RAISE(ABORT, 'revocations are append-only'); END;
+    CREATE TRIGGER revocations_no_delete BEFORE DELETE ON revocations
+      BEGIN SELECT RAISE(ABORT, 'revocations are append-only'); END;
+  `);
+
   // A developer build may have created an early staging table before v5 was
   // formalized.  Add missing columns idempotently so an interrupted upgrade
   // remains resumable instead of silently dropping staged evidence.
@@ -530,7 +658,7 @@ export function initializeDatabase(db) {
         OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
       BEGIN SELECT RAISE(ABORT, 'staging object identity is immutable'); END`);
 
-  // Keep a durable migration ledger.  The v2-v5 tables/columns above are idempotent so
+  // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so
   // an interrupted upgrade can be resumed safely; recording every historical
   // version for a fresh installation preserves the baseline.
   const migrationVersions = new Set(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => Number(row.version)));

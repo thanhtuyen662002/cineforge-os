@@ -3255,3 +3255,35 @@ Redaction follows the same data-class policy as diagnostics, so secrets,
 private prompts, credentials, and protected media paths are never copied into
 the explanation. Unknown or incomplete causal inputs remain explicit and keep
 the command blocked until an authorized policy resolves them.
+
+# API-RIGHTS-CONSENT-BASELINE. Rights identity and effective evaluation
+
+The V1 baseline exposes four auditable commands through `command.execute` (or
+`POST /v1/commands`):
+
+- `CreateRightsIdentity({subject_type, subject_id, project_id?, notes?})`
+- `CreateRightsRecord({rights_identity_id, right_type, status, territory?, purpose?, valid_from?, valid_to?, evidence_summary?})`
+- `RecordConsent({rights_identity_id, consent_type, granted_by, valid_from?, valid_to?, evidence_asset_revision_id?})`
+- `RevokeRights({rights_identity_id, right_type?, consent_type?, reason, effective_at?})`
+
+Every command creates a command row, domain event, and audit record. Evidence
+rows are append-only. A replay with the same actor, command type, idempotency
+key, payload, and expected versions returns the original result; a changed
+payload is rejected as an idempotency conflict.
+
+Queries are:
+
+- `query.asset.rights({asset_id, right_type?, consent_type?, territory?, purpose?, at_utc_us?})`;
+- `query.rights.evaluate({rights_identity_id, right_type?, consent_type?, territory?, purpose?, at_utc_us?})`;
+- `query.rights.identity({rights_identity_id})`, which returns the identity,
+  append-only records, consents, revocations, and the current evaluation.
+
+The HTTP adapter exposes `GET /v1/assets/{assetId}/rights`,
+`GET /v1/rights/evaluate`, and `GET /v1/rights/{identityId}/identity`.
+Imported assets include a rights projection that starts at `UNKNOWN`; it only
+becomes `ALLOWED` when both the requested right and consent are effective and
+unrevoked. `RESTRICTED`, `UNKNOWN`, `EXPIRED`, and `REVOKED` all have
+`eligible=false` and structured blockers. This baseline does not yet claim
+provider egress, generation, training, publish, legal document parsing,
+multi-user authority, or signed provenance controls; those callers must keep
+their own gates explicit until their bounded slices land.

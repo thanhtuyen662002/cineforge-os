@@ -206,6 +206,36 @@ try {
         if ([string]$asset.contentHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Packaged asset import returned an invalid SHA-256 hash.' }
         if ([string]$asset.storageUri -notmatch '^object://sha-256/') { throw 'Packaged asset import did not return a managed object URI.' }
         if ([string]::IsNullOrWhiteSpace([string]$asset.importSessionId)) { throw 'Packaged asset import returned no import session id.' }
+        if ([string]$asset.rights.status -ne 'UNKNOWN' -or [string]::IsNullOrWhiteSpace([string]$asset.rights.rights_identity_id)) { throw 'Packaged asset import did not create an UNKNOWN rights identity projection.' }
+        $rightsIdentityId = [string]$asset.rights.rights_identity_id
+        $rightsRecordHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-record'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $rightsRecord = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers $rightsRecordHeaders -ContentType 'application/json' -Body (@{
+            command_type = 'CreateRightsRecord'
+            payload = @{
+                rights_identity_id = $rightsIdentityId
+                right_type = 'SOURCE_USE'
+                status = 'ALLOWED'
+                territory = @('VN')
+                purpose = @{ allowed = @('PRODUCTION') }
+            }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        if (-not $rightsRecord.ok -or [string]$rightsRecord.result.record.status -ne 'ALLOWED') { throw 'Packaged rights record command returned an invalid record.' }
+        $rightsUnknown = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/assets/{1}/rights?territory=VN" -f $webPort, [Uri]::EscapeDataString([string]$asset.id)) -TimeoutSec 5
+        if ([string]$rightsUnknown.result.status -ne 'UNKNOWN') { throw 'Rights evaluation did not remain UNKNOWN before consent.' }
+        $rightsConsent = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-consent'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            command_type = 'RecordConsent'
+            payload = @{ rights_identity_id = $rightsIdentityId; consent_type = 'SOURCE_USE'; granted_by = 'packaging-smoke'; evidence_asset_revision_id = [string]$asset.revisionId }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        if (-not $rightsConsent.ok) { throw 'Packaged consent command failed.' }
+        $rightsAllowed = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/assets/{1}/rights?territory=VN" -f $webPort, [Uri]::EscapeDataString([string]$asset.id)) -TimeoutSec 5
+        if ([string]$rightsAllowed.result.status -ne 'ALLOWED' -or -not $rightsAllowed.result.eligible) { throw 'Packaged rights evaluation did not become ALLOWED after consent.' }
+        $rightsRevoked = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-revoke'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            command_type = 'RevokeRights'
+            payload = @{ rights_identity_id = $rightsIdentityId; right_type = 'SOURCE_USE'; reason = 'packaging smoke revocation' }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        if (-not $rightsRevoked.ok) { throw 'Packaged rights revoke command failed.' }
+        $rightsAfterRevoke = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/assets/{1}/rights?territory=VN" -f $webPort, [Uri]::EscapeDataString([string]$asset.id)) -TimeoutSec 5
+        if ([string]$rightsAfterRevoke.result.status -ne 'REVOKED' -or $rightsAfterRevoke.result.eligible) { throw 'Packaged rights evaluation did not fail closed after revocation.' }
         $projectAssets = Invoke-RestMethod -Uri $assetUri -TimeoutSec 5
         if (@($projectAssets.assets | Where-Object { $_.id -eq $asset.id }).Count -ne 1) { throw 'Imported asset was not present in the project asset library.' }
         $stagingList = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/storage/staging?state=REGISTERED" -TimeoutSec 5
