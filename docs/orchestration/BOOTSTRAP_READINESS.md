@@ -95,3 +95,22 @@ Before scaling broad autonomous work:
 - configure repository-native main protection when admin capability is available.
 
 The control plane is not considered security-enforced merely because agents agree to follow Markdown policy.
+
+
+
+# 7. Bootstrap enablement completion checklist
+
+The one-time BOOTSTRAP_ENABLEMENT state remains open until all are true:
+
+- [ ] trusted machine metadata parser/validator exists;
+- [ ] Tier A CI exists and has a recorded producer/workflow identity;
+- [ ] controlled failing change proves the CI gate fails closed;
+- [ ] controlled passing change proves expected merge path works;
+- [ ] public/fork trust behavior is tested;
+- [ ] repository protection/ruleset is enabled and verified;
+- [ ] GitHub App/agent permissions still permit intended Integrator operations;
+- [ ] required-check migration/recovery procedure is documented;
+- [ ] bootstrap attestation is recorded;
+- [ ] BOOTSTRAP_ENABLEMENT is marked CLOSED.
+
+If any item is false, broad 10–15 slot autonomous coding remains unproven.
