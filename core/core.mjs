@@ -869,6 +869,7 @@ export class CoreService {
 
   _reversibility(commandType) {
     if (['TrashProject', 'ArchiveProject'].includes(commandType)) return 'COMPENSATABLE';
+    if (['ResolveDecisionRequest', 'DismissDecisionRequest', 'ObsoleteDecisionRequest'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -1097,7 +1098,7 @@ export class CoreService {
     if (expected === undefined || expected === null) {
       throw new CoreError('EXPECTED_VERSION_REQUIRED', 'CONFLICT', 'errors.expected_decision_version_required', {
         decision_request_id: current.id,
-      }, { needsUser: true });
+      }, { needsUser: true, decisionRequestId: current.id });
     }
     const numeric = Number(expected);
     if (!Number.isSafeInteger(numeric) || numeric < 1) {
@@ -1108,14 +1109,14 @@ export class CoreService {
     if (numeric !== Number(current.row_version)) {
       throw new CoreError('STALE_DECISION', 'CONFLICT', 'errors.stale_decision', {
         decision_request_id: current.id, expected: numeric, current: Number(current.row_version),
-      }, { needsUser: true });
+      }, { needsUser: true, decisionRequestId: current.id });
     }
   }
 
   _assertDecisionAuthority(current) {
     const actor = this.db.prepare('SELECT actor_type, status FROM actors WHERE id = ?').get(this.actorId);
     if (!actor || actor.status !== 'ACTIVE') {
-      throw new CoreError('AUTH_REQUIRED', 'AUTH_REQUIRED', 'errors.actor_disabled', {}, { needsUser: true });
+      throw new CoreError('AUTH_REQUIRED', 'AUTH_REQUIRED', 'errors.actor_disabled', {}, { needsUser: true, decisionRequestId: current.id });
     }
     const authority = String(current.required_authority ?? 'LOCAL_ACTOR').trim().toUpperCase();
     // V1 has one local human actor and no role/authority registry yet.  Keep
@@ -1124,7 +1125,7 @@ export class CoreService {
     if (!['LOCAL_ACTOR', 'HUMAN', 'ANY'].includes(authority) || actor.actor_type !== 'HUMAN') {
       throw new CoreError('AUTHORITY_REQUIRED', 'AUTH_REQUIRED', 'errors.decision_authority_required', {
         required_authority: current.required_authority,
-      }, { needsUser: true });
+      }, { needsUser: true, decisionRequestId: current.id });
     }
   }
 
@@ -1132,12 +1133,12 @@ export class CoreService {
     if (current.state === 'OBSOLETE' || current.state === 'EXPIRED') {
       throw new CoreError('STALE_DECISION', 'CONFLICT', 'errors.stale_decision', {
         decision_request_id: current.id, state: current.state,
-      }, { needsUser: true });
+      }, { needsUser: true, decisionRequestId: current.id });
     }
     if (current.state !== 'OPEN') {
       throw new CoreError('DECISION_NOT_OPEN', 'CONFLICT', 'errors.decision_not_open', {
         decision_request_id: current.id, state: current.state,
-      }, { needsUser: true });
+      }, { needsUser: true, decisionRequestId: current.id });
     }
   }
 
@@ -1147,7 +1148,7 @@ export class CoreService {
       if (suppliedProjectId !== undefined && suppliedProjectId !== null) {
         throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
           entity_type: 'DECISION_REQUEST', entity_id: current.id, project_id: suppliedProjectId, actual_project_id: null,
-        }, { needsUser: true });
+        }, { needsUser: true, decisionRequestId: current.id });
       }
       return null;
     }
@@ -1208,7 +1209,8 @@ export class CoreService {
     }
     const choices = [];
     const choiceIds = new Set();
-    let recommendedId = payload.recommended_choice_id ?? payload.recommendedChoiceId ?? null;
+    const explicitRecommendedId = payload.recommended_choice_id ?? payload.recommendedChoiceId ?? null;
+    let recommendedId = explicitRecommendedId;
     for (let index = 0; index < choicesInput.length; index += 1) {
       const input = choicesInput[index];
       if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -1221,15 +1223,15 @@ export class CoreService {
       const commandTemplate = objectValue(input.command_template ?? input.commandTemplate, 'command_template', {});
       const consequenceSummary = objectValue(input.consequence_summary ?? input.consequenceSummary, 'consequence_summary', {});
       const recommended = Boolean(input.recommended);
-      if (recommended && recommendedId === null) recommendedId = id;
       choices.push({ id, labelKey, commandTemplate, consequenceSummary, recommended, sortOrder: index });
     }
+    const recommendedChoices = choices.filter((choice) => choice.recommended);
+    if (recommendedChoices.length > 1 && explicitRecommendedId === null) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.multiple_recommended_choices', {});
+    }
+    if (recommendedId === null && recommendedChoices.length === 1) recommendedId = recommendedChoices[0].id;
     if (recommendedId !== null && (!choiceIds.has(recommendedId) || typeof recommendedId !== 'string')) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_recommended_choice', { choice_id: recommendedId });
-    }
-    const recommendedCount = choices.filter((choice) => choice.recommended).length;
-    if (recommendedCount > 1 && recommendedId === null) {
-      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.multiple_recommended_choices', {});
     }
     if (recommendedId !== null) {
       for (const choice of choices) choice.recommended = choice.id === recommendedId;
@@ -1290,7 +1292,7 @@ export class CoreService {
     if (!choice) {
       throw new CoreError('INVALID_DECISION_CHOICE', 'CONFLICT', 'errors.invalid_decision_choice', {
         decision_request_id: current.id, choice_id: choiceId,
-      }, { needsUser: true });
+      }, { needsUser: true, decisionRequestId: current.id });
     }
     const resolvedAt = nowUtcUs();
     const version = Number(current.row_version) + 1;
@@ -1580,7 +1582,9 @@ export class CoreService {
     try {
       target = this._planTarget(commandType, payload);
       if (target) {
-        const expectedValue = this._planExpected(expected, target.kind, target.id);
+        const expectedValue = target.kind === 'DECISION_REQUEST'
+          ? payload.expected_decision_version ?? payload.expectedDecisionVersion ?? this._planExpected(expected, target.kind, target.id)
+          : this._planExpected(expected, target.kind, target.id);
         if (expectedValue !== null && Number(expectedValue) !== Number(target.row.row_version)) precondition = { ok: false, code: 'STALE_REVISION' };
       }
     } catch (error) {
@@ -1614,10 +1618,13 @@ export class CoreService {
       RestoreProject: ['PROJECT', payload.project_id ?? payload.projectId],
       UpdateTask: ['TASK', payload.task_id ?? payload.taskId],
       UpdateShot: ['SHOT', payload.shot_id ?? payload.shotId],
+      ResolveDecisionRequest: ['DECISION_REQUEST', payload.decision_request_id ?? payload.decisionRequestId],
+      DismissDecisionRequest: ['DECISION_REQUEST', payload.decision_request_id ?? payload.decisionRequestId],
+      ObsoleteDecisionRequest: ['DECISION_REQUEST', payload.decision_request_id ?? payload.decisionRequestId],
     };
     const mapping = mappings[commandType];
     if (!mapping?.[1]) return null;
-    const row = mapping[0] === 'PROJECT' ? this._project(mapping[1]) : mapping[0] === 'TASK' ? this._task(mapping[1]) : this._shot(mapping[1]);
+    const row = mapping[0] === 'PROJECT' ? this._project(mapping[1]) : mapping[0] === 'TASK' ? this._task(mapping[1]) : mapping[0] === 'SHOT' ? this._shot(mapping[1]) : this._decision(mapping[1]);
     return { kind: mapping[0], id: mapping[1], row };
   }
 
