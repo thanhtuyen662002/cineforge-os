@@ -1,0 +1,12 @@
+{
+  "issue": 9,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-product-workspace",
+  "run_id_at_claim": "WORK-product-workspace-20260928-A1",
+  "slot_id": "WORK-product-workspace",
+  "claim_base_sha": "07a080214ca1c4ccdb8d3aff6724945e7d0d55ba",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:b363d6aab4ef94f633187fb2779cc640b59fc4f4d3b3641e573c76d4323b2dd9",
+  "context_base_sha": "07a080214ca1c4ccdb8d3aff6724945e7d0d55ba",
+  "bootstrap_only": false
+}

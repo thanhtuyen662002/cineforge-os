@@ -1,0 +1,985 @@
+import { mockSnapshot } from './data/mockSnapshot'
+import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, DecisionRequest, ImportAssetInput, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, WorkspaceNoteEntityType, WorkState } from './types'
+
+declare global {
+  interface Window {
+    /** Optional runtime override injected by the desktop bootstrapper. */
+    __CINEFORGE_CORE_BASE_URL__?: string
+  }
+}
+
+export interface CoreBridge {
+  getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
+  acknowledgeDecision(id: string): Promise<void>
+  resolveDecision?(id: string, choiceId: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
+  dismissDecision?(id: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
+  createProject(name: string): Promise<ProjectSummary>
+  addProductionItem(projectId: string, title: string): Promise<ProductionItem>
+  createTask?(projectId: string, title: string, options?: { description?: string; priority?: number; idempotencyKey?: string }): Promise<TaskSummary>
+  updateTask?(taskId: string, patch: { title?: string; description?: string; priority?: number; status?: TaskStatus }, expectedVersion: number, idempotencyKey?: string): Promise<TaskSummary>
+  createShot?(projectId: string, code: string, title: string, idempotencyKey?: string): Promise<ShotSummary>
+  updateShot?(shotId: string, patch: { title?: string; lifecycleState?: ShotLifecycleState }, expectedVersion: number, idempotencyKey?: string): Promise<ShotSummary>
+  addNote?(projectId: string, target: { entityType: WorkspaceNoteEntityType; entityId: string }, body: string, idempotencyKey?: string): Promise<NoteSummary>
+  getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
+  getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
+  getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  stageAsset?(file: File): Promise<StagedAsset>
+  importAsset?(input: ImportAssetInput): Promise<AssetSummary>
+}
+
+const LOCAL_SNAPSHOT_KEY = 'cineforge-dashboard-v1'
+const LOCAL_WORKSPACE_KEY = 'cineforge-workspaces-v1'
+const LOCAL_IDEMPOTENCY_KEY = 'cineforge-idempotency-v1'
+
+export class CoreClientError extends Error {
+  readonly code: string
+  readonly category: string
+  readonly retryable: boolean
+  readonly needsUser: boolean
+  readonly userMessageKey?: string
+  readonly technicalDetails: Record<string, unknown>
+
+  constructor(message: string, fields: Partial<Pick<CoreClientError, 'code' | 'category' | 'retryable' | 'needsUser' | 'userMessageKey' | 'technicalDetails'>> = {}) {
+    super(message)
+    this.name = 'CoreClientError'
+    this.code = fields.code ?? 'CORE_REQUEST_FAILED'
+    this.category = fields.category ?? 'UNKNOWN'
+    this.retryable = fields.retryable ?? false
+    this.needsUser = fields.needsUser ?? true
+    this.userMessageKey = fields.userMessageKey
+    this.technicalDetails = fields.technicalDetails ?? {}
+  }
+}
+
+function localSnapshot(): DashboardSnapshot {
+  const stored = localStorage.getItem(LOCAL_SNAPSHOT_KEY)
+  if (!stored) {
+    const snapshot = structuredClone(mockSnapshot)
+    snapshot.decisions = snapshot.decisions.map(mapDecisionRecord)
+    return snapshot
+  }
+  try {
+    const snapshot = JSON.parse(stored) as DashboardSnapshot
+    snapshot.decisions = Array.isArray(snapshot.decisions) ? snapshot.decisions.map(mapDecisionRecord) : []
+    return snapshot
+  } catch {
+    localStorage.removeItem(LOCAL_SNAPSHOT_KEY)
+    const snapshot = structuredClone(mockSnapshot)
+    snapshot.decisions = snapshot.decisions.map(mapDecisionRecord)
+    return snapshot
+  }
+}
+
+function saveLocalSnapshot(snapshot: DashboardSnapshot) {
+  localStorage.setItem(LOCAL_SNAPSHOT_KEY, JSON.stringify(snapshot))
+}
+
+type LocalWorkspaceState = { tasks: TaskSummary[]; shots: ShotSummary[]; notes: NoteSummary[]; projectionSeq: number }
+
+type LocalIdempotencyFailure = {
+  message: string
+  code: string
+  category: string
+  retryable: boolean
+  needsUser: boolean
+  userMessageKey?: string
+  technicalDetails: Record<string, unknown>
+}
+
+type LocalIdempotencyEntry = {
+  fingerprint: string
+  status: 'SUCCEEDED' | 'FAILED'
+  result?: unknown
+  error?: LocalIdempotencyFailure
+}
+
+function localWorkspaceStore(): Record<string, LocalWorkspaceState> {
+  const stored = localStorage.getItem(LOCAL_WORKSPACE_KEY)
+  if (!stored) return {}
+  try {
+    const parsed = JSON.parse(stored) as Record<string, LocalWorkspaceState>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    localStorage.removeItem(LOCAL_WORKSPACE_KEY)
+    return {}
+  }
+}
+
+function saveLocalWorkspaceStore(store: Record<string, LocalWorkspaceState>) {
+  localStorage.setItem(LOCAL_WORKSPACE_KEY, JSON.stringify(store))
+}
+
+function localIdempotencyStore(): Record<string, LocalIdempotencyEntry> {
+  const stored = localStorage.getItem(LOCAL_IDEMPOTENCY_KEY)
+  if (!stored) return {}
+  try {
+    const parsed = JSON.parse(stored) as Record<string, LocalIdempotencyEntry>
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(Object.entries(parsed).filter(([, entry]) => {
+      return Boolean(entry && typeof entry === 'object' && typeof entry.fingerprint === 'string' && (entry.status === 'SUCCEEDED' || entry.status === 'FAILED'))
+    }))
+  } catch {
+    localStorage.removeItem(LOCAL_IDEMPOTENCY_KEY)
+    return {}
+  }
+}
+
+function saveLocalIdempotencyStore(store: Record<string, LocalIdempotencyEntry>) {
+  localStorage.setItem(LOCAL_IDEMPOTENCY_KEY, JSON.stringify(store))
+}
+
+function stableLocalValue(value: unknown): string {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'number:' + String(value)
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
+  if (Array.isArray(value)) return '[' + value.map(stableLocalValue).join(',') + ']'
+  if (typeof value === 'object') {
+    return '{' + Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${stableLocalValue((value as Record<string, unknown>)[key])}`).join(',') + '}'
+  }
+  return JSON.stringify(String(value))
+}
+
+function localCommandFingerprint(payload: unknown, expectedVersions: unknown = {}): string {
+  return stableLocalValue({ payload, expectedVersions })
+}
+
+function localCommandStorageKey(commandType: string, idempotencyKey: string): string {
+  return stableLocalValue([commandType, idempotencyKey])
+}
+
+function localCommandReplay<T>(commandType: string, idempotencyKey: string, fingerprint: string): { handled: boolean; result?: T } {
+  const entry = localIdempotencyStore()[localCommandStorageKey(commandType, idempotencyKey)]
+  if (!entry) return { handled: false }
+  if (entry.fingerprint !== fingerprint) {
+    throw new CoreClientError('The idempotency key is already bound to a different request.', {
+      code: 'IDEMPOTENCY_KEY_REUSE_CONFLICT',
+      category: 'CONFLICT',
+      needsUser: true,
+    })
+  }
+  if (entry.status === 'FAILED') {
+    const failure = entry.error
+    throw new CoreClientError(failure?.message ?? 'The previous request failed.', {
+      code: failure?.code ?? 'COMMAND_FAILED',
+      category: failure?.category ?? 'UNKNOWN',
+      retryable: failure?.retryable ?? false,
+      needsUser: failure?.needsUser ?? true,
+      userMessageKey: failure?.userMessageKey,
+      technicalDetails: failure?.technicalDetails ?? {},
+    })
+  }
+  return { handled: true, result: structuredClone(entry.result) as T }
+}
+
+function localCommandSuccess(commandType: string, idempotencyKey: string, fingerprint: string, result: unknown) {
+  const store = localIdempotencyStore()
+  store[localCommandStorageKey(commandType, idempotencyKey)] = { fingerprint, status: 'SUCCEEDED', result: structuredClone(result) }
+  saveLocalIdempotencyStore(store)
+}
+
+function localCommandFailure(commandType: string, idempotencyKey: string, fingerprint: string, cause: unknown) {
+  const error = cause instanceof CoreClientError
+    ? cause
+    : new CoreClientError(cause instanceof Error ? cause.message : 'The local Core request failed.', { code: 'COMMAND_FAILED', category: 'UNKNOWN', needsUser: true })
+  const store = localIdempotencyStore()
+  store[localCommandStorageKey(commandType, idempotencyKey)] = {
+    fingerprint,
+    status: 'FAILED',
+    error: {
+      message: error.message,
+      code: error.code,
+      category: error.category,
+      retryable: error.retryable,
+      needsUser: error.needsUser,
+      userMessageKey: error.userMessageKey,
+      technicalDetails: error.technicalDetails,
+    },
+  }
+  saveLocalIdempotencyStore(store)
+}
+
+function localWorkspace(projectId: string): LocalWorkspaceState {
+  const store = localWorkspaceStore()
+  const existing = store[projectId]
+  if (existing) return existing
+  const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+  const tasks = (project?.productionItems ?? []).map((item, index): TaskSummary => ({
+    id: item.id,
+    projectId,
+    title: item.title,
+    description: item.detail,
+    status: item.state === 'done' ? 'DONE' : item.state === 'in_progress' ? 'IN_PROGRESS' : item.state === 'blocked' ? 'BLOCKED' : item.state === 'cancelled' ? 'CANCELLED' : 'PLANNED',
+    priority: 0,
+    rowVersion: 1,
+    createdAt: new Date(Date.now() + index).toISOString(),
+  }))
+  return { tasks, shots: [], notes: [], projectionSeq: 0 }
+}
+
+function persistLocalWorkspace(projectId: string, value: LocalWorkspaceState) {
+  const store = localWorkspaceStore()
+  store[projectId] = value
+  saveLocalWorkspaceStore(store)
+}
+
+/**
+ * Stable UI/Core boundary.
+ *
+ * The browser adapter speaks the versioned local Core HTTP surface. In a
+ * Tauri build the same interface can be backed by invoke() without changing
+ * the UI. A read-only mock is used when no Core endpoint is configured so the
+ * app remains useful for design review and first-run onboarding.
+ */
+export class HttpCoreClient implements CoreClient {
+  constructor(private readonly baseUrl = import.meta.env.VITE_CORE_BASE_URL ?? globalThis.window?.__CINEFORGE_CORE_BASE_URL__ ?? '') {}
+
+  isLive(): boolean {
+    return this.baseUrl.length > 0
+  }
+
+  async getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot> {
+    if (!this.baseUrl) return localSnapshot()
+    const response = await fetch(`${this.baseUrl}/v1/dashboard`, {
+      signal,
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(`Core dashboard request failed (${response.status})`)
+    const raw = await response.json() as DashboardSnapshot
+    const next: DashboardSnapshot = {
+      ...raw,
+      decisions: Array.isArray(raw.decisions) ? raw.decisions.map(mapDecisionRecord) : [],
+    }
+    if (!next || !Array.isArray(next.projects)) throw new Error('Core dashboard response is invalid')
+    // The dashboard route is intentionally lightweight. Enrich each project
+    // from the canonical workspace/activity read models when the server
+    // exposes them; a single unavailable project must not hide the rest of
+    // the dashboard.
+    const enriched = await Promise.all(next.projects.map(async (project) => {
+      try {
+        const [workspace, activity] = await Promise.all([
+          this.getProjectWorkspace(project.id, signal),
+          this.getProjectActivity(project.id, signal),
+        ])
+        const productionItems = workspace.productionItems
+        const completion = {
+          done: productionItems.filter((item) => item.state === 'done').length,
+          total: productionItems.length,
+        }
+        return {
+          ...project,
+          productionItems,
+          completion: completion.total > 0 || project.completion.total === 0 ? completion : project.completion,
+          activity: activity.map((item) => item.projectId === project.id || item.projectName === project.id ? { ...item, projectId: project.id, projectName: project.name } : item),
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') throw error
+        return { ...project, activity: [] }
+      }
+    }))
+    const projectActivity = enriched.flatMap((project) => project.activity)
+    return {
+      ...next,
+      projects: enriched.map(({ activity: _activity, ...project }) => project),
+      activity: next.activity.length > 0 ? next.activity : projectActivity,
+    }
+  }
+
+  async acknowledgeDecision(id: string): Promise<void> {
+    if (!this.baseUrl) {
+      const snapshot = localSnapshot()
+      snapshot.decisions = snapshot.decisions.filter((decision) => decision.id !== id)
+      saveLocalSnapshot(snapshot)
+      return
+    }
+    const response = await fetch(`${this.baseUrl}/v1/decisions/${encodeURIComponent(id)}/ack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'desktop-ui' }),
+    })
+    if (!response.ok) throw new Error(`Core decision acknowledgement failed (${response.status})`)
+  }
+
+  async resolveDecision(id: string, choiceId: string, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<DecisionRequest> {
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !choiceId.trim()) {
+      throw new CoreClientError('A decision choice and current version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    }
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/decisions/${encodeURIComponent(id)}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ decision_request_id: id, choice_id: choiceId, expected_decision_version: expectedVersion }),
+      })
+      return mapDecisionRecord(await readCorePayload(response, 'decision resolution'))
+    }
+    const fingerprint = localCommandFingerprint({ id, choiceId }, { DECISION_REQUEST: expectedVersion })
+    const replay = localCommandReplay<DecisionRequest>('ResolveDecisionRequest', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as DecisionRequest
+    try {
+      const snapshot = localSnapshot()
+      const current = snapshot.decisions.find((decision) => decision.id === id)
+      if (!current) throw new CoreClientError('Decision request not found or already closed.', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (current.decisionVersion !== expectedVersion) throw new CoreClientError('Decision changed. Refresh before resolving it.', { code: 'STALE_DECISION', category: 'STALE_REVISION', needsUser: true })
+      if (current.state !== 'OPEN') throw new CoreClientError('This decision is no longer open.', { code: 'DECISION_NOT_OPEN', category: 'CONFLICT', needsUser: true })
+      if (!current.choices.some((choice) => choice.id === choiceId)) throw new CoreClientError('That choice is no longer available.', { code: 'INVALID_DECISION_CHOICE', category: 'VALIDATION', needsUser: true })
+      const resolved: DecisionRequest = { ...current, state: 'RESOLVED', resolvedChoiceId: choiceId, decisionVersion: current.decisionVersion + 1, resolvedAt: new Date().toISOString() }
+      snapshot.decisions = snapshot.decisions.filter((decision) => decision.id !== id)
+      snapshot.generatedAt = new Date().toISOString()
+      saveLocalSnapshot(snapshot)
+      localCommandSuccess('ResolveDecisionRequest', idempotencyKey, fingerprint, resolved)
+      return resolved
+    } catch (cause) {
+      localCommandFailure('ResolveDecisionRequest', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async dismissDecision(id: string, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<DecisionRequest> {
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new CoreClientError('A current decision version is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    }
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/decisions/${encodeURIComponent(id)}/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ decision_request_id: id, expected_decision_version: expectedVersion }),
+      })
+      return mapDecisionRecord(await readCorePayload(response, 'decision dismissal'))
+    }
+    const fingerprint = localCommandFingerprint({ id }, { DECISION_REQUEST: expectedVersion })
+    const replay = localCommandReplay<DecisionRequest>('DismissDecisionRequest', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as DecisionRequest
+    try {
+      const snapshot = localSnapshot()
+      const current = snapshot.decisions.find((decision) => decision.id === id)
+      if (!current) throw new CoreClientError('Decision request not found or already closed.', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (current.decisionVersion !== expectedVersion) throw new CoreClientError('Decision changed. Refresh before dismissing it.', { code: 'STALE_DECISION', category: 'STALE_REVISION', needsUser: true })
+      if (current.state !== 'OPEN') throw new CoreClientError('This decision is no longer open.', { code: 'DECISION_NOT_OPEN', category: 'CONFLICT', needsUser: true })
+      const dismissed: DecisionRequest = { ...current, state: 'DISMISSED', decisionVersion: current.decisionVersion + 1, resolvedAt: new Date().toISOString() }
+      snapshot.decisions = snapshot.decisions.filter((decision) => decision.id !== id)
+      snapshot.generatedAt = new Date().toISOString()
+      saveLocalSnapshot(snapshot)
+      localCommandSuccess('DismissDecisionRequest', idempotencyKey, fingerprint, dismissed)
+      return dismissed
+    } catch (cause) {
+      localCommandFailure('DismissDecisionRequest', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async createProject(name: string): Promise<ProjectSummary> {
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
+      if (!response.ok) throw new Error(`Core project creation failed (${response.status})`)
+      return response.json() as Promise<ProjectSummary>
+    }
+    const snapshot = localSnapshot()
+    const project: ProjectSummary = {
+      id: `project-${Date.now().toString(36)}`,
+      name,
+      kind: 'Phim ngắn',
+      updatedAt: 'Vừa tạo',
+      stage: 'Chuẩn bị',
+      stageDetail: 'Chưa có cảnh quay',
+      cover: 'linear-gradient(145deg, #7664a9 0%, #35446a 56%, #171c2a 100%)',
+      accent: '#b9a0ff',
+      completion: { done: 0, total: 0 },
+      health: 'attention',
+      nextAction: 'Thêm production item đầu tiên',
+      nextActionLabel: 'Mở dự án',
+      storage: '0 B',
+      productionItems: [],
+    }
+    snapshot.projects = [project, ...snapshot.projects]
+    snapshot.generatedAt = new Date().toISOString()
+    saveLocalSnapshot(snapshot)
+    return project
+  }
+
+  async addProductionItem(projectId: string, title: string): Promise<ProductionItem> {
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/production-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
+      if (!response.ok) throw new Error(`Core production item creation failed (${response.status})`)
+      return response.json() as Promise<ProductionItem>
+    }
+    const snapshot = localSnapshot()
+    const project = snapshot.projects.find((candidate) => candidate.id === projectId)
+    if (!project) throw new Error('Project no longer exists in Core')
+    const item: ProductionItem = { id: `${projectId}-item-${Date.now().toString(36)}`, title, detail: 'Mới tạo · chưa bắt đầu', state: 'todo' }
+    project.productionItems = [...(project.productionItems ?? []), item]
+    project.completion.total = Math.max(project.completion.total, project.productionItems.length)
+    project.updatedAt = 'Vừa cập nhật'
+    saveLocalSnapshot(snapshot)
+    const state = localWorkspace(projectId)
+    const task: TaskSummary = { id: item.id, projectId, title, description: item.detail, status: 'PLANNED', priority: 0, rowVersion: 1, createdAt: new Date().toISOString() }
+    if (!state.tasks.some((candidate) => candidate.id === task.id)) persistLocalWorkspace(projectId, { ...state, tasks: [...state.tasks, task], projectionSeq: state.projectionSeq + 1 })
+    return item
+  }
+
+  async createTask(projectId: string, title: string, options: { description?: string; priority?: number; idempotencyKey?: string } = {}): Promise<TaskSummary> {
+    const normalizedTitle = title.trim()
+    if (!normalizedTitle || normalizedTitle.length > 500) throw new CoreClientError('A task title is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const { idempotencyKey, ...taskOptions } = options
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey ?? crypto.randomUUID() },
+        body: JSON.stringify({ title: normalizedTitle, ...taskOptions }),
+      })
+      return mapTaskRecord(await readCorePayload(response, 'task creation'))
+    }
+    const requestKey = idempotencyKey ?? crypto.randomUUID()
+    const description = taskOptions.description ?? ''
+    const priority = taskOptions.priority ?? 0
+    const fingerprint = localCommandFingerprint({ projectId, title: normalizedTitle, description, priority })
+    const replay = localCommandReplay<TaskSummary>('CreateTask', requestKey, fingerprint)
+    if (replay.handled) return replay.result as TaskSummary
+    try {
+      const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+      if (!project) throw new CoreClientError('Project not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      const state = localWorkspace(projectId)
+      if (description.length > 10000 || !Number.isSafeInteger(priority) || priority < -1000 || priority > 1000) throw new CoreClientError('Task fields are invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      const task: TaskSummary = { id: `${projectId}-task-${crypto.randomUUID()}`, projectId, title: normalizedTitle, description, status: 'PLANNED', priority, rowVersion: 1, createdAt: new Date().toISOString() }
+      const next = { ...state, tasks: [...state.tasks, task], projectionSeq: state.projectionSeq + 1 }
+      persistLocalWorkspace(projectId, next)
+      syncLocalTasks(projectId, next.tasks)
+      localCommandSuccess('CreateTask', requestKey, fingerprint, task)
+      return task
+    } catch (cause) {
+      localCommandFailure('CreateTask', requestKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async updateTask(taskId: string, patch: { title?: string; description?: string; priority?: number; status?: TaskStatus }, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<TaskSummary> {
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ command_type: 'UpdateTask', payload: { task_id: taskId, ...patch }, expected_versions: { TASK: expectedVersion } }),
+      })
+      return mapTaskRecord(await readCorePayload(response, 'task update'))
+    }
+    const fingerprint = localCommandFingerprint({ taskId, patch }, { TASK: expectedVersion })
+    const replay = localCommandReplay<TaskSummary>('UpdateTask', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as TaskSummary
+    try {
+      const store = localWorkspaceStore()
+      const entry = Object.entries(store).find(([, value]) => value.tasks.some((task) => task.id === taskId))
+      if (!entry) throw new CoreClientError('Task not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      const [projectId, state] = entry
+      const current = state.tasks.find((task) => task.id === taskId)
+      if (!current) throw new CoreClientError('Task not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (current.rowVersion !== expectedVersion) throw new CoreClientError('Workspace changed. Refresh before retrying.', { code: 'STALE_REVISION', category: 'STALE_REVISION', needsUser: true })
+      if (patch.title !== undefined && (typeof patch.title !== 'string' || !patch.title.trim() || patch.title.trim().length > 500)) throw new CoreClientError('A task title is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.description !== undefined && (typeof patch.description !== 'string' || patch.description.length > 10000)) throw new CoreClientError('Task description is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.priority !== undefined && (!Number.isSafeInteger(patch.priority) || patch.priority < -1000 || patch.priority > 1000)) throw new CoreClientError('Task priority is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.status !== undefined && !['PLANNED', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'].includes(patch.status)) throw new CoreClientError('Task status is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.status && patch.status !== current.status && !taskTransitionsFor(current.status).includes(patch.status)) throw new CoreClientError('That task state change is not allowed.', { code: 'INVALID_STATE_TRANSITION', category: 'CONFLICT', needsUser: true })
+      const updated = { ...current, ...patch, ...(patch.title !== undefined ? { title: patch.title.trim() } : {}), rowVersion: current.rowVersion + 1, updatedAt: new Date().toISOString() }
+      const next = { ...state, tasks: state.tasks.map((task) => task.id === taskId ? updated : task), projectionSeq: state.projectionSeq + 1 }
+      persistLocalWorkspace(projectId, next)
+      syncLocalTasks(projectId, next.tasks)
+      localCommandSuccess('UpdateTask', idempotencyKey, fingerprint, updated)
+      return updated
+    } catch (cause) {
+      localCommandFailure('UpdateTask', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async createShot(projectId: string, code: string, title: string, idempotencyKey = crypto.randomUUID()): Promise<ShotSummary> {
+    const normalizedCode = code.trim().toUpperCase()
+    const normalizedTitle = title.trim()
+    if (!/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(normalizedCode) || !normalizedTitle || normalizedTitle.length > 500) throw new CoreClientError('Shot code and title are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/shots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ code: normalizedCode, title: normalizedTitle }),
+      })
+      return mapShotRecord(await readCorePayload(response, 'shot creation'))
+    }
+    const fingerprint = localCommandFingerprint({ projectId, code: normalizedCode, title: normalizedTitle })
+    const replay = localCommandReplay<ShotSummary>('CreateShot', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as ShotSummary
+    try {
+      const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+      if (!project) throw new CoreClientError('Project not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      const state = localWorkspace(projectId)
+      if (state.shots.some((shot) => shot.code.toLowerCase() === normalizedCode.toLowerCase())) throw new CoreClientError('Shot code already exists in this project.', { code: 'DUPLICATE_SHOT_CODE', category: 'CONFLICT', needsUser: true })
+      const shot: ShotSummary = { id: `${projectId}-shot-${crypto.randomUUID()}`, projectId, code: normalizedCode, title: normalizedTitle, lifecycleState: 'ACTIVE', rowVersion: 1, createdAt: new Date().toISOString() }
+      persistLocalWorkspace(projectId, { ...state, shots: [...state.shots, shot], projectionSeq: state.projectionSeq + 1 })
+      localCommandSuccess('CreateShot', idempotencyKey, fingerprint, shot)
+      return shot
+    } catch (cause) {
+      localCommandFailure('CreateShot', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async updateShot(shotId: string, patch: { title?: string; lifecycleState?: ShotLifecycleState }, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<ShotSummary> {
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ command_type: 'UpdateShot', payload: { shot_id: shotId, ...patch, ...(patch.lifecycleState ? { lifecycle_state: patch.lifecycleState } : {}) }, expected_versions: { SHOT: expectedVersion } }),
+      })
+      return mapShotRecord(await readCorePayload(response, 'shot update'))
+    }
+    const fingerprint = localCommandFingerprint({ shotId, patch }, { SHOT: expectedVersion })
+    const replay = localCommandReplay<ShotSummary>('UpdateShot', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as ShotSummary
+    try {
+      const store = localWorkspaceStore()
+      const entry = Object.entries(store).find(([, value]) => value.shots.some((shot) => shot.id === shotId))
+      if (!entry) throw new CoreClientError('Shot not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      const [projectId, state] = entry
+      const current = state.shots.find((shot) => shot.id === shotId)
+      if (!current) throw new CoreClientError('Shot not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (current.rowVersion !== expectedVersion) throw new CoreClientError('Workspace changed. Refresh before retrying.', { code: 'STALE_REVISION', category: 'STALE_REVISION', needsUser: true })
+      if (patch.title !== undefined && (typeof patch.title !== 'string' || !patch.title.trim() || patch.title.trim().length > 500)) throw new CoreClientError('A shot title is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.lifecycleState !== undefined && !['ACTIVE', 'PAUSED', 'ARCHIVED', 'TRASHED'].includes(patch.lifecycleState)) throw new CoreClientError('Shot lifecycle is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      if (patch.lifecycleState && patch.lifecycleState !== current.lifecycleState && !shotTransitionsFor(current.lifecycleState).includes(patch.lifecycleState)) throw new CoreClientError('That shot lifecycle change is not allowed.', { code: 'INVALID_STATE_TRANSITION', category: 'CONFLICT', needsUser: true })
+      const updated = { ...current, ...patch, ...(patch.title !== undefined ? { title: patch.title.trim() } : {}), rowVersion: current.rowVersion + 1, updatedAt: new Date().toISOString() }
+      persistLocalWorkspace(projectId, { ...state, shots: state.shots.map((shot) => shot.id === shotId ? updated : shot), projectionSeq: state.projectionSeq + 1 })
+      localCommandSuccess('UpdateShot', idempotencyKey, fingerprint, updated)
+      return updated
+    } catch (cause) {
+      localCommandFailure('UpdateShot', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async addNote(projectId: string, target: { entityType: WorkspaceNoteEntityType; entityId: string }, body: string, idempotencyKey = crypto.randomUUID()): Promise<NoteSummary> {
+    if (this.baseUrl) {
+      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ entity_type: target.entityType, entity_id: target.entityId, body }),
+      })
+      return mapNoteRecord(await readCorePayload(response, 'note creation'))
+    }
+    const normalizedBody = typeof body === 'string' ? body.trim() : ''
+    const fingerprint = localCommandFingerprint({ projectId, target, body: normalizedBody })
+    const replay = localCommandReplay<NoteSummary>('AddNote', idempotencyKey, fingerprint)
+    if (replay.handled) return replay.result as NoteSummary
+    try {
+      const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+      if (!project) throw new CoreClientError('Project not found', { code: 'NOT_FOUND', category: 'VALIDATION' })
+      if (!['PROJECT', 'TASK', 'SHOT'].includes(target.entityType) || typeof target.entityId !== 'string' || !target.entityId.trim()) throw new CoreClientError('Note target is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      const state = localWorkspace(projectId)
+      if (target.entityType === 'TASK' && !state.tasks.some((task) => task.id === target.entityId)) throw new CoreClientError('Task does not belong to this project.', { code: 'ENTITY_SCOPE_MISMATCH', category: 'CONFLICT', needsUser: true })
+      if (target.entityType === 'SHOT' && !state.shots.some((shot) => shot.id === target.entityId)) throw new CoreClientError('Shot does not belong to this project.', { code: 'ENTITY_SCOPE_MISMATCH', category: 'CONFLICT', needsUser: true })
+      if (target.entityType === 'PROJECT' && target.entityId !== projectId) throw new CoreClientError('Project scope does not match.', { code: 'ENTITY_SCOPE_MISMATCH', category: 'CONFLICT', needsUser: true })
+      if (!normalizedBody || normalizedBody.length > 50000) throw new CoreClientError('A note body is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+      const note: NoteSummary = { id: `${projectId}-note-${crypto.randomUUID()}`, projectId, entityType: target.entityType, entityId: target.entityId, body: normalizedBody, createdAt: new Date().toISOString() }
+      const next = { ...state, notes: [note, ...state.notes], projectionSeq: state.projectionSeq + 1 }
+      persistLocalWorkspace(projectId, next)
+      localCommandSuccess('AddNote', idempotencyKey, fingerprint, note)
+      return note
+    } catch (cause) {
+      localCommandFailure('AddNote', idempotencyKey, fingerprint, cause)
+      throw cause
+    }
+  }
+
+  async getProjectWorkspace(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace> {
+    if (!this.baseUrl) {
+      const project = localSnapshot().projects.find((candidate) => candidate.id === projectId)
+      if (!project) throw new Error('Project no longer exists in Core')
+      const state = localWorkspace(projectId)
+      const productionItems = state.tasks.map(taskToProductionItem)
+      return { projectId, productionItems, tasks: structuredClone(state.tasks), shots: structuredClone(state.shots), notes: structuredClone(state.notes), shotsCount: state.shots.length, notesCount: state.notes.length, projectionSeq: state.projectionSeq, generatedAt: new Date().toISOString() }
+    }
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/workspace`, { signal, headers: { Accept: 'application/json' } })
+    const payload = await readCorePayload(response, 'workspace')
+    const result = asRecord(payload)
+    const taskSources = arrayValue(result.tasks ?? result.production_items ?? result.productionItems)
+    const counts = asRecord(result.counts)
+    const tasks = taskSources.map(mapTaskRecord)
+    const shots = arrayValue(result.shots).map(mapShotRecord)
+    const notes = arrayValue(result.notes).map(mapNoteRecord)
+    const productionItems = tasks.map(taskToProductionItem)
+    return {
+      projectId,
+      productionItems,
+      tasks,
+      shots,
+      notes,
+      shotsCount: numberValue(result.shots_count ?? result.shotsCount ?? counts.shots ?? shots.length, shots.length),
+      notesCount: numberValue(result.notes_count ?? result.notesCount ?? counts.notes ?? notes.length, notes.length),
+      projectionSeq: numberValue(result.projection_seq ?? result.projectionSeq, 0),
+      generatedAt: stringValue(result.generated_at ?? result.generatedAt),
+    }
+  }
+
+  async getProjectActivity(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]> {
+    if (!this.baseUrl) {
+      const snapshot = localSnapshot()
+      const project = snapshot.projects.find((candidate) => candidate.id === projectId)
+      return project ? snapshot.activity.filter((item) => item.projectId === project.id || item.projectName === project.name) : []
+    }
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/activity`, { signal, headers: { Accept: 'application/json' } })
+    const payload = await readCorePayload(response, 'activity')
+    const result = asRecord(payload)
+    const sources = arrayValue(result.activity ?? result.items ?? result.events ?? payload)
+    return sources.map((source, index) => mapActivityRecord(source, projectId, index))
+  }
+
+  async getAssets(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]> {
+    if (!this.baseUrl) return []
+    const endpoint = projectId
+      ? `${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/assets`
+      : `${this.baseUrl}/v1/assets`
+    const response = await fetch(endpoint, { signal, headers: { Accept: 'application/json' } })
+    const payload = await readCorePayload(response, 'assets')
+    const result = asRecord(payload)
+    return arrayValue(result.assets).map(mapAssetRecord)
+  }
+
+  async stageAsset(file: File): Promise<StagedAsset> {
+    if (!this.baseUrl) throw new Error('File staging requires a connected Core')
+    const response = await fetch(`${this.baseUrl}/v1/desktop/stage`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        // HTTP header values are byte strings. Encode the browser filename as
+        // bounded UTF-8 base64url so Vietnamese/CJK/emoji names survive the
+        // local boundary without parser failures or mojibake.
+        'X-CineForge-Filename-B64': encodeFilenameHeader(file.name),
+      },
+      body: file,
+    })
+    const payload = await readCorePayload(response, 'file staging')
+    const result = asRecord(payload)
+    const handle = stringValue(result.handle)
+    if (!handle) throw new Error('Core did not return a staging handle')
+    return {
+      handle,
+      name: stringValue(result.name) ?? file.name,
+      mimeType: stringValue(result.mimeType ?? result.mime_type) ?? file.type,
+      byteSize: numberValue(result.byteSize ?? result.byte_size, file.size),
+    }
+  }
+
+  async importAsset(input: ImportAssetInput): Promise<AssetSummary> {
+    if (!this.baseUrl) throw new Error('Asset import requires a connected Core')
+    if (!input.sourcePath && !input.sourceHandle) throw new Error('An asset path or staging handle is required')
+    const endpoint = input.projectId
+      ? `${this.baseUrl}/v1/projects/${encodeURIComponent(input.projectId)}/assets`
+      : `${this.baseUrl}/v1/assets`
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': input.idempotencyKey ?? crypto.randomUUID() },
+      body: JSON.stringify({
+        ...(input.sourcePath ? { source_path: input.sourcePath } : {}),
+        ...(input.sourceHandle ? { source_handle: input.sourceHandle } : {}),
+        ...(input.projectId ? { project_id: input.projectId } : {}),
+        ...(input.originalName ? { original_name: input.originalName } : {}),
+        ...(input.displayName ? { display_name: input.displayName } : {}),
+        ...(input.assetType ? { asset_type: input.assetType } : {}),
+        ...(input.semanticRole ? { semantic_role: input.semanticRole } : {}),
+        ...(input.storageMode ? { storage_mode: input.storageMode } : {}),
+        ...(input.contentHash ? { content_hash: input.contentHash } : {}),
+        ...(input.mimeType ? { mime_type: input.mimeType } : {}),
+        ...(input.intentHint ? { intent_hint: input.intentHint } : {}),
+      }),
+    })
+    const payload = await readCorePayload(response, 'asset import')
+    return mapAssetRecord(payload)
+  }
+}
+
+async function readCorePayload(response: Response, label: string): Promise<unknown> {
+  let payload: unknown = null
+  try { payload = await response.json() } catch { /* handled below */ }
+  const envelope = asRecord(payload)
+  if (!response.ok || envelope.ok === false) {
+    const error = asRecord(envelope.error)
+    const technicalDetails = asRecord(error.technical_details ?? error.technicalDetails)
+    throw new CoreClientError(
+      stringValue(error.user_message_key ?? error.message) ?? `Core ${label} request failed (${response.status})`,
+      {
+        code: stringValue(error.code) ?? `HTTP_${response.status}`,
+        category: stringValue(error.category) ?? 'UNKNOWN',
+        retryable: Boolean(error.retryable),
+        needsUser: error.needs_user === undefined ? true : Boolean(error.needs_user),
+        userMessageKey: stringValue(error.user_message_key),
+        technicalDetails,
+      },
+    )
+  }
+  return envelope.result ?? payload
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function encodeFilenameHeader(filename: string): string {
+  const bytes = new TextEncoder().encode(filename.slice(0, 255))
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : fallback
+}
+
+function integerValue(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isSafeInteger(numeric) && numeric >= minimum && numeric <= maximum ? numeric : fallback
+}
+
+function mapProductionItemRecord(value: unknown, index: number): ProductionItem {
+  const source = asRecord(value)
+  const rawState = stringValue(source.state ?? source.status ?? source.lifecycle_state) ?? 'todo'
+  const state: ProductionItem['state'] = ['DONE', 'COMPLETE', 'completed', 'done'].includes(rawState) ? 'done' : ['RUNNING', 'IN_PROGRESS', 'running', 'in_progress'].includes(rawState) ? 'in_progress' : ['BLOCKED', 'blocked'].includes(rawState) ? 'blocked' : ['CANCELLED', 'cancelled'].includes(rawState) ? 'cancelled' : 'todo'
+  return {
+    id: stringValue(source.id ?? source.task_id) ?? `workspace-item-${index}`,
+    title: stringValue(source.title ?? source.name) ?? 'Production item',
+    detail: stringValue(source.detail ?? source.description) ?? (state === 'done' ? 'Đã hoàn tất' : 'Mới tạo · chưa bắt đầu'),
+    state,
+  }
+}
+
+function taskToProductionItem(task: TaskSummary): ProductionItem {
+  const state: ProductionItem['state'] = task.status === 'DONE' ? 'done' : task.status === 'IN_PROGRESS' ? 'in_progress' : task.status === 'BLOCKED' ? 'blocked' : task.status === 'CANCELLED' ? 'cancelled' : 'todo'
+  return {
+    id: task.id,
+    title: task.title,
+    detail: task.description || (task.status === 'BLOCKED' ? 'Đang bị chặn' : task.status === 'CANCELLED' ? 'Đã huỷ' : 'Mới tạo · chưa bắt đầu'),
+    state,
+  }
+}
+
+function mapTaskRecord(value: unknown): TaskSummary {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.task ?? envelope.result ?? value)
+  const rawStatus = stringValue(source.status ?? source.state) ?? 'PLANNED'
+  const status: TaskStatus = ['PLANNED', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'].includes(rawStatus) ? rawStatus as TaskStatus : 'PLANNED'
+  return {
+    id: stringValue(source.id ?? source.task_id) ?? `task-${crypto.randomUUID()}`,
+    projectId: stringValue(source.project_id ?? source.projectId) ?? '',
+    title: stringValue(source.title) ?? 'Production task',
+    description: typeof source.description === 'string' ? source.description : '',
+    status,
+    priority: integerValue(source.priority, 0, -1000, 1000),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapShotRecord(value: unknown): ShotSummary {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.shot ?? envelope.result ?? value)
+  const rawState = stringValue(source.lifecycle_state ?? source.lifecycleState ?? source.state) ?? 'ACTIVE'
+  const lifecycleState: ShotLifecycleState = ['ACTIVE', 'PAUSED', 'ARCHIVED', 'TRASHED'].includes(rawState) ? rawState as ShotLifecycleState : 'ACTIVE'
+  return {
+    id: stringValue(source.id ?? source.shot_id) ?? `shot-${crypto.randomUUID()}`,
+    projectId: stringValue(source.project_id ?? source.projectId) ?? '',
+    code: stringValue(source.code) ?? 'SHOT',
+    title: stringValue(source.title) ?? 'Planning shot',
+    lifecycleState,
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapNoteRecord(value: unknown): NoteSummary {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.note ?? envelope.result ?? value)
+  const rawType = stringValue(source.entity_type ?? source.entityType) ?? 'PROJECT'
+  const entityType: WorkspaceNoteEntityType = ['PROJECT', 'TASK', 'SHOT'].includes(rawType) ? rawType as WorkspaceNoteEntityType : 'PROJECT'
+  return {
+    id: stringValue(source.id ?? source.note_id) ?? `note-${crypto.randomUUID()}`,
+    projectId: stringValue(source.project_id ?? source.projectId) ?? '',
+    entityType,
+    entityId: stringValue(source.entity_id ?? source.entityId) ?? '',
+    body: stringValue(source.body) ?? '',
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function syncLocalTasks(projectId: string, tasks: TaskSummary[]) {
+  const snapshot = localSnapshot()
+  const project = snapshot.projects.find((candidate) => candidate.id === projectId)
+  if (!project) return
+  project.productionItems = tasks.map(taskToProductionItem)
+  project.completion = { done: tasks.filter((task) => task.status === 'DONE').length, total: tasks.length }
+  project.health = project.health === 'blocked' ? 'blocked' : tasks.some((task) => task.status === 'BLOCKED') ? 'attention' : 'healthy'
+  project.updatedAt = 'Vừa cập nhật'
+  saveLocalSnapshot(snapshot)
+}
+
+function taskTransitionsFor(status: TaskStatus): TaskStatus[] {
+  const transitions: Record<TaskStatus, TaskStatus[]> = {
+    PLANNED: ['IN_PROGRESS', 'BLOCKED', 'CANCELLED'],
+    IN_PROGRESS: ['DONE', 'BLOCKED', 'CANCELLED'],
+    BLOCKED: ['PLANNED', 'IN_PROGRESS', 'CANCELLED'],
+    DONE: [],
+    CANCELLED: [],
+  }
+  return transitions[status]
+}
+
+function shotTransitionsFor(state: ShotLifecycleState): ShotLifecycleState[] {
+  const transitions: Record<ShotLifecycleState, ShotLifecycleState[]> = {
+    ACTIVE: ['PAUSED', 'ARCHIVED', 'TRASHED'],
+    PAUSED: ['ACTIVE', 'ARCHIVED', 'TRASHED'],
+    ARCHIVED: ['TRASHED'],
+    TRASHED: ['ACTIVE'],
+  }
+  return transitions[state]
+}
+
+function humanizeDecisionKey(value: string | undefined, fallback: string): string {
+  if (!value) return fallback
+  const text = value.replace(/^[a-z0-9]+\./i, '').replace(/[_-]+/g, ' ').trim()
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : fallback
+}
+
+function decisionAge(createdAt: string | undefined): string {
+  if (!createdAt) return 'Vừa cập nhật'
+  const timestamp = Date.parse(createdAt)
+  if (!Number.isFinite(timestamp)) return 'Vừa cập nhật'
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000))
+  if (minutes < 1) return 'Vừa xong'
+  if (minutes < 60) return `${minutes} phút trước`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} giờ trước`
+  const days = Math.floor(hours / 24)
+  return days === 1 ? 'Hôm qua' : `${days} ngày trước`
+}
+
+function mapDecisionRecord(value: unknown): DecisionRequest {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.decision ?? envelope.decision_request ?? envelope.result ?? value)
+  const rawState = stringValue(source.state) ?? 'OPEN'
+  const state: DecisionRequest['state'] = ['OPEN', 'RESOLVED', 'DISMISSED', 'EXPIRED', 'OBSOLETE'].includes(rawState) ? rawState as DecisionRequest['state'] : 'OPEN'
+  const rawSeverity = stringValue(source.severity ?? source.priority) ?? 'NORMAL'
+  const severity = rawSeverity.toUpperCase()
+  const createdAt = stringValue(source.created_at ?? source.createdAt)
+  const titleKey = stringValue(source.title_key ?? source.titleKey)
+  const reasonKey = stringValue(source.reason_key ?? source.reasonKey)
+  const title = stringValue(source.title) ?? humanizeDecisionKey(titleKey, 'Decision needed')
+  const reason = stringValue(source.reason ?? source.detail) ?? humanizeDecisionKey(reasonKey, 'Core is waiting for your decision.')
+  const choices = arrayValue(source.choices ?? source.decision_choices).map((value, index) => {
+    const choice = asRecord(value)
+    const labelKey = stringValue(choice.label_key ?? choice.labelKey)
+    return {
+      id: stringValue(choice.id) ?? `choice-${index + 1}`,
+      labelKey,
+      label: stringValue(choice.label) ?? humanizeDecisionKey(labelKey, `Choice ${index + 1}`),
+      commandTemplate: choice.command_template ?? choice.commandTemplate,
+      consequenceSummary: choice.consequence_summary ?? choice.consequenceSummary,
+      recommended: Boolean(choice.recommended),
+    }
+  })
+  const projectId = stringValue(source.project_id ?? source.projectId) ?? 'studio'
+  const rawDefaultBehavior = source.default_behavior ?? source.defaultBehavior
+  const defaultBehavior = typeof rawDefaultBehavior === 'string'
+    ? rawDefaultBehavior
+    : asRecord(rawDefaultBehavior).label_key
+      ? humanizeDecisionKey(stringValue(asRecord(rawDefaultBehavior).label_key), '')
+      : asRecord(rawDefaultBehavior).action
+        ? humanizeDecisionKey(stringValue(asRecord(rawDefaultBehavior).action), '')
+        : undefined
+  const rawAge = stringValue(source.age)
+  return {
+    id: stringValue(source.id ?? source.decision_request_id) ?? `decision-${crypto.randomUUID()}`,
+    projectId,
+    projectName: stringValue(source.project_name ?? source.projectName ?? source.project_title ?? source.projectTitle) ?? (projectId === 'studio' ? 'Studio' : projectId),
+    decisionType: stringValue(source.decision_type ?? source.decisionType) ?? 'GENERAL',
+    title,
+    titleKey,
+    detail: stringValue(source.detail) ?? reason,
+    reason,
+    reasonKey,
+    reasonArgs: asRecord(source.reason_args ?? source.reasonArgs),
+    blockingScopeType: stringValue(source.blocking_scope_type ?? source.blockingScopeType) ?? 'SYSTEM',
+    blockingScopeId: stringValue(source.blocking_scope_id ?? source.blockingScopeId),
+    severity,
+    state,
+    decisionVersion: numberValue(source.decision_version ?? source.decisionVersion ?? source.row_version, 1),
+    choices,
+    recommendedChoiceId: stringValue(source.recommended_choice_id ?? source.recommendedChoiceId),
+    deadlineAt: stringValue(source.deadline_at ?? source.deadlineAt),
+    defaultBehavior,
+    requiredAuthority: stringValue(source.required_authority ?? source.requiredAuthority),
+    evidence: Array.isArray(source.evidence) ? source.evidence : [],
+    resolvedChoiceId: stringValue(source.resolved_choice_id ?? source.resolvedChoiceId),
+    createdAt,
+    resolvedAt: stringValue(source.resolved_at ?? source.resolvedAt),
+    age: rawAge && !Number.isFinite(Date.parse(rawAge)) ? rawAge : decisionAge(createdAt),
+    priority: severity === 'HIGH' || severity === 'CRITICAL' ? 'high' : 'normal',
+    actionLabel: stringValue(source.action_label ?? source.actionLabel) ?? (choices[0]?.label ?? 'Review'),
+  }
+}
+
+function mapActivityRecord(value: unknown, projectId: string, index: number): ActivityItem {
+  const source = asRecord(value)
+  const rawState = stringValue(source.state ?? source.status ?? source.lifecycle_state) ?? 'waiting'
+  const states: WorkState[] = ['running', 'needs_user', 'complete', 'blocked', 'waiting']
+  const state = states.includes(rawState as WorkState) ? rawState as WorkState : rawState.toLowerCase().includes('block') ? 'blocked' : rawState.toLowerCase().includes('complete') || rawState.toLowerCase().includes('done') ? 'complete' : 'waiting'
+  return {
+    id: stringValue(source.id ?? source.event_id) ?? `${projectId}-activity-${index}`,
+    projectId: stringValue(source.project_id ?? source.projectId) ?? projectId,
+    projectName: stringValue(source.project_name ?? source.projectName) ?? projectId,
+    label: stringValue(source.label ?? source.title ?? source.event_type) ?? 'Core activity',
+    detail: stringValue(source.detail ?? source.description) ?? 'Activity recorded by Core',
+    state,
+    milestone: stringValue(source.milestone ?? source.message),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt ?? source.created_at) ?? 'Vừa cập nhật',
+    actionable: Boolean(source.actionable ?? source.needs_user),
+  }
+}
+
+function mapAssetRecord(value: unknown): AssetSummary {
+  const source = asRecord(value)
+  const asset = asRecord(source.asset ?? source)
+  const revision = asRecord(asset.latest_revision ?? asset.latestRevision ?? source.revision)
+  const storage = asRecord(revision.storage_object)
+  const location = Array.isArray(revision.locations) ? asRecord(revision.locations[0]) : {}
+  const warnings = Array.isArray(source.warnings) ? source.warnings.filter((item): item is string => typeof item === 'string') : []
+  return {
+    id: stringValue(asset.id) ?? `asset-${Math.random().toString(36).slice(2)}`,
+    projectId: stringValue(asset.project_id ?? asset.projectId),
+    name: stringValue(asset.display_name ?? asset.name) ?? 'Imported asset',
+    assetType: stringValue(asset.asset_type ?? asset.assetType) ?? 'GENERIC',
+    originType: stringValue(asset.origin_type ?? asset.originType) ?? 'IMPORTED',
+    state: stringValue(asset.lifecycle_state ?? asset.state) ?? 'ACTIVE',
+    availability: stringValue(asset.availability ?? revision.availability_state ?? revision.availability) ?? 'AVAILABLE',
+    readinessState: ['READY', 'UNKNOWN', 'REVIEW_REQUIRED'].includes(String(asset.readinessState ?? asset.readiness_state ?? revision.readiness_state).toUpperCase())
+      ? String(asset.readinessState ?? asset.readiness_state ?? revision.readiness_state).toUpperCase() as AssetSummary['readinessState'] : 'UNKNOWN',
+    revisionId: stringValue(asset.revisionId ?? asset.revision_id ?? revision.id ?? revision.revision_id ?? revision.revisionId),
+    hashAlgorithm: stringValue(asset.hashAlgorithm ?? asset.hash_algorithm ?? storage.hash_algorithm ?? storage.hashAlgorithm),
+    contentHash: stringValue(asset.contentHash ?? asset.content_hash ?? storage.content_hash ?? storage.contentHash),
+    byteSize: numberValue(asset.byteSize ?? asset.byte_size ?? storage.byte_size ?? storage.byteSize, 0),
+    storageUri: stringValue(asset.storageUri ?? asset.storage_uri ?? location.path_or_uri ?? location.pathOrUri),
+    provenance: asRecord(revision.provenance),
+    importSessionId: stringValue(asset.importSessionId ?? asRecord(source.import_session).id ?? source.importSessionId),
+    importItemId: stringValue(asset.importItemId ?? asRecord(source.import_item).id ?? source.importItemId),
+    warnings,
+    latestRevision: revision,
+  }
+}
+
+/** Injectable factory for Tauri, browser, and deterministic tests. */
+export function createCoreClient(bridge?: CoreBridge): CoreClient {
+  if (bridge) return bridge
+  return new HttpCoreClient()
+}

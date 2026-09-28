@@ -83,7 +83,7 @@ Winner selection:
 
 This protects against scheduler overlap before a Draft PR exists.
 
-Task-level deterministic claim branch remains the authoritative duplicate-task protection.
+Task-level CLAIM_INTENT_V1 election + deterministic branch association protect duplicate task claims. The branch is not used alone to infer claimant identity after ambiguous network outcomes.
 
 # 5. Work chat
 

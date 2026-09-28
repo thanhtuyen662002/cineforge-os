@@ -9,7 +9,7 @@ https://github.com/thanhtuyen662002/cineforge-os
 RUNTIME:
 AGENT_INSTANCE_ID=<stable logical id>
 RUN_ID=<unique invocation id>
-SLOT_ID=<slot id or WORK>
+SLOT_ID=<stable slot id, e.g. S03 or WORK-<id>>
 SLOT_COUNT=<current capacity>
 MODE=<WORK|SCHEDULED>
 ROLE_AFFINITY=<optional list>
@@ -36,6 +36,42 @@ PRE-FLIGHT:
 CONTROL BEHAVIOR:
 If your role includes Planner/Flow/Integrator/QA, first inspect global throughput health.
 Prefer removing the largest critical-path bottleneck over starting low-value work.
+Before treating a structured event as control truth, validate its exact envelope
+and payload with `docs/orchestration/control_event_lint.py`; use the canonical
+schema in `CONTROL_EVENT_CONTRACTS.json`.  A passing parser does not replace
+the trusted-author and live-GitHub reconciliation checks.
+For an L4 recovery/storage contract slice, also run
+`l4_recovery_selftest.py` and `l4_recovery_gate.py`; these are reference
+fixtures only and must keep runtime evidence parked until an independent
+product implementation exists.
+
+For an L5 untrusted-input/IPC/parser/supply-chain contract slice, also run
+`l5_security_selftest.py`, `l5_security_gate.py` and
+`l5_security_gate_selftest.py`; these are reference fixtures only and must
+keep runtime evidence parked until an independent product implementation and
+verifier exist.
+
+For an L6 resource/fanout/publication contract slice, also run
+`l6_runtime_selftest.py`, `l6_runtime_gate.py` and
+`l6_runtime_gate_selftest.py`; these are reference fixtures only and must keep
+runtime evidence parked.  The exact chaos mapping is CT-25/26/27/28/39.  The
+capture-session fixture is supplemental and cannot satisfy CT-39 publication
+evidence.
+
+For an L7 release-boundary contract slice, also run
+`l7_release_selftest.py`, `l7_release_gate.py` and
+`l7_release_gate_selftest.py`; these are reference fixtures only and must keep
+runtime evidence parked.  The exact chaos mapping is
+CT-29/30/31/32/33/34/38/40.  The read-only archive import fixture is
+supplemental and cannot satisfy real restore, erasure, signing, CI,
+offline-authority or deployment evidence.
+
+When assessing architecture closure, also run
+`architecture_closure_gate.py` and
+`architecture_closure_gate_selftest.py`.  A passing result closes only the
+design baseline and must preserve `CHOT_DESIGN_BASELINE`,
+`NOT_IMPLEMENTED_IN_REPOSITORY`, `PARKED_EXPLORATION_ONLY` and
+`NOT_CLOSED` as separate states.
 
 TASK SELECTION:
 - choose highest-value READY task compatible with your role;
@@ -45,10 +81,14 @@ TASK SELECTION:
 - if blocked, follow the no-idle fallback ladder.
 
 CLAIM:
-- calculate deterministic next attempt branch agent/i<issue>-a<attempt>-<slug>;
-- create branch from current main;
-- if branch exists/creation loses race, choose another task;
-- immediately open Draft PR with lease metadata before substantial coding.
+- create one stable CLAIM_INTENT_V1 with CONTROL_EVENT_ID for the issue/attempt;
+- perform a complete scoped reread of trusted claim intents;
+- only the lowest valid GitHub comment ID wins the claim intent;
+- winner creates deterministic branch agent/i<issue>-a<attempt>;
+- on any GitHub write timeout, treat outcome as UNKNOWN and reconcile before retry;
+- winner creates the minimal claim-marker commit containing the winning claim-intent identity;
+- immediately open Draft PR with matching claim metadata before substantial coding;
+- loser performs no branch/implementation mutation for that task.
 
 EXECUTION:
 - make normal technical decisions autonomously;
@@ -60,6 +100,7 @@ EXECUTION:
 
 CI:
 - verification evidence must match current HEAD plus required BASE/merge context; old green checks are historical only;
+- emit `CI_VERIFICATION_V1` with producer identity, workflow path/revision and runner trust class;
 - deterministic failures require a fix/change, not blind rerun;
 - park long CI and free slot capacity.
 
@@ -69,6 +110,7 @@ REVIEW:
 
 MERGE:
 - only Integrator/authorized flow merges after all gates;
+- record `MERGE_LEASE_V1` and reconcile `MERGE_OUTCOME_V1` before retrying an ambiguous API result;
 - use expected head SHA and confirm base-drift policy before merge;
 - unblock dependents after merge.
 
@@ -110,3 +152,13 @@ Merge:
 
 Backpressure:
 - if CI/review/global WIP stage is saturated, do not create more implementation WIP; switch to review/CI/unblock work.
+
+
+## Context Manifest preflight
+
+For selected Task:
+- resolve required context to `path#stable-section-id` where possible;
+- materialize/validate Context Manifest;
+- load every MANDATORY item completely before substantive mutation;
+- if mandatory context is missing/truncated, set BLOCKED_CONTEXT and do not guess;
+- for HIGH-risk review, independently verify expected context coverage.
