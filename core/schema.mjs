@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -1025,6 +1025,88 @@ export function initializeDatabase(db) {
       BEGIN SELECT RAISE(ABORT, 'decision_choices are append-only'); END;
   `);
 
+  // v12 metadata-only handoff preflight.  The session is the auditable
+  // command aggregate; the manifest is immutable, deterministic interchange
+  // metadata.  No media bytes or local destination paths are stored here.
+  // `output_manifest_id` is intentionally a nullable plain reference so the
+  // two rows can be created atomically without a circular foreign key.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS export_sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      deliverable_type TEXT NOT NULL CHECK (deliverable_type IN ('TIMELINE_INTERCHANGE')),
+      target_profile TEXT NOT NULL CHECK (target_profile GLOB '[A-Z0-9_]*'),
+      target_editor TEXT NOT NULL CHECK (length(target_editor) BETWEEN 1 AND 120),
+      target_version TEXT NOT NULL CHECK (length(target_version) BETWEEN 1 AND 120),
+      state TEXT NOT NULL CHECK (state IN ('PLANNED', 'PREFLIGHT', 'BUILDING', 'VALIDATING', 'VERIFIED', 'COMPLETED', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED', 'CANCELLED')),
+      output_manifest_id TEXT,
+      command_id TEXT NOT NULL REFERENCES commands(id),
+      review_session_id TEXT NOT NULL REFERENCES review_sessions(id),
+      dependency_snapshot_hash TEXT NOT NULL CHECK (length(dependency_snapshot_hash) = 64),
+      subject_content_hash TEXT NOT NULL CHECK (length(subject_content_hash) = 64),
+      media_profile_revision_id TEXT NOT NULL REFERENCES project_media_profile_revisions(id),
+      next_step TEXT NOT NULL DEFAULT '',
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS export_sessions_project_state_idx
+      ON export_sessions(project_id, state, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS export_sessions_revision_idx
+      ON export_sessions(timeline_revision_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS export_sessions_command_idx
+      ON export_sessions(command_id);
+
+    CREATE TABLE IF NOT EXISTS handoff_manifests (
+      id TEXT PRIMARY KEY,
+      export_session_id TEXT NOT NULL UNIQUE REFERENCES export_sessions(id),
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      target_editor TEXT NOT NULL CHECK (length(target_editor) BETWEEN 1 AND 120),
+      target_version TEXT NOT NULL CHECK (length(target_version) BETWEEN 1 AND 120),
+      compatibility_profile_version TEXT NOT NULL CHECK (length(compatibility_profile_version) BETWEEN 1 AND 120),
+      manifest_hash TEXT NOT NULL UNIQUE CHECK (length(manifest_hash) = 64),
+      manifest_json TEXT NOT NULL,
+      artifact_allowlist_json TEXT NOT NULL DEFAULT '[]',
+      compatibility_report_json TEXT NOT NULL DEFAULT '{}',
+      sanitization_report_json TEXT NOT NULL DEFAULT '{}',
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS handoff_manifests_project_idx
+      ON handoff_manifests(project_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS handoff_manifests_session_idx
+      ON handoff_manifests(export_session_id);
+
+    CREATE TRIGGER IF NOT EXISTS export_sessions_no_delete
+      BEFORE DELETE ON export_sessions
+      BEGIN SELECT RAISE(ABORT, 'export_sessions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_identity_no_update
+      BEFORE UPDATE ON export_sessions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.deliverable_type IS NOT OLD.deliverable_type
+        OR NEW.target_profile IS NOT OLD.target_profile
+        OR NEW.target_editor IS NOT OLD.target_editor
+        OR NEW.target_version IS NOT OLD.target_version
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.review_session_id IS NOT OLD.review_session_id
+        OR NEW.dependency_snapshot_hash IS NOT OLD.dependency_snapshot_hash
+        OR NEW.subject_content_hash IS NOT OLD.subject_content_hash
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'export_session identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS handoff_manifests_no_update
+      BEFORE UPDATE ON handoff_manifests
+      BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS handoff_manifests_no_delete
+      BEFORE DELETE ON handoff_manifests
+      BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
+  `);
+
   // v7 backup metadata is created after the command/audit tables so its
   // command references are valid even on a fresh database.  The artifact
   // bytes and object copies live outside SQLite; these rows bind the immutable
@@ -1254,6 +1336,66 @@ export function initializeDatabase(db) {
         OR (OLD.finalization_identity_json IS NOT NULL AND NEW.finalization_identity_json IS NOT OLD.finalization_identity_json)
         OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
       BEGIN SELECT RAISE(ABORT, 'staging object identity is immutable'); END`);
+
+  // Handoff tables were introduced after the first V1 database images. Keep
+  // upgrades additive and resumable when a developer or portable install has
+  // already created an early version of either table without the target
+  // metadata columns. Existing rows receive explicit conservative values;
+  // immutable identity and manifest triggers below remain authoritative.
+  const exportSessionColumns = new Set(db.prepare('PRAGMA table_info(export_sessions)').all().map((row) => String(row.name)));
+  const exportSessionAdditions = [
+    ['target_profile', "TEXT NOT NULL DEFAULT 'GENERIC_INTERCHANGE'"],
+    ['target_editor', "TEXT NOT NULL DEFAULT 'UNKNOWN_EDITOR'"],
+    ['target_version', "TEXT NOT NULL DEFAULT 'UNKNOWN'"],
+    ['output_manifest_id', 'TEXT'],
+    ['next_step', 'TEXT'],
+    ['row_version', 'INTEGER NOT NULL DEFAULT 1'],
+  ];
+  for (const [column, definition] of exportSessionAdditions) {
+    if (!exportSessionColumns.has(column)) db.exec(`ALTER TABLE export_sessions ADD COLUMN ${column} ${definition}`);
+  }
+  const handoffManifestColumns = new Set(db.prepare('PRAGMA table_info(handoff_manifests)').all().map((row) => String(row.name)));
+  const handoffManifestAdditions = [
+    ['target_editor', "TEXT NOT NULL DEFAULT 'UNKNOWN_EDITOR'"],
+    ['target_version', "TEXT NOT NULL DEFAULT 'UNKNOWN'"],
+    ['compatibility_profile_version', "TEXT NOT NULL DEFAULT 'HANDOFF_COMPATIBILITY_V1'"],
+    ['manifest_hash', "TEXT NOT NULL DEFAULT ''"],
+    ['manifest_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['artifact_allowlist_json', "TEXT NOT NULL DEFAULT '[]'"],
+    ['compatibility_report_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['sanitization_report_json', "TEXT NOT NULL DEFAULT '{}'"],
+  ];
+  for (const [column, definition] of handoffManifestAdditions) {
+    if (!handoffManifestColumns.has(column)) db.exec(`ALTER TABLE handoff_manifests ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec(`
+    DROP TRIGGER IF EXISTS export_sessions_no_delete;
+    CREATE TRIGGER export_sessions_no_delete BEFORE DELETE ON export_sessions
+      BEGIN SELECT RAISE(ABORT, 'export_sessions are append-only'); END;
+    DROP TRIGGER IF EXISTS export_sessions_identity_no_update;
+    CREATE TRIGGER export_sessions_identity_no_update BEFORE UPDATE ON export_sessions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.deliverable_type IS NOT OLD.deliverable_type
+        OR NEW.target_profile IS NOT OLD.target_profile
+        OR NEW.target_editor IS NOT OLD.target_editor
+        OR NEW.target_version IS NOT OLD.target_version
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.review_session_id IS NOT OLD.review_session_id
+        OR NEW.dependency_snapshot_hash IS NOT OLD.dependency_snapshot_hash
+        OR NEW.subject_content_hash IS NOT OLD.subject_content_hash
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'export_session identity is immutable'); END;
+    DROP TRIGGER IF EXISTS handoff_manifests_no_update;
+    CREATE TRIGGER handoff_manifests_no_update BEFORE UPDATE ON handoff_manifests
+      BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
+    DROP TRIGGER IF EXISTS handoff_manifests_no_delete;
+    CREATE TRIGGER handoff_manifests_no_delete BEFORE DELETE ON handoff_manifests
+      BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
+  `);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so
   // an interrupted upgrade can be resumed safely; recording every historical

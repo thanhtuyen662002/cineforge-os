@@ -46,6 +46,12 @@ const TIMELINE_REVISION_TRANSITIONS = Object.freeze({
 const REVIEW_SUBJECT_TYPES = new Set(['TIMELINE_REVISION']);
 const REVIEW_STATES = new Set(['OPEN', 'IN_PROGRESS', 'SUBMITTED']);
 const REVIEW_DECISIONS = new Set(['APPROVE', 'REJECT', 'REPAIR', 'ABSTAIN']);
+const HANDOFF_DELIVERABLE_TYPES = new Set(['TIMELINE_INTERCHANGE']);
+const HANDOFF_SESSION_STATES = new Set(['PLANNED', 'PREFLIGHT', 'BUILDING', 'VALIDATING', 'VERIFIED', 'COMPLETED', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED', 'CANCELLED']);
+const HANDOFF_COMPATIBILITY_STATUSES = new Set(['NATIVE', 'APPROXIMATED', 'UNSUPPORTED', 'UNKNOWN']);
+const HANDOFF_TARGET_PROFILE = 'GENERIC_INTERCHANGE';
+const HANDOFF_MANIFEST_SCHEMA_VERSION = 1;
+const HANDOFF_COMPATIBILITY_PROFILE_VERSION = 'HANDOFF_COMPATIBILITY_V1';
 const TIMELINE_TRACK_TYPES = new Set(['VIDEO', 'AUDIO', 'CAPTION', 'DATA']);
 const MAX_RATIONAL_COMPONENT = 9_000_000_000;
 const MAX_TIMELINE_TRACKS = 64;
@@ -649,6 +655,45 @@ function publicReviewSession(row, humanReview = null, options = {}) {
   out.human_review = publicHumanReview(humanReview);
   delete out.opened_at_utc_us;
   delete out.submitted_at_utc_us;
+  return out;
+}
+
+function publicExportSession(row) {
+  if (!row) return null;
+  const out = {};
+  for (const field of [
+    'id', 'project_id', 'timeline_revision_id', 'deliverable_type', 'target_profile', 'target_editor', 'target_version',
+    'state', 'output_manifest_id', 'command_id', 'review_session_id', 'dependency_snapshot_hash', 'subject_content_hash',
+    'media_profile_revision_id', 'next_step',
+  ]) if (Object.prototype.hasOwnProperty.call(row, field)) out[field] = row[field];
+  out.row_version = Number(row.row_version ?? 1);
+  if (row.created_at_utc_us !== undefined && row.created_at_utc_us !== null) out.created_at = rfc3339FromUs(row.created_at_utc_us);
+  if (row.updated_at_utc_us !== undefined && row.updated_at_utc_us !== null) out.updated_at = rfc3339FromUs(row.updated_at_utc_us);
+  return out;
+}
+
+function publicHandoffManifest(row, options = {}) {
+  if (!row) return null;
+  const out = rowObject(row);
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  out.artifact_allowlist = parseJson(out.artifact_allowlist_json, []);
+  out.compatibility_report = parseJson(out.compatibility_report_json, {});
+  out.sanitization_report = parseJson(out.sanitization_report_json, {});
+  out.compatibility = out.compatibility_report;
+  out.sanitization = out.sanitization_report;
+  out.sanitizationReport = {
+    ...out.sanitization_report,
+    removedFields: Array.isArray(out.sanitization_report?.removed_fields) ? out.sanitization_report.removed_fields : [],
+    nextStep: out.sanitization_report?.next_step ?? null,
+  };
+  out.manifest = parseJson(out.manifest_json, {});
+  out.manifest_hash = String(out.manifest_hash ?? '').toLowerCase();
+  delete out.created_at_utc_us;
+  delete out.manifest_json;
+  delete out.artifact_allowlist_json;
+  delete out.compatibility_report_json;
+  delete out.sanitization_report_json;
+  if (options.includeManifestJson === true) out.manifest_json = canonicalJson(out.manifest);
   return out;
 }
 
@@ -2387,6 +2432,11 @@ export class CoreService {
       const reviewSessionId = payload.review_session_id ?? payload.reviewSessionId ?? payload.id;
       if (reviewSessionId) return this.db.prepare('SELECT project_id FROM review_sessions WHERE id = ?').get(reviewSessionId)?.project_id ?? null;
     }
+    if (commandType === 'CreateHandoffManifest') {
+      const revisionId = payload.timeline_revision_id ?? payload.timelineRevisionId ?? payload.revision_id ?? payload.revisionId;
+      if (revisionId) return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r
+        JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(revisionId)?.project_id ?? null;
+    }
     const derivesTask = ['UpdateTask', 'AddTaskNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'TASK');
     const derivesShot = ['UpdateShot', 'AddShotNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'SHOT');
     if (['ResolveDecisionRequest', 'DismissDecisionRequest', 'ObsoleteDecisionRequest'].includes(commandType)) {
@@ -2470,6 +2520,7 @@ export class CoreService {
     if (['CreateCharacter', 'CreateVisualIdentityRevision', 'CreateVoiceIdentityRevision', 'CreatePerformanceBibleRevision', 'TransitionCharacterRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateMediaProfileRevision', 'TransitionMediaProfileRevision', 'CreateTimeline', 'CreateTimelineRevision', 'TransitionTimelineRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['OpenReview', 'SubmitReview'].includes(commandType)) return 'COMPENSATABLE';
+    if (['CreateHandoffManifest'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -2497,6 +2548,7 @@ export class CoreService {
       case 'TransitionTimelineRevision': return this._transitionTimelineRevision(payload, expectedVersions);
       case 'OpenReview': return this._openReview(payload, expectedVersions);
       case 'SubmitReview': return this._submitReview(payload, expectedVersions);
+      case 'CreateHandoffManifest': return this._createHandoffManifest(payload, expectedVersions, commandId);
       case 'CreateDecisionRequest': return this._createDecisionRequest(payload);
       case 'ResolveDecisionRequest': return this._resolveDecisionRequest(payload, expectedVersions);
       case 'DismissDecisionRequest': return this._dismissDecisionRequest(payload, expectedVersions);
@@ -3494,6 +3546,320 @@ export class CoreService {
     const items = rows.map((row) => this._reviewProjection(row).review)
       .filter((item) => state !== 'STALE' || item.stale);
     return { items, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _handoffTarget(payload) {
+    const targetEditor = enumValue(payload.target_editor ?? payload.targetEditor, 'target_editor', /^[A-Z][A-Z0-9_.-]{0,119}$/);
+    const targetVersion = requiredString(payload.target_version ?? payload.targetVersion, 'target_version', 120);
+    const targetProfile = enumValue(payload.target_profile ?? payload.targetProfile, 'target_profile', /^[A-Z][A-Z0-9_]{0,63}$/, HANDOFF_TARGET_PROFILE);
+    const compatibilityProfileVersion = requiredString(
+      payload.compatibility_profile_version ?? payload.compatibilityProfileVersion ?? HANDOFF_COMPATIBILITY_PROFILE_VERSION,
+      'compatibility_profile_version', 120,
+    );
+    return { targetEditor, targetVersion, targetProfile, compatibilityProfileVersion };
+  }
+
+  _handoffCompatibility(targetEditor, targetVersion) {
+    const knownTarget = (targetEditor === 'GENERIC' || targetEditor === 'EDITOR_NEUTRAL')
+      && /^(?:1|1\.0)$/.test(targetVersion);
+    const entries = knownTarget
+      ? [
+        { feature: 'timeline_metadata', status: 'NATIVE', detail: 'Editor-neutral timeline metadata is preserved.' },
+        { feature: 'rational_timing', status: 'NATIVE', detail: 'Integer rational timing is preserved without floating-point conversion.' },
+        { feature: 'pinned_asset_references', status: 'NATIVE', detail: 'Exact asset revision IDs and SHA-256 digests are preserved.' },
+        { feature: 'media_bytes', status: 'UNSUPPORTED', detail: 'Media bytes are not rendered or copied by this metadata-only preflight.' },
+        { feature: 'editable_project_claim', status: 'UNKNOWN', detail: 'Editability depends on a certified target adapter and is not asserted here.' },
+      ]
+      : [
+        { feature: 'timeline_metadata', status: 'UNKNOWN', detail: 'Target editor/version is not certified by CineForge.' },
+        { feature: 'rational_timing', status: 'UNKNOWN', detail: 'Target timing semantics are not verified for this version.' },
+        { feature: 'pinned_asset_references', status: 'UNKNOWN', detail: 'Target reference semantics are not verified for this version.' },
+        { feature: 'media_bytes', status: 'UNSUPPORTED', detail: 'Media bytes are not rendered or copied by this metadata-only preflight.' },
+        { feature: 'editable_project_claim', status: 'UNKNOWN', detail: 'Unknown targets never inherit an editable-project claim.' },
+      ];
+    const counts = Object.fromEntries([...HANDOFF_COMPATIBILITY_STATUSES].map((status) => [status, entries.filter((entry) => entry.status === status).length]));
+    return {
+      profile_version: HANDOFF_COMPATIBILITY_PROFILE_VERSION,
+      target_editor: targetEditor,
+      target_version: targetVersion,
+      editable_claim: false,
+      entries,
+      counts,
+      next_step: knownTarget
+        ? 'Dùng một adapter/editor đã certify để materialize nội dung; bước này chỉ tạo metadata preflight.'
+        : 'Xác minh và certify target editor/version trước khi yêu cầu export có thể chỉnh sửa.',
+    };
+  }
+
+  _handoffSanitizationReport() {
+    return {
+      policy: 'EXPLICIT_ALLOWLIST_V1',
+      recorded: true,
+      removed_fields: [
+        'absolute_local_paths',
+        'usernames',
+        'temporary_or_cache_locations',
+        'api_endpoints',
+        'credentials_and_secrets',
+        'provider_prompts',
+        'diagnostics',
+        'unrelated_private_project_ids',
+        'media_bytes',
+      ],
+      next_step: 'Chỉ dùng artifact_allowlist và manifest metadata đã được sanitize; không quét thư mục dự án đệ quy.',
+    };
+  }
+
+  _handoffAssetRows(revision, tracks) {
+    const ids = new Set();
+    for (const track of tracks) {
+      for (const clip of track.clips ?? []) if (clip.asset_revision_id) ids.add(clip.asset_revision_id);
+    }
+    const artifacts = [];
+    for (const assetRevisionId of [...ids].sort()) {
+      this._timelineAssetReadiness(assetRevisionId, revision.project_id);
+      const row = this.db.prepare(`SELECT r.id, r.asset_id, r.semantic_role, r.rebuildability,
+          r.availability_state, r.review_state, r.availability_evidence_state,
+          so.hash_algorithm, so.content_hash, so.byte_size
+        FROM asset_revisions r JOIN storage_objects so ON so.id = r.storage_object_id
+        WHERE r.id = ?`).get(assetRevisionId);
+      if (!row || !SHA256_HEX.test(String(row.content_hash ?? ''))) {
+        throw new CoreError('TIMELINE_ASSET_NOT_READY', 'CONFLICT', 'errors.timeline_asset_not_ready', { asset_revision_id: assetRevisionId }, { needsUser: true });
+      }
+      artifacts.push({
+        asset_revision_id: row.id,
+        asset_id: row.asset_id,
+        semantic_role: row.semantic_role,
+        rebuildability: row.rebuildability,
+        hash_algorithm: row.hash_algorithm,
+        content_hash: String(row.content_hash).toLowerCase(),
+        byte_size: Number(row.byte_size),
+        availability_state: row.availability_state,
+        review_state: row.review_state,
+        availability_evidence_state: row.availability_evidence_state,
+      });
+    }
+    return artifacts;
+  }
+
+  _createHandoffManifest(payload, expectedVersions, commandId) {
+    const revisionId = requiredString(payload.timeline_revision_id ?? payload.timelineRevisionId ?? payload.revision_id ?? payload.revisionId, 'timeline_revision_id');
+    const revision = this._timelineRevision(revisionId);
+    this._assertPayloadProjectScope(payload, revision.project_id, 'TIMELINE_REVISION', revision.id);
+    const project = this._project(revision.project_id);
+    this._assertProjectWritable(project);
+    this._expectedVersion(expectedVersions, 'REVISION', revision.id, revision.row_version);
+    if (revision.lifecycle_state !== 'APPROVED') {
+      throw new CoreError('HANDOFF_REVISION_NOT_APPROVED', 'CONFLICT', 'errors.handoff_revision_not_approved', { timeline_revision_id: revision.id, state: revision.lifecycle_state }, { needsUser: true });
+    }
+
+    const reviewSessionId = requiredString(payload.review_session_id ?? payload.reviewSessionId, 'review_session_id');
+    const reviewSession = this._reviewSession(reviewSessionId);
+    if (reviewSession.project_id !== revision.project_id || reviewSession.subject_type !== 'TIMELINE_REVISION' || reviewSession.subject_revision_id !== revision.id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.review_scope_mismatch', { review_session_id: reviewSession.id, timeline_revision_id: revision.id }, { needsUser: true });
+    }
+    if (reviewSession.state !== 'SUBMITTED') {
+      throw new CoreError('REVIEW_NOT_SUBMITTED', 'CONFLICT', 'errors.review_not_submitted', { review_session_id: reviewSession.id }, { needsUser: true });
+    }
+    const submittedReview = this.db.prepare('SELECT * FROM human_reviews WHERE review_session_id = ?').get(reviewSession.id);
+    if (!submittedReview || submittedReview.decision !== 'APPROVE') {
+      throw new CoreError('REVIEW_APPROVAL_REQUIRED', 'CONFLICT', 'errors.review_approval_required', { review_session_id: reviewSession.id }, { needsUser: true });
+    }
+    const suppliedSnapshot = payload.dependency_snapshot_hash ?? payload.dependencySnapshotHash;
+    if (suppliedSnapshot === undefined || suppliedSnapshot === null || String(suppliedSnapshot).trim() === '') {
+      throw new CoreError('HANDOFF_SNAPSHOT_REQUIRED', 'CONFLICT', 'errors.handoff_snapshot_required', { review_session_id: reviewSession.id }, { needsUser: true });
+    }
+    const suppliedSnapshotText = String(suppliedSnapshot).trim();
+    if (!SHA256_HEX.test(suppliedSnapshotText)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_review_snapshot_hash', { review_session_id: reviewSession.id });
+    const currentSnapshot = this._reviewSnapshot(revision);
+    if (suppliedSnapshotText.toLowerCase() !== String(reviewSession.dependency_snapshot_hash).toLowerCase()
+      || currentSnapshot.hash !== reviewSession.dependency_snapshot_hash
+      || String(submittedReview.dependency_snapshot_hash).toLowerCase() !== String(reviewSession.dependency_snapshot_hash).toLowerCase()
+      || submittedReview.subject_content_hash !== revision.content_hash) {
+      throw new CoreError('STALE_REVIEW', 'CONFLICT', 'errors.stale_review', { review_session_id: reviewSession.id }, { needsUser: true, technicalDetails: { expected_snapshot_hash: reviewSession.dependency_snapshot_hash, current_snapshot_hash: currentSnapshot.hash } });
+    }
+    const profile = this._mediaProfileRevision(revision.media_profile_revision_id);
+    if (profile.lifecycle_state !== 'APPROVED') {
+      throw new CoreError('MEDIA_PROFILE_NOT_APPROVED', 'CONFLICT', 'errors.media_profile_not_approved', { media_profile_revision_id: profile.id }, { needsUser: true });
+    }
+    const rawTracks = this.db.prepare('SELECT * FROM timeline_tracks WHERE timeline_revision_id = ? ORDER BY order_index ASC, id ASC').all(revision.id);
+    const tracks = rawTracks.map((track) => {
+      const rawClips = this.db.prepare('SELECT * FROM timeline_clip_instances WHERE track_id = ? ORDER BY timeline_in_num, timeline_in_den, id').all(track.id);
+      return {
+        id: track.id,
+        track_type: track.track_type,
+        order_index: Number(track.order_index),
+        name: String(track.name ?? '').slice(0, 500),
+        enabled: Boolean(Number(track.enabled)),
+        clips: rawClips.map((clip) => ({
+          id: clip.id,
+          asset_revision_id: clip.asset_revision_id ?? null,
+          source_in: clip.source_in_num === null || clip.source_in_num === undefined ? null : { num: Number(clip.source_in_num), den: Number(clip.source_in_den) },
+          source_out: clip.source_out_num === null || clip.source_out_num === undefined ? null : { num: Number(clip.source_out_num), den: Number(clip.source_out_den) },
+          timeline_in: { num: Number(clip.timeline_in_num), den: Number(clip.timeline_in_den) },
+          timeline_out: { num: Number(clip.timeline_out_num), den: Number(clip.timeline_out_den) },
+          speed: { num: Number(clip.speed_num), den: Number(clip.speed_den) },
+        })),
+      };
+    });
+    const markerRows = this.db.prepare('SELECT id, position_num, position_den, marker_type, label FROM timeline_markers WHERE timeline_revision_id = ? ORDER BY position_num, position_den, id').all(revision.id);
+    const markers = markerRows.map((marker) => ({
+      id: marker.id,
+      time: { num: Number(marker.position_num), den: Number(marker.position_den) },
+      marker_type: String(marker.marker_type ?? '').slice(0, 120),
+      label: String(marker.label ?? '').slice(0, 500),
+    }));
+    const artifacts = this._handoffAssetRows(revision, tracks);
+    const target = this._handoffTarget(payload);
+    const compatibility = this._handoffCompatibility(target.targetEditor, target.targetVersion);
+    const sanitization = this._handoffSanitizationReport();
+    const exportSessionId = uuidv7();
+    const manifestId = uuidv7();
+    const mediaProfile = publicMediaProfileRevision(profile);
+    const manifest = {
+      manifest_type: 'CINEFORGE_TIMELINE_HANDOFF',
+      manifest_schema_version: HANDOFF_MANIFEST_SCHEMA_VERSION,
+      deliverable_type: 'TIMELINE_INTERCHANGE',
+      target: {
+        editor: target.targetEditor,
+        version: target.targetVersion,
+        profile: target.targetProfile,
+        compatibility_profile_version: target.compatibilityProfileVersion,
+      },
+      source: {
+        project_id: project.id,
+        timeline_id: revision.timeline_id,
+        timeline_revision_id: revision.id,
+        revision_number: Number(revision.revision_number),
+        lifecycle_state: revision.lifecycle_state,
+        content_hash: String(revision.content_hash).toLowerCase(),
+        duration: { num: Number(revision.duration_num), den: Number(revision.duration_den) },
+        media_profile: {
+          revision_id: profile.id,
+          lifecycle_state: profile.lifecycle_state,
+          timeline_rate: mediaProfile.timeline_rate,
+          time_base: mediaProfile.time_base,
+          pixel_aspect: mediaProfile.pixel_aspect,
+          width: Number(profile.width),
+          height: Number(profile.height),
+          working_color_space: profile.working_color_space,
+          transfer_function: profile.transfer_function,
+          hdr_policy: profile.hdr_policy,
+          audio_sample_rate: Number(profile.audio_sample_rate),
+          audio_channel_layout: profile.audio_channel_layout,
+        },
+        review: {
+          session_id: reviewSession.id,
+          state: reviewSession.state,
+          decision: submittedReview.decision,
+          dependency_snapshot_hash: String(reviewSession.dependency_snapshot_hash).toLowerCase(),
+          subject_content_hash: String(reviewSession.subject_content_hash).toLowerCase(),
+        },
+        tracks,
+        markers,
+      },
+      artifact_allowlist: artifacts,
+      compatibility,
+      sanitization,
+    };
+    const manifestJson = canonicalJson(manifest);
+    const manifestHash = crypto.createHash('sha256').update(manifestJson, 'utf8').digest('hex');
+    const created = nowUtcUs();
+    const nextStep = 'Metadata preflight đã tạo; cần adapter/editor được certify để materialize nội dung. Chưa có render, playback hoặc publish.';
+    this.db.prepare(`INSERT INTO export_sessions
+      (id, project_id, timeline_revision_id, deliverable_type, target_profile, target_editor, target_version,
+       state, output_manifest_id, command_id, review_session_id, dependency_snapshot_hash, subject_content_hash,
+       media_profile_revision_id, next_step, row_version, created_by_actor_id, created_at_utc_us, updated_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'PREFLIGHT', NULL, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`).run(
+      exportSessionId, project.id, revision.id, 'TIMELINE_INTERCHANGE', target.targetProfile, target.targetEditor, target.targetVersion,
+      commandId, reviewSession.id, reviewSession.dependency_snapshot_hash, revision.content_hash, profile.id, nextStep,
+      this.actorId, created, created,
+    );
+    this.db.prepare(`INSERT INTO handoff_manifests
+      (id, export_session_id, project_id, target_editor, target_version, compatibility_profile_version, manifest_hash,
+       manifest_json, artifact_allowlist_json, compatibility_report_json, sanitization_report_json,
+       created_by_actor_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      manifestId, exportSessionId, project.id, target.targetEditor, target.targetVersion, target.compatibilityProfileVersion, manifestHash,
+      manifestJson, canonicalJson(artifacts), canonicalJson(compatibility), canonicalJson(sanitization), this.actorId, created,
+    );
+    const updated = nowUtcUs();
+    this.db.prepare(`UPDATE export_sessions SET output_manifest_id = ?, updated_at_utc_us = ?, row_version = row_version + 1 WHERE id = ?`)
+      .run(manifestId, updated, exportSessionId);
+    const sessionRow = this.db.prepare('SELECT * FROM export_sessions WHERE id = ?').get(exportSessionId);
+    const manifestRow = this.db.prepare('SELECT * FROM handoff_manifests WHERE id = ?').get(manifestId);
+    return {
+      projectId: project.id,
+      result: {
+        export_session: publicExportSession(sessionRow),
+        handoff_manifest: publicHandoffManifest(manifestRow),
+        manifest_hash: manifestHash,
+        compatibility_report: compatibility,
+        sanitization_report: sanitization,
+        next_step: nextStep,
+      },
+      event: { aggregateType: 'EXPORT_SESSION', aggregateId: exportSessionId, aggregateVersion: Number(sessionRow.row_version), eventType: 'HANDOFF_MANIFEST_CREATED', payload: { export_session_id: exportSessionId, handoff_manifest_id: manifestId, project_id: project.id, timeline_revision_id: revision.id, manifest_hash: manifestHash, dependency_snapshot_hash: reviewSession.dependency_snapshot_hash, subject_content_hash: revision.content_hash } },
+      audit: { actionType: 'handoff.manifest.create', targetType: 'HANDOFF_MANIFEST', targetId: manifestId, payload: { export_session_id: exportSessionId, project_id: project.id, timeline_revision_id: revision.id, review_session_id: reviewSession.id, manifest_hash: manifestHash, dependency_snapshot_hash: reviewSession.dependency_snapshot_hash, subject_content_hash: revision.content_hash, artifact_count: artifacts.length, target_editor: target.targetEditor, target_version: target.targetVersion } },
+    };
+  }
+
+  _handoffList(params = {}) {
+    const projectId = params.project_id ?? params.projectId ?? null;
+    if (projectId) this._project(projectId);
+    const stateInput = params.state ?? null;
+    const state = stateInput === null || stateInput === '' ? null : String(stateInput).trim().toUpperCase();
+    if (state !== null && !HANDOFF_SESSION_STATES.has(state)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_handoff_state', { state });
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = this.db.prepare(`SELECT e.*, h.id AS handoff_id, h.export_session_id AS handoff_session_id,
+        h.project_id AS handoff_project_id, h.target_editor AS handoff_target_editor, h.target_version AS handoff_target_version,
+        h.compatibility_profile_version AS handoff_compatibility_profile_version, h.manifest_hash AS handoff_manifest_hash,
+        h.manifest_json AS handoff_manifest_json, h.artifact_allowlist_json AS handoff_artifact_allowlist_json,
+        h.compatibility_report_json AS handoff_compatibility_report_json, h.sanitization_report_json AS handoff_sanitization_report_json,
+        h.created_by_actor_id AS handoff_created_by_actor_id, h.created_at_utc_us AS handoff_created_at_utc_us
+      FROM export_sessions e JOIN handoff_manifests h ON h.export_session_id = e.id
+      WHERE (? IS NULL OR e.project_id = ?) AND (? IS NULL OR e.state = ?)
+      ORDER BY e.created_at_utc_us DESC, e.id DESC LIMIT ?`).all(projectId, projectId, state, state, limit);
+    const items = rows.map((row) => ({
+      export_session: publicExportSession(row),
+      handoff_manifest: publicHandoffManifest({
+        id: row.handoff_id, export_session_id: row.handoff_session_id, project_id: row.handoff_project_id,
+        target_editor: row.handoff_target_editor, target_version: row.handoff_target_version, compatibility_profile_version: row.handoff_compatibility_profile_version,
+        manifest_hash: row.handoff_manifest_hash, manifest_json: row.handoff_manifest_json,
+        artifact_allowlist_json: row.handoff_artifact_allowlist_json, compatibility_report_json: row.handoff_compatibility_report_json,
+        sanitization_report_json: row.handoff_sanitization_report_json, created_by_actor_id: row.handoff_created_by_actor_id,
+        created_at_utc_us: row.handoff_created_at_utc_us,
+      }),
+    }));
+    return { items, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _handoffGet(id, requestedProjectId = null) {
+    const value = requiredString(id, 'handoff_id');
+    const row = this.db.prepare(`SELECT e.*, h.id AS handoff_id, h.export_session_id AS handoff_session_id,
+        h.project_id AS handoff_project_id, h.target_editor AS handoff_target_editor, h.target_version AS handoff_target_version,
+        h.compatibility_profile_version AS handoff_compatibility_profile_version, h.manifest_hash AS handoff_manifest_hash,
+        h.manifest_json AS handoff_manifest_json, h.artifact_allowlist_json AS handoff_artifact_allowlist_json,
+        h.compatibility_report_json AS handoff_compatibility_report_json, h.sanitization_report_json AS handoff_sanitization_report_json,
+        h.created_by_actor_id AS handoff_created_by_actor_id, h.created_at_utc_us AS handoff_created_at_utc_us
+      FROM export_sessions e JOIN handoff_manifests h ON h.export_session_id = e.id
+      WHERE e.id = ? OR h.id = ? LIMIT 1`).get(value, value);
+    if (!row) throw new CoreError('HANDOFF_NOT_FOUND', 'VALIDATION', 'errors.handoff_not_found', { handoff_id: value });
+    if (requestedProjectId !== null && requestedProjectId !== undefined && requestedProjectId !== row.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'HANDOFF_MANIFEST', entity_id: value, project_id: requestedProjectId, actual_project_id: row.project_id }, { needsUser: true });
+    }
+    return {
+      export_session: publicExportSession(row),
+      handoff_manifest: publicHandoffManifest({
+        id: row.handoff_id, export_session_id: row.handoff_session_id, project_id: row.handoff_project_id,
+        target_editor: row.handoff_target_editor, target_version: row.handoff_target_version, compatibility_profile_version: row.handoff_compatibility_profile_version,
+        manifest_hash: row.handoff_manifest_hash, manifest_json: row.handoff_manifest_json,
+        artifact_allowlist_json: row.handoff_artifact_allowlist_json, compatibility_report_json: row.handoff_compatibility_report_json,
+        sanitization_report_json: row.handoff_sanitization_report_json, created_by_actor_id: row.handoff_created_by_actor_id,
+        created_at_utc_us: row.handoff_created_at_utc_us,
+      }),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
   }
 
   _createTimeline(payload) {
@@ -4508,6 +4874,8 @@ export class CoreService {
     if (aggregateType === 'MEDIA_PROFILE') return this.db.prepare('SELECT project_id FROM project_media_profiles WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'TIMELINE') return this.db.prepare('SELECT project_id FROM timelines WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'TIMELINE_REVISION') return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'EXPORT_SESSION') return this.db.prepare('SELECT project_id FROM export_sessions WHERE id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'HANDOFF_MANIFEST') return this.db.prepare('SELECT project_id FROM handoff_manifests WHERE id = ?').get(aggregateId)?.project_id ?? null;
     return null;
   }
 
@@ -4655,6 +5023,8 @@ export class CoreService {
         }
         return this._reviewProjection(session);
       }
+      case 'query.handoff.list': return this._handoffList(params);
+      case 'query.handoff.get': return this._handoffGet(params.handoff_id ?? params.handoffId ?? params.export_session_id ?? params.exportSessionId ?? params.id, params.project_id ?? params.projectId ?? null);
       case 'query.asset.rights': return this._rightsForAsset(params.asset_id ?? params.assetId, params);
       case 'query.rights.evaluate': return this._evaluateRights(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
       case 'query.rights.identity': return this._rightsIdentityDetails(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
@@ -4813,10 +5183,11 @@ export class CoreService {
        UNION SELECT id FROM characters WHERE project_id = ?
        UNION SELECT id FROM timelines WHERE project_id = ?
        UNION SELECT id FROM review_sessions WHERE project_id = ?
+        UNION SELECT id FROM export_sessions WHERE project_id = ?
         UNION SELECT id FROM project_media_profiles WHERE project_id = ?
         ) ORDER BY seq DESC LIMIT ?`).all(
       projectId, projectId, projectId, projectId, projectId,
-      projectId, projectId, projectId, projectId, projectId, limit,
+      projectId, projectId, projectId, projectId, projectId, projectId, limit,
     );
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }

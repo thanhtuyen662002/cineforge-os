@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HumanReviewDecision, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -43,6 +43,9 @@ export interface CoreBridge {
   getReview?(projectId: string, reviewSessionId: string, signal?: AbortSignal): Promise<ReviewWorkspace>
   openReview?(projectId: string, subjectRevisionId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReviewWorkspace>
   submitReview?(projectId: string, reviewSessionId: string, decision: HumanReviewDecision, expectedVersion: number, notes?: string, reasonCodes?: string[], idempotencyKey?: string): Promise<ReviewWorkspace>
+  getHandoffs?(projectId: string, state?: string, signal?: AbortSignal): Promise<HandoffListItem[]>
+  getHandoff?(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace>
+  createHandoffManifest?(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey?: string): Promise<HandoffWorkspace>
 }
 
 const LOCAL_SNAPSHOT_KEY = 'cineforge-dashboard-v1'
@@ -792,6 +795,42 @@ export class HttpCoreClient implements CoreClient {
       body: JSON.stringify({ decision, notes, reason_codes: reasonCodes, expected_version: expectedVersion }),
     })
     return mapReviewWorkspaceRecord(await readCorePayload(response, 'review submission'))
+  }
+
+  async getHandoffs(projectId: string, state?: string, signal?: AbortSignal): Promise<HandoffListItem[]> {
+    if (!this.baseUrl) throw new CoreClientError('Handoff requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const query = state ? `?state=${encodeURIComponent(state)}` : ''
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/handoffs${query}`, { signal, headers: { Accept: 'application/json' } })
+    const payload = asRecord(await readCorePayload(response, 'handoffs'))
+    return arrayValue(payload.items ?? payload.handoffs ?? payload).map(mapHandoffListItemRecord)
+  }
+
+  async getHandoff(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Handoff details require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!handoffId.trim()) throw new CoreClientError('A handoff id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoffId)}`, { signal, headers: { Accept: 'application/json' } })
+    return mapHandoffWorkspaceRecord(await readCorePayload(response, 'handoff details'))
+  }
+
+  async createHandoffManifest(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey: string = crypto.randomUUID()): Promise<HandoffWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Creating a handoff preflight requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!input.timelineRevisionId.trim() || !input.reviewSessionId.trim() || !/^[0-9a-f]{64}$/i.test(input.dependencySnapshotHash) || !input.targetEditor.trim() || !input.targetVersion.trim() || !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw new CoreClientError('The approved timeline, review snapshot, target editor/version, and current revision version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    }
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/handoffs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({
+        timeline_revision_id: input.timelineRevisionId,
+        review_session_id: input.reviewSessionId,
+        dependency_snapshot_hash: input.dependencySnapshotHash,
+        target_editor: input.targetEditor,
+        target_version: input.targetVersion,
+        target_profile: input.targetProfile ?? 'GENERIC_INTERCHANGE',
+        expected_version: input.expectedVersion,
+      }),
+    })
+    return mapHandoffWorkspaceRecord(await readCorePayload(response, 'handoff creation'))
   }
 
   async getCharacters(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]> {
@@ -1549,6 +1588,120 @@ function mapReviewWorkspaceRecord(value: unknown): ReviewWorkspace {
       : null,
     projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
     generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
+  }
+}
+
+function mapHandoffCompatibilityRecord(value: unknown) {
+  const source = asRecord(value)
+  return {
+    profileVersion: stringValue(source.profile_version ?? source.profileVersion),
+    targetEditor: stringValue(source.target_editor ?? source.targetEditor),
+    targetVersion: stringValue(source.target_version ?? source.targetVersion),
+    editableClaim: source.editable_claim === true || source.editableClaim === true,
+    entries: arrayValue(source.entries).map((entry) => {
+      const item = asRecord(entry)
+      const status = stringValue(item.status) ?? 'UNKNOWN'
+      return { feature: stringValue(item.feature) ?? 'unknown', status: status as 'NATIVE' | 'APPROXIMATED' | 'UNSUPPORTED' | 'UNKNOWN', detail: stringValue(item.detail) ?? '' }
+    }),
+    counts: asRecord(source.counts) as Record<string, number>,
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+  }
+}
+
+function mapHandoffSanitizationRecord(value: unknown) {
+  const source = asRecord(value)
+  return {
+    policy: stringValue(source.policy),
+    recorded: source.recorded === true,
+    removedFields: arrayValue(source.removed_fields ?? source.removedFields).filter((item): item is string => typeof item === 'string'),
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+  }
+}
+
+function mapHandoffManifestRecord(value: unknown) {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.handoff_manifest ?? envelope.handoffManifest ?? envelope.manifest ?? value)
+  const manifestDocument = asRecord(source.manifest)
+  const manifestTarget = asRecord(manifestDocument.target)
+  const compatibility = source.compatibility_report ?? source.compatibilityReport ?? source.compatibility
+  const sanitization = source.sanitization_report ?? source.sanitizationReport ?? source.sanitization
+  return {
+    id: stringValue(source.id ?? source.handoff_manifest_id ?? source.handoffManifestId),
+    exportSessionId: stringValue(source.export_session_id ?? source.exportSessionId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    targetEditor: stringValue(source.target_editor ?? source.targetEditor) ?? stringValue(manifestTarget.editor),
+    targetVersion: stringValue(source.target_version ?? source.targetVersion) ?? stringValue(manifestTarget.version),
+    compatibilityProfileVersion: stringValue(source.compatibility_profile_version ?? source.compatibilityProfileVersion),
+    manifestHash: stringValue(source.manifest_hash ?? source.manifestHash),
+    manifest: manifestDocument,
+    artifactAllowlist: arrayValue(source.artifact_allowlist ?? source.artifactAllowlist).map((artifact) => {
+      const item = asRecord(artifact)
+      return {
+        assetRevisionId: stringValue(item.asset_revision_id ?? item.assetRevisionId),
+        assetId: stringValue(item.asset_id ?? item.assetId),
+        semanticRole: stringValue(item.semantic_role ?? item.semanticRole),
+        rebuildability: stringValue(item.rebuildability),
+        hashAlgorithm: stringValue(item.hash_algorithm ?? item.hashAlgorithm),
+        contentHash: stringValue(item.content_hash ?? item.contentHash),
+        byteSize: numberValue(item.byte_size ?? item.byteSize, 0),
+        availabilityState: stringValue(item.availability_state ?? item.availabilityState),
+        reviewState: stringValue(item.review_state ?? item.reviewState),
+        availabilityEvidenceState: stringValue(item.availability_evidence_state ?? item.availabilityEvidenceState),
+      }
+    }),
+    compatibility: mapHandoffCompatibilityRecord(compatibility),
+    sanitizationReport: mapHandoffSanitizationRecord(sanitization),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapHandoffSessionRecord(value: unknown) {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.export_session_id ?? source.exportSessionId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    timelineRevisionId: stringValue(source.timeline_revision_id ?? source.timelineRevisionId),
+    deliverableType: stringValue(source.deliverable_type ?? source.deliverableType) ?? 'TIMELINE_INTERCHANGE',
+    targetProfile: stringValue(source.target_profile ?? source.targetProfile),
+    targetEditor: stringValue(source.target_editor ?? source.targetEditor),
+    targetVersion: stringValue(source.target_version ?? source.targetVersion),
+    state: stringValue(source.state) ?? 'UNKNOWN',
+    outputManifestId: stringValue(source.output_manifest_id ?? source.outputManifestId),
+    commandId: stringValue(source.command_id ?? source.commandId),
+    reviewSessionId: stringValue(source.review_session_id ?? source.reviewSessionId),
+    dependencySnapshotHash: stringValue(source.dependency_snapshot_hash ?? source.dependencySnapshotHash),
+    subjectContentHash: stringValue(source.subject_content_hash ?? source.subjectContentHash),
+    mediaProfileRevisionId: stringValue(source.media_profile_revision_id ?? source.mediaProfileRevisionId),
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapHandoffWorkspaceRecord(value: unknown): HandoffWorkspace {
+  const envelope = asRecord(value)
+  const sessionSource = envelope.export_session ?? envelope.exportSession ?? envelope.session
+  const manifestSource = envelope.handoff_manifest ?? envelope.handoffManifest ?? envelope.manifest
+  const manifest = manifestSource ? mapHandoffManifestRecord(manifestSource) : null
+  const compatibility = envelope.compatibility_report ?? envelope.compatibilityReport ?? manifest?.compatibility
+  return {
+    exportSession: sessionSource ? mapHandoffSessionRecord(sessionSource) : null,
+    handoffManifest: manifest,
+    manifestHash: stringValue(envelope.manifest_hash ?? envelope.manifestHash) ?? manifest?.manifestHash,
+    compatibilityReport: mapHandoffCompatibilityRecord(compatibility),
+    sanitizationReport: manifest?.sanitizationReport,
+    nextStep: stringValue(envelope.next_step ?? envelope.nextStep) ?? (sessionSource ? stringValue(asRecord(sessionSource).next_step ?? asRecord(sessionSource).nextStep) : undefined),
+    projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
+    generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
+  }
+}
+
+function mapHandoffListItemRecord(value: unknown): HandoffListItem {
+  const source = asRecord(value)
+  return {
+    exportSession: mapHandoffSessionRecord(source.export_session ?? source.exportSession ?? source.session),
+    handoffManifest: mapHandoffManifestRecord(source.handoff_manifest ?? source.handoffManifest ?? source.manifest),
   }
 }
 
