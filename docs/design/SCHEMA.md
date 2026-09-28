@@ -1391,16 +1391,67 @@ Immutable.
 PK(gc_run_id, storage_object_id)
 
 ## backups
-- id PK
-- backup_type
-- scope_type
-- scope_id nullable
-- state
-- event_seq_checkpoint
-- object_manifest_hash
-- destination
-- verification_state
-- created_at_utc_us
+The schema v7 local baseline materializes a complete local-library snapshot as
+an immutable backup identity.  The SQLite row is the authoritative record of
+the artifact and its verification history; snapshot bytes and content-addressed
+object copies remain outside SQLite.
+
+- `id` PK (UUIDv7)
+- `backup_type`: `FULL_LOCAL`
+- `durability_class`: `LOCAL_WRITABLE` in the current implementation;
+  `SEPARATE_VOLUME`, `OFFLINE`, and `IMMUTABLE_REMOTE` are reserved profiles
+  and fail closed until their connector/durability contracts exist
+- `failure_domain`
+- `destination_path`, `manifest_path`, `snapshot_path` (internal resolver
+  paths; never returned as absolute paths in public projections)
+- `destination_fingerprint`
+- `installation_id`
+- `schema_version`
+- `event_seq_checkpoint`
+- `state`: `CREATED | VERIFIED | FAILED | QUARANTINED`
+- `db_sha256`, `manifest_sha256`
+- `byte_size`, `object_count`, `external_object_count`
+- `created_by_actor_id`, `command_id`
+- `created_at_utc_us`, `completed_at_utc_us`, `error_code`
+- `row_version`
+
+Backup identity and source digests are immutable after registration.  A
+verification may update only state, completion/error metadata and the row
+version; deleting a backup is prohibited by trigger.  Every successful or
+failed verification appends a row to `backup_verifications`:
+
+- `id` PK and `backup_id` FK
+- `outcome`: `VERIFIED | FAILED`
+- `integrity_state`: `PASS | FAIL | UNKNOWN`
+- `manifest_sha256` nullable, `object_count`, `byte_size`
+- `details_json` (redacted diagnostic measurements)
+- `command_id`, `actor_id`, `created_at_utc_us`
+
+Verification rows are append-only.  A `VERIFIED` state means that the manifest
+hash, SQLite snapshot SHA-256 and `PRAGMA integrity_check` passed, the
+installation identity matched, and every copied object matched its recorded
+content hash and byte size.  `UNKNOWN` or `FAILED` evidence never grants
+recoverability.
+
+## Local backup artifact format (schema v7)
+
+`CreateBackup` first performs storage admission and then writes a private
+temporary directory named `.<backup-id>.partial`.  It atomically renames this
+directory to `<backup-id>` only after verification succeeds.  The final
+directory contains:
+
+- `cineforge.sqlite`: a SQLite `VACUUM INTO` snapshot;
+- `manifest.json`: versioned JSON (`format_version=1`) containing the
+  installation/schema/event checkpoint, database digest, and object manifest;
+- `objects/<hash-algorithm>/<prefix>/<content-hash>` for managed objects;
+  external references are recorded as `EXTERNAL_REFERENCE` entries and are not
+  copied.
+
+The admission estimate includes the database sidecars, managed object bytes,
+manifest overhead and a configurable free-space reserve.  A configured maximum
+or insufficient free space returns `STORAGE_PRESSURE` before creating the
+destination.  Paths inside command/audit internals are resolver-only; the
+public backup/list/detail projections expose stable basenames and digests.
 
 ## schema_migrations
 - version PK

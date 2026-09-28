@@ -232,6 +232,8 @@ function mapAssetList(result) {
 
 function mapDashboard(result) {
   const health = result?.system_health ?? result?.systemHealth ?? {};
+  const backupState = String(health.backup_state ?? health.backupState ?? '').toUpperCase();
+  const storagePressure = Boolean(health.storage_pressure ?? health.storagePressure);
   const needsYou = Array.isArray(result?.needs_you)
     ? result.needs_you
     : Array.isArray(result?.needs_you?.items) ? result.needs_you.items : [];
@@ -245,10 +247,10 @@ function mapDashboard(result) {
       offline: false,
       storageUsed: formatBytes(Number(health.bytes ?? 0) + Number(health.object_store_bytes ?? health.objectStoreBytes ?? 0)),
       storageTotal: '—',
-      storageAttention: String(health.status ?? 'READY').toUpperCase() !== 'READY' || Boolean(health.storage_pressure ?? health.storagePressure),
+      storageAttention: String(health.status ?? 'READY').toUpperCase() !== 'READY' || storagePressure || backupState === 'FAILED' || backupState === 'QUARANTINED',
       backupState: readString(health, 'backup_state', 'backupState') ?? undefined,
       backupAt: readString(health, 'last_backup_at', 'lastBackupAt') ?? undefined,
-      storagePressure: Boolean(health.storage_pressure ?? health.storagePressure),
+      storagePressure,
     },
   };
 }

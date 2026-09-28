@@ -434,7 +434,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 6);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 7);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -573,7 +573,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 6);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 7);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -684,6 +684,117 @@ test('rights identity, consent and effective-time revocation fail closed and rem
   assert.equal(scopeMismatch.error.code, 'ENTITY_SCOPE_MISMATCH');
   assert.throws(() => core.db.prepare('UPDATE rights_records SET status = ? WHERE id = ?').run('ALLOWED', record.result.record.id), /rights_records are append-only/);
   assert.throws(() => core.db.prepare('DELETE FROM consents WHERE id = ?').run(consent.result.consent.id), /consents are append-only/);
+  core.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('local backup admission, artifact verification, tamper detection and replay are durable', () => {
+  const { dbPath, directory } = tempDb();
+  const assetStorePath = path.join(directory, 'asset-store');
+  const sourcePath = path.join(directory, 'backup-source.txt');
+  const backupRoot = path.join(directory, 'backup-output');
+  const rejectedRoot = path.join(directory, 'backup-rejected');
+  fs.writeFileSync(sourcePath, 'backup bytes\n', 'utf8');
+  const core = new CoreService({ dbPath, assetStorePath });
+  const project = execute(core, 'CreateProject', { title: 'Backup film', code: 'backup-film' }, {}, 'backup-project');
+  const imported = execute(core, 'ImportAsset', {
+    project_id: project.result.id,
+    source_path: sourcePath,
+    asset_type: 'DOCUMENT',
+    storage_mode: 'COPY',
+  }, {}, 'backup-import');
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+
+  const created = execute(core, 'CreateBackup', {
+    destination_path: backupRoot,
+    durability_class: 'LOCAL_WRITABLE',
+    reserve_bytes: 0,
+  }, {}, 'backup-create');
+  assert.equal(created.ok, true, JSON.stringify(created));
+  assert.equal(created.result.backup.state, 'VERIFIED');
+  assert.equal(created.result.backup.object_count, 1);
+  assert.equal(created.result.verification.outcome, 'VERIFIED');
+  assert.equal(created.result.verification.integrity_state, 'PASS');
+  assert.equal(JSON.stringify(created.result).includes(backupRoot), false);
+
+  const persisted = core.db.prepare('SELECT * FROM backups WHERE id = ?').get(created.result.backup.id);
+  assert.ok(persisted);
+  assert.equal(persisted.state, 'VERIFIED');
+  assert.equal(fs.existsSync(persisted.manifest_path), true);
+  assert.equal(fs.existsSync(persisted.snapshot_path), true);
+  const manifest = JSON.parse(fs.readFileSync(persisted.manifest_path, 'utf8'));
+  assert.equal(manifest.format_version, 1);
+  assert.equal(manifest.schema_version, 7);
+  assert.equal(manifest.objects.length, 1);
+  assert.equal(manifest.objects[0].materialization, 'COPIED');
+  assert.equal(fs.existsSync(path.join(persisted.destination_path, manifest.objects[0].relative_path)), true);
+
+  const replay = execute(core, 'CreateBackup', {
+    destination_path: backupRoot,
+    durability_class: 'LOCAL_WRITABLE',
+    reserve_bytes: 0,
+  }, {}, 'backup-create');
+  assert.equal(replay.ok, true, JSON.stringify(replay));
+  assert.equal(replay.result.idempotent_replay, true);
+  assert.equal(replay.result.backup.id, created.result.backup.id);
+  assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM backups').get().count, 1);
+  assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM backup_verifications').get().count, 1);
+
+  const list = core.handle(request('query.backup.list', { limit: 10 }, 'backup-list'));
+  assert.equal(list.ok, true, JSON.stringify(list));
+  const listed = list.result.backups ?? list.result.items;
+  assert.equal(Array.isArray(listed), true);
+  assert.equal(listed.length, 1);
+  assert.equal(JSON.stringify(list.result).includes(backupRoot), false);
+  const detail = core.handle(request('query.backup.get', { backup_id: created.result.backup.id }, 'backup-detail'));
+  assert.equal(detail.ok, true, JSON.stringify(detail));
+  assert.equal(detail.result.backup.id, created.result.backup.id);
+  assert.equal(detail.result.verifications.length, 1);
+  assert.equal(JSON.stringify(detail.result).includes(backupRoot), false);
+
+  // A changed manifest must never be accepted as a valid backup. VerifyBackup
+  // records a failed verification and keeps the append-only audit trail.
+  fs.appendFileSync(persisted.manifest_path, '\n', 'utf8');
+  const tampered = execute(core, 'VerifyBackup', { backup_id: created.result.backup.id }, {}, 'backup-verify-tamper');
+  assert.equal(tampered.ok, true, JSON.stringify(tampered));
+  assert.equal(tampered.result.verification.outcome, 'FAILED');
+  assert.equal(tampered.result.verification.integrity_state, 'FAIL');
+  assert.equal(tampered.result.backup.state, 'FAILED');
+  assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM backup_verifications').get().count, 2);
+  assert.throws(
+    () => core.db.prepare('UPDATE backup_verifications SET outcome = ? WHERE id = ?').run('VERIFIED', tampered.result.verification.id),
+    /backup_verifications are append-only/,
+  );
+  assert.throws(
+    () => core.db.prepare('DELETE FROM backups WHERE id = ?').run(created.result.backup.id),
+    /backups are append-only/,
+  );
+
+  const admission = core.handle(request('query.storage.admission', {
+    destination_path: rejectedRoot,
+    durability_class: 'LOCAL_WRITABLE',
+    reserve_bytes: 0,
+    max_backup_bytes: 1,
+  }, 'backup-admission'));
+  assert.equal(admission.ok, false);
+  assert.equal(admission.error.code, 'STORAGE_PRESSURE');
+  const rejected = execute(core, 'CreateBackup', {
+    destination_path: rejectedRoot,
+    durability_class: 'LOCAL_WRITABLE',
+    reserve_bytes: 0,
+    max_backup_bytes: 1,
+  }, {}, 'backup-pressure');
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.error.code, 'STORAGE_PRESSURE');
+  assert.equal(fs.existsSync(rejectedRoot), false);
+
+  const unsupportedDurability = execute(core, 'CreateBackup', {
+    destination_path: path.join(directory, 'backup-offline'),
+    durability_class: 'OFFLINE',
+    reserve_bytes: 0,
+  }, {}, 'backup-offline');
+  assert.equal(unsupportedDurability.ok, false);
+  assert.equal(unsupportedDurability.error.code, 'DURABILITY_PROFILE_UNAVAILABLE');
   core.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });

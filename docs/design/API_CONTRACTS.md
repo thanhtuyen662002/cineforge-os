@@ -3287,3 +3287,53 @@ unrevoked. `RESTRICTED`, `UNKNOWN`, `EXPIRED`, and `REVOKED` all have
 provider egress, generation, training, publish, legal document parsing,
 multi-user authority, or signed provenance controls; those callers must keep
 their own gates explicit until their bounded slices land.
+
+# API-BACKUP-LOCAL-BASELINE. Local backup and verification
+
+The schema v7 V1 slice exposes a local, single-installation backup contract.
+It is deliberately narrower than the future restore/recovery and remote
+durability contracts described elsewhere in this document.
+
+Commands are issued through `command.execute` (or `POST /v1/commands`):
+
+- `CreateBackup({destination_path?, durability_class?, failure_domain?, reserve_bytes?, max_backup_bytes?})`
+- `VerifyBackup({backup_id})`
+
+`CreateBackup` is an auditable, idempotent command.  It admits the operation
+before writing bytes, rejects a database/asset-store destination, creates a
+SQLite `VACUUM INTO` snapshot and a versioned manifest, copies managed CAS
+objects, and verifies the complete artifact before registration.  The current
+supported durability class is `LOCAL_WRITABLE`; requesting
+`SEPARATE_VOLUME`, `OFFLINE`, or `IMMUTABLE_REMOTE` returns
+`DURABILITY_PROFILE_UNAVAILABLE` until the corresponding durability connector
+is implemented.  `max_backup_bytes` and free-space checks fail closed with
+`STORAGE_PRESSURE` and leave no partial destination.
+
+`VerifyBackup` re-hashes the manifest, snapshot and copied objects, runs the
+snapshot integrity check, and checks the installation identity.  A tampered or
+missing artifact returns a successful command envelope containing
+`verification.outcome=FAILED`, `integrity_state=FAIL`, and backup
+`state=FAILED`; the failed measurement is retained in the append-only
+verification ledger.  `UNKNOWN` is never treated as `VERIFIED`.
+
+Queries are:
+
+- `query.backup.list({limit?})`;
+- `query.backup.get({backup_id})`, including append-only verification rows;
+- `query.storage.admission({destination_path?, durability_class?, reserve_bytes?, max_backup_bytes?})`,
+  which returns an estimate or the same fail-closed pressure/profile error as
+  `CreateBackup`.
+
+The HTTP adapter maps these to `GET /v1/backups`, `GET /v1/backups/{id}`,
+`POST /v1/backups`, and `POST /v1/backups/{id}/verify`.  Public backup
+projections expose IDs, digests, counts, state, and stable file basenames;
+absolute destination, manifest, and snapshot paths remain internal resolver
+details.  The artifact manifest binds `installation_id`, `schema_version`,
+`event_seq_checkpoint`, and the database/object digests so a snapshot cannot
+silently be mistaken for another installation.
+
+This bounded baseline does not implement restore/activation, recovery epochs,
+forward revocation replay, remote/offline immutable durability, update
+signing/anti-rollback, disaster recovery, garbage collection, or multi-user
+backup authority.  Callers must not present a verified local backup as proof of
+those properties.

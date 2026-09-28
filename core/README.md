@@ -18,6 +18,10 @@ The slice owns project truth in SQLite and provides:
   effective-time fail-closed evaluation; imported assets start with an
   `UNKNOWN` rights projection until an allowed right and matching consent are
   both recorded;
+- versioned local backup admission, SQLite snapshot/object-manifest creation,
+  digest verification, tamper detection and append-only verification history;
+  backup paths remain internal and public projections expose only safe
+  basenames/digests;
 - optimistic `row_version` checks and deterministic idempotency keys;
 - append-only `commands`, `domain_events`, and `audit_records` ledgers;
 - query projections for home, project workspace, health, activity, search,
@@ -98,6 +102,11 @@ The desktop-facing routes are:
 | GET | `/v1/assets/{id}/rights` | Evaluate an asset's effective right/consent state |
 | GET | `/v1/rights/evaluate` | Evaluate a rights identity at a requested effective time |
 | GET | `/v1/rights/{id}/identity` | Read identity and append-only rights evidence |
+| GET | `/v1/backups` | List local backup metadata and verification state |
+| GET | `/v1/backups/{id}` | Read one backup and its append-only verification history |
+| POST | `/v1/backups` | Admit, create and verify a local backup (idempotency key supported) |
+| POST | `/v1/backups/{id}/verify` | Re-verify a registered backup artifact |
+| GET | `/v1/storage/admission` | Estimate backup storage or return fail-closed pressure/profile errors |
 | GET | `/v1/storage/staging` | Inspect durable staging evidence (paths are redacted) |
 | POST | `/v1/storage/staging/reconcile` | Reconcile one staging row or bounded pending rows |
 | GET | `/v1/imports/{id}` | Read an import session and its item state |
@@ -157,6 +166,41 @@ structured blockers; only `ALLOWED` is eligible. Provider egress, generation,
 training, publish, legal parsing, multi-user authority, and signed provenance
 remain separate gates until their own bounded implementation slices are
 completed.
+
+Local backup uses the advanced `POST /v1/commands` boundary as well as the
+convenience routes above. `CreateBackup` accepts an optional destination,
+`LOCAL_WRITABLE` durability class, free-space reserve and maximum byte budget;
+it writes a private temporary directory, snapshots SQLite with `VACUUM INTO`,
+copies managed content-addressed objects and atomically renames the directory
+only after manifest and read-back verification pass. `VerifyBackup` rechecks a
+registered artifact and appends either a `VERIFIED/PASS` or `FAILED/FAIL`
+measurement. `STORAGE_PRESSURE` and unavailable durability profiles fail before
+any destination is created. Absolute resolver paths are never returned by the
+public backup/list/detail responses.
+
+Canonical command examples:
+
+```json
+{
+  "api_version": "1",
+  "method": "command.execute",
+  "params": {
+    "command_type": "CreateBackup",
+    "idempotency_key": "backup-2026-001",
+    "payload": {
+      "destination_path": "D:/CineForge/backups",
+      "durability_class": "LOCAL_WRITABLE",
+      "reserve_bytes": 67108864
+    }
+  }
+}
+```
+
+The V1 backup baseline does not restore or activate a library, establish
+remote/offline immutable durability, advance recovery epochs, replay forward
+revocations, sign/update packages, run disaster recovery, or perform garbage
+collection. A verified local artifact must not be presented as evidence of
+those future guarantees.
 
 Task and shot updates require an optimistic concurrency value. Send either
 `row_version`/`expected_version` in the JSON body or an `expected_versions`
