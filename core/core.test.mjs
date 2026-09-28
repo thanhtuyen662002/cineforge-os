@@ -788,6 +788,24 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(rejected.error.code, 'STORAGE_PRESSURE');
   assert.equal(fs.existsSync(rejectedRoot), false);
 
+  const invalidReserveRoot = path.join(directory, 'backup-invalid-reserve');
+  const invalidReserve = execute(core, 'CreateBackup', {
+    destination_path: invalidReserveRoot,
+    durability_class: 'LOCAL_WRITABLE',
+    reserve_bytes: -1,
+  }, {}, 'backup-invalid-reserve');
+  assert.equal(invalidReserve.ok, false);
+  assert.equal(invalidReserve.error.code, 'INVALID_ARGUMENT');
+  assert.equal(fs.existsSync(invalidReserveRoot), false);
+
+  const invalidDestination = execute(core, 'CreateBackup', {
+    destination_path: 42,
+    durability_class: 'LOCAL_WRITABLE',
+    reserve_bytes: 0,
+  }, {}, 'backup-invalid-destination');
+  assert.equal(invalidDestination.ok, false);
+  assert.equal(invalidDestination.error.code, 'INVALID_BACKUP_DESTINATION');
+
   const unsupportedDurability = execute(core, 'CreateBackup', {
     destination_path: path.join(directory, 'backup-offline'),
     durability_class: 'OFFLINE',
