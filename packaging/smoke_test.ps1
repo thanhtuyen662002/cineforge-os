@@ -341,14 +341,22 @@ try {
         $pressureBody = @{ command_type = 'CreateBackup'; payload = @{ destination_path = $pressureRoot; durability_class = 'LOCAL_WRITABLE'; reserve_bytes = 0; max_backup_bytes = 1 } } | ConvertTo-Json -Depth 10
         $pressureStatus = 0
         $pressureCode = ''
+        $pressureClient = [System.Net.Http.HttpClient]::new()
+        $pressureRequest = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, "http://127.0.0.1:$webPort/v1/commands")
+        $pressureRequest.Headers.TryAddWithoutValidation('Idempotency-Key', [string]$pressureHeaders['Idempotency-Key']) | Out-Null
+        $pressureRequest.Headers.TryAddWithoutValidation('Origin', [string]$pressureHeaders.Origin) | Out-Null
+        $pressureRequest.Headers.TryAddWithoutValidation('Sec-Fetch-Site', [string]$pressureHeaders.'Sec-Fetch-Site') | Out-Null
+        $pressureContent = [System.Net.Http.StringContent]::new($pressureBody, [Text.Encoding]::UTF8, 'application/json')
+        $pressureRequest.Content = $pressureContent
         try {
-            Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers $pressureHeaders -ContentType 'application/json' -Body $pressureBody -TimeoutSec 20 | Out-Null
+            $pressureResponse = $pressureClient.SendAsync($pressureRequest).GetAwaiter().GetResult()
+            $pressureStatus = [int]$pressureResponse.StatusCode
+            $pressureResponseBody = $pressureResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            try { $pressureCode = [string](($pressureResponseBody | ConvertFrom-Json).error.code) } catch { }
         }
-        catch {
-            if ($null -ne $_.Exception.Response) {
-                $pressureStatus = [int]$_.Exception.Response.StatusCode
-                try { $pressureCode = [string](($_.ErrorDetails.Message | ConvertFrom-Json).error.code) } catch { }
-            }
+        finally {
+            if ($null -ne $pressureRequest) { $pressureRequest.Dispose() }
+            if ($null -ne $pressureClient) { $pressureClient.Dispose() }
         }
         if ($pressureStatus -ne 409 -or $pressureCode -ne 'STORAGE_PRESSURE') { throw "Backup storage admission did not fail closed with HTTP 409/STORAGE_PRESSURE (actual: $pressureStatus/$pressureCode)." }
         if (Test-Path -LiteralPath $pressureRoot) { throw 'Storage-pressure rejection created a backup destination or partial artifact.' }
