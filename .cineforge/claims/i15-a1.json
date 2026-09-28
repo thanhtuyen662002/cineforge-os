@@ -1,0 +1,12 @@
+{
+  "issue": 15,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-rights-baseline",
+  "run_id_at_claim": "WORK-rights-baseline-20260928-A1",
+  "slot_id": "WORK-rights-baseline",
+  "claim_base_sha": "ec9e4a4b39e41f155b189a4ef91e38abdd0680a6",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:c1e4ecba5ca633ee43beb6a0862465ba1adf6d61edb9622000b42d5a960e1c24",
+  "context_base_sha": "ec9e4a4b39e41f155b189a4ef91e38abdd0680a6",
+  "bootstrap_only": false
+}
