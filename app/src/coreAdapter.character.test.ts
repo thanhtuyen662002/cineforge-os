@@ -40,4 +40,20 @@ describe('HttpCoreClient character boundary', () => {
     expect(request.headers).toEqual(expect.objectContaining({ 'Idempotency-Key': 'voice-revision-1' }))
     expect(JSON.parse(String(request.body))).toEqual({ semantic_description: 'Warm and restrained', canonical_language: 'vi-VN', prosody: { pace: 'measured' } })
   })
+
+  it('does not expose arbitrary workspace-level rights or usage objects', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      result: {
+        character: { id: 'char-1', project_id: 'project-1', display_name: 'Maya', lifecycle_state: 'ACTIVE', row_version: 1 },
+        usage: { provider_path: '/tmp/provider-secret' },
+        rights: { provider_id: 'provider-secret' },
+        needs_you: [],
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const client = new HttpCoreClient('http://127.0.0.1:43217')
+    const workspace = await client.getCharacterWorkspace('char-1')
+    expect(workspace.usage).toBeNull()
+    expect(workspace.rights).toBeNull()
+  })
 })

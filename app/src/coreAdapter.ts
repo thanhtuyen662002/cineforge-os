@@ -1172,8 +1172,12 @@ function mapCharacterWorkspaceRecord(value: unknown): CharacterWorkspace {
     character: mapCharacterRecord(merged),
     generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
     projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
-    usage: envelope.usage && typeof envelope.usage === 'object' && !Array.isArray(envelope.usage) ? envelope.usage as Record<string, unknown> : null,
-    rights: envelope.rights && typeof envelope.rights === 'object' && !Array.isArray(envelope.rights) ? envelope.rights as Record<string, unknown> : null,
+    // Keep this adapter boundary closed until a dedicated allowlist exists
+    // for workspace-level usage and rights projections. Character package
+    // rights are mapped explicitly per revision above; arbitrary top-level
+    // connector/provider objects must not reach the desktop model.
+    usage: null,
+    rights: null,
     needsYou: arrayValue(envelope.needs_you ?? envelope.needsYou),
   }
 }
