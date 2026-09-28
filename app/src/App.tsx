@@ -777,10 +777,7 @@ function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: Da
   const records = snapshot.projects.flatMap((project) => (project.productionItems ?? []).map((item) => ({ project, item })))
 
   useEffect(() => {
-    if (!projectId && snapshot.projects[0]) {
-      projectIdRef.current = snapshot.projects[0].id
-      setProjectId(snapshot.projects[0].id)
-    }
+    if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
   }, [projectId, snapshot.projects])
 
   const loadAssets = useCallback(async (signal?: AbortSignal) => {
@@ -928,7 +925,10 @@ export function CharactersView({ snapshot, locale, client, onToast }: { snapshot
   }, [selectedId])
 
   useEffect(() => {
-    if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
+    if (!projectId && snapshot.projects[0]) {
+      projectIdRef.current = snapshot.projects[0].id
+      setProjectId(snapshot.projects[0].id)
+    }
   }, [projectId, snapshot.projects])
 
   const loadCharacters = useCallback(async (signal?: AbortSignal) => {
