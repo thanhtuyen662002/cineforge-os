@@ -68,8 +68,10 @@ rejected.
 Review commands are audited and idempotent. `OpenReview` records the exact
 subject/dependency snapshot. `SubmitReview` recomputes it and returns
 `STALE_REVIEW` on any mismatch; `APPROVE` additionally requires `READY`
-readiness. The desktop Review workspace shows metadata and honest state without
-claiming playback or render capability.
+readiness. `TransitionTimelineRevision` also requires the caller to echo the
+exact 64-hex dependency snapshot hash from the submitted review. The desktop
+Review workspace shows metadata and honest state without claiming playback or
+render capability.
 
 The timeline working session, autosave, undo/redo, collaboration, playback,
 render, external-editor handoff, export and release surfaces remain explicitly

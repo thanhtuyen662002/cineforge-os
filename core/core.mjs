@@ -3641,7 +3641,14 @@ export class CoreService {
       }
       const currentSnapshot = this._reviewSnapshot(info);
       const suppliedSnapshot = payload.dependency_snapshot_hash ?? payload.dependencySnapshotHash;
-      if ((suppliedSnapshot && suppliedSnapshot !== reviewSession.dependency_snapshot_hash)
+      if (suppliedSnapshot === undefined || suppliedSnapshot === null || String(suppliedSnapshot).trim() === '') {
+        throw new CoreError('REVIEW_SNAPSHOT_REQUIRED', 'CONFLICT', 'errors.review_snapshot_required', { review_session_id: reviewSession.id }, { needsUser: true });
+      }
+      const suppliedSnapshotText = String(suppliedSnapshot).trim();
+      if (!/^[0-9a-f]{64}$/i.test(suppliedSnapshotText)) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_review_snapshot_hash', { review_session_id: reviewSession.id });
+      }
+      if (suppliedSnapshotText.toLowerCase() !== reviewSession.dependency_snapshot_hash.toLowerCase()
         || currentSnapshot.hash !== reviewSession.dependency_snapshot_hash
         || submittedReview.dependency_snapshot_hash !== reviewSession.dependency_snapshot_hash
         || submittedReview.subject_content_hash !== info.content_hash) {

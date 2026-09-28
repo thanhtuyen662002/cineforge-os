@@ -1097,9 +1097,16 @@ test('canonical timeline pins an approved media profile and stores immutable rat
   }, { REVIEW_SESSION: 1 }, 'timeline-review-submit');
   assert.equal(submittedReview.ok, true, JSON.stringify(submittedReview));
   assert.equal(submittedReview.result.review.human_review.decision, 'APPROVE');
+  const missingSnapshot = execute(core, 'TransitionTimelineRevision', {
+    project_id: projectId, timeline_revision_id: revisionId, next_state: 'APPROVED',
+    review_session_id: review.result.review.id,
+  }, { REVISION: 2 }, 'timeline-approve-missing-snapshot');
+  assert.equal(missingSnapshot.ok, false);
+  assert.equal(missingSnapshot.error.code, 'REVIEW_SNAPSHOT_REQUIRED');
   const approved = execute(core, 'TransitionTimelineRevision', {
     project_id: projectId, timeline_revision_id: revisionId, next_state: 'APPROVED',
     review_session_id: review.result.review.id,
+    dependency_snapshot_hash: review.result.review.dependency_snapshot_hash,
   }, { REVISION: 2 }, 'timeline-approve');
   assert.equal(approved.ok, true, JSON.stringify(approved));
   assert.equal(approved.result.revision.lifecycle_state, 'APPROVED');
@@ -1163,6 +1170,7 @@ test('canonical timeline pins an approved media profile and stores immutable rat
   const secondApproved = execute(core, 'TransitionTimelineRevision', {
     project_id: projectId, timeline_revision_id: secondRevisionId, next_state: 'APPROVED',
     review_session_id: secondReview.result.review.id,
+    dependency_snapshot_hash: secondReview.result.review.dependency_snapshot_hash,
   }, { REVISION: 2 }, 'timeline-approve-second');
   assert.equal(secondApproved.ok, true, JSON.stringify(secondApproved));
   assert.equal(core.db.prepare('SELECT lifecycle_state FROM timeline_revisions WHERE id = ?').get(revisionId).lifecycle_state, 'SUPERSEDED');

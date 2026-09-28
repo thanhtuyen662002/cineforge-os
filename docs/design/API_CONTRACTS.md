@@ -719,11 +719,13 @@ requires timeline readiness `READY`. Once submitted, the decision cannot be
 edited or replaced.
 
 `TransitionTimelineRevision` to `APPROVED` now requires
-`review_session_id`. Core verifies that the session belongs to the same project
-and revision, is `SUBMITTED`, contains decision `APPROVE`, and still matches the
-current dependency/content hashes. Missing, non-APPROVE or stale review evidence
-is a `409 CONFLICT` with `needs_user=true`. The existing profile, asset, rights
-and exact-pin gates still run after this review gate.
+`review_session_id` and the caller-supplied `dependency_snapshot_hash` captured
+from that exact review. Core verifies that the session belongs to the same
+project and revision, is `SUBMITTED`, contains decision `APPROVE`, and still
+matches the current dependency/content hashes. A missing or malformed hash,
+missing/non-APPROVE evidence, or stale review is a typed conflict/validation
+error with `needs_user=true` where recovery is possible. The existing profile,
+asset, rights and exact-pin gates still run after this review gate.
 
 The UI Review workspace is metadata-first: it shows checkpoint identity,
 rational duration, track summary, readiness, exact hashes and human decision

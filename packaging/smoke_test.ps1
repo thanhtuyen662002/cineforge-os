@@ -276,13 +276,13 @@ try {
         $submitReviewHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-submit'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
         $submittedReviewEnvelope = Invoke-RestMethod -Uri $submitReviewUri -Method Post -Headers $submitReviewHeaders -ContentType 'application/json' -Body $submitReviewBody -TimeoutSec 5
         $submittedReview = $submittedReviewEnvelope.result.review
-        if ($null -eq $submittedReview -or [string]$submittedReview.state -ne 'SUBMITTED' -or [string]$submittedReview.humanReview.decision -ne 'APPROVE' -or [int]$submittedReview.rowVersion -ne 2) { throw 'SubmitReview did not return a SUBMITTED APPROVE review at version 2.' }
+        if ($null -eq $submittedReview -or [string]$submittedReview.state -ne 'SUBMITTED' -or [string]$submittedReview.humanReview.decision -ne 'APPROVE' -or [int]$submittedReview.rowVersion -ne 2 -or [string]$submittedReview.dependencySnapshotHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'SubmitReview did not return a SUBMITTED APPROVE review at version 2 with an exact dependency snapshot hash.' }
         $submitReviewReplay = Invoke-RestMethod -Uri $submitReviewUri -Method Post -Headers $submitReviewHeaders -ContentType 'application/json' -Body $submitReviewBody -TimeoutSec 5
         $submitReviewReplayFlag = Get-OptionalProperty $submitReviewReplay 'idempotent_replay'
         if ($null -eq $submitReviewReplayFlag) { $submitReviewReplayFlag = Get-OptionalProperty $submitReviewReplay.result 'idempotent_replay' }
         if (($null -ne $submitReviewReplayFlag -and -not $submitReviewReplayFlag) -or [string]$submitReviewReplay.result.review.id -ne [string]$reviewRecord.id) { throw 'SubmitReview retry was not an idempotent replay of the same review.' }
 
-        $approveTimeline = Invoke-RestMethod -Uri $candidateUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-approve'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ next_state = 'APPROVED'; expected_version = [int]$candidateRevision.rowVersion; review_session_id = [string]$reviewRecord.id } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        $approveTimeline = Invoke-RestMethod -Uri $candidateUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-review-approve'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ next_state = 'APPROVED'; expected_version = [int]$candidateRevision.rowVersion; review_session_id = [string]$reviewRecord.id; dependency_snapshot_hash = [string]$reviewRecord.dependencySnapshotHash } | ConvertTo-Json -Depth 10) -TimeoutSec 5
         $approvedTimelineResult = $approveTimeline.result
         $approvedTimelineRevision = Get-OptionalProperty $approvedTimelineResult 'currentRevision'
         if ($null -eq $approvedTimelineRevision) { $approvedTimelineRevision = Get-OptionalProperty $approvedTimelineResult 'revision' }

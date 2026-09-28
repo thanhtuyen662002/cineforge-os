@@ -575,6 +575,7 @@ function workspaceErrorMessage(cause: unknown, locale: Locale) {
     TIMELINE_REVISION_IMMUTABLE: { vi: 'Revision đã được chốt và không thể sửa trực tiếp.', en: 'This revision is immutable and cannot be edited directly.' },
     REVIEW_SESSION_NOT_FOUND: { vi: 'Review không còn tồn tại trong Core.', en: 'The review session no longer exists in Core.' },
     REVIEW_REQUIRED_FOR_APPROVAL: { vi: 'Timeline phải có review APPROVE còn hiệu lực trước khi chốt.', en: 'The timeline needs a current APPROVE review before it can be approved.' },
+    REVIEW_SNAPSHOT_REQUIRED: { vi: 'Cần gửi đúng dependency snapshot hash của review trước khi chốt timeline.', en: 'The exact dependency snapshot hash is required before approving the timeline.' },
     REVIEW_ALREADY_OPEN: { vi: 'Revision này đã có một review đang mở.', en: 'This revision already has an open review.' },
     REVIEW_NOT_READY: { vi: 'Checkpoint chưa đủ readiness để reviewer approve.', en: 'The checkpoint is not ready for an approval review.' },
     REVIEW_APPROVAL_REQUIRED: { vi: 'Chỉ quyết định APPROVE mới được chốt timeline.', en: 'Only an APPROVE decision can approve the timeline.' },
@@ -1651,7 +1652,11 @@ export function ReviewView({ snapshot, locale, client, onToast }: { snapshot: Da
     if (!transition || !projectId || !reviewWorkspace?.review?.id || !reviewWorkspace.subject?.id || !reviewWorkspace.subject.timelineId || !['SUBMITTED'].includes(reviewWorkspace.review.state) || reviewWorkspace.review.humanReview?.decision !== 'APPROVE' || mutating) return
     setMutating(`timeline-approve:${reviewWorkspace.subject.id}`); setActionError(null); setNeedsUser(false)
     try {
-      await transition(projectId, reviewWorkspace.subject.timelineId, reviewWorkspace.subject.id, 'APPROVED', reviewWorkspace.subject.rowVersion, `timeline-approve:${reviewWorkspace.subject.id}:${reviewWorkspace.subject.rowVersion}:${reviewWorkspace.review.id}`, reviewWorkspace.review.id)
+      const dependencySnapshotHash = reviewWorkspace.review.dependencySnapshotHash ?? reviewWorkspace.snapshot?.hash
+      if (!dependencySnapshotHash) {
+        throw new CoreClientError(locale === 'vi' ? 'Review thiếu dependency snapshot hash.' : 'The review is missing its dependency snapshot hash.', { code: 'REVIEW_SNAPSHOT_REQUIRED', category: 'VALIDATION', needsUser: true })
+      }
+      await transition(projectId, reviewWorkspace.subject.timelineId, reviewWorkspace.subject.id, 'APPROVED', reviewWorkspace.subject.rowVersion, `timeline-approve:${reviewWorkspace.subject.id}:${reviewWorkspace.subject.rowVersion}:${reviewWorkspace.review.id}`, reviewWorkspace.review.id, dependencySnapshotHash)
       onToast(locale === 'vi' ? 'Timeline đã được approve bằng review hiện tại.' : 'The timeline was approved with the current review.')
       await loadProject()
       await loadReview(reviewWorkspace.review.id)

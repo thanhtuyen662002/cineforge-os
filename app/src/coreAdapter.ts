@@ -38,7 +38,7 @@ export interface CoreBridge {
   getTimelineWorkspace?(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace>
   createTimeline?(projectId: string, input: TimelineInput, idempotencyKey?: string): Promise<TimelineSummary>
   createTimelineRevision?(projectId: string, timelineId: string, input: TimelineSnapshotInput, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
-  transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string, reviewSessionId?: string): Promise<TimelineWorkspace>
+  transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string, reviewSessionId?: string, dependencySnapshotHash?: string): Promise<TimelineWorkspace>
   getReviews?(projectId: string, state?: string, signal?: AbortSignal): Promise<ReviewSession[]>
   getReview?(projectId: string, reviewSessionId: string, signal?: AbortSignal): Promise<ReviewWorkspace>
   openReview?(projectId: string, subjectRevisionId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReviewWorkspace>
@@ -743,12 +743,17 @@ export class HttpCoreClient implements CoreClient {
     return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline checkpoint'))
   }
 
-  async transitionTimelineRevision(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID(), reviewSessionId?: string): Promise<TimelineWorkspace> {
+  async transitionTimelineRevision(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID(), reviewSessionId?: string, dependencySnapshotHash?: string): Promise<TimelineWorkspace> {
     if (!this.baseUrl) throw new CoreClientError('Timeline transitions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/revisions/${encodeURIComponent(revisionId)}/transition`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({ next_state: nextState, expected_version: expectedVersion, ...(reviewSessionId ? { review_session_id: reviewSessionId } : {}) }),
+      body: JSON.stringify({
+        next_state: nextState,
+        expected_version: expectedVersion,
+        ...(reviewSessionId ? { review_session_id: reviewSessionId } : {}),
+        ...(dependencySnapshotHash ? { dependency_snapshot_hash: dependencySnapshotHash } : {}),
+      }),
     })
     return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline revision transition'))
   }
