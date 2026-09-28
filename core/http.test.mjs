@@ -605,6 +605,13 @@ test('HTTP local backup routes expose redacted metadata, admission and verificat
     assert.equal(backup.manifest_name, 'manifest.json');
     assert.equal(backup.snapshot_name, 'cineforge.sqlite');
 
+    const dashboardWithBackup = await fetch(`${base}/v1/dashboard`);
+    assert.equal(dashboardWithBackup.status, 200);
+    const dashboardHealth = (await dashboardWithBackup.json()).system;
+    assert.equal(dashboardHealth.backupState, 'VERIFIED');
+    assert.equal(dashboardHealth.storagePressure, false);
+    assert.equal(dashboardHealth.storageAttention, false);
+
     const replay = await jsonRequest('/v1/backups', {
       method: 'POST', headers: { 'idempotency-key': 'http-backup-create' },
       body: JSON.stringify({ destination_path: destination, reserve_bytes: 0 }),
