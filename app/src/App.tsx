@@ -1253,6 +1253,10 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
 
   useEffect(() => {
     const controller = new AbortController()
+    // A project switch must never leave the previous project's records
+    // visible if this bridge lacks the new query methods or the request fails.
+    setMediaProfile(null)
+    setTimelines([])
     setSelectedTimelineId(null)
     setWorkspace(null)
     setActionError(null)
