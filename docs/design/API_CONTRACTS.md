@@ -3325,7 +3325,9 @@ Queries are:
   `CreateBackup`.
 
 The HTTP adapter maps these to `GET /v1/backups`, `GET /v1/backups/{id}`,
-`POST /v1/backups`, and `POST /v1/backups/{id}/verify`.  Public backup
+`POST /v1/backups`, and `POST /v1/backups/{id}/verify`.  The admission
+preflight is also available as `GET /v1/storage/admission` with query
+parameters.  Public backup
 projections expose IDs, digests, counts, state, and stable file basenames;
 absolute destination, manifest, and snapshot paths remain internal resolver
 details.  The artifact manifest binds `installation_id`, `schema_version`,
