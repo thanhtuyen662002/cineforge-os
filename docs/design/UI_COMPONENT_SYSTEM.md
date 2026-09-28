@@ -595,8 +595,35 @@ Main areas:
 - inspector;
 - audio meters when needed.
 
+## Issue #21 bounded media-profile/checkpoint surface
+
+The first timeline surface is a bounded project-scoped checkpoint workspace,
+not an editor. It may show and validate:
+
+- the explicit media-profile revision (frame rate/time base, resolution/aspect,
+  color/HDR policy and audio sample/layout) with its lifecycle and blockers;
+- the selected immutable checkpoint, exact pinned asset revisions, VIDEO track
+  summaries, clip intervals and markers;
+- validation results, rights/readiness blockers, checkpoint hash and the next
+  human action;
+- loading, empty/no-checkpoint, stale/conflict, validation error and
+  `needs_user` states with a real recovery path.
+
+The checkpoint action is one explicit primary action. It submits a complete
+typed snapshot through Core and reports durable success only after the Core
+response includes the checkpoint identity and hash. The UI must never show a
+percentage or pretend that media work is progressing without backend
+evidence. vi-VN remains the default locale and en-US the secondary locale.
+
+Working-session editing, autosave, undo/redo, collaboration, playback,
+thumbnail/waveform generation, audio/caption/transition editing, render,
+external-editor handoff, export and release are explicitly deferred. The
+baseline therefore does not show play/pause controls, a fake editor lease or
+controls that imply those capabilities exist. Unsupported data is explained as
+unavailable in this baseline rather than silently omitted.
+
 ## TimelineCanvas
-Must support:
+The full editor target (deferred beyond Issue #21) must support:
 - clips;
 - audio;
 - captions;

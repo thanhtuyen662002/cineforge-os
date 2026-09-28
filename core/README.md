@@ -30,6 +30,38 @@ The slice owns project truth in SQLite and provides:
 - a JSON-line process boundary for a desktop host;
 - a loopback HTTP adapter for the packaged desktop shell.
 
+The canonical timeline/media-profile checkpoint contract is implemented as the
+bounded Issue #21 slice. Core owns the project-scoped profile, timeline and
+immutable checkpoint rows; every mutation goes through the audited command
+boundary and every read is a redacted projection.
+
+## Timeline checkpoint baseline status
+
+The executable commands are:
+
+- `CreateMediaProfileRevision`
+- `TransitionMediaProfileRevision`
+- `CreateTimeline`
+- `CreateTimelineRevision`
+- `TransitionTimelineRevision`
+
+The executable queries are `query.media_profile.workspace`,
+`query.timeline.list` and `query.timeline.workspace`. The loopback adapter
+exposes media-profile setup/read plus project-scoped timeline list, workspace,
+create, checkpoint and lifecycle-transition routes. The baseline validates
+bounded positive rationals with exact cross multiplication, rejects overlap and
+out-of-bounds clips, pins an approved profile revision, and fail-closes on
+cross-project, unavailable, unverified, externally referenced or rights-
+blocked assets. Checkpoint content is canonicalized and hashed before the
+immutable revision is written; retries are idempotent and stale versions are
+rejected.
+
+The timeline working session, autosave, undo/redo, collaboration, playback,
+render, external-editor handoff, export and release surfaces remain explicitly
+deferred. The desktop workspace states that boundary and never reports media
+progress without Core evidence. These deferred surfaces must receive their own
+contracts before they are added to the UI.
+
 ## Requirements
 
 Node.js `>=22.5.0` is required. The implementation uses the built-in

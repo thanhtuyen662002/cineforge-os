@@ -498,7 +498,36 @@ A revocation is dominant:
 - release/publish gates re-evaluate current rights;
 - derivatives receive taint-impact records.
 
-# 22. Timeline working session
+# 21A. Issue #21 media-profile/checkpoint baseline
+
+The bounded baseline has two independent immutable revision lifecycles:
+
+```text
+MediaProfileRevision:
+DRAFT → CANDIDATE → APPROVED → SUPERSEDED
+
+TimelineCheckpoint:
+DRAFT_CHECKPOINT → CANDIDATE → APPROVED → SUPERSEDED
+```
+
+`CreateMediaProfileRevision` creates a new profile revision after rational,
+dimension, color and audio validation. A checkpoint must pin that exact
+profile revision. Neither lifecycle resolves a current/latest revision at
+read, checkpoint or approval time, and an approved revision is never edited in
+place.
+
+`CreateTimelineRevision` is the bounded snapshot command: it validates a complete
+project-scoped VIDEO/clip/marker snapshot and atomically creates one immutable
+`DRAFT_CHECKPOINT` with a deterministic content hash. `TransitionTimelineRevision`
+is a separate explicit transition that rechecks profile, asset, evidence and
+rights dependencies before superseding the previous approved checkpoint.
+
+Issue #21 does not implement or expose a mutable working session, autosave,
+undo/redo, collaboration branch, playback, render, export or release state.
+Those states remain future transitions and must not be inferred from a
+checkpoint lifecycle value.
+
+# 22. Timeline working session (deferred after Issue #21)
 
 ```text
 OPEN

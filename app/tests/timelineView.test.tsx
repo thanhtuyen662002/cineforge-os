@@ -36,7 +36,7 @@ function client(overrides: Partial<CoreClient> = {}): CoreClient {
 }
 
 describe('TimelineView', () => {
-  it('loads the project workspace and sends a duration-bearing empty checkpoint', async () => {
+  it('loads the project workspace and sends a duration-bearing VIDEO checkpoint from bounded JSON', async () => {
     const core = client()
     render(<TimelineView snapshot={snapshot} locale="vi" client={core} onToast={vi.fn()} />)
     expect(await screen.findByText('Main cut')).toBeTruthy()
@@ -45,8 +45,14 @@ describe('TimelineView', () => {
     expect(await screen.findByText('Duration num')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Duration num'), { target: { value: '24000' } })
     fireEvent.change(screen.getByLabelText('Duration den'), { target: { value: '1001' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu checkpoint rỗng' }))
-    await waitFor(() => expect(core.createTimelineRevision).toHaveBeenCalledWith(project.id, timeline.id, expect.objectContaining({ mediaProfileRevisionId: profileRevision.id, duration: { num: 24000, den: 1001 }, tracks: [], markers: [] }), timeline.rowVersion, expect.any(String)))
+    fireEvent.change(screen.getByLabelText('Tracks JSON'), { target: { value: '[{"trackType":"VIDEO","orderIndex":0,"name":"Picture","enabled":true,"clips":[{"timelineIn":{"num":0,"den":1},"timelineOut":{"num":12,"den":1}}]}]' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu checkpoint' }))
+    await waitFor(() => expect(core.createTimelineRevision).toHaveBeenCalledWith(project.id, timeline.id, expect.objectContaining({
+      mediaProfileRevisionId: profileRevision.id,
+      duration: { num: 24000, den: 1001 },
+      tracks: [{ trackType: 'VIDEO', orderIndex: 0, name: 'Picture', enabled: true, clips: [{ timelineIn: { num: 0, den: 1 }, timelineOut: { num: 12, den: 1 } }] }],
+      markers: [],
+    }), timeline.rowVersion, expect.any(String)))
   })
 
   it('shows the empty and needs-user state when no approved profile exists', async () => {
