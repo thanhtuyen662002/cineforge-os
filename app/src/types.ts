@@ -71,9 +71,18 @@ export interface AssetSummary {
   latestRevision?: unknown
 }
 
+export interface StagedAsset {
+  handle: string
+  name: string
+  mimeType?: string
+  byteSize: number
+}
+
 export interface ImportAssetInput {
-  sourcePath: string
+  sourcePath?: string
+  sourceHandle?: string
   projectId?: string
+  originalName?: string
   displayName?: string
   assetType?: string
   semanticRole?: string
@@ -81,6 +90,7 @@ export interface ImportAssetInput {
   contentHash?: string
   mimeType?: string
   intentHint?: string
+  idempotencyKey?: string
 }
 
 /**
@@ -120,5 +130,6 @@ export interface CoreClient {
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
 }

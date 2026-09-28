@@ -33,11 +33,13 @@ The shipped flow is real and persisted:
 
 1. Open Home and create a project.
 2. Open the project and add production items.
-3. Open Library & intake, paste a local file path, and submit it to Core. Core
-   verifies SHA-256, stores a content-addressed copy by default, and keeps
-   immutable revision/provenance records. The browser file picker is preview
-   only because browsers do not expose absolute paths; the explicit path field
-   is the import confirmation.
+3. Open Library & intake, choose files with the browser picker (or drag them
+   into the intake area). The packaged bootstrap streams each file into a
+   short-lived local staging area and returns only an opaque handle to the
+   browser. Press Import to send that handle to Core; Core verifies SHA-256,
+   stores a content-addressed copy by default, and keeps immutable
+   revision/provenance records. The advanced local-path field remains
+   available for development and controlled migrations.
 4. Reload the dashboard or restart `CineForge.exe`.
 5. The project, production items, activity, and imported assets are read back
    from SQLite/object storage, with command, event, and

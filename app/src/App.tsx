@@ -430,7 +430,17 @@ function ActivityView({ snapshot, locale, onOpenProject }: { snapshot: Dashboard
   return <div className="page activity-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'THEO DÕI' : 'MONITORING'}</p><h1>{locale === 'vi' ? 'Hoạt động' : 'Activity'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Trạng thái đọc từ Core, theo từng project. Không có tiến độ được dựng trong giao diện.' : 'State read from Core, grouped by project. The interface never invents progress.'}</p></div><span className="count-chip"><Activity size={15} />{snapshot.activity.length}</span></div><div className="activity-filter-row" role="tablist" aria-label={locale === 'vi' ? 'Lọc hoạt động' : 'Activity filters'}>{filters.map((item) => <button key={item.key} className={`filter-chip ${filter === item.key ? 'active' : ''}`} onClick={() => setFilter(item.key)} role="tab" aria-selected={filter === item.key}><Filter size={13} />{locale === 'vi' ? item.vi : item.en}</button>)}</div><section className="activity-page-list">{visible.length === 0 ? <EmptyState icon={CheckCircle2} title={locale === 'vi' ? 'Không có activity phù hợp' : 'No matching activity'} detail={locale === 'vi' ? 'Core chưa ghi nhận trạng thái trong bộ lọc này.' : 'Core has not recorded a state in this filter yet.'} /> : visible.map((item) => { const project = snapshot.projects.find((candidate) => candidate.id === item.projectId || candidate.name === item.projectName); return <ActivityRow key={item.id} item={item} locale={locale} onOpen={project ? () => onOpenProject(project) : undefined} /> })}</section></div>
 }
 
-type IntakeFile = { id: string; name: string; size: number; type: string; modifiedAt: number }
+type IntakeFile = {
+  id: string
+  name: string
+  size: number
+  type: string
+  modifiedAt: number
+  handle?: string
+  importIdempotencyKey?: string
+  stageState: 'preview' | 'staging' | 'ready' | 'error'
+  stageError?: string
+}
 
 function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; onOpenProject: (project: ProjectSummary) => void }) {
   const [stagedFiles, setStagedFiles] = useState<IntakeFile[]>([])
@@ -441,6 +451,7 @@ function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: Da
   const [sourcePath, setSourcePath] = useState('')
   const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
   const [isImporting, setIsImporting] = useState(false)
+  const [importingFileId, setImportingFileId] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const records = snapshot.projects.flatMap((project) => (project.productionItems ?? []).map((item) => ({ project, item })))
 
@@ -468,11 +479,52 @@ function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: Da
     return () => controller.abort()
   }, [loadAssets])
 
-  const stageFiles = (fileList: FileList | null) => {
+  const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true) && Boolean(client.importAsset)
+
+  const stageFiles = async (fileList: FileList | null) => {
     if (!fileList) return
-    const next = Array.from(fileList).map((file) => ({ id: `${file.name}-${file.lastModified}-${file.size}`, name: file.name, size: file.size, type: file.type || 'application/octet-stream', modifiedAt: file.lastModified }))
+    const files = Array.from(fileList)
+    const next = files.map((file) => ({
+      // A browser intentionally does not expose a stable local path. A UUID
+      // keeps two same-sized files with the same name independently actionable
+      // in the intake queue and avoids accidental client-side deduplication.
+      id: crypto.randomUUID(),
+      name: file.name,
+      size: file.size,
+      type: file.type || 'application/octet-stream',
+      modifiedAt: file.lastModified,
+      importIdempotencyKey: crypto.randomUUID(),
+      stageState: connected && client.stageAsset ? 'staging' as const : 'preview' as const,
+    }))
     setStagedFiles((current) => dedupeIntakeFiles([...current, ...next]))
+    if (!connected || !client.stageAsset) return
+    for (const [index, file] of files.entries()) {
+      const id = next[index].id
+      try {
+        const staged = await client.stageAsset(file)
+        setStagedFiles((current) => current.map((item) => item.id === id ? { ...item, handle: staged.handle, name: staged.name, size: staged.byteSize, type: staged.mimeType || item.type, stageState: 'ready', stageError: undefined } : item))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : (locale === 'vi' ? 'Không stage được file.' : 'Could not stage file.')
+        setStagedFiles((current) => current.map((item) => item.id === id ? { ...item, stageState: 'error', stageError: message } : item))
+      }
+    }
   }
+
+  const importStagedFile = async (file: IntakeFile) => {
+    if (!file.handle || !client.importAsset || !connected || isImporting) return
+    setImportingFileId(file.id)
+    setImportError(null)
+    try {
+      const imported = await client.importAsset({ sourceHandle: file.handle, projectId: projectId || undefined, originalName: file.name, mimeType: file.type, storageMode: 'COPY', idempotencyKey: file.importIdempotencyKey })
+      setAssets((current) => [imported, ...current.filter((asset) => asset.id !== imported.id)])
+      setStagedFiles((current) => current.filter((item) => item.id !== file.id))
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : (locale === 'vi' ? 'Import asset thất bại.' : 'Asset import failed.'))
+    } finally {
+      setImportingFileId(null)
+    }
+  }
+
   const submitImport = async (event: FormEvent) => {
     event.preventDefault()
     const cleanPath = sourcePath.trim()
@@ -490,15 +542,14 @@ function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: Da
     }
   }
 
-  const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true) && Boolean(client.importAsset)
   return <div className="page library-page">
-    <div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'NGUỒN & TÀI SẢN' : 'SOURCES & ASSETS'}</p><h1>{locale === 'vi' ? 'Thư viện & intake' : 'Library & intake'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Hash, provenance và trạng thái asset do Core xác nhận trước khi ghi vào workspace.' : 'Core verifies hash, provenance, and asset state before writing to the workspace.'}</p></div><label className="primary-button file-picker"><FilePlus2 size={16} />{locale === 'vi' ? 'Chọn file' : 'Choose files'}<input type="file" multiple onChange={(event) => { stageFiles(event.target.files); event.currentTarget.value = '' }} /></label></div>
+    <div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'NGUỒN & TÀI SẢN' : 'SOURCES & ASSETS'}</p><h1>{locale === 'vi' ? 'Thư viện & intake' : 'Library & intake'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Hash, provenance và trạng thái asset do Core xác nhận trước khi ghi vào workspace.' : 'Core verifies hash, provenance, and asset state before writing to the workspace.'}</p></div><label className="primary-button file-picker"><FilePlus2 size={16} />{locale === 'vi' ? 'Chọn file' : 'Choose files'}<input type="file" multiple onChange={(event) => { void stageFiles(event.target.files); event.currentTarget.value = '' }} /></label></div>
     <div className="library-grid">
       <section className="library-intake-card">
-        <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><UploadCloud size={16} /></span><div><h2>{locale === 'vi' ? 'Intake cục bộ' : 'Local intake'}</h2><p>{locale === 'vi' ? 'Chọn file để xem trước; nhập đường dẫn để gửi command thật.' : 'Stage a file for review; enter its local path to submit a real command.'}</p></div></div><span className="state-label"><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core sẵn sàng' : 'Core ready') : (locale === 'vi' ? 'Chỉ xem' : 'Read only')}</span></div>
-        <div className={`intake-dropzone ${isDragging ? 'dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={() => setIsDragging(false)} onDrop={(event) => { event.preventDefault(); setIsDragging(false); stageFiles(event.dataTransfer.files) }}><FilePlus2 size={21} /><strong>{locale === 'vi' ? 'Kéo file vào đây hoặc dùng “Chọn file”' : 'Drop files here or use “Choose files”'}</strong><span>{locale === 'vi' ? 'Trình duyệt không cấp đường dẫn đầy đủ; hãy dán đường dẫn local bên dưới để Core mở và hash.' : 'Browsers do not expose full paths; paste the local path below so Core can open and hash it.'}</span></div>
-        {stagedFiles.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có file nào được chọn.' : 'No files staged yet.'} /> : <div className="intake-list">{stagedFiles.map((file) => <div className="intake-row" key={file.id}><span className="intake-file-icon"><FileIcon size={15} /></span><div><strong>{file.name}</strong><small>{formatBytes(file.size)} · {file.type}</small></div><span className="intake-status">{locale === 'vi' ? 'Đã xem trước' : 'Staged only'}</span><button type="button" className="icon-button ghost" onClick={() => setStagedFiles((current) => current.filter((candidate) => candidate.id !== file.id))} aria-label={locale === 'vi' ? `Bỏ ${file.name}` : `Remove ${file.name}`}><X size={14} /></button></div>)}</div>}
-        <form className="asset-import-form" onSubmit={submitImport}><label>{locale === 'vi' ? 'Đường dẫn file local' : 'Local file path'}<input value={sourcePath} onChange={(event) => setSourcePath(event.target.value)} placeholder={String.raw`C:\Projects\film\shot-010.png`} disabled={!connected} /></label><label>{locale === 'vi' ? 'Gắn vào project' : 'Attach to project'}<select value={projectId} onChange={(event) => setProjectId(event.target.value)} disabled={!connected || snapshot.projects.length === 0}><option value="">{locale === 'vi' ? 'Studio-wide asset' : 'Studio-wide asset'}</option>{snapshot.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><button className="primary-button small" type="submit" disabled={!sourcePath.trim() || !connected || isImporting}><UploadCloud size={15} />{isImporting ? (locale === 'vi' ? 'Đang hash…' : 'Hashing…') : (locale === 'vi' ? 'Import vào Core' : 'Import to Core')}</button></form>
+        <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><UploadCloud size={16} /></span><div><h2>{locale === 'vi' ? 'Intake cục bộ' : 'Local intake'}</h2><p>{locale === 'vi' ? 'Chọn file, stage qua bootstrap local rồi xác nhận import vào Core.' : 'Choose files, stage them through the local bootstrap, then confirm the Core import.'}</p></div></div><span className="state-label"><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core sẵn sàng' : 'Core ready') : (locale === 'vi' ? 'Chỉ xem' : 'Read only')}</span></div>
+        <div className={`intake-dropzone ${isDragging ? 'dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={() => setIsDragging(false)} onDrop={(event) => { event.preventDefault(); setIsDragging(false); void stageFiles(event.dataTransfer.files) }}><FilePlus2 size={21} /><strong>{locale === 'vi' ? 'Kéo file vào đây hoặc dùng “Chọn file”' : 'Drop files here or use “Choose files”'}</strong><span>{locale === 'vi' ? 'File được stage an toàn qua bootstrap local; browser chỉ nhận handle tạm thời, không nhận đường dẫn thật.' : 'Files are staged through the local bootstrap; the browser receives only a temporary handle, never the raw path.'}</span></div>
+        {stagedFiles.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có file nào được chọn.' : 'No files staged yet.'} /> : <div className="intake-list">{stagedFiles.map((file) => <div className="intake-row" key={file.id}><span className="intake-file-icon"><FileIcon size={15} /></span><div><strong>{file.name}</strong><small>{formatBytes(file.size)} · {file.type}{file.stageError ? ` · ${file.stageError}` : ''}</small></div><span className={`intake-status ${file.stageState}`}>{file.stageState === 'staging' ? (locale === 'vi' ? 'Đang stage…' : 'Staging…') : file.stageState === 'ready' ? (locale === 'vi' ? 'Sẵn sàng import' : 'Ready to import') : file.stageState === 'error' ? (locale === 'vi' ? 'Lỗi stage' : 'Staging failed') : (locale === 'vi' ? 'Chỉ xem trước' : 'Preview only')}</span>{file.stageState === 'ready' && <button type="button" className="subtle-button tiny" disabled={importingFileId === file.id || isImporting} onClick={() => void importStagedFile(file)}>{importingFileId === file.id ? (locale === 'vi' ? 'Đang import…' : 'Importing…') : (locale === 'vi' ? 'Import' : 'Import')}</button>}<button type="button" className="icon-button ghost" onClick={() => setStagedFiles((current) => current.filter((candidate) => candidate.id !== file.id))} aria-label={locale === 'vi' ? `Bỏ ${file.name}` : `Remove ${file.name}`}><X size={14} /></button></div>)}</div>}
+        <form className="asset-import-form" onSubmit={submitImport}><label>{locale === 'vi' ? 'Đường dẫn file local (nâng cao)' : 'Local file path (advanced)'}<input value={sourcePath} onChange={(event) => setSourcePath(event.target.value)} placeholder={String.raw`C:\Projects\film\shot-010.png`} disabled={!connected} /></label><label>{locale === 'vi' ? 'Gắn vào project' : 'Attach to project'}<select value={projectId} onChange={(event) => setProjectId(event.target.value)} disabled={!connected || snapshot.projects.length === 0}><option value="">{locale === 'vi' ? 'Studio-wide asset' : 'Studio-wide asset'}</option>{snapshot.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><button className="primary-button small" type="submit" disabled={!sourcePath.trim() || !connected || isImporting}><UploadCloud size={15} />{isImporting ? (locale === 'vi' ? 'Đang hash…' : 'Hashing…') : (locale === 'vi' ? 'Import đường dẫn' : 'Import path')}</button></form>
         {importError && <div className="inline-state warning"><AlertCircle size={14} />{importError}</div>}
         <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Import thành công chỉ được hiển thị sau khi Core trả về hash, object location và provenance. File không được tự chạy.' : 'An import is shown only after Core returns a hash, object location, and provenance. Files are never executed automatically.'}</p>
       </section>

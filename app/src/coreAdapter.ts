@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, ImportAssetInput, ProductionItem, ProjectSummary, ProjectWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CoreClient, DashboardSnapshot, ImportAssetInput, ProductionItem, ProjectSummary, ProjectWorkspace, StagedAsset, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -16,6 +16,7 @@ export interface CoreBridge {
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
 }
 
@@ -201,17 +202,45 @@ export class HttpCoreClient implements CoreClient {
     return arrayValue(result.assets).map(mapAssetRecord)
   }
 
+  async stageAsset(file: File): Promise<StagedAsset> {
+    if (!this.baseUrl) throw new Error('File staging requires a connected Core')
+    const response = await fetch(`${this.baseUrl}/v1/desktop/stage`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        // HTTP header values are byte strings. Encode the browser filename as
+        // bounded UTF-8 base64url so Vietnamese/CJK/emoji names survive the
+        // local boundary without parser failures or mojibake.
+        'X-CineForge-Filename-B64': encodeFilenameHeader(file.name),
+      },
+      body: file,
+    })
+    const payload = await readCorePayload(response, 'file staging')
+    const result = asRecord(payload)
+    const handle = stringValue(result.handle)
+    if (!handle) throw new Error('Core did not return a staging handle')
+    return {
+      handle,
+      name: stringValue(result.name) ?? file.name,
+      mimeType: stringValue(result.mimeType ?? result.mime_type) ?? file.type,
+      byteSize: numberValue(result.byteSize ?? result.byte_size, file.size),
+    }
+  }
+
   async importAsset(input: ImportAssetInput): Promise<AssetSummary> {
     if (!this.baseUrl) throw new Error('Asset import requires a connected Core')
+    if (!input.sourcePath && !input.sourceHandle) throw new Error('An asset path or staging handle is required')
     const endpoint = input.projectId
       ? `${this.baseUrl}/v1/projects/${encodeURIComponent(input.projectId)}/assets`
       : `${this.baseUrl}/v1/assets`
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': input.idempotencyKey ?? crypto.randomUUID() },
       body: JSON.stringify({
-        source_path: input.sourcePath,
+        ...(input.sourcePath ? { source_path: input.sourcePath } : {}),
+        ...(input.sourceHandle ? { source_handle: input.sourceHandle } : {}),
         ...(input.projectId ? { project_id: input.projectId } : {}),
+        ...(input.originalName ? { original_name: input.originalName } : {}),
         ...(input.displayName ? { display_name: input.displayName } : {}),
         ...(input.assetType ? { asset_type: input.assetType } : {}),
         ...(input.semanticRole ? { semantic_role: input.semanticRole } : {}),
@@ -239,6 +268,13 @@ async function readCorePayload(response: Response, label: string): Promise<unkno
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function encodeFilenameHeader(filename: string): string {
+  const bytes = new TextEncoder().encode(filename.slice(0, 255))
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
 
 function arrayValue(value: unknown): unknown[] {

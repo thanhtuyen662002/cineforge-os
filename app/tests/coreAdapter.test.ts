@@ -60,6 +60,15 @@ describe('local Core adapter', () => {
   it('maps HTTP asset records and sends a Core import command', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.includes('/v1/desktop/stage')) {
+        expect(init?.method).toBe('POST')
+        const encodedName = (init?.headers as Record<string, string>)['X-CineForge-Filename-B64']
+        expect(encodedName).toMatch(/^[A-Za-z0-9_-]+$/)
+        const padded = encodedName.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(encodedName.length / 4) * 4, '=')
+        const decoded = new TextDecoder().decode(Uint8Array.from(atob(padded), (character) => character.charCodeAt(0)))
+        expect(decoded).toBe('Cảnh 🎬.mp4')
+        return new Response(JSON.stringify({ ok: true, result: { handle: 'b'.repeat(32), name: 'Cảnh 🎬.mp4', mimeType: 'video/mp4', byteSize: 42 } }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
       if (init?.method === 'POST') {
         return new Response(JSON.stringify({ id: 'asset-1', projectId: 'project-1', name: 'shot.png', assetType: 'IMAGE', availability: 'AVAILABLE', revisionId: 'revision-1', contentHash: 'a'.repeat(64), byteSize: 42, storageUri: 'object://sha-256/a/aaa', warnings: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
       }
@@ -72,10 +81,14 @@ describe('local Core adapter', () => {
       const assets = await client.getAssets?.()
       expect(assets?.[0].contentHash).toBe('a'.repeat(64))
       expect(assets?.[0].byteSize).toBe(42)
-      const imported = await client.importAsset?.({ sourcePath: 'C:/media/shot.png', projectId: 'project-1' })
+      const staged = await client.stageAsset?.(new File(['bytes'], 'Cảnh 🎬.mp4', { type: 'video/mp4' }))
+      expect(staged?.handle).toBe('b'.repeat(32))
+      expect(staged?.byteSize).toBe(42)
+      const imported = await client.importAsset?.({ sourcePath: 'C:/media/shot.png', projectId: 'project-1', idempotencyKey: 'stable-import-key' })
       expect(imported?.id).toBe('asset-1')
-      expect(fetchMock).toHaveBeenCalledTimes(2)
-      expect(String(fetchMock.mock.calls[1][0])).toContain('/v1/projects/project-1/assets')
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(String(fetchMock.mock.calls[2][0])).toContain('/v1/projects/project-1/assets')
+      expect((fetchMock.mock.calls[2][1]?.headers as Record<string, string>)['Idempotency-Key']).toBe('stable-import-key')
     } finally {
       vi.unstubAllGlobals()
     }

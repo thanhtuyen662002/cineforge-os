@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace CineForge.Bootstrap;
 
@@ -20,6 +21,9 @@ internal static class Program
 {
     private const int DefaultWebPort = 48200;
     private const int DefaultCorePort = 48201;
+    private const long MaxStagedUploadBytes = 8L * 1024 * 1024 * 1024;
+    private const int MaxStagedFileNameLength = 255;
+    private static readonly TimeSpan StagedUploadTtl = TimeSpan.FromHours(24);
     private static readonly HttpClient Http = new(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(2),
@@ -33,6 +37,7 @@ internal static class Program
         var dataRoot = Path.GetFullPath(options.DataRoot ??
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CineForge", "data"));
         Directory.CreateDirectory(dataRoot);
+        PruneStagedUploads(dataRoot);
         var logsRoot = Path.Combine(dataRoot, "logs");
         Directory.CreateDirectory(logsRoot);
         var bootstrapLog = Path.Combine(logsRoot, "bootstrap.log");
@@ -87,7 +92,7 @@ internal static class Program
                 try { listener.Stop(); } catch (ObjectDisposedException) { }
             });
 
-            var health = new HealthState(webRoot, transport, core, dataRoot);
+            var health = new HealthState(webRoot, transport, core, dataRoot, webPort);
             Log(bootstrapLog, $"ready url={webPrefix}; transport={transport}; data={dataRoot}");
             Console.WriteLine($"CineForge is ready: {webPrefix}");
             Console.WriteLine($"Core: {(health.CoreReady ? transport.ToString().ToLowerInvariant() : "offline/demo")}; data: {dataRoot}");
@@ -449,9 +454,32 @@ internal static class Program
                 });
                 await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes(payload), "application/json; charset=utf-8", 200);
             }
+            else if (path.Equals("/v1/desktop/stage", StringComparison.OrdinalIgnoreCase) && context.Request.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!health.CoreReady)
+                {
+                    await WriteJsonAsync(context.Response, new { ok = false, error = new { code = "CORE_NOT_READY", message = "CineForge Core is not ready." } }, 503);
+                }
+                else if (!IsTrustedBrowserOrigin(context.Request, health.WebOrigin))
+                {
+                    await WriteJsonAsync(context.Response, new { ok = false, error = new { code = "ORIGIN_NOT_ALLOWED", message = "The file picker request origin is not trusted." } }, 403);
+                }
+                else
+                {
+                    await StageBrowserUploadAsync(context, health.DataRoot, cancellationToken);
+                }
+            }
+            else if (path.Equals("/v1/desktop/stage", StringComparison.OrdinalIgnoreCase))
+            {
+                await WriteJsonAsync(context.Response, new { ok = false, error = new { code = "METHOD_NOT_ALLOWED", message = "Use POST to stage a file." } }, 405);
+            }
             else if (path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase) || path.Equals("/v1", StringComparison.OrdinalIgnoreCase))
             {
-                if (health.Transport == CoreTransport.Http) await ProxyAsync(context, coreBase, cancellationToken);
+                if (RequiresBrowserOrigin(context.Request) && !IsTrustedBrowserOrigin(context.Request, health.WebOrigin))
+                {
+                    await WriteJsonAsync(context.Response, new { ok = false, error = new { code = "ORIGIN_NOT_ALLOWED", message = "The API mutation origin is not trusted." } }, 403);
+                }
+                else if (health.Transport == CoreTransport.Http) await ProxyAsync(context, coreBase, health.DataRoot, cancellationToken);
                 else if (health.Transport == CoreTransport.Rpc && health.Core is not null) await RpcBridgeAsync(context, health.Core, cancellationToken);
                 else await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes("CineForge Core is not ready."), "text/plain; charset=utf-8", 503);
             }
@@ -459,6 +487,10 @@ internal static class Program
             {
                 await ServeStaticAsync(context, webRoot);
             }
+        }
+        catch (StageUploadException ex)
+        {
+            await WriteJsonAsync(context.Response, new { ok = false, error = new { code = ex.Code, message = ex.Message } }, ex.StatusCode);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex)
@@ -476,45 +508,285 @@ internal static class Program
         }
     }
 
-    private static async Task ProxyAsync(HttpListenerContext context, Uri coreBase, CancellationToken cancellationToken)
+    private static async Task ProxyAsync(HttpListenerContext context, Uri coreBase, string dataRoot, CancellationToken cancellationToken)
     {
         var target = new Uri(coreBase, context.Request.Url!.PathAndQuery);
         using var request = new HttpRequestMessage(new HttpMethod(context.Request.HttpMethod), target);
-        if (context.Request.HasEntityBody)
+        RewrittenAssetRequest? stagedRequest = null;
+        if (IsAssetImportRequest(context.Request))
+        {
+            var body = await ReadRequestBytesAsync(context.Request, 1 * 1024 * 1024, cancellationToken);
+            stagedRequest = RewriteStagedAssetRequest(body, dataRoot, context.Request.Headers["Idempotency-Key"]);
+            request.Content = new ByteArrayContent(stagedRequest.Body);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        }
+        else if (context.Request.HasEntityBody)
         {
             request.Content = new StreamContent(context.Request.InputStream);
             if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
                 request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(context.Request.ContentType);
         }
-        foreach (var headerName in new[] { "Authorization", "Idempotency-Key", "X-Request-Id" })
+        foreach (var headerName in new[] { "Accept", "Authorization", "Idempotency-Key", "If-Match", "If-None-Match", "X-Request-Id" })
         {
             var value = context.Request.Headers[headerName];
             if (!string.IsNullOrWhiteSpace(value)) request.Headers.TryAddWithoutValidation(headerName, value);
         }
-        // Preserve the versioned command contract through the bootstrap. In
-        // particular, idempotency and bearer headers must reach Core so a
-        // retry through the packaged host has the same semantics as a direct
-        // loopback Core request. Hop-by-hop transport headers are owned by
-        // HttpClient and must not be forwarded.
-        foreach (var headerName in context.Request.Headers.AllKeys)
-        {
-            if (string.IsNullOrWhiteSpace(headerName) || headerName.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
-                headerName.Equals("Connection", StringComparison.OrdinalIgnoreCase) || headerName.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)) continue;
-            var headerValue = context.Request.Headers[headerName];
-            if (string.IsNullOrWhiteSpace(headerValue)) continue;
-            if (!request.Headers.TryAddWithoutValidation(headerName, headerValue) && request.Content is not null)
-                request.Content.Headers.TryAddWithoutValidation(headerName, headerValue);
-        }
+        // Only versioned API headers cross the desktop boundary. Browser
+        // cookies, Origin, forwarding headers, and hop-by-hop transport
+        // metadata must never reach Core or become part of its trust model.
         using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         context.Response.StatusCode = (int)response.StatusCode;
         if (response.Content.Headers.ContentType is not null)
             context.Response.ContentType = response.Content.Headers.ContentType.ToString();
         foreach (var header in response.Headers)
         {
+            if (header.Key.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase)) continue;
             try { context.Response.Headers[header.Key] = string.Join(", ", header.Value); } catch (ArgumentException) { }
         }
         var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (stagedRequest?.Handle is not null && (int)response.StatusCode is >= 200 and < 300)
+        {
+            try { MarkStagedUploadConsumed(dataRoot, stagedRequest.Handle, stagedRequest.IdempotencyKey!); }
+            catch { /* a successful Core command remains canonical if cleanup is interrupted */ }
+        }
         await context.Response.OutputStream.WriteAsync(bytes, cancellationToken);
+    }
+
+    private static bool IsAssetImportRequest(HttpListenerRequest request)
+    {
+        if (!request.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase)) return false;
+        var path = request.Url?.AbsolutePath ?? string.Empty;
+        if (!path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase) || !path.EndsWith("/assets", StringComparison.OrdinalIgnoreCase)) return false;
+        return request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private static bool IsTrustedBrowserOrigin(HttpListenerRequest request, string webOrigin)
+    {
+        var origin = request.Headers["Origin"];
+        if (string.IsNullOrWhiteSpace(origin)) return false;
+        var normalized = origin.TrimEnd('/');
+        var originMatches = string.Equals(normalized, webOrigin, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, webOrigin.Replace("127.0.0.1", "localhost", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase);
+        if (!originMatches) return false;
+        var fetchSite = request.Headers["Sec-Fetch-Site"];
+        return string.IsNullOrWhiteSpace(fetchSite) || string.Equals(fetchSite, "same-origin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool RequiresBrowserOrigin(HttpListenerRequest request)
+    {
+        return request.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase) ||
+            request.HttpMethod.Equals("PUT", StringComparison.OrdinalIgnoreCase) ||
+            request.HttpMethod.Equals("PATCH", StringComparison.OrdinalIgnoreCase) ||
+            request.HttpMethod.Equals("DELETE", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<byte[]> ReadRequestBytesAsync(HttpListenerRequest request, int maximumBytes, CancellationToken cancellationToken)
+    {
+        if (request.ContentLength64 > maximumBytes) throw new StageUploadException(413, "REQUEST_TOO_LARGE", "The JSON request is too large.");
+        await using var buffer = new MemoryStream();
+        var chunk = new byte[64 * 1024];
+        var total = 0;
+        while (true)
+        {
+            var read = await request.InputStream.ReadAsync(chunk.AsMemory(), cancellationToken);
+            if (read <= 0) break;
+            total += read;
+            if (total > maximumBytes) throw new StageUploadException(413, "REQUEST_TOO_LARGE", "The JSON request is too large.");
+            await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
+        }
+        return buffer.ToArray();
+    }
+
+    private static RewrittenAssetRequest RewriteStagedAssetRequest(byte[] body, string dataRoot, string? headerIdempotencyKey)
+    {
+        JsonNode? parsed;
+        try { parsed = JsonNode.Parse(body); }
+        catch (JsonException) { return new RewrittenAssetRequest(body, null, null); }
+        if (parsed is not JsonObject payload || payload["source_handle"] is not JsonValue handleValue || !handleValue.TryGetValue<string>(out var handle) || string.IsNullOrWhiteSpace(handle)) return new RewrittenAssetRequest(body, null, null);
+        if (payload.ContainsKey("source_path")) throw new StageUploadException(400, "AMBIGUOUS_SOURCE", "Choose either a staging handle or a local source path, not both.");
+
+        var bodyIdempotencyKey = payload["idempotency_key"] is JsonValue bodyKeyValue && bodyKeyValue.TryGetValue<string>(out var bodyKey) ? bodyKey : null;
+        var idempotencyKey = string.IsNullOrWhiteSpace(headerIdempotencyKey) ? bodyIdempotencyKey : headerIdempotencyKey;
+        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 200) throw new StageUploadException(400, "IDEMPOTENCY_REQUIRED", "A bounded Idempotency-Key is required for staged imports.");
+        var staged = ResolveStagedUpload(dataRoot, handle, idempotencyKey);
+        payload.Remove("source_handle");
+        payload["source_path"] = staged.Path;
+        payload["storage_mode"] ??= "COPY";
+        payload["original_name"] ??= staged.Name;
+        if (!string.IsNullOrWhiteSpace(staged.MimeType)) payload["mime_type"] ??= staged.MimeType;
+        return new RewrittenAssetRequest(JsonSerializer.SerializeToUtf8Bytes(payload), handle, idempotencyKey);
+    }
+
+    private static async Task StageBrowserUploadAsync(HttpListenerContext context, string dataRoot, CancellationToken cancellationToken)
+    {
+        var filename = SanitizeStagedFileName(DecodeFilenameHeader(context.Request.Headers["X-CineForge-Filename-B64"], context.Request.Headers["X-CineForge-Filename"]));
+        var mimeType = (context.Request.ContentType ?? "application/octet-stream").Split(';', 2)[0].Trim();
+        if (mimeType.Length > 200 || mimeType.Any(char.IsControl)) mimeType = "application/octet-stream";
+        if (context.Request.ContentLength64 > MaxStagedUploadBytes) throw new StageUploadException(413, "SOURCE_TOO_LARGE", "The selected file is larger than the supported 8 GiB limit.");
+
+        var intakeRoot = Path.GetFullPath(Path.Combine(dataRoot, "intake"));
+        Directory.CreateDirectory(intakeRoot);
+        var handle = Guid.NewGuid().ToString("N");
+        var directory = Path.Combine(intakeRoot, handle);
+        Directory.CreateDirectory(directory);
+        var partial = Path.Combine(directory, "payload.part");
+        var payloadPath = Path.Combine(directory, "payload.bin");
+        var manifestPath = Path.Combine(directory, "manifest.json");
+        try
+        {
+            long total = 0;
+            await using (var output = new FileStream(partial, new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                BufferSize = 1024 * 1024,
+                Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
+            }))
+            {
+                var buffer = new byte[1024 * 1024];
+                while (true)
+                {
+                    var read = await context.Request.InputStream.ReadAsync(buffer.AsMemory(), cancellationToken);
+                    if (read <= 0) break;
+                    total += read;
+                    if (total > MaxStagedUploadBytes) throw new StageUploadException(413, "SOURCE_TOO_LARGE", "The selected file is larger than the supported 8 GiB limit.");
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                }
+                await output.FlushAsync(cancellationToken);
+                output.Flush(true);
+            }
+            File.Move(partial, payloadPath);
+            var manifest = new StagedUploadManifest(handle, filename, mimeType, total, "payload.bin", DateTimeOffset.UtcNow);
+            var manifestTemp = manifestPath + ".part";
+            File.WriteAllText(manifestTemp, JsonSerializer.Serialize(manifest));
+            File.Move(manifestTemp, manifestPath);
+            await WriteJsonAsync(context.Response, new
+            {
+                ok = true,
+                result = new { handle, name = filename, mimeType, byteSize = total },
+            }, 200);
+        }
+        catch
+        {
+            try { if (Directory.Exists(directory)) Directory.Delete(directory, true); } catch { }
+            throw;
+        }
+    }
+
+    private static string SanitizeStagedFileName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "upload.bin";
+        if (value.Any(char.IsControl)) throw new StageUploadException(400, "INVALID_FILENAME", "The selected file name is invalid.");
+        var name = Path.GetFileName(value.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(name) || name is "." or "..") throw new StageUploadException(400, "INVALID_FILENAME", "The selected file name is invalid.");
+        if (name.Length > MaxStagedFileNameLength) name = name[..MaxStagedFileNameLength];
+        return name;
+    }
+
+    private static string? DecodeFilenameHeader(string? encoded, string? legacy)
+    {
+        if (string.IsNullOrWhiteSpace(encoded)) return legacy;
+        if (encoded.Length > 4096 || encoded.Any(character => !(char.IsLetterOrDigit(character) || character is '-' or '_')))
+            throw new StageUploadException(400, "INVALID_FILENAME", "The selected file name is invalid.");
+        try
+        {
+            var padded = encoded.Replace('-', '+').Replace('_', '/');
+            padded = padded.PadRight(padded.Length + ((4 - padded.Length % 4) % 4), '=');
+            return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(Convert.FromBase64String(padded));
+        }
+        catch (FormatException)
+        {
+            throw new StageUploadException(400, "INVALID_FILENAME", "The selected file name is invalid.");
+        }
+        catch (DecoderFallbackException)
+        {
+            throw new StageUploadException(400, "INVALID_FILENAME", "The selected file name is invalid.");
+        }
+    }
+
+    private static StagedUpload ResolveStagedUpload(string dataRoot, string handle, string? idempotencyKey = null)
+    {
+        if (handle.Length != 32 || handle.Any(character => !Uri.IsHexDigit(character))) throw new StageUploadException(400, "INVALID_STAGE_HANDLE", "The staging handle is invalid.");
+        var intakeRoot = Path.GetFullPath(Path.Combine(dataRoot, "intake"));
+        var directory = Path.GetFullPath(Path.Combine(intakeRoot, handle));
+        if (!IsWithinDirectory(directory, intakeRoot) || !Directory.Exists(directory)) throw new StageUploadException(404, "STAGE_NOT_FOUND", "The staged file no longer exists.");
+        if (IsReparsePoint(directory)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file location is not trusted.");
+        var manifestPath = Path.Combine(directory, "manifest.json");
+        if (!File.Exists(manifestPath) || IsReparsePoint(manifestPath)) throw new StageUploadException(404, "STAGE_NOT_FOUND", "The staged file manifest no longer exists.");
+        StagedUploadManifest? manifest;
+        try { manifest = JsonSerializer.Deserialize<StagedUploadManifest>(File.ReadAllText(manifestPath)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file manifest is invalid.");
+        }
+        if (manifest is null || !string.Equals(manifest.Handle, handle, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(manifest.Name) || manifest.Name.Length > MaxStagedFileNameLength ||
+            manifest.Name.Any(char.IsControl) || string.IsNullOrWhiteSpace(manifest.MimeType) || manifest.MimeType.Length > 200 || manifest.MimeType.Any(char.IsControl) ||
+            !string.Equals(manifest.RelativePath, "payload.bin", StringComparison.Ordinal) ||
+            manifest.ByteSize < 0 || manifest.ByteSize > MaxStagedUploadBytes ||
+            manifest.CreatedAtUtc < DateTimeOffset.UtcNow - StagedUploadTtl || manifest.CreatedAtUtc > DateTimeOffset.UtcNow.AddMinutes(5))
+            throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file manifest is invalid.");
+        if (!string.IsNullOrWhiteSpace(manifest.ConsumedIdempotencyKey) && !string.Equals(manifest.ConsumedIdempotencyKey, idempotencyKey, StringComparison.Ordinal))
+            throw new StageUploadException(409, "STAGE_CONSUMED", "The staged file has already been imported with another idempotency key.");
+        var payloadPath = Path.GetFullPath(Path.Combine(directory, manifest.RelativePath));
+        if (!IsWithinDirectory(payloadPath, directory) || !File.Exists(payloadPath) || IsReparsePoint(payloadPath)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file bytes are not trusted.");
+        long size;
+        try { size = new FileInfo(payloadPath).Length; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new StageUploadException(409, "STAGE_CORRUPT", "The staged file bytes could not be inspected.");
+        }
+        if (size != manifest.ByteSize || size > MaxStagedUploadBytes) throw new StageUploadException(409, "STAGE_CORRUPT", "The staged file size does not match its manifest.");
+        return new StagedUpload(payloadPath, manifest.Name, manifest.MimeType, size, manifest.ConsumedIdempotencyKey);
+    }
+
+    private static void MarkStagedUploadConsumed(string dataRoot, string handle, string idempotencyKey)
+    {
+        var intakeRoot = Path.GetFullPath(Path.Combine(dataRoot, "intake"));
+        var directory = Path.GetFullPath(Path.Combine(intakeRoot, handle));
+        var manifestPath = Path.Combine(directory, "manifest.json");
+        if (!File.Exists(manifestPath) || IsReparsePoint(manifestPath)) return;
+        var manifest = JsonSerializer.Deserialize<StagedUploadManifest>(File.ReadAllText(manifestPath));
+        if (manifest is null || !string.Equals(manifest.Handle, handle, StringComparison.Ordinal)) return;
+        if (string.Equals(manifest.ConsumedIdempotencyKey, idempotencyKey, StringComparison.Ordinal)) return;
+        if (!string.IsNullOrWhiteSpace(manifest.ConsumedIdempotencyKey)) return;
+        var updated = manifest with { ConsumedIdempotencyKey = idempotencyKey };
+        var temporary = manifestPath + ".part";
+        File.WriteAllText(temporary, JsonSerializer.Serialize(updated));
+        File.Move(temporary, manifestPath, true);
+    }
+
+    private static bool IsWithinDirectory(string candidate, string root)
+    {
+        var normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return candidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+        catch { return true; }
+    }
+
+    private static void PruneStagedUploads(string dataRoot)
+    {
+        var intakeRoot = Path.Combine(dataRoot, "intake");
+        if (!Directory.Exists(intakeRoot)) return;
+        try
+        {
+            foreach (var directoryPath in Directory.EnumerateDirectories(intakeRoot))
+            {
+                try
+                {
+                    var info = new DirectoryInfo(directoryPath);
+                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0 || DateTime.UtcNow - info.LastWriteTimeUtc < StagedUploadTtl) continue;
+                    info.Delete(true);
+                }
+                catch { /* stale staging cleanup must never block startup */ }
+            }
+        }
+        catch { }
     }
 
     private static async Task RpcBridgeAsync(HttpListenerContext context, CoreHost core, CancellationToken cancellationToken)
@@ -636,6 +908,8 @@ internal static class Program
 
     private static async Task WriteJsonAsync(HttpListenerResponse response, object payload, int statusCode)
     {
+        response.Headers["Cache-Control"] = "no-store";
+        response.Headers["X-Content-Type-Options"] = "nosniff";
         await WriteBytesAsync(response, JsonSerializer.SerializeToUtf8Bytes(payload), "application/json; charset=utf-8", statusCode);
     }
 
@@ -700,20 +974,47 @@ internal static class Program
         Rpc,
     }
 
+    private sealed class StageUploadException : Exception
+    {
+        public StageUploadException(int statusCode, string code, string message) : base(message)
+        {
+            StatusCode = statusCode;
+            Code = code;
+        }
+
+        public int StatusCode { get; }
+        public string Code { get; }
+    }
+
+    private sealed record StagedUploadManifest(
+        string Handle,
+        string Name,
+        string MimeType,
+        long ByteSize,
+        string RelativePath,
+        DateTimeOffset CreatedAtUtc,
+        string? ConsumedIdempotencyKey = null);
+
+    private sealed record StagedUpload(string Path, string Name, string MimeType, long ByteSize, string? ConsumedIdempotencyKey);
+
+    private sealed record RewrittenAssetRequest(byte[] Body, string? Handle, string? IdempotencyKey);
+
     private sealed class HealthState
     {
-        public HealthState(string webRoot, CoreTransport transport, CoreHost? core, string dataRoot)
+        public HealthState(string webRoot, CoreTransport transport, CoreHost? core, string dataRoot, int webPort)
         {
             WebRoot = webRoot;
             Transport = transport;
             Core = core;
             DataRoot = dataRoot;
+            WebOrigin = $"http://127.0.0.1:{webPort}";
         }
 
         public string WebRoot { get; }
         public CoreTransport Transport { get; }
         public CoreHost? Core { get; }
         public string DataRoot { get; }
+        public string WebOrigin { get; }
         public bool CoreReady => Transport != CoreTransport.None;
     }
 

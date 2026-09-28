@@ -31,11 +31,23 @@ The adapter calls:
 - `GET /v1/dashboard`
 - `POST /v1/projects` with `{ "name": string }`
 - `POST /v1/projects/{projectId}/production-items` with `{ "title": string }`
+- `GET /v1/assets` and `GET /v1/projects/{projectId}/assets`
+- `POST /v1/assets` or `POST /v1/projects/{projectId}/assets` with an advanced
+  `source_path` or a bootstrap-issued `source_handle`
+- `POST /v1/desktop/stage` for same-origin browser file-picker uploads. The
+  packaged bootstrap stores the raw stream under its managed data root and
+  returns an opaque, short-lived handle; the browser never receives the local
+  machine path. The first successful import binds that handle to its
+  idempotency key so a retry is safe and a second import with a new key is
+  rejected.
 - `POST /v1/decisions/{decisionId}/ack`
 
 The UI never writes a database directly. When no URL is configured, the local
 adapter gives the first-run shell a clearly bounded, persisted demo workspace
-and labels production state honestly.
+and labels production state honestly. The staging endpoint exists on the
+packaged bootstrap boundary; a Vite development server pointed directly at
+Core should use the advanced path or a Core endpoint that implements the same
+staged-file contract.
 
 ## Verify and build
 

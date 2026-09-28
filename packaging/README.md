@@ -17,7 +17,7 @@ dist/CineForge/
   build-manifest.json    # source head, mode, hashes and explicit warnings
 ```
 
-The bootstrap binds only to `127.0.0.1`. It starts the packaged Core, exposes the UI on a loopback port, and proxies `/v1/*` to the Core. It stores the active local database and startup/Core logs under `%LOCALAPPDATA%\CineForge\data` by default. Pass `--data DIR` to choose another data root. The bootstrap never accepts a remote bind address. A packaged runtime refuses to open in offline/demo mode if the bundled Node/Core files are missing or unhealthy; this prevents a broken release from looking like a usable product. `--allow-offline` is an explicit development escape hatch and is not used by the production one-click path.
+The bootstrap binds only to `127.0.0.1`. It starts the packaged Core, exposes the UI on a loopback port, and proxies `/v1/*` to the Core. Mutating API requests require the exact local UI origin; proxied Core CORS headers are stripped at this desktop boundary. The browser file picker uses `POST /v1/desktop/stage`: the bootstrap accepts the raw stream only from that origin, writes it below the data root's `intake` directory, and returns a 128-bit opaque handle plus size/name metadata. The handle is resolved only inside the bootstrap when the subsequent `ImportAsset` request arrives; the browser never receives the machine path. Each handle is bound to the first successful import idempotency key: a retry with that same key is replay-safe, while a new key is rejected. Staging is capped at 8 GiB per file and stale staging directories are removed after 24 hours. Core remains the canonical hasher, object-store writer, provenance recorder, and policy boundary. The active local database and startup/Core logs live under `%LOCALAPPDATA%\CineForge\data` by default. Pass `--data DIR` to choose another data root. The bootstrap never accepts a remote bind address. A packaged runtime refuses to open in offline/demo mode if the bundled Node/Core files are missing or unhealthy; this prevents a broken release from looking like a usable product. `--allow-offline` is an explicit development escape hatch and is not used by the production one-click path.
 
 ## Build commands
 
@@ -50,7 +50,7 @@ The portable build is the reliable fallback when the Rust toolchain is absent. W
 .\packaging\smoke_test.ps1 -ArtifactRoot .\dist\CineForge
 ```
 
-The launcher verifies the manifest hash and the adjacent web/Core runtime before starting the exact executable. The smoke test starts that artifact, checks `/healthz`, verifies that the root document is HTML, and calls `/v1/dashboard` when Core is ready. Offline/demo mode is accepted only when the test is explicitly called with `-AllowOffline`; a production packaging run must have a ready Core. If a launch fails, inspect `%LOCALAPPDATA%\CineForge\data\logs\bootstrap.log` and `core.log`.
+The launcher verifies the manifest hash and the adjacent web/Core runtime before starting the exact executable. The smoke test starts that artifact, checks `/healthz`, verifies that the root document is HTML, exercises project/item CRUD, stages a raw browser-style upload through `/v1/desktop/stage`, imports the opaque handle through Core, and verifies both assets after a bootstrap restart. Offline/demo mode is accepted only when the test is explicitly called with `-AllowOffline`; a production packaging run must have a ready Core. If a launch fails, inspect `%LOCALAPPDATA%\CineForge\data\logs\bootstrap.log` and `core.log`.
 
 ## Release boundary
 
