@@ -1,0 +1,29 @@
+{
+  "schema_version": "TASK_CLAIM_V1",
+  "issue": 39,
+  "agent_instance_id": "cineforge-WORK-backup-workspace",
+  "slot_id": "WORK-backup-workspace",
+  "run_id": "WORK-backup-workspace-20260929-A1",
+  "authorized_by": "thanhtuyen662002",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:9b034e846d7ca3ffd416f9b82302cb5bc3566d4d9d73c63686fc7eed85aac887",
+  "base_ref": "agent/i37-a1-timeline-asset-picker",
+  "base_sha": "5188c9fc41267719f806c94de0183f4b41b25b8e",
+  "context_base_sha": "5188c9fc41267719f806c94de0183f4b41b25b8e",
+  "requested_state": "CLAIMED",
+  "scope": [
+    "app/src/types.ts",
+    "app/src/coreAdapter.ts",
+    "app/src/App.tsx",
+    "app/src/styles/app.css",
+    "app/tests/settingsView.test.tsx",
+    ".cineforge/claims/i39-a1.json"
+  ],
+  "forbidden_scope": [
+    "restore_recovery",
+    "remote_backup",
+    "update_signing",
+    "automatic_gc",
+    "arbitrary_shell_execution"
+  ]
+}

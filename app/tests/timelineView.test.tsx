@@ -1,6 +1,6 @@
 import React from 'react'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TimelineView } from '../src/App'
 import type { AssetSummary, CoreClient, DashboardSnapshot, MediaProfileWorkspace, ProjectSummary, TimelineRevision, TimelineSummary, TimelineWorkingWorkspace, TimelineWorkspace } from '../src/types'
 
@@ -68,6 +68,8 @@ function client(overrides: Partial<CoreClient> = {}): CoreClient {
 }
 
 describe('TimelineView', () => {
+  beforeEach(() => localStorage.clear())
+
   it('loads the project workspace and sends a duration-bearing VIDEO checkpoint from bounded JSON', async () => {
     const core = client()
     render(<TimelineView snapshot={snapshot} locale="vi" client={core} onToast={vi.fn()} />)

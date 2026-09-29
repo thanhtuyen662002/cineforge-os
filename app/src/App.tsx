@@ -50,7 +50,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -376,7 +376,7 @@ function App() {
       )}
       {activeNav === 'activity' && <ActivityView snapshot={snapshot} locale={locale} onOpenProject={openProject} />}
       {activeNav === 'library' && <LibraryView snapshot={snapshot} locale={locale} client={client} onOpenProject={openProject} />}
-      {activeNav === 'settings' && <SettingsView snapshot={snapshot} locale={locale} theme={theme} onThemeChange={setTheme} onLocaleChange={setLocale} onRefresh={() => void loadDashboard()} refreshLabel={t.refresh} />}
+      {activeNav === 'settings' && <SettingsView snapshot={snapshot} locale={locale} client={client} theme={theme} onThemeChange={setTheme} onLocaleChange={setLocale} onRefresh={() => void loadDashboard()} refreshLabel={t.refresh} onToast={setToast} />}
     </>
   ) : null
 
@@ -595,6 +595,14 @@ function workspaceErrorMessage(cause: unknown, locale: Locale) {
     HANDOFF_REVISION_NOT_APPROVED: { vi: 'Chỉ timeline revision đã approve mới được bàn giao.', en: 'Only an approved timeline revision can be handed off.' },
     HANDOFF_SNAPSHOT_REQUIRED: { vi: 'Cần đúng dependency snapshot hash của review đã approve.', en: 'The exact dependency snapshot hash from the approved review is required.' },
     HANDOFF_MEDIA_PROFILE_NOT_APPROVED: { vi: 'Media Profile của timeline chưa được approve.', en: 'The timeline media profile is not approved.' },
+    STORAGE_PRESSURE: { vi: 'Dung lượng trống không đủ cho backup này; hãy giải phóng dung lượng rồi thử lại.', en: 'There is not enough free storage for this backup; free space and try again.' },
+    STORAGE_CAPACITY_UNKNOWN: { vi: 'Core chưa xác minh được dung lượng trống. Không thể tạo backup an toàn.', en: 'Core could not verify free storage. A safe backup cannot be created.' },
+    DURABILITY_PROFILE_UNAVAILABLE: { vi: 'Chính sách lưu backup này chưa khả dụng trên máy hiện tại.', en: 'This backup durability policy is not available on this machine.' },
+    BACKUP_OBJECT_MISSING: { vi: 'Một managed object của backup không còn sẵn sàng.', en: 'A managed object required by the backup is not available.' },
+    BACKUP_OBJECT_TAMPERED: { vi: 'Core phát hiện managed object thay đổi; backup đã bị chặn.', en: 'Core detected a changed managed object; the backup was blocked.' },
+    BACKUP_DATABASE_TAMPERED: { vi: 'Core phát hiện snapshot database bị thay đổi.', en: 'Core detected a changed database snapshot.' },
+    BACKUP_MANIFEST_TAMPERED: { vi: 'Core phát hiện manifest backup bị thay đổi.', en: 'Core detected a changed backup manifest.' },
+    BACKUP_NOT_FOUND: { vi: 'Backup không còn tồn tại trong Core.', en: 'The backup no longer exists in Core.' },
     CORE_OFFLINE: { vi: 'Core đang offline. Hãy kết nối lại rồi thử lại.', en: 'Core is offline. Reconnect and try again.' },
     EXTERNAL_UNAVAILABLE: { vi: 'Core hiện chưa phản hồi. Hãy thử lại.', en: 'Core is not responding yet. Try again.' },
     EXPECTED_VERSION_REQUIRED: { vi: 'Dữ liệu đã thay đổi; hãy tải lại workspace trước khi tiếp tục.', en: 'The data changed; reload the workspace before continuing.' },
@@ -2386,11 +2394,150 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   </div>
 }
 
-function SettingsView({ snapshot, locale, theme, onThemeChange, onLocaleChange, onRefresh, refreshLabel }: { snapshot: DashboardSnapshot; locale: Locale; theme: Theme; onThemeChange: (theme: Theme) => void; onLocaleChange: (locale: Locale) => void; onRefresh: () => void; refreshLabel: string }) {
-  const connected = snapshot.system.connected && !snapshot.system.offline
+export function SettingsView({ snapshot, locale, client, theme, onThemeChange, onLocaleChange, onRefresh, refreshLabel, onToast }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; theme: Theme; onThemeChange: (theme: Theme) => void; onLocaleChange: (locale: Locale) => void; onRefresh: () => void; refreshLabel: string; onToast: (message: string) => void }) {
+  const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true)
   const backupStateLabel = formatBackupState(snapshot.system.backupState, locale)
   const backupAtLabel = snapshot.system.backupAt ? formatRelativeSnapshot(snapshot.system.backupAt, locale) : null
-  return <div className="page settings-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'HỆ THỐNG' : 'SYSTEM'}</p><h1>{locale === 'vi' ? 'Cài đặt' : 'Settings'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Các tuỳ chọn hiển thị ở đây; dữ liệu canonical vẫn thuộc quyền của Core.' : 'Display preferences live here; canonical data remains owned by Core.'}</p></div><button className="subtle-button" onClick={onRefresh}><RefreshCw size={15} />{refreshLabel}</button></div><div className="settings-grid"><section className="settings-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><Settings2 size={16} /></span><div><h2>{locale === 'vi' ? 'Giao diện' : 'Appearance'}</h2><p>{locale === 'vi' ? 'Lưu cục bộ trên máy này.' : 'Saved locally on this machine.'}</p></div></div></div><div className="setting-row"><div><strong>{locale === 'vi' ? 'Giao diện màu' : 'Theme'}</strong><small>{theme === 'dark' ? (locale === 'vi' ? 'Tối' : 'Dark') : (locale === 'vi' ? 'Sáng' : 'Light')}</small></div><button className="toggle-button" onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')} aria-label={locale === 'vi' ? 'Đổi giao diện' : 'Toggle theme'}><span className={theme === 'dark' ? 'on' : ''} /></button></div><div className="setting-row"><div><strong>{locale === 'vi' ? 'Ngôn ngữ' : 'Language'}</strong><small>{locale === 'vi' ? 'Tiếng Việt' : 'English'}</small></div><button className="locale-button bordered" onClick={() => onLocaleChange(locale === 'vi' ? 'en' : 'vi')}><Languages size={14} />{locale === 'vi' ? 'VI' : 'EN'}</button></div></section><section className="settings-card"><div className="card-heading"><div className="card-title-with-icon"><span className={`card-icon ${connected ? 'green' : 'amber'}`}><Database size={16} /></span><div><h2>{locale === 'vi' ? 'Core & dữ liệu' : 'Core & data'}</h2><p>{locale === 'vi' ? 'Thông tin kết nối đọc từ dashboard gần nhất.' : 'Connection details from the latest dashboard.'}</p></div></div><span className={`health-pill ${connected ? 'healthy' : 'attention'}`}><span />{connected ? (locale === 'vi' ? 'Đã kết nối' : 'Connected') : (locale === 'vi' ? 'Cần kiểm tra' : 'Check connection')}</span></div><div className="system-facts"><div><span>{locale === 'vi' ? 'Kết nối' : 'Connection'}</span><strong>{connected ? (locale === 'vi' ? 'Loopback local' : 'Local loopback') : (locale === 'vi' ? 'Offline' : 'Offline')}</strong></div><div><span>{locale === 'vi' ? 'Dung lượng đã dùng' : 'Storage used'}</span><strong>{snapshot.system.storageUsed}</strong></div><div><span>{locale === 'vi' ? 'Tổng dung lượng' : 'Storage total'}</span><strong>{snapshot.system.storageTotal}</strong></div><div><span>{locale === 'vi' ? 'Backup gần nhất' : 'Latest backup'}</span><strong>{backupStateLabel}{backupAtLabel ? ` · ${backupAtLabel}` : ''}</strong></div><div><span>{locale === 'vi' ? 'Snapshot gần nhất' : 'Latest snapshot'}</span><strong>{formatRelativeSnapshot(snapshot.generatedAt, locale)}</strong></div>{snapshot.system.storagePressure && <div><span>{locale === 'vi' ? 'Dung lượng dự phòng' : 'Storage reserve'}</span><strong>{locale === 'vi' ? 'Cần xử lý' : 'Needs attention'}</strong></div>}</div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Cài đặt này không thay đổi quyền, RLS hoặc dữ liệu. Mọi command quan trọng vẫn cần Core xác nhận.' : 'These settings do not change permissions, RLS, or data. Important commands still require Core confirmation.'}</p></section></div></div>
+  const [backups, setBackups] = useState<BackupSummary[]>([])
+  const [admission, setAdmission] = useState<StorageAdmission | null>(null)
+  const [selectedBackupId, setSelectedBackupId] = useState<string | null>(null)
+  const [selectedWorkspace, setSelectedWorkspace] = useState<BackupWorkspace | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [needsUser, setNeedsUser] = useState(false)
+  const [mutating, setMutating] = useState<string | null>(null)
+  const loadGenerationRef = useRef(0)
+  const detailGenerationRef = useRef(0)
+  const supportsBackupRead = Boolean(client.getBackups && client.getStorageAdmission)
+  const supportsBackupDetail = Boolean(client.getBackup)
+
+  const loadBackupList = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++loadGenerationRef.current
+    if (!client.getBackups || !client.getStorageAdmission) {
+      setBackups([])
+      setAdmission(null)
+      setSelectedBackupId(null)
+      setSelectedWorkspace(null)
+      setError(locale === 'vi' ? 'Bridge hiện tại chưa cung cấp workspace backup.' : 'This bridge does not expose the backup workspace yet.')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const [nextBackups, nextAdmission] = await Promise.all([client.getBackups(signal), client.getStorageAdmission(signal)])
+      if (signal?.aborted || generation !== loadGenerationRef.current) return
+      setBackups(nextBackups)
+      setAdmission(nextAdmission)
+      setSelectedBackupId((current) => current && nextBackups.some((backup) => backup.id === current) ? current : nextBackups[0]?.id ?? null)
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      if (generation !== loadGenerationRef.current) return
+      setError(workspaceErrorMessage(cause, locale))
+      setBackups([])
+      setAdmission(null)
+      setSelectedBackupId(null)
+      setSelectedWorkspace(null)
+    } finally {
+      if (!signal?.aborted && generation === loadGenerationRef.current) setLoading(false)
+    }
+  }, [client, locale])
+
+  const loadBackupDetail = useCallback(async (backupId: string, signal?: AbortSignal) => {
+    const generation = ++detailGenerationRef.current
+    if (!client.getBackup) {
+      setSelectedWorkspace(null)
+      setDetailLoading(false)
+      return
+    }
+    setDetailLoading(true)
+    try {
+      const next = await client.getBackup(backupId, signal)
+      if (!signal?.aborted && generation === detailGenerationRef.current) setSelectedWorkspace(next)
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      if (!signal?.aborted && generation === detailGenerationRef.current) setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      if (!signal?.aborted && generation === detailGenerationRef.current) setDetailLoading(false)
+    }
+  }, [client, locale])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void loadBackupList(controller.signal)
+    return () => controller.abort()
+  }, [loadBackupList])
+
+  useEffect(() => {
+    if (!selectedBackupId) {
+      setSelectedWorkspace(null)
+      return
+    }
+    const controller = new AbortController()
+    setActionError(null)
+    void loadBackupDetail(selectedBackupId, controller.signal)
+    return () => controller.abort()
+  }, [loadBackupDetail, selectedBackupId])
+
+  const admissionKnown = Boolean(admission
+    && Number.isSafeInteger(admission.estimatedBytes)
+    && Number.isSafeInteger(admission.availableBytes)
+    && (admission.availableBytes ?? 0) >= (admission.estimatedBytes ?? Number.MAX_SAFE_INTEGER)
+    && !snapshot.system.storagePressure)
+  const admissionReason = !admission
+    ? (locale === 'vi' ? 'Chưa có bằng chứng dung lượng từ Core.' : 'Core has not provided storage evidence yet.')
+    : snapshot.system.storagePressure
+      ? (locale === 'vi' ? 'Core đang báo storage pressure; giải phóng dung lượng rồi tải lại.' : 'Core reports storage pressure; free space and refresh.')
+      : !Number.isSafeInteger(admission.estimatedBytes) || !Number.isSafeInteger(admission.availableBytes)
+        ? (locale === 'vi' ? 'Core chưa xác minh đủ estimated/available bytes.' : 'Core has not verified estimated and available bytes.')
+        : (admission.availableBytes ?? 0) < (admission.estimatedBytes ?? Number.MAX_SAFE_INTEGER)
+          ? (locale === 'vi' ? 'Dung lượng trống thấp hơn estimate; backup bị khoá.' : 'Free space is below the estimate; backup is disabled.')
+          : (locale === 'vi' ? 'Đủ dung lượng theo admission hiện tại.' : 'Storage admission currently passes.')
+
+  const createBackup = async () => {
+    if (!client.createBackup || !connected || !admissionKnown || mutating) return
+    setMutating('backup-create')
+    setActionError(null)
+    setNeedsUser(false)
+    try {
+      // A fresh user retry gets a fresh command key after a transient storage
+      // failure; duplicate delivery of the same key remains Core-idempotent.
+      const key = `backup-create:${crypto.randomUUID()}`
+      const result = await client.createBackup({ durabilityClass: admission?.durabilityClass ?? 'LOCAL_WRITABLE' }, key)
+      if (result.backup?.id) setSelectedBackupId(result.backup.id)
+      await loadBackupList()
+      onToast(locale === 'vi' ? 'Đã tạo và verify backup local.' : 'Local backup created and verified.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const verifyBackup = async () => {
+    if (!client.verifyBackup || !selectedBackupId || !connected || mutating) return
+    setMutating(`backup-verify:${selectedBackupId}`)
+    setActionError(null)
+    setNeedsUser(false)
+    try {
+      await client.verifyBackup(selectedBackupId, `backup-verify:${selectedBackupId}:${crypto.randomUUID()}`)
+      await loadBackupList()
+      await loadBackupDetail(selectedBackupId)
+      onToast(locale === 'vi' ? 'Đã kiểm tra lại integrity của backup.' : 'Backup integrity was verified again.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  return <div className="page settings-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'HỆ THỐNG' : 'SYSTEM'}</p><h1>{locale === 'vi' ? 'Cài đặt' : 'Settings'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Các tuỳ chọn hiển thị và durability local do Core kiểm soát.' : 'Display preferences and local durability controls owned by Core.'}</p></div><button className="subtle-button" onClick={onRefresh}><RefreshCw size={15} />{refreshLabel}</button></div><div className="settings-grid"><section className="settings-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><Settings2 size={16} /></span><div><h2>{locale === 'vi' ? 'Giao diện' : 'Appearance'}</h2><p>{locale === 'vi' ? 'Lưu cục bộ trên máy này.' : 'Saved locally on this machine.'}</p></div></div></div><div className="setting-row"><div><strong>{locale === 'vi' ? 'Giao diện màu' : 'Theme'}</strong><small>{theme === 'dark' ? (locale === 'vi' ? 'Tối' : 'Dark') : (locale === 'vi' ? 'Sáng' : 'Light')}</small></div><button className="toggle-button" onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')} aria-label={locale === 'vi' ? 'Đổi giao diện' : 'Toggle theme'}><span className={theme === 'dark' ? 'on' : ''} /></button></div><div className="setting-row"><div><strong>{locale === 'vi' ? 'Ngôn ngữ' : 'Language'}</strong><small>{locale === 'vi' ? 'Tiếng Việt' : 'English'}</small></div><button className="locale-button bordered" onClick={() => onLocaleChange(locale === 'vi' ? 'en' : 'vi')}><Languages size={14} />{locale === 'vi' ? 'VI' : 'EN'}</button></div></section><section className="settings-card"><div className="card-heading"><div className="card-title-with-icon"><span className={`card-icon ${connected ? 'green' : 'amber'}`}><Database size={16} /></span><div><h2>{locale === 'vi' ? 'Core & dữ liệu' : 'Core & data'}</h2><p>{locale === 'vi' ? 'Thông tin kết nối đọc từ dashboard gần nhất.' : 'Connection details from the latest dashboard.'}</p></div></div><span className={`health-pill ${connected ? 'healthy' : 'attention'}`}><span />{connected ? (locale === 'vi' ? 'Đã kết nối' : 'Connected') : (locale === 'vi' ? 'Cần kiểm tra' : 'Check connection')}</span></div><div className="system-facts"><div><span>{locale === 'vi' ? 'Kết nối' : 'Connection'}</span><strong>{connected ? (locale === 'vi' ? 'Loopback local' : 'Local loopback') : (locale === 'vi' ? 'Offline' : 'Offline')}</strong></div><div><span>{locale === 'vi' ? 'Dung lượng đã dùng' : 'Storage used'}</span><strong>{snapshot.system.storageUsed}</strong></div><div><span>{locale === 'vi' ? 'Tổng dung lượng' : 'Storage total'}</span><strong>{snapshot.system.storageTotal}</strong></div><div><span>{locale === 'vi' ? 'Backup gần nhất' : 'Latest backup'}</span><strong>{backupStateLabel}{backupAtLabel ? ` · ${backupAtLabel}` : ''}</strong></div><div><span>{locale === 'vi' ? 'Snapshot gần nhất' : 'Latest snapshot'}</span><strong>{formatRelativeSnapshot(snapshot.generatedAt, locale)}</strong></div>{snapshot.system.storagePressure && <div><span>{locale === 'vi' ? 'Dung lượng dự phòng' : 'Storage reserve'}</span><strong>{locale === 'vi' ? 'Cần xử lý' : 'Needs attention'}</strong></div>}</div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Cài đặt này không thay đổi quyền, RLS hoặc dữ liệu. Mọi command quan trọng vẫn cần Core xác nhận.' : 'These settings do not change permissions, RLS, or data. Important commands still require Core confirmation.'}</p></section>
+      <section className="settings-card settings-backup-card"><div className="card-heading"><div className="card-title-with-icon"><span className={`card-icon ${admissionKnown ? 'green' : 'amber'}`}><HardDrive size={16} /></span><div><h2>{locale === 'vi' ? 'Backup local đã xác minh' : 'Verified local backups'}</h2><p>{locale === 'vi' ? 'Snapshot SQLite và managed objects được Core admission trước khi ghi.' : 'Core admits the SQLite snapshot and managed objects before writing.'}</p></div></div><span className="count-chip">{backups.length}</span></div>{!connected && <div className="inline-state warning"><CloudOff size={14} /><span>{locale === 'vi' ? 'Core đang offline; dữ liệu đã tải vẫn giữ nguyên nhưng command bị khoá.' : 'Core is offline; loaded evidence stays visible but commands are disabled.'}</span></div>}{error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button type="button" className="subtle-button tiny" onClick={() => void loadBackupList()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{supportsBackupRead && <div className="backup-admission"><div><span>{locale === 'vi' ? 'Admission' : 'Admission'}</span><strong>{admissionKnown ? (locale === 'vi' ? 'Đủ điều kiện' : 'Ready') : (locale === 'vi' ? 'Chưa đạt' : 'Not ready')}</strong></div><div><span>{locale === 'vi' ? 'Estimate' : 'Estimate'}</span><strong>{admission?.estimatedBytes === undefined ? '—' : formatBytes(admission.estimatedBytes)}</strong></div><div><span>{locale === 'vi' ? 'Còn trống' : 'Available'}</span><strong>{admission?.availableBytes === undefined ? '—' : formatBytes(admission.availableBytes)}</strong></div><div><span>{locale === 'vi' ? 'Reserve' : 'Reserve'}</span><strong>{admission?.reserveBytes === undefined ? '—' : formatBytes(admission.reserveBytes)}</strong></div></div>}{supportsBackupRead && <p className={`readonly-note ${admissionKnown ? '' : 'warning-text'}`}><Info size={14} />{admissionReason}</p>}<div className="settings-backup-actions"><button type="button" className="primary-button small" onClick={() => void createBackup()} disabled={!connected || loading || mutating !== null || !supportsBackupRead || !client.createBackup || !admissionKnown}>{mutating === 'backup-create' ? <RefreshCw size={14} className="spin" /> : <HardDrive size={14} />}{locale === 'vi' ? 'Tạo backup' : 'Create backup'}</button><button type="button" className="subtle-button small" onClick={() => void loadBackupList()} disabled={loading || mutating !== null}>{loading ? <RefreshCw size={14} className="spin" /> : <RefreshCw size={14} />}{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>{actionError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{actionError}</span>{needsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện rồi thử lại.' : 'Core needs you to resolve the condition before retrying.'}</small>}</div>}{loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc admission và backup…' : 'Reading storage admission and backups…'} /> : backups.length === 0 ? <EmptyInline icon={HardDrive} text={supportsBackupRead ? (locale === 'vi' ? 'Chưa có backup VERIFIED.' : 'No VERIFIED backup yet.') : (locale === 'vi' ? 'Bridge chưa hỗ trợ backup.' : 'The bridge does not expose backups yet.')} /> : <div className="workspace-record-list">{backups.map((backup) => <button type="button" className={`timeline-row ${backup.id === selectedBackupId ? 'active' : ''}`} key={backup.id} onClick={() => setSelectedBackupId(backup.id ?? null)}><span className="timeline-row-icon"><HardDrive size={15} /></span><span className="workspace-record-main"><strong>{backup.destinationName ?? backup.id ?? 'Backup'}</strong><small>{backup.state} · {backup.byteSize === undefined ? '—' : formatBytes(backup.byteSize)} · {backup.completedAt ? formatRelativeSnapshot(backup.completedAt, locale) : '—'}</small></span><span className={`record-code ${backup.state === 'VERIFIED' ? 'success' : 'warning'}`}>{backup.state}</span><ArrowRight size={14} /></button>)}</div>}</section>
+      <section className="settings-card settings-backup-detail-card">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết backup…' : 'Reading backup details…'} /> : !selectedWorkspace?.backup ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một backup' : 'Select a backup'} detail={supportsBackupDetail ? (locale === 'vi' ? 'Core sẽ hiển thị manifest metadata đã redacted.' : 'Core will show redacted manifest metadata.') : (locale === 'vi' ? 'Bridge chưa cung cấp chi tiết backup.' : 'The bridge does not expose backup details yet.')} /> : <><div className="card-heading"><div><h2>{locale === 'vi' ? 'Chi tiết backup' : 'Backup details'}</h2><p>{selectedWorkspace.backup.id ?? '—'} · v{selectedWorkspace.backup.rowVersion}</p></div><span className={`health-pill ${selectedWorkspace.backup.state === 'VERIFIED' ? 'healthy' : 'warning'}`}><span />{selectedWorkspace.backup.state}</span></div><div className="system-facts"><div><span>{locale === 'vi' ? 'Nơi lưu an toàn' : 'Safe destination'}</span><strong>{selectedWorkspace.backup.destinationName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Manifest' : 'Manifest'}</span><strong>{selectedWorkspace.backup.manifestName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Snapshot' : 'Snapshot'}</span><strong>{selectedWorkspace.backup.snapshotName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Managed objects' : 'Managed objects'}</span><strong>{selectedWorkspace.backup.objectCount ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Dung lượng' : 'Bytes'}</span><strong>{selectedWorkspace.backup.byteSize === undefined ? '—' : formatBytes(selectedWorkspace.backup.byteSize)}</strong></div><div><span>Manifest SHA-256</span><strong title={selectedWorkspace.backup.manifestSha256}>{selectedWorkspace.backup.manifestSha256?.slice(0, 16) ?? '—'}</strong></div></div><div className="settings-backup-actions"><button type="button" className="subtle-button small" onClick={() => void verifyBackup()} disabled={!connected || mutating !== null || !client.verifyBackup || !selectedBackupId}>{mutating === `backup-verify:${selectedBackupId}` ? <RefreshCw size={14} className="spin" /> : <ShieldCheck size={14} />}{locale === 'vi' ? 'Verify lại' : 'Verify again'}</button></div><div className="backup-verification-list"><strong>{locale === 'vi' ? 'Lịch sử verify' : 'Verification history'}</strong>{selectedWorkspace.verifications.length === 0 ? <small>{locale === 'vi' ? 'Chưa có bản ghi.' : 'No verification record.'}</small> : selectedWorkspace.verifications.map((verification) => <div className="backup-verification-row" key={verification.id ?? `${verification.outcome}-${verification.createdAt}`}><span>{verification.outcome}</span><small>{verification.integrityState} · {verification.createdAt ? formatRelativeSnapshot(verification.createdAt, locale) : '—'}</small></div>)}</div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chỉ hiển thị tên an toàn, hash và integrity evidence. CineForge chưa có restore/recovery trong slice này.' : 'Only safe names, hashes, and integrity evidence are shown. Restore/recovery is outside this slice.'}</p></>}</section></div></div>
 }
 
 function ProjectCard({ project, locale, onOpen }: { project: ProjectSummary; locale: Locale; onOpen: () => void }) {
