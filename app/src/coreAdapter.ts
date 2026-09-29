@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -38,6 +38,12 @@ export interface CoreBridge {
   getTimelineWorkspace?(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace>
   getTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, signal?: AbortSignal): Promise<TimelineWorkingWorkspace>
   getTimelineWorkingHistory?(projectId: string, timelineId: string, sessionId: string, afterOpSeq?: number, limit?: number, signal?: AbortSignal): Promise<TimelineWorkingHistory>
+  getTimelineAudioTiming?(projectId: string, timelineId: string, timelineRevisionId: string, signal?: AbortSignal): Promise<AudioCueTiming>
+  getTimelineSubtitleTiming?(projectId: string, timelineId: string, timelineRevisionId: string, signal?: AbortSignal): Promise<SubtitleTiming>
+  createAudioCueRevision?(projectId: string, timelineId: string, input: AudioCueRevisionInput, idempotencyKey?: string): Promise<{ audioCue: AudioCueSummary | null; revision: AudioCueRevision | null }>
+  transitionAudioCueRevision?(projectId: string, timelineId: string, audioCueId: string, revisionId: string, nextState: TimelineTimingLifecycleState, expectedVersion: number, idempotencyKey?: string): Promise<{ audioCue: AudioCueSummary | null; revision: AudioCueRevision | null }>
+  createSubtitleTrackRevision?(projectId: string, timelineId: string, input: SubtitleTrackRevisionInput, idempotencyKey?: string): Promise<{ subtitleTrack: SubtitleTrackSummary | null; revision: SubtitleTrackRevision | null }>
+  transitionSubtitleTrackRevision?(projectId: string, timelineId: string, subtitleTrackId: string, revisionId: string, nextState: TimelineTimingLifecycleState, expectedVersion: number, idempotencyKey?: string): Promise<{ subtitleTrack: SubtitleTrackSummary | null; revision: SubtitleTrackRevision | null }>
   beginTimelineWorkingSession?(projectId: string, timelineId: string, input: { baseRevisionId: string; baseRevisionRowVersion: number; baseContentHash: string; clientInstanceId: string; expectedTimelineVersion: number }, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
   applyTimelineEditOps?(projectId: string, timelineId: string, sessionId: string, operations: Array<Record<string, unknown>>, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
   undoTimelineEditOp?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
@@ -721,6 +727,83 @@ export class HttpCoreClient implements CoreClient {
     if (!this.baseUrl) throw new CoreClientError('Timeline workspace requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/workspace`, { signal, headers: { Accept: 'application/json' } })
     return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline workspace'))
+  }
+
+  async getTimelineAudioTiming(projectId: string, timelineId: string, timelineRevisionId: string, signal?: AbortSignal): Promise<AudioCueTiming> {
+    if (!this.baseUrl) throw new CoreClientError('Audio cue timing requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !timelineId.trim() || !timelineRevisionId.trim()) throw new CoreClientError('An exact timeline and revision are required to read audio timing.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/revisions/${encodeURIComponent(timelineRevisionId)}/audio-cues`, { signal, headers: { Accept: 'application/json' } })
+    return mapAudioTimingRecord(await readCorePayload(response, 'audio cue timing'))
+  }
+
+  async getTimelineSubtitleTiming(projectId: string, timelineId: string, timelineRevisionId: string, signal?: AbortSignal): Promise<SubtitleTiming> {
+    if (!this.baseUrl) throw new CoreClientError('Subtitle timing requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !timelineId.trim() || !timelineRevisionId.trim()) throw new CoreClientError('An exact timeline and revision are required to read subtitle timing.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/revisions/${encodeURIComponent(timelineRevisionId)}/subtitle-tracks`, { signal, headers: { Accept: 'application/json' } })
+    return mapSubtitleTimingRecord(await readCorePayload(response, 'subtitle timing'))
+  }
+
+  async createAudioCueRevision(projectId: string, timelineId: string, input: AudioCueRevisionInput, idempotencyKey: string = crypto.randomUUID()): Promise<{ audioCue: AudioCueSummary | null; revision: AudioCueRevision | null }> {
+    if (!this.baseUrl) throw new CoreClientError('Creating an audio cue requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !timelineId.trim() || !input.timelineRevisionId.trim() || !/^[0-9a-f]{64}$/i.test(input.timelineContentHash)) throw new CoreClientError('Audio timing needs an exact timeline revision and SHA-256 content hash.', { code: 'TIMING_DEPENDENCY_HASH_REQUIRED', category: 'VALIDATION', needsUser: true })
+    if (!input.title.trim() || input.title.trim().length > 200 || !input.cueType.trim() || !input.start || !input.end) throw new CoreClientError('Audio cue type, title and rational timing are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const body: Record<string, unknown> = {
+      timeline_id: timelineId,
+      timing_dependency_revision_id: input.timelineRevisionId,
+      timing_dependency_content_hash: input.timelineContentHash.toLowerCase(),
+      cue_type: input.cueType.trim().toUpperCase(),
+      title: input.title.trim(),
+      start: input.start,
+      end: input.end,
+      intent_text: input.intentText?.trim() ?? '',
+      ...(input.selectedAssetRevisionId?.trim() ? { selected_asset_revision_id: input.selectedAssetRevisionId.trim() } : {}),
+      ...(input.audioCueId?.trim() ? { audio_cue_id: input.audioCueId.trim() } : {}),
+      ...(input.expectedCueVersion !== undefined ? { expected_version: input.expectedCueVersion } : {}),
+    }
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/audio-cues${input.audioCueId?.trim() ? `/${encodeURIComponent(input.audioCueId.trim())}/revisions` : ''}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(body),
+    })
+    return mapAudioCueResultRecord(await readCorePayload(response, 'audio cue revision creation'))
+  }
+
+  async transitionAudioCueRevision(projectId: string, timelineId: string, audioCueId: string, revisionId: string, nextState: TimelineTimingLifecycleState, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<{ audioCue: AudioCueSummary | null; revision: AudioCueRevision | null }> {
+    if (!this.baseUrl) throw new CoreClientError('Audio cue transitions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !timelineId.trim() || !audioCueId.trim() || !revisionId.trim() || !nextState.trim() || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new CoreClientError('An exact audio cue revision and current version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/audio-cues/${encodeURIComponent(audioCueId)}/revisions/${encodeURIComponent(revisionId)}/transition`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ timeline_id: timelineId, next_state: nextState.trim().toUpperCase(), expected_version: expectedVersion }),
+    })
+    return mapAudioCueResultRecord(await readCorePayload(response, 'audio cue revision transition'))
+  }
+
+  async createSubtitleTrackRevision(projectId: string, timelineId: string, input: SubtitleTrackRevisionInput, idempotencyKey: string = crypto.randomUUID()): Promise<{ subtitleTrack: SubtitleTrackSummary | null; revision: SubtitleTrackRevision | null }> {
+    if (!this.baseUrl) throw new CoreClientError('Creating subtitles requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !timelineId.trim() || !input.timelineRevisionId.trim() || !/^[0-9a-f]{64}$/i.test(input.timelineContentHash)) throw new CoreClientError('Subtitle timing needs an exact timeline revision and SHA-256 content hash.', { code: 'TIMING_DEPENDENCY_HASH_REQUIRED', category: 'VALIDATION', needsUser: true })
+    if (!input.locale.trim() || input.locale.trim().length > 32 || !input.title.trim() || input.title.trim().length > 200 || !Array.isArray(input.segments) || input.segments.length > 2000) throw new CoreClientError('Subtitle locale, title and a bounded segment list are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const segments = input.segments.map((segment) => ({
+      start: segment.start, end: segment.end, locale: segment.locale.trim() || input.locale.trim(), text: segment.text.trim(), ...(segment.segmentIndex === undefined ? {} : { segment_index: segment.segmentIndex }),
+    }))
+    if (segments.some((segment) => !segment.start || !segment.end || !segment.locale || !segment.text || segment.text.length > 2000)) throw new CoreClientError('Each subtitle segment needs rational timing, locale and text.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const body: Record<string, unknown> = {
+      timeline_id: timelineId,
+      timing_dependency_revision_id: input.timelineRevisionId,
+      timing_dependency_content_hash: input.timelineContentHash.toLowerCase(),
+      locale: input.locale.trim(), title: input.title.trim(), format_profile: input.formatProfile?.trim() || 'TEXT', segments,
+      ...(input.subtitleTrackId?.trim() ? { subtitle_track_id: input.subtitleTrackId.trim() } : {}),
+      ...(input.expectedTrackVersion !== undefined ? { expected_version: input.expectedTrackVersion } : {}),
+    }
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/subtitle-tracks${input.subtitleTrackId?.trim() ? `/${encodeURIComponent(input.subtitleTrackId.trim())}/revisions` : ''}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(body),
+    })
+    return mapSubtitleTrackResultRecord(await readCorePayload(response, 'subtitle track revision creation'))
+  }
+
+  async transitionSubtitleTrackRevision(projectId: string, timelineId: string, subtitleTrackId: string, revisionId: string, nextState: TimelineTimingLifecycleState, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<{ subtitleTrack: SubtitleTrackSummary | null; revision: SubtitleTrackRevision | null }> {
+    if (!this.baseUrl) throw new CoreClientError('Subtitle transitions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !timelineId.trim() || !subtitleTrackId.trim() || !revisionId.trim() || !nextState.trim() || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new CoreClientError('An exact subtitle revision and current version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/subtitle-tracks/${encodeURIComponent(subtitleTrackId)}/revisions/${encodeURIComponent(revisionId)}/transition`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ timeline_id: timelineId, next_state: nextState.trim().toUpperCase(), expected_version: expectedVersion }),
+    })
+    return mapSubtitleTrackResultRecord(await readCorePayload(response, 'subtitle track revision transition'))
   }
 
   async getTimelineWorkingSession(projectId: string, timelineId: string, sessionId: string, signal?: AbortSignal): Promise<TimelineWorkingWorkspace> {
@@ -1573,6 +1656,153 @@ function mapTimelineRevisionRecord(value: unknown): TimelineRevision {
     readinessState: stringValue(source.readiness_state ?? source.readinessState) ?? 'UNKNOWN',
     nextStep: stringValue(source.next_step ?? source.nextStep),
     createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapAudioCueSummaryRecord(value: unknown): AudioCueSummary {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.audio_cue_id ?? source.audioCueId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    timelineId: stringValue(source.timeline_id ?? source.timelineId),
+    cueType: stringValue(source.cue_type ?? source.cueType) ?? 'UNKNOWN',
+    title: stringValue(source.title) ?? 'Audio cue',
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapAudioCueRevisionRecord(value: unknown): AudioCueRevision {
+  const source = asRecord(value)
+  const rational = (nestedKey: string, numKey: string, denKey: string): { num: number | string; den: number | string } => {
+    const nested = source[nestedKey]
+    return safeRationalRecord(nested ?? { num: source[numKey], den: source[denKey] })
+  }
+  return {
+    id: stringValue(source.id ?? source.audio_cue_revision_id ?? source.audioCueRevisionId),
+    audioCueId: stringValue(source.audio_cue_id ?? source.audioCueId),
+    revisionNumber: numberValue(source.revision_number ?? source.revisionNumber, 0),
+    state: stringValue(source.lifecycle_state ?? source.lifecycleState ?? source.state) ?? 'UNKNOWN',
+    timelineRevisionId: stringValue(source.timing_dependency_revision_id ?? source.timingDependencyRevisionId ?? source.timeline_revision_id ?? source.timelineRevisionId),
+    timelineContentHash: stringValue(source.timing_dependency_content_hash ?? source.timingDependencyContentHash ?? source.timeline_content_hash ?? source.timelineContentHash)?.toLowerCase(),
+    timingDependencyRevisionId: stringValue(source.timing_dependency_revision_id ?? source.timingDependencyRevisionId ?? source.timeline_revision_id ?? source.timelineRevisionId),
+    timingDependencyContentHash: stringValue(source.timing_dependency_content_hash ?? source.timingDependencyContentHash ?? source.timeline_content_hash ?? source.timelineContentHash)?.toLowerCase(),
+    timingDependencyHash: stringValue(source.timing_dependency_hash ?? source.timingDependencyHash)?.toLowerCase(),
+    start: rational('start', 'start_num', 'start_den'),
+    end: rational('end', 'end_num', 'end_den'),
+    intentText: stringValue(source.intent_text ?? source.intentText) ?? '',
+    selectedAssetRevisionId: stringValue(source.selected_asset_revision_id ?? source.selectedAssetRevisionId) ?? null,
+    assetSnapshotHash: stringValue(source.asset_snapshot_hash ?? source.assetSnapshotHash)?.toLowerCase() ?? null,
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    stale: Boolean(source.stale) || String(source.lifecycle_state ?? source.lifecycleState ?? source.state).toUpperCase() === 'STALE',
+    nextStep: stringValue(source.next_step ?? source.nextStep) ?? null,
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapSubtitleTrackSummaryRecord(value: unknown): SubtitleTrackSummary {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.subtitle_track_id ?? source.subtitleTrackId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    timelineId: stringValue(source.timeline_id ?? source.timelineId),
+    locale: stringValue(source.locale) ?? 'UNKNOWN',
+    title: stringValue(source.title) ?? 'Subtitle track',
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapSubtitleSegmentRecord(value: unknown): SubtitleSegment {
+  const source = asRecord(value)
+  const rational = (nestedKey: string, numKey: string, denKey: string): { num: number | string; den: number | string } => {
+    const nested = source[nestedKey]
+    return safeRationalRecord(nested ?? { num: source[numKey], den: source[denKey] })
+  }
+  return {
+    id: stringValue(source.id),
+    segmentIndex: numberValue(source.segment_index ?? source.segmentIndex, 0),
+    start: rational('start', 'start_num', 'start_den'),
+    end: rational('end', 'end_num', 'end_den'),
+    locale: stringValue(source.locale) ?? 'UNKNOWN',
+    text: stringValue(source.text) ?? '',
+  }
+}
+
+function mapSubtitleTrackRevisionRecord(value: unknown): SubtitleTrackRevision {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.subtitle_track_revision_id ?? source.subtitleTrackRevisionId),
+    subtitleTrackId: stringValue(source.subtitle_track_id ?? source.subtitleTrackId),
+    revisionNumber: numberValue(source.revision_number ?? source.revisionNumber, 0),
+    state: stringValue(source.lifecycle_state ?? source.lifecycleState ?? source.state) ?? 'UNKNOWN',
+    timelineRevisionId: stringValue(source.timing_dependency_revision_id ?? source.timingDependencyRevisionId ?? source.timeline_revision_id ?? source.timelineRevisionId),
+    timelineContentHash: stringValue(source.timing_dependency_content_hash ?? source.timingDependencyContentHash ?? source.timeline_content_hash ?? source.timelineContentHash)?.toLowerCase(),
+    timingDependencyRevisionId: stringValue(source.timing_dependency_revision_id ?? source.timingDependencyRevisionId ?? source.timeline_revision_id ?? source.timelineRevisionId),
+    timingDependencyContentHash: stringValue(source.timing_dependency_content_hash ?? source.timingDependencyContentHash ?? source.timeline_content_hash ?? source.timelineContentHash)?.toLowerCase(),
+    timingDependencyHash: stringValue(source.timing_dependency_hash ?? source.timingDependencyHash)?.toLowerCase(),
+    formatProfile: stringValue(source.format_profile ?? source.formatProfile) ?? 'TEXT',
+    segments: arrayValue(source.segments).map(mapSubtitleSegmentRecord),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    stale: Boolean(source.stale) || String(source.lifecycle_state ?? source.lifecycleState ?? source.state).toUpperCase() === 'STALE',
+    nextStep: stringValue(source.next_step ?? source.nextStep) ?? null,
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapAudioCueResultRecord(value: unknown): { audioCue: AudioCueSummary | null; revision: AudioCueRevision | null } {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.result ?? value)
+  return {
+    audioCue: source.audio_cue || source.audioCue ? mapAudioCueSummaryRecord(source.audio_cue ?? source.audioCue) : null,
+    revision: source.revision ? mapAudioCueRevisionRecord(source.revision) : null,
+  }
+}
+
+function mapSubtitleTrackResultRecord(value: unknown): { subtitleTrack: SubtitleTrackSummary | null; revision: SubtitleTrackRevision | null } {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.result ?? value)
+  return {
+    subtitleTrack: source.subtitle_track || source.subtitleTrack ? mapSubtitleTrackSummaryRecord(source.subtitle_track ?? source.subtitleTrack) : null,
+    revision: source.revision ? mapSubtitleTrackRevisionRecord(source.revision) : null,
+  }
+}
+
+function mapAudioTimingRecord(value: unknown): AudioCueTiming {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.result ?? value)
+  return {
+    timeline: source.timeline ? mapTimelineSummaryRecord(source.timeline) : null,
+    timelineRevision: source.timeline_revision || source.timelineRevision ? mapTimelineRevisionRecord(source.timeline_revision ?? source.timelineRevision) : null,
+    cues: arrayValue(source.cues).map((item) => {
+      const row = asRecord(item)
+      return {
+        audioCue: row.audio_cue || row.audioCue ? mapAudioCueSummaryRecord(row.audio_cue ?? row.audioCue) : null,
+        revision: row.revision ? mapAudioCueRevisionRecord(row.revision) : null,
+      }
+    }),
+    projectionSeq: numberValue(source.projection_seq ?? source.projectionSeq, 0),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapSubtitleTimingRecord(value: unknown): SubtitleTiming {
+  const envelope = asRecord(value)
+  const source = asRecord(envelope.result ?? value)
+  return {
+    timeline: source.timeline ? mapTimelineSummaryRecord(source.timeline) : null,
+    timelineRevision: source.timeline_revision || source.timelineRevision ? mapTimelineRevisionRecord(source.timeline_revision ?? source.timelineRevision) : null,
+    tracks: arrayValue(source.tracks).map((item) => {
+      const row = asRecord(item)
+      return {
+        subtitleTrack: row.subtitle_track || row.subtitleTrack ? mapSubtitleTrackSummaryRecord(row.subtitle_track ?? row.subtitleTrack) : null,
+        revision: row.revision ? mapSubtitleTrackRevisionRecord(row.revision) : null,
+      }
+    }),
+    projectionSeq: numberValue(source.projection_seq ?? source.projectionSeq, 0),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }
 }
 

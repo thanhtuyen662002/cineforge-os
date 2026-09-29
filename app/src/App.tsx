@@ -50,7 +50,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -1178,6 +1178,9 @@ function timelineStateLabel(state: string, locale: Locale) {
     DRAFT: { vi: 'Bản nháp', en: 'Draft' },
     CANDIDATE: { vi: 'Chờ duyệt', en: 'Candidate' },
     APPROVED: { vi: 'Đã duyệt', en: 'Approved' },
+    TIMED: { vi: 'Đã canh thời gian', en: 'Timed' },
+    REVIEWED: { vi: 'Đã review', en: 'Reviewed' },
+    SELECTED: { vi: 'Đã chọn', en: 'Selected' },
     SUPERSEDED: { vi: 'Đã thay thế', en: 'Superseded' },
     REJECTED: { vi: 'Từ chối', en: 'Rejected' },
     DRAFT_CHECKPOINT: { vi: 'Checkpoint nháp', en: 'Draft checkpoint' },
@@ -1749,6 +1752,7 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
               <p className="readonly-note"><Info size={14} />{locale === 'vi' ? `${workingWorkspace.session.draft.markers.length} marker · ${workingWorkspace.session.operations.length} operation · history action ${workingWorkspace.session.historyActions.length}.` : `${workingWorkspace.session.draft.markers.length} markers · ${workingWorkspace.session.operations.length} operations · ${workingWorkspace.session.historyActions.length} history actions.`}</p>
             </>}
           </div>
+          {currentRevision && selectedTimelineId && <TimelineTimingPanel projectId={projectId} timelineId={selectedTimelineId} revision={currentRevision} connected={connected} locale={locale} client={client} onToast={onToast} />}
           {currentRevision && <div className="timeline-track-list">{currentRevision.tracks.map((track) => <div className="timeline-track-row" key={track.id ?? `${track.trackType}-${track.orderIndex}`}><span><strong>{track.name}</strong><small>{track.trackType} · {track.clips.length} {locale === 'vi' ? 'clip' : 'clips'}</small></span><span className="record-code">{track.enabled ? 'ON' : 'OFF'}</span></div>)}</div>}
           <form className="workspace-form timeline-checkpoint-form" onSubmit={createRevision}>
             <div className="form-grid two"><label>{locale === 'vi' ? 'Duration num' : 'Duration num'}<input value={durationNum} onChange={(event) => setDurationNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label><label>{locale === 'vi' ? 'Duration den' : 'Duration den'}<input value={durationDen} onChange={(event) => setDurationDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label></div>
@@ -1761,6 +1765,175 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
         </>}
       </section>
     </div>}
+  </div>
+}
+
+function timingStateLabel(state: string | undefined, locale: Locale) {
+  if (!state) return '—'
+  const labels: Record<string, { vi: string; en: string }> = {
+    DRAFT: { vi: 'Bản nháp', en: 'Draft' },
+    TIMED: { vi: 'Đã canh thời gian', en: 'Timed' },
+    CANDIDATE: { vi: 'Chờ duyệt', en: 'Candidate' },
+    REVIEWED: { vi: 'Đã review', en: 'Reviewed' },
+    SELECTED: { vi: 'Đã chọn', en: 'Selected' },
+    APPROVED: { vi: 'Đã duyệt', en: 'Approved' },
+    STALE: { vi: 'Đã cũ', en: 'Stale' },
+    REJECTED: { vi: 'Từ chối', en: 'Rejected' },
+  }
+  return labels[state]?.[locale] ?? state
+}
+
+function nextAudioTimingState(state: string | undefined): TimelineTimingLifecycleState | null {
+  if (state === 'DRAFT') return 'CANDIDATE'
+  if (state === 'CANDIDATE') return 'SELECTED'
+  if (state === 'TIMED') return 'REVIEWED'
+  return null
+}
+
+function nextSubtitleTimingState(state: string | undefined): TimelineTimingLifecycleState | null {
+  if (state === 'DRAFT') return 'TIMED'
+  if (state === 'TIMED') return 'REVIEWED'
+  return null
+}
+
+function TimelineTimingPanel({ projectId, timelineId, revision, connected, locale, client, onToast }: { projectId: string; timelineId: string; revision: TimelineRevision; connected: boolean; locale: Locale; client: CoreClient; onToast: (message: string) => void }) {
+  const [audioTiming, setAudioTiming] = useState<AudioCueTiming | null>(null)
+  const [subtitleTiming, setSubtitleTiming] = useState<SubtitleTiming | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [timingError, setTimingError] = useState<string | null>(null)
+  const [needsUser, setNeedsUser] = useState(false)
+  const [mutating, setMutating] = useState<string | null>(null)
+  const [cueType, setCueType] = useState('SILENCE')
+  const [cueTitle, setCueTitle] = useState('Room tone')
+  const [cueStartNum, setCueStartNum] = useState('0')
+  const [cueStartDen, setCueStartDen] = useState('1')
+  const [cueEndNum, setCueEndNum] = useState('1')
+  const [cueEndDen, setCueEndDen] = useState('1')
+  const [cueIntent, setCueIntent] = useState('')
+  const [cueAssetRevisionId, setCueAssetRevisionId] = useState('')
+  const [subtitleLocale, setSubtitleLocale] = useState('vi-VN')
+  const [subtitleTitle, setSubtitleTitle] = useState('Tiếng Việt')
+  const [subtitleStartNum, setSubtitleStartNum] = useState('0')
+  const [subtitleStartDen, setSubtitleStartDen] = useState('1')
+  const [subtitleEndNum, setSubtitleEndNum] = useState('1')
+  const [subtitleEndDen, setSubtitleEndDen] = useState('1')
+  const [subtitleText, setSubtitleText] = useState('')
+  const revisionId = revision.id ?? ''
+  const timelineHash = revision.editHash?.toLowerCase() ?? ''
+  const canWrite = connected && Boolean(revisionId && /^[0-9a-f]{64}$/i.test(timelineHash)) && !mutating
+
+  const loadTiming = useCallback(async (signal?: AbortSignal) => {
+    if (!revisionId || !timelineHash) {
+      setAudioTiming(null); setSubtitleTiming(null); setTimingError(null); setLoading(false)
+      return
+    }
+    if (!client.getTimelineAudioTiming && !client.getTimelineSubtitleTiming) {
+      setAudioTiming(null); setSubtitleTiming(null); setTimingError(locale === 'vi' ? 'Core chưa cung cấp metadata audio/phụ đề.' : 'Core does not expose audio/subtitle metadata yet.'); setLoading(false)
+      return
+    }
+    setLoading(true); setTimingError(null); setNeedsUser(false)
+    try {
+      const [audioResult, subtitleResult] = await Promise.all([
+        client.getTimelineAudioTiming ? client.getTimelineAudioTiming(projectId, timelineId, revisionId, signal) : Promise.resolve(null),
+        client.getTimelineSubtitleTiming ? client.getTimelineSubtitleTiming(projectId, timelineId, revisionId, signal) : Promise.resolve(null),
+      ])
+      if (signal?.aborted) return
+      setAudioTiming(audioResult)
+      setSubtitleTiming(subtitleResult)
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      if (!signal?.aborted) { setTimingError(workspaceErrorMessage(cause, locale)); setNeedsUser(cause instanceof CoreClientError && cause.needsUser) }
+    } finally {
+      if (!signal?.aborted) setLoading(false)
+    }
+  }, [client, locale, projectId, revisionId, timelineHash, timelineId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void loadTiming(controller.signal)
+    return () => controller.abort()
+  }, [loadTiming])
+
+  const createAudioCue = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!client.createAudioCueRevision || !canWrite) return
+    const start = checkedRational(cueStartNum, cueStartDen, true)
+    const end = checkedRational(cueEndNum, cueEndDen, false)
+    if (!start || !end || !cueTitle.trim() || (cueType !== 'SILENCE' && !cueAssetRevisionId.trim())) {
+      setTimingError(locale === 'vi' ? 'Cue cần title, khoảng rational hợp lệ và asset revision khi không phải SILENCE.' : 'The cue needs a title, a valid rational interval, and an asset revision unless it is SILENCE.')
+      setNeedsUser(true)
+      return
+    }
+    setMutating('audio-create'); setTimingError(null); setNeedsUser(false)
+    try {
+      await client.createAudioCueRevision(projectId, timelineId, { timelineRevisionId: revisionId, timelineContentHash: timelineHash, cueType, title: cueTitle.trim(), start, end, intentText: cueIntent.trim(), selectedAssetRevisionId: cueAssetRevisionId.trim() || null }, `audio-cue-create:${timelineId}:${revisionId}:${cueType}:${cueTitle}:${start.num}/${start.den}:${end.num}/${end.den}`)
+      await loadTiming()
+      onToast(locale === 'vi' ? 'Đã ghi audio cue trên checkpoint hiện tại.' : 'Audio cue metadata was saved against the current checkpoint.')
+    } catch (cause) {
+      setTimingError(workspaceErrorMessage(cause, locale)); setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+    } finally { setMutating(null) }
+  }
+
+  const createSubtitleTrack = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!client.createSubtitleTrackRevision || !canWrite) return
+    const start = checkedRational(subtitleStartNum, subtitleStartDen, true)
+    const end = checkedRational(subtitleEndNum, subtitleEndDen, false)
+    if (!start || !end || !subtitleLocale.trim() || !subtitleTitle.trim() || !subtitleText.trim()) {
+      setTimingError(locale === 'vi' ? 'Phụ đề cần locale, title, text và khoảng rational hợp lệ.' : 'Subtitles need a locale, title, text, and a valid rational interval.')
+      setNeedsUser(true)
+      return
+    }
+    setMutating('subtitle-create'); setTimingError(null); setNeedsUser(false)
+    try {
+      await client.createSubtitleTrackRevision(projectId, timelineId, { timelineRevisionId: revisionId, timelineContentHash: timelineHash, locale: subtitleLocale.trim(), title: subtitleTitle.trim(), segments: [{ start, end, locale: subtitleLocale.trim(), text: subtitleText.trim() }] }, `subtitle-track-create:${timelineId}:${revisionId}:${subtitleLocale}:${subtitleTitle}:${start.num}/${start.den}:${end.num}/${end.den}:${subtitleText}`)
+      setSubtitleText('')
+      await loadTiming()
+      onToast(locale === 'vi' ? 'Đã ghi track phụ đề trên checkpoint hiện tại.' : 'Subtitle timing metadata was saved against the current checkpoint.')
+    } catch (cause) {
+      setTimingError(workspaceErrorMessage(cause, locale)); setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+    } finally { setMutating(null) }
+  }
+
+  const transitionAudio = async (audioCueId: string, revisionIdToTransition: string, state: TimelineTimingLifecycleState, rowVersion: number) => {
+    if (!client.transitionAudioCueRevision || !canWrite) return
+    setMutating(`audio-transition:${revisionIdToTransition}`); setTimingError(null); setNeedsUser(false)
+    try {
+      await client.transitionAudioCueRevision(projectId, timelineId, audioCueId, revisionIdToTransition, state, rowVersion, `audio-cue-transition:${revisionIdToTransition}:${rowVersion}:${state}`)
+      await loadTiming()
+      onToast(locale === 'vi' ? `Audio cue đã chuyển sang ${timingStateLabel(state, locale)}.` : `Audio cue moved to ${timingStateLabel(state, locale)}.`)
+    } catch (cause) {
+      setTimingError(workspaceErrorMessage(cause, locale)); setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+    } finally { setMutating(null) }
+  }
+
+  const transitionSubtitle = async (trackId: string, revisionIdToTransition: string, state: TimelineTimingLifecycleState, rowVersion: number) => {
+    if (!client.transitionSubtitleTrackRevision || !canWrite) return
+    setMutating(`subtitle-transition:${revisionIdToTransition}`); setTimingError(null); setNeedsUser(false)
+    try {
+      await client.transitionSubtitleTrackRevision(projectId, timelineId, trackId, revisionIdToTransition, state, rowVersion, `subtitle-track-transition:${revisionIdToTransition}:${rowVersion}:${state}`)
+      await loadTiming()
+      onToast(locale === 'vi' ? `Track phụ đề đã chuyển sang ${timingStateLabel(state, locale)}.` : `Subtitle track moved to ${timingStateLabel(state, locale)}.`)
+    } catch (cause) {
+      setTimingError(workspaceErrorMessage(cause, locale)); setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+    } finally { setMutating(null) }
+  }
+
+  const staleCount = [...(audioTiming?.cues ?? []), ...(subtitleTiming?.tracks ?? [])].filter((item) => Boolean(item.revision?.stale || item.revision?.state === 'STALE')).length
+  return <div className="timeline-timing-panel">
+    <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon amber"><Languages size={16} /></span><div><h3>{locale === 'vi' ? 'Audio cue & phụ đề' : 'Audio cues & subtitles'}</h3><p>{locale === 'vi' ? 'Metadata pin đúng checkpoint; không phát, render hoặc sinh media ở đây.' : 'Metadata is pinned to this checkpoint; playback, rendering, and generation are out of scope.'}</p></div></div>{staleCount > 0 && <span className="health-pill warning"><span />{staleCount} STALE</span>}</div>
+    {!timelineHash && <div className="inline-state warning"><AlertCircle size={14} /><span>{locale === 'vi' ? 'Checkpoint thiếu content hash nên metadata bị khoá để tránh ghi sai dependency.' : 'This checkpoint has no content hash, so metadata writes are disabled to avoid an unsafe dependency pin.'}</span></div>}
+    {loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc metadata timing…' : 'Reading timing metadata…'} /> : timingError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{timingError}</span><button type="button" className="subtle-button tiny" onClick={() => void loadTiming()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button>{needsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện rồi thử lại.' : 'Core needs you to resolve the condition before retrying.'}</small>}</div> : <>
+      <div className="timeline-timing-columns">
+        <section className="timeline-timing-section"><div className="working-tool-heading"><strong>{locale === 'vi' ? 'Audio cue' : 'Audio cues'}</strong><span>{audioTiming?.cues.length ?? 0}</span></div>{!client.getTimelineAudioTiming ? <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ audio metadata.' : 'This bridge does not expose audio metadata yet.'}</p> : (audioTiming?.cues.length ?? 0) === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có audio cue.' : 'No audio cue yet.'} /> : <div className="timeline-timing-list">{audioTiming?.cues.map((item, index) => { const cue = item.audioCue; const itemRevision = item.revision; const nextState = nextAudioTimingState(itemRevision?.state); return <div className={`timeline-timing-row ${itemRevision?.stale ? 'stale' : ''}`} key={itemRevision?.id ?? cue?.id ?? index}><div><strong>{cue?.title ?? 'Audio cue'}</strong><small>{cue?.cueType ?? 'UNKNOWN'} · {rationalLabel(itemRevision?.start)} → {rationalLabel(itemRevision?.end)} · {timingStateLabel(itemRevision?.state, locale)}</small>{itemRevision?.stale && <small className="warning-text">{itemRevision.nextStep ?? (locale === 'vi' ? 'Tạo lại trên checkpoint mới.' : 'Create a new revision on the current checkpoint.')}</small>}</div>{nextState && cue?.id && itemRevision?.id && <button type="button" className="subtle-button tiny" disabled={!canWrite || !client.transitionAudioCueRevision} onClick={() => void transitionAudio(cue.id!, itemRevision.id!, nextState, itemRevision.rowVersion)}>{mutating === `audio-transition:${itemRevision.id}` ? <RefreshCw size={12} className="spin" /> : <ArrowRight size={12} />}{timingStateLabel(nextState, locale)}</button>}</div> })}</div>}
+          <form className="workspace-form timeline-timing-form" onSubmit={createAudioCue}><div className="form-grid two"><label>{locale === 'vi' ? 'Loại cue' : 'Cue type'}<select value={cueType} onChange={(event) => setCueType(event.target.value)} disabled={!canWrite}><option value="SILENCE">SILENCE</option><option value="DIALOGUE">DIALOGUE</option><option value="ADR">ADR</option><option value="NONVERBAL">NONVERBAL</option><option value="FOLEY">FOLEY</option><option value="SFX">SFX</option><option value="AMBIENCE">AMBIENCE</option><option value="ROOM_TONE">ROOM_TONE</option><option value="MUSIC">MUSIC</option></select></label><label>{locale === 'vi' ? 'Tên cue' : 'Cue title'}<input value={cueTitle} onChange={(event) => setCueTitle(event.target.value)} maxLength={200} disabled={!canWrite} /></label></div><div className="form-grid four"><label>Start num<input value={cueStartNum} onChange={(event) => setCueStartNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>Start den<input value={cueStartDen} onChange={(event) => setCueStartDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End num<input value={cueEndNum} onChange={(event) => setCueEndNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End den<input value={cueEndDen} onChange={(event) => setCueEndDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label></div><label>{locale === 'vi' ? 'Ý định (tuỳ chọn)' : 'Intent (optional)'}<textarea value={cueIntent} onChange={(event) => setCueIntent(event.target.value)} rows={2} maxLength={8000} disabled={!canWrite} /></label>{cueType !== 'SILENCE' && <label>{locale === 'vi' ? 'Asset revision ID (bắt buộc)' : 'Asset revision ID (required)'}<input value={cueAssetRevisionId} onChange={(event) => setCueAssetRevisionId(event.target.value)} placeholder="exact-id" disabled={!canWrite} /></label>}<button type="submit" className="subtle-button tiny" disabled={!canWrite || !client.createAudioCueRevision}>{mutating === 'audio-create' ? <RefreshCw size={12} className="spin" /> : <Plus size={12} />}{locale === 'vi' ? 'Thêm audio cue' : 'Add audio cue'}</button></form>
+        </section>
+        <section className="timeline-timing-section"><div className="working-tool-heading"><strong>{locale === 'vi' ? 'Subtitle track' : 'Subtitle tracks'}</strong><span>{subtitleTiming?.tracks.length ?? 0}</span></div>{!client.getTimelineSubtitleTiming ? <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ subtitle metadata.' : 'This bridge does not expose subtitle metadata yet.'}</p> : (subtitleTiming?.tracks.length ?? 0) === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có track phụ đề.' : 'No subtitle track yet.'} /> : <div className="timeline-timing-list">{subtitleTiming?.tracks.map((item, index) => { const track = item.subtitleTrack; const itemRevision = item.revision; const nextState = nextSubtitleTimingState(itemRevision?.state); return <div className={`timeline-timing-row ${itemRevision?.stale ? 'stale' : ''}`} key={itemRevision?.id ?? track?.id ?? index}><div><strong>{track?.title ?? 'Subtitle track'}</strong><small>{track?.locale ?? 'UNKNOWN'} · {itemRevision?.segments.length ?? 0} {locale === 'vi' ? 'đoạn' : 'segments'} · {timingStateLabel(itemRevision?.state, locale)}</small>{itemRevision?.segments.slice(0, 2).map((segment) => <small key={segment.id ?? segment.segmentIndex}>{rationalLabel(segment.start)} → {rationalLabel(segment.end)} · {segment.text}</small>)}{itemRevision?.stale && <small className="warning-text">{itemRevision.nextStep ?? (locale === 'vi' ? 'Tạo lại trên checkpoint mới.' : 'Create a new revision on the current checkpoint.')}</small>}</div>{nextState && track?.id && itemRevision?.id && <button type="button" className="subtle-button tiny" disabled={!canWrite || !client.transitionSubtitleTrackRevision} onClick={() => void transitionSubtitle(track.id!, itemRevision.id!, nextState, itemRevision.rowVersion)}>{mutating === `subtitle-transition:${itemRevision.id}` ? <RefreshCw size={12} className="spin" /> : <ArrowRight size={12} />}{timingStateLabel(nextState, locale)}</button>}</div> })}</div>}
+          <form className="workspace-form timeline-timing-form" onSubmit={createSubtitleTrack}><div className="form-grid two"><label>{locale === 'vi' ? 'Locale' : 'Locale'}<input value={subtitleLocale} onChange={(event) => setSubtitleLocale(event.target.value)} maxLength={32} disabled={!canWrite} /></label><label>{locale === 'vi' ? 'Tên track' : 'Track title'}<input value={subtitleTitle} onChange={(event) => setSubtitleTitle(event.target.value)} maxLength={200} disabled={!canWrite} /></label></div><div className="form-grid four"><label>Start num<input value={subtitleStartNum} onChange={(event) => setSubtitleStartNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>Start den<input value={subtitleStartDen} onChange={(event) => setSubtitleStartDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End num<input value={subtitleEndNum} onChange={(event) => setSubtitleEndNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End den<input value={subtitleEndDen} onChange={(event) => setSubtitleEndDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label></div><label>{locale === 'vi' ? 'Nội dung phụ đề' : 'Subtitle text'}<textarea value={subtitleText} onChange={(event) => setSubtitleText(event.target.value)} rows={2} maxLength={2000} disabled={!canWrite} placeholder={locale === 'vi' ? 'Nhập một đoạn; có thể tạo revision mới cho các đoạn tiếp theo.' : 'Enter one segment; create a new revision for additional segments.'} /></label><button type="submit" className="subtle-button tiny" disabled={!canWrite || !client.createSubtitleTrackRevision}>{mutating === 'subtitle-create' ? <RefreshCw size={12} className="spin" /> : <Plus size={12} />}{locale === 'vi' ? 'Thêm track phụ đề' : 'Add subtitle track'}</button></form>
+        </section>
+      </div>
+    </>}
+    <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Mọi cue/track đều pin timing_dependency_revision_id + content hash. Khi checkpoint mới xuất hiện, bản cũ chuyển STALE; Core không tự approve hoặc tự chọn asset.' : 'Every cue/track pins timing_dependency_revision_id + content hash. A newer checkpoint makes old records STALE; Core never auto-approves or silently chooses an asset.'}</p>
   </div>
 }
 
