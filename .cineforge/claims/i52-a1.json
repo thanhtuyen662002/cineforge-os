@@ -1,0 +1,17 @@
+{
+  "event": "claim-intent-i53-a1-20260930",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 53,
+  "agent_instance_id": "cineforge-WORK-external-edit-registration",
+  "slot_id": "WORK-external-edit-registration",
+  "run_id": "WORK-external-edit-registration-20260930-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:8aa50b68ea4ed4c21905211964d53d437993f550652c0a0e9331bde8faa6124a",
+  "base_ref": "agent/i50-a1-timeline-interchange-export",
+  "base_sha": "dd31ef22dbcaccf190140ed46ed1f3569c1737a4",
+  "context_base_sha": "dd31ef22dbcaccf190140ed46ed1f3569c1737a4",
+  "requested_state": "CLAIMED",
+  "contract_revision": "TASK_CONTRACT_REVISION_V1"
+}
