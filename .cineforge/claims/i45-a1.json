@@ -1,0 +1,16 @@
+{
+  "event": "claim-intent-i45-a1-20260929",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 45,
+  "agent_instance_id": "cineforge-WORK-staging-workspace",
+  "slot_id": "WORK-staging-workspace",
+  "run_id": "WORK-staging-workspace-20260929-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:26fcd12a08cd920937a308095d69592a610f257f85d3596953610befe5017aed",
+  "base_ref": "agent/i43-a1-handoff-download",
+  "base_sha": "fbe407305cd1a5309764cc8523f79d4cd1bb5665",
+  "context_base_sha": "fbe407305cd1a5309764cc8523f79d4cd1bb5665",
+  "requested_state": "CLAIMED"
+}

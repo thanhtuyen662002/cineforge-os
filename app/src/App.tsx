@@ -51,7 +51,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -2556,8 +2556,14 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     return () => controller.abort()
   }, [client, locale, projectId, timelineId])
 
+  const selectedWorkspaceId = selectedWorkspace?.exportSession?.id ?? null
+
   useEffect(() => {
     if (!selectedHandoffId || !projectId || !client.getHandoff) { setSelectedWorkspace(null); return }
+    // A successful create already returns the immutable workspace. Keep that
+    // evidence visible while the list projection catches up instead of
+    // clearing it and making a slow detail read look like a failed command.
+    if (selectedWorkspaceId === selectedHandoffId) { setDetailLoading(false); return }
     const controller = new AbortController()
     setDetailLoading(true); setActionError(null)
     void client.getHandoff(projectId, selectedHandoffId, controller.signal).then((next) => {
@@ -2566,7 +2572,7 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
       if (!controller.signal.aborted) { setSelectedWorkspace(null); setActionError(workspaceErrorMessage(cause, locale)) }
     }).finally(() => { if (!controller.signal.aborted) setDetailLoading(false) })
     return () => controller.abort()
-  }, [client, locale, projectId, selectedHandoffId])
+  }, [client, locale, projectId, selectedHandoffId, selectedWorkspaceId])
 
   const create = async (event: FormEvent) => {
     event.preventDefault()
@@ -2636,6 +2642,67 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   </div>
 }
 
+const STAGING_RECONCILABLE_STATES = new Set(['WRITING', 'COMPLETE', 'VERIFIED'])
+
+function formatStagingState(value: string | undefined, locale: Locale) {
+  const state = String(value ?? 'UNKNOWN').toUpperCase()
+  const labels: Record<string, { vi: string; en: string }> = {
+    UNKNOWN: { vi: 'Chưa xác định', en: 'Unknown' },
+    WRITING: { vi: 'Đang ghi', en: 'Writing' },
+    COMPLETE: { vi: 'Đã ghi xong', en: 'Complete' },
+    VERIFIED: { vi: 'Đã kiểm tra', en: 'Verified' },
+    ORPHANED: { vi: 'Mồ côi', en: 'Orphaned' },
+    QUARANTINED: { vi: 'Đã cách ly', en: 'Quarantined' },
+    FAILED: { vi: 'Thất bại', en: 'Failed' },
+    REGISTERED: { vi: 'Đã đăng ký', en: 'Registered' },
+  }
+  return labels[state]?.[locale === 'vi' ? 'vi' : 'en'] ?? state
+}
+
+function stagingNextStep(stateValue: string | undefined, locale: Locale) {
+  const state = String(stateValue ?? 'UNKNOWN').toUpperCase()
+  const steps: Record<string, { vi: string; en: string }> = {
+    UNKNOWN: { vi: 'Core chưa xác nhận lifecycle; tải lại và không tự nhận bytes.', en: 'Core has not confirmed the lifecycle; refresh and do not adopt bytes automatically.' },
+    WRITING: { vi: 'Reconcile để Core kiểm tra file tạm và identity.', en: 'Reconcile so Core can check the temporary file and identity.' },
+    COMPLETE: { vi: 'Reconcile để Core xác minh hash trước bước tiếp theo.', en: 'Reconcile so Core can verify the hash before the next step.' },
+    VERIFIED: { vi: 'Core đã có bằng chứng hash; không đồng nghĩa asset đã READY.', en: 'Core has hash evidence; this does not mean the asset is READY.' },
+    ORPHANED: { vi: 'File tạm không còn hoặc không an toàn; chọn lại import từ file gốc.', en: 'The temporary file is missing or unsafe; start a new import from the original.' },
+    QUARANTINED: { vi: 'Bằng chứng không khớp; xem lỗi và xử lý file gốc trước khi import lại.', en: 'Evidence did not match; inspect the error and handle the original before importing again.' },
+    FAILED: { vi: 'Core không thể hoàn tất staging; kiểm tra lỗi rồi thử một import mới.', en: 'Core could not complete staging; inspect the error and start a new import.' },
+    REGISTERED: { vi: 'Staging đã gắn với asset; chuyển sang kiểm tra readiness ở Thư viện.', en: 'Staging is registered to an asset; check readiness in the Library.' },
+  }
+  return steps[state]?.[locale === 'vi' ? 'vi' : 'en'] ?? steps.UNKNOWN[locale === 'vi' ? 'vi' : 'en']
+}
+
+function stagingEvidenceLabel(value: string | undefined, locale: Locale) {
+  if (!value) return '—'
+  const normalized = value.toUpperCase()
+  if (normalized === 'PRESENT') return locale === 'vi' ? 'Có bằng chứng' : 'Present'
+  if (normalized === 'ABSENT') return locale === 'vi' ? 'Không có' : 'Absent'
+  if (normalized === 'UNKNOWN') return locale === 'vi' ? 'Chưa biết' : 'Unknown'
+  return normalized
+}
+
+function formatStagingHash(value: string | undefined) {
+  if (!value) return '—'
+  return value.length > 20 ? `${value.slice(0, 12)}…${value.slice(-6)}` : value
+}
+
+function StagingEvidenceRow({ item, locale, connected, mutating, onReconcile }: { item: StagingEvidence; locale: Locale; connected: boolean; mutating: string | null; onReconcile: (item: StagingEvidence) => void }) {
+  const state = String(item.state || 'UNKNOWN').toUpperCase()
+  const canReconcile = Boolean(connected && item.id && STAGING_RECONCILABLE_STATES.has(state) && !mutating)
+  return <div className="staging-evidence-row">
+    <div className="staging-evidence-main">
+      <div className="staging-evidence-heading"><strong>{item.tempName ?? item.id ?? (locale === 'vi' ? 'Staging không tên' : 'Unnamed staging')}</strong><span className={`record-code ${state === 'VERIFIED' ? 'success' : state === 'REGISTERED' ? 'success' : state === 'UNKNOWN' ? 'warning' : 'warning'}`}>{formatStagingState(state, locale)}</span></div>
+      <small>{item.id ?? '—'} · v{item.rowVersion}</small>
+      <div className="staging-evidence-facts"><span>{locale === 'vi' ? 'Kích thước' : 'Size'}: {item.currentSize === undefined ? '—' : formatBytes(item.currentSize)} / {item.expectedSize === undefined ? '—' : formatBytes(item.expectedSize)}</span><span>{item.hashAlgorithm ?? 'SHA-256'}: {formatStagingHash(item.sha256)}</span><span>{locale === 'vi' ? 'Reparse' : 'Reparse'}: {stagingEvidenceLabel(item.reparseState, locale)}</span></div>
+      <div className="staging-evidence-facts"><span>{locale === 'vi' ? 'Identity nguồn' : 'Source identity'}: {stagingEvidenceLabel(item.sourceFileIdentityState, locale)}</span><span>{locale === 'vi' ? 'Identity OS' : 'OS identity'}: {stagingEvidenceLabel(item.osFileIdentityState, locale)}</span><span>{locale === 'vi' ? 'Finalize' : 'Finalize'}: {stagingEvidenceLabel(item.finalizationIdentityState, locale)}</span></div>
+      <p className="staging-next-step">{stagingNextStep(state, locale)}</p>
+    </div>
+    <button type="button" className="subtle-button tiny" disabled={!canReconcile} onClick={() => onReconcile(item)}>{mutating === `staging-reconcile:${item.id}` ? <RefreshCw size={12} className="spin" /> : <RefreshCw size={12} />}{locale === 'vi' ? 'Reconcile' : 'Reconcile'}</button>
+  </div>
+}
+
 export function SettingsView({ snapshot, locale, client, theme, onThemeChange, onLocaleChange, onRefresh, refreshLabel, onToast }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; theme: Theme; onThemeChange: (theme: Theme) => void; onLocaleChange: (locale: Locale) => void; onRefresh: () => void; refreshLabel: string; onToast: (message: string) => void }) {
   const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true)
   const backupStateLabel = formatBackupState(snapshot.system.backupState, locale)
@@ -2649,11 +2716,18 @@ export function SettingsView({ snapshot, locale, client, theme, onThemeChange, o
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [needsUser, setNeedsUser] = useState(false)
+  const [staging, setStaging] = useState<StagingWorkspace | null>(null)
+  const [stagingLoading, setStagingLoading] = useState(false)
+  const [stagingError, setStagingError] = useState<string | null>(null)
+  const [stagingActionError, setStagingActionError] = useState<string | null>(null)
+  const [stagingNeedsUser, setStagingNeedsUser] = useState(false)
   const [mutating, setMutating] = useState<string | null>(null)
   const loadGenerationRef = useRef(0)
   const detailGenerationRef = useRef(0)
+  const stagingLoadGenerationRef = useRef(0)
   const supportsBackupRead = Boolean(client.getBackups && client.getStorageAdmission)
   const supportsBackupDetail = Boolean(client.getBackup)
+  const supportsStaging = Boolean(client.getStaging && client.reconcileStaging)
 
   const loadBackupList = useCallback(async (signal?: AbortSignal) => {
     const generation = ++loadGenerationRef.current
@@ -2706,11 +2780,45 @@ export function SettingsView({ snapshot, locale, client, theme, onThemeChange, o
     }
   }, [client, locale])
 
+  const loadStaging = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++stagingLoadGenerationRef.current
+    // A refresh starts a new evidence generation. Keep no stale rows visible
+    // while Core is answering; a failed reconcile itself never calls this path
+    // and therefore preserves the last known evidence for the user.
+    setStaging(null)
+    setStagingError(null)
+    if (!client.getStaging) {
+      setStaging(null)
+      setStagingError(locale === 'vi' ? 'Bridge hiện tại chưa cung cấp evidence staging.' : 'This bridge does not expose staging evidence yet.')
+      setStagingLoading(false)
+      return
+    }
+    setStagingLoading(true)
+    try {
+      const next = await client.getStaging(undefined, 100, signal)
+      if (signal?.aborted || generation !== stagingLoadGenerationRef.current) return
+      setStaging(next)
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      if (generation !== stagingLoadGenerationRef.current) return
+      setStaging(null)
+      setStagingError(workspaceErrorMessage(cause, locale))
+    } finally {
+      if (!signal?.aborted && generation === stagingLoadGenerationRef.current) setStagingLoading(false)
+    }
+  }, [client, locale])
+
   useEffect(() => {
     const controller = new AbortController()
     void loadBackupList(controller.signal)
     return () => controller.abort()
   }, [loadBackupList])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void loadStaging(controller.signal)
+    return () => controller.abort()
+  }, [loadStaging])
 
   useEffect(() => {
     if (!selectedBackupId) {
@@ -2777,9 +2885,30 @@ export function SettingsView({ snapshot, locale, client, theme, onThemeChange, o
     }
   }
 
+  const reconcileStaging = async (item: StagingEvidence) => {
+    const state = String(item.state || 'UNKNOWN').toUpperCase()
+    if (!client.reconcileStaging || !connected || !item.id || !STAGING_RECONCILABLE_STATES.has(state) || mutating) return
+    setMutating(`staging-reconcile:${item.id}`)
+    setStagingActionError(null)
+    setStagingNeedsUser(false)
+    try {
+      await client.reconcileStaging(item.id, `staging-reconcile:${item.id}:${crypto.randomUUID()}`)
+      onToast(locale === 'vi' ? 'Core đã hoàn tất kiểm tra staging.' : 'Core completed the staging reconciliation check.')
+      await loadStaging()
+    } catch (cause) {
+      // Preserve the previously loaded evidence after a failed command so a
+      // user can still see the exact state Core last confirmed.
+      setStagingNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setStagingActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setMutating(null)
+    }
+  }
+
   return <div className="page settings-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'HỆ THỐNG' : 'SYSTEM'}</p><h1>{locale === 'vi' ? 'Cài đặt' : 'Settings'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Các tuỳ chọn hiển thị và durability local do Core kiểm soát.' : 'Display preferences and local durability controls owned by Core.'}</p></div><button className="subtle-button" onClick={onRefresh}><RefreshCw size={15} />{refreshLabel}</button></div><div className="settings-grid"><section className="settings-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><Settings2 size={16} /></span><div><h2>{locale === 'vi' ? 'Giao diện' : 'Appearance'}</h2><p>{locale === 'vi' ? 'Lưu cục bộ trên máy này.' : 'Saved locally on this machine.'}</p></div></div></div><div className="setting-row"><div><strong>{locale === 'vi' ? 'Giao diện màu' : 'Theme'}</strong><small>{theme === 'dark' ? (locale === 'vi' ? 'Tối' : 'Dark') : (locale === 'vi' ? 'Sáng' : 'Light')}</small></div><button className="toggle-button" onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')} aria-label={locale === 'vi' ? 'Đổi giao diện' : 'Toggle theme'}><span className={theme === 'dark' ? 'on' : ''} /></button></div><div className="setting-row"><div><strong>{locale === 'vi' ? 'Ngôn ngữ' : 'Language'}</strong><small>{locale === 'vi' ? 'Tiếng Việt' : 'English'}</small></div><button className="locale-button bordered" onClick={() => onLocaleChange(locale === 'vi' ? 'en' : 'vi')}><Languages size={14} />{locale === 'vi' ? 'VI' : 'EN'}</button></div></section><section className="settings-card"><div className="card-heading"><div className="card-title-with-icon"><span className={`card-icon ${connected ? 'green' : 'amber'}`}><Database size={16} /></span><div><h2>{locale === 'vi' ? 'Core & dữ liệu' : 'Core & data'}</h2><p>{locale === 'vi' ? 'Thông tin kết nối đọc từ dashboard gần nhất.' : 'Connection details from the latest dashboard.'}</p></div></div><span className={`health-pill ${connected ? 'healthy' : 'attention'}`}><span />{connected ? (locale === 'vi' ? 'Đã kết nối' : 'Connected') : (locale === 'vi' ? 'Cần kiểm tra' : 'Check connection')}</span></div><div className="system-facts"><div><span>{locale === 'vi' ? 'Kết nối' : 'Connection'}</span><strong>{connected ? (locale === 'vi' ? 'Loopback local' : 'Local loopback') : (locale === 'vi' ? 'Offline' : 'Offline')}</strong></div><div><span>{locale === 'vi' ? 'Dung lượng đã dùng' : 'Storage used'}</span><strong>{snapshot.system.storageUsed}</strong></div><div><span>{locale === 'vi' ? 'Tổng dung lượng' : 'Storage total'}</span><strong>{snapshot.system.storageTotal}</strong></div><div><span>{locale === 'vi' ? 'Backup gần nhất' : 'Latest backup'}</span><strong>{backupStateLabel}{backupAtLabel ? ` · ${backupAtLabel}` : ''}</strong></div><div><span>{locale === 'vi' ? 'Snapshot gần nhất' : 'Latest snapshot'}</span><strong>{formatRelativeSnapshot(snapshot.generatedAt, locale)}</strong></div>{snapshot.system.storagePressure && <div><span>{locale === 'vi' ? 'Dung lượng dự phòng' : 'Storage reserve'}</span><strong>{locale === 'vi' ? 'Cần xử lý' : 'Needs attention'}</strong></div>}</div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Cài đặt này không thay đổi quyền, RLS hoặc dữ liệu. Mọi command quan trọng vẫn cần Core xác nhận.' : 'These settings do not change permissions, RLS, or data. Important commands still require Core confirmation.'}</p></section>
       <section className="settings-card settings-backup-card"><div className="card-heading"><div className="card-title-with-icon"><span className={`card-icon ${admissionKnown ? 'green' : 'amber'}`}><HardDrive size={16} /></span><div><h2>{locale === 'vi' ? 'Backup local đã xác minh' : 'Verified local backups'}</h2><p>{locale === 'vi' ? 'Snapshot SQLite và managed objects được Core admission trước khi ghi.' : 'Core admits the SQLite snapshot and managed objects before writing.'}</p></div></div><span className="count-chip">{backups.length}</span></div>{!connected && <div className="inline-state warning"><CloudOff size={14} /><span>{locale === 'vi' ? 'Core đang offline; dữ liệu đã tải vẫn giữ nguyên nhưng command bị khoá.' : 'Core is offline; loaded evidence stays visible but commands are disabled.'}</span></div>}{error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button type="button" className="subtle-button tiny" onClick={() => void loadBackupList()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{supportsBackupRead && <div className="backup-admission"><div><span>{locale === 'vi' ? 'Admission' : 'Admission'}</span><strong>{admissionKnown ? (locale === 'vi' ? 'Đủ điều kiện' : 'Ready') : (locale === 'vi' ? 'Chưa đạt' : 'Not ready')}</strong></div><div><span>{locale === 'vi' ? 'Estimate' : 'Estimate'}</span><strong>{admission?.estimatedBytes === undefined ? '—' : formatBytes(admission.estimatedBytes)}</strong></div><div><span>{locale === 'vi' ? 'Còn trống' : 'Available'}</span><strong>{admission?.availableBytes === undefined ? '—' : formatBytes(admission.availableBytes)}</strong></div><div><span>{locale === 'vi' ? 'Reserve' : 'Reserve'}</span><strong>{admission?.reserveBytes === undefined ? '—' : formatBytes(admission.reserveBytes)}</strong></div></div>}{supportsBackupRead && <p className={`readonly-note ${admissionKnown ? '' : 'warning-text'}`}><Info size={14} />{admissionReason}</p>}<div className="settings-backup-actions"><button type="button" className="primary-button small" onClick={() => void createBackup()} disabled={!connected || loading || mutating !== null || !supportsBackupRead || !client.createBackup || !admissionKnown}>{mutating === 'backup-create' ? <RefreshCw size={14} className="spin" /> : <HardDrive size={14} />}{locale === 'vi' ? 'Tạo backup' : 'Create backup'}</button><button type="button" className="subtle-button small" onClick={() => void loadBackupList()} disabled={loading || mutating !== null}>{loading ? <RefreshCw size={14} className="spin" /> : <RefreshCw size={14} />}{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>{actionError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{actionError}</span>{needsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện rồi thử lại.' : 'Core needs you to resolve the condition before retrying.'}</small>}</div>}{loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc admission và backup…' : 'Reading storage admission and backups…'} /> : backups.length === 0 ? <EmptyInline icon={HardDrive} text={supportsBackupRead ? (locale === 'vi' ? 'Chưa có backup VERIFIED.' : 'No VERIFIED backup yet.') : (locale === 'vi' ? 'Bridge chưa hỗ trợ backup.' : 'The bridge does not expose backups yet.')} /> : <div className="workspace-record-list">{backups.map((backup) => <button type="button" className={`timeline-row ${backup.id === selectedBackupId ? 'active' : ''}`} key={backup.id} onClick={() => setSelectedBackupId(backup.id ?? null)}><span className="timeline-row-icon"><HardDrive size={15} /></span><span className="workspace-record-main"><strong>{backup.destinationName ?? backup.id ?? 'Backup'}</strong><small>{backup.state} · {backup.byteSize === undefined ? '—' : formatBytes(backup.byteSize)} · {backup.completedAt ? formatRelativeSnapshot(backup.completedAt, locale) : '—'}</small></span><span className={`record-code ${backup.state === 'VERIFIED' ? 'success' : 'warning'}`}>{backup.state}</span><ArrowRight size={14} /></button>)}</div>}</section>
-      <section className="settings-card settings-backup-detail-card">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết backup…' : 'Reading backup details…'} /> : !selectedWorkspace?.backup ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một backup' : 'Select a backup'} detail={supportsBackupDetail ? (locale === 'vi' ? 'Core sẽ hiển thị manifest metadata đã redacted.' : 'Core will show redacted manifest metadata.') : (locale === 'vi' ? 'Bridge chưa cung cấp chi tiết backup.' : 'The bridge does not expose backup details yet.')} /> : <><div className="card-heading"><div><h2>{locale === 'vi' ? 'Chi tiết backup' : 'Backup details'}</h2><p>{selectedWorkspace.backup.id ?? '—'} · v{selectedWorkspace.backup.rowVersion}</p></div><span className={`health-pill ${selectedWorkspace.backup.state === 'VERIFIED' ? 'healthy' : 'warning'}`}><span />{selectedWorkspace.backup.state}</span></div><div className="system-facts"><div><span>{locale === 'vi' ? 'Nơi lưu an toàn' : 'Safe destination'}</span><strong>{selectedWorkspace.backup.destinationName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Manifest' : 'Manifest'}</span><strong>{selectedWorkspace.backup.manifestName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Snapshot' : 'Snapshot'}</span><strong>{selectedWorkspace.backup.snapshotName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Managed objects' : 'Managed objects'}</span><strong>{selectedWorkspace.backup.objectCount ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Dung lượng' : 'Bytes'}</span><strong>{selectedWorkspace.backup.byteSize === undefined ? '—' : formatBytes(selectedWorkspace.backup.byteSize)}</strong></div><div><span>Manifest SHA-256</span><strong title={selectedWorkspace.backup.manifestSha256}>{selectedWorkspace.backup.manifestSha256?.slice(0, 16) ?? '—'}</strong></div></div><div className="settings-backup-actions"><button type="button" className="subtle-button small" onClick={() => void verifyBackup()} disabled={!connected || mutating !== null || !client.verifyBackup || !selectedBackupId}>{mutating === `backup-verify:${selectedBackupId}` ? <RefreshCw size={14} className="spin" /> : <ShieldCheck size={14} />}{locale === 'vi' ? 'Verify lại' : 'Verify again'}</button></div><div className="backup-verification-list"><strong>{locale === 'vi' ? 'Lịch sử verify' : 'Verification history'}</strong>{selectedWorkspace.verifications.length === 0 ? <small>{locale === 'vi' ? 'Chưa có bản ghi.' : 'No verification record.'}</small> : selectedWorkspace.verifications.map((verification) => <div className="backup-verification-row" key={verification.id ?? `${verification.outcome}-${verification.createdAt}`}><span>{verification.outcome}</span><small>{verification.integrityState} · {verification.createdAt ? formatRelativeSnapshot(verification.createdAt, locale) : '—'}</small></div>)}</div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chỉ hiển thị tên an toàn, hash và integrity evidence. CineForge chưa có restore/recovery trong slice này.' : 'Only safe names, hashes, and integrity evidence are shown. Restore/recovery is outside this slice.'}</p></>}</section></div></div>
+      <section className="settings-card settings-backup-detail-card">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết backup…' : 'Reading backup details…'} /> : !selectedWorkspace?.backup ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một backup' : 'Select a backup'} detail={supportsBackupDetail ? (locale === 'vi' ? 'Core sẽ hiển thị manifest metadata đã redacted.' : 'Core will show redacted manifest metadata.') : (locale === 'vi' ? 'Bridge chưa cung cấp chi tiết backup.' : 'The bridge does not expose backup details yet.')} /> : <><div className="card-heading"><div><h2>{locale === 'vi' ? 'Chi tiết backup' : 'Backup details'}</h2><p>{selectedWorkspace.backup.id ?? '—'} · v{selectedWorkspace.backup.rowVersion}</p></div><span className={`health-pill ${selectedWorkspace.backup.state === 'VERIFIED' ? 'healthy' : 'warning'}`}><span />{selectedWorkspace.backup.state}</span></div><div className="system-facts"><div><span>{locale === 'vi' ? 'Nơi lưu an toàn' : 'Safe destination'}</span><strong>{selectedWorkspace.backup.destinationName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Manifest' : 'Manifest'}</span><strong>{selectedWorkspace.backup.manifestName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Snapshot' : 'Snapshot'}</span><strong>{selectedWorkspace.backup.snapshotName ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Managed objects' : 'Managed objects'}</span><strong>{selectedWorkspace.backup.objectCount ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Dung lượng' : 'Bytes'}</span><strong>{selectedWorkspace.backup.byteSize === undefined ? '—' : formatBytes(selectedWorkspace.backup.byteSize)}</strong></div><div><span>Manifest SHA-256</span><strong title={selectedWorkspace.backup.manifestSha256}>{selectedWorkspace.backup.manifestSha256?.slice(0, 16) ?? '—'}</strong></div></div><div className="settings-backup-actions"><button type="button" className="subtle-button small" onClick={() => void verifyBackup()} disabled={!connected || mutating !== null || !client.verifyBackup || !selectedBackupId}>{mutating === `backup-verify:${selectedBackupId}` ? <RefreshCw size={14} className="spin" /> : <ShieldCheck size={14} />}{locale === 'vi' ? 'Verify lại' : 'Verify again'}</button></div><div className="backup-verification-list"><strong>{locale === 'vi' ? 'Lịch sử verify' : 'Verification history'}</strong>{selectedWorkspace.verifications.length === 0 ? <small>{locale === 'vi' ? 'Chưa có bản ghi.' : 'No verification record.'}</small> : selectedWorkspace.verifications.map((verification) => <div className="backup-verification-row" key={verification.id ?? `${verification.outcome}-${verification.createdAt}`}><span>{verification.outcome}</span><small>{verification.integrityState} · {verification.createdAt ? formatRelativeSnapshot(verification.createdAt, locale) : '—'}</small></div>)}</div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chỉ hiển thị tên an toàn, hash và integrity evidence. CineForge chưa có restore/recovery trong slice này.' : 'Only safe names, hashes, and integrity evidence are shown. Restore/recovery is outside this slice.'}</p></>}</section>
+      <section className="settings-card settings-staging-card"><div className="card-heading"><div className="card-title-with-icon"><span className={`card-icon ${staging?.items.length ? 'amber' : 'green'}`}><FileIcon size={16} /></span><div><h2>{locale === 'vi' ? 'Staging import' : 'Import staging'}</h2><p>{locale === 'vi' ? 'Bằng chứng redacted cho file tạm; không tự nhận bytes hoặc xoá dữ liệu.' : 'Redacted evidence for temporary import files; no byte adoption or deletion.'}</p></div></div><span className="count-chip">{staging?.items.length ?? 0}</span></div>{!connected && <div className="inline-state warning"><CloudOff size={14} /><span>{locale === 'vi' ? 'Core đang offline; reconcile bị khoá nhưng evidence đã tải vẫn được giữ.' : 'Core is offline; reconciliation is disabled while loaded evidence stays visible.'}</span></div>}{stagingError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{stagingError}</span><button type="button" className="subtle-button tiny" onClick={() => void loadStaging()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{supportsStaging && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chỉ các trạng thái WRITING, COMPLETE và VERIFIED mới cho phép Core reconcile. ORPHANED, QUARANTINED, FAILED, REGISTERED và UNKNOWN đều không được tự động sửa.' : 'Only WRITING, COMPLETE, and VERIFIED can be reconciled by Core. ORPHANED, QUARANTINED, FAILED, REGISTERED, and UNKNOWN are never auto-repaired.'}</p>}<div className="settings-backup-actions"><button type="button" className="subtle-button small" onClick={() => void loadStaging()} disabled={stagingLoading || mutating !== null || !supportsStaging}>{stagingLoading ? <RefreshCw size={14} className="spin" /> : <RefreshCw size={14} />}{locale === 'vi' ? 'Tải lại evidence' : 'Refresh evidence'}</button></div>{stagingActionError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{stagingActionError}</span>{stagingNeedsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện rồi mới thử lại.' : 'Core needs you to resolve the condition before retrying.'}</small>}</div>}{stagingLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc staging evidence…' : 'Reading staging evidence…'} /> : !supportsStaging ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Bridge chưa hỗ trợ staging workspace.' : 'The bridge does not expose the staging workspace yet.'} /> : !staging || staging.items.length === 0 ? <EmptyInline icon={CheckCircle2} text={locale === 'vi' ? 'Không có staging cần xử lý.' : 'No staging evidence needs attention.'} /> : <div className="staging-evidence-list">{staging.items.map((item, index) => <StagingEvidenceRow item={item} locale={locale} connected={connected} mutating={mutating} onReconcile={(next) => void reconcileStaging(next)} key={item.id ?? `${item.state}-${item.updatedAt ?? item.createdAt ?? index}`} />)}</div>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Originals, canon, backup và release master không bị xoá. UNKNOWN không bao giờ được nâng thành PASS.' : 'Originals, canon, backups, and release masters are never deleted. UNKNOWN is never promoted to PASS.'}</p></section></div></div>
 }
 
 function ProjectCard({ project, locale, onOpen }: { project: ProjectSummary; locale: Locale; onOpen: () => void }) {

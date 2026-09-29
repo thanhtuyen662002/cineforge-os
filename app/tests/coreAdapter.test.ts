@@ -281,4 +281,46 @@ describe('local Core adapter', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('reads redacted staging evidence and sends a bounded idempotent reconcile command', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('http://core/v1/storage/staging?')) {
+        const parsed = new URL(url)
+        expect(parsed.searchParams.get('state')).toBe('WRITING')
+        expect(parsed.searchParams.get('limit')).toBe('25')
+        return new Response(JSON.stringify({ ok: true, result: {
+          items: [{
+            id: 'stage-1', state: 'WRITING', temp_name: 'C:\\private\\clip.mov', temp_path: 'C:\\private\\clip.mov',
+            expected_size: 1024, current_size: 512, hash_algorithm: 'SHA-256', sha256: 'a'.repeat(64),
+            source_path_fingerprint: 'b'.repeat(64), reparse_state: 'CLEAR',
+            source_file_identity: { state: 'MATCH', path: 'C:\\private\\source.mov' },
+            os_file_identity: { status: 'MATCH', device: 7 }, finalization_identity: null,
+            row_version: 3, created_at: '2026-09-29T08:00:00.000Z', updated_at: '2026-09-29T08:00:01.000Z',
+          }], projection_seq: 9,
+        } }), { status: 200 })
+      }
+      expect(url).toBe('http://core/v1/storage/staging/reconcile')
+      expect(init?.method).toBe('POST')
+      expect((init?.headers as Record<string, string>)['Idempotency-Key']).toBe('staging-reconcile-1')
+      expect(JSON.parse(String(init?.body))).toEqual({ staging_id: 'stage-1' })
+      return new Response(JSON.stringify({ ok: true, result: {
+        staging: { items: [{ id: 'stage-1', previous_state: 'WRITING', state: 'VERIFIED', reason: 'VERIFIED_CONTENT' }], checked_count: 1, projection_seq: 10 },
+      } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const workspace = await client.getStaging?.('writing', 25)
+      expect(workspace?.items[0]).toMatchObject({ id: 'stage-1', state: 'WRITING', tempName: 'clip.mov', expectedSize: 1024, currentSize: 512, reparseState: 'CLEAR', sourceFileIdentityState: 'MATCH', osFileIdentityState: 'MATCH' })
+      expect((workspace?.items[0] as Record<string, unknown>).tempPath).toBeUndefined()
+      expect((workspace?.items[0] as Record<string, unknown>).sourceFileIdentity).toBeUndefined()
+      const reconciled = await client.reconcileStaging?.('stage-1', 'staging-reconcile-1')
+      expect(reconciled).toMatchObject({ checkedCount: 1, projectionSeq: 10 })
+      expect(reconciled?.items[0]).toMatchObject({ id: 'stage-1', state: 'VERIFIED' })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

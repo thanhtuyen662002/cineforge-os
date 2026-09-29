@@ -243,6 +243,18 @@ h3 { font-size: 13px; font-weight: 600; }
 .decision-evidence { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; color: var(--text-soft); font-size: 10px; line-height: 1.4; }
 .decision-evidence span { padding-left: 10px; border-left: 2px solid var(--line); }
 .decision-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+.settings-staging-card { grid-column: 1 / -1; }
+.staging-evidence-list { display: flex; flex-direction: column; margin-top: 14px; }
+.staging-evidence-row { display: flex; align-items: flex-start; gap: 14px; border-top: 1px solid var(--line); padding: 13px 0; }
+.staging-evidence-main { min-width: 0; flex: 1; }
+.staging-evidence-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.staging-evidence-heading strong { overflow: hidden; color: var(--text); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.staging-evidence-main > small { display: block; overflow: hidden; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; }
+.staging-evidence-facts { display: flex; flex-wrap: wrap; gap: 6px 15px; color: var(--text-soft); font-size: 9px; line-height: 1.45; margin-top: 8px; }
+.staging-evidence-facts span { overflow-wrap: anywhere; }
+.staging-next-step { color: var(--text-muted); font-size: 9px; line-height: 1.45; margin-top: 8px; }
+.staging-evidence-row > .subtle-button { flex-shrink: 0; }
+@media (max-width: 620px) { .staging-evidence-row { flex-direction: column; }.staging-evidence-row > .subtle-button { align-self: flex-start; } }
 .decision-choice { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; color: var(--text); background: var(--canvas-raised); font: inherit; font-size: 10px; cursor: pointer; }
 .decision-choice:hover:not(:disabled), .decision-choice.recommended { border-color: color-mix(in srgb, var(--indigo-bright) 60%, var(--line)); color: var(--indigo-bright); }
 .decision-choice:disabled { cursor: wait; opacity: .6; }
