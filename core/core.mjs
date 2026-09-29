@@ -8293,6 +8293,33 @@ export class CoreService {
     }
   }
 
+  verifyTimelineInterchangeDownloadHandle(opened = {}) {
+    const descriptor = Number(opened.fileDescriptor);
+    const expectedHash = String(opened.contentHash ?? '').toLowerCase();
+    const expectedSize = Number(opened.byteSize);
+    if (!Number.isInteger(descriptor) || descriptor < 0 || !SHA256_HEX.test(expectedHash)
+      || !Number.isSafeInteger(expectedSize) || expectedSize < 0) {
+      throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+    }
+    let before;
+    try { before = fs.fstatSync(descriptor); } catch {
+      throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+    }
+    if (!before.isFile() || Number(before.nlink ?? 1) !== 1 || Number(before.size) !== expectedSize) {
+      throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+    }
+    const digest = this._hashDescriptor(descriptor, expectedSize, 'cineforge-timeline-interchange.json');
+    let after;
+    try { after = fs.fstatSync(descriptor); } catch {
+      throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+    }
+    if (!this._sameSourceIdentity(this._sourceIdentity(before), this._sourceIdentity(after))
+      || digest.content_hash !== expectedHash || digest.byte_size !== expectedSize) {
+      throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+    }
+    return { content_hash: digest.content_hash, byte_size: digest.byte_size };
+  }
+
   _assetDetails(assetId) {
     const asset = this._asset(assetId);
     const revision = this.db.prepare(`SELECT * FROM asset_revisions

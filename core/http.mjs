@@ -1,6 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { Transform } from 'node:stream';
 
 function statusFor(response) {
   if (response?.ok === undefined) return 200;
@@ -1532,14 +1533,41 @@ async function handleTimelineInterchangeDownload(core, request, response, url, p
     if (opened.fileDescriptor !== null && opened.fileDescriptor !== undefined) { try { fs.closeSync(opened.fileDescriptor); } catch { /* already closed */ } }
     response.end(); return;
   }
-  const stream = fs.createReadStream(null, { fd: opened.fileDescriptor, start: opened.start, end: opened.end, autoClose: true });
-  let finished = false;
-  const abort = () => { if (!finished) stream.destroy(); };
+  const stream = fs.createReadStream(null, { fd: opened.fileDescriptor, start: opened.start, end: opened.end, autoClose: false });
+  let verified = false;
+  let descriptorClosed = false;
+  const closeDescriptor = () => {
+    if (descriptorClosed) return;
+    descriptorClosed = true;
+    try { fs.closeSync(opened.fileDescriptor); } catch { /* preserve stream result */ }
+  };
+  const verifier = new Transform({
+    transform(chunk, encoding, callback) { callback(null, chunk); },
+    flush(callback) {
+      try {
+        // Re-hash the complete open descriptor after the requested range has
+        // been read.  A concurrent in-place write therefore aborts the HTTP
+        // response instead of being reported as a successful verified body.
+        core.verifyTimelineInterchangeDownloadHandle(opened);
+        verified = true;
+        callback();
+      } catch (error) {
+        callback(error);
+      }
+    },
+  });
+  const abort = () => {
+    if (verified) { closeDescriptor(); return; }
+    stream.destroy();
+    verifier.destroy();
+    closeDescriptor();
+  };
   request.once('aborted', abort);
   response.once('close', abort);
-  stream.once('error', () => { finished = true; if (!response.writableEnded) response.destroy(); });
-  stream.once('close', () => { finished = true; });
-  stream.pipe(response);
+  stream.once('error', () => { if (!response.writableEnded) response.destroy(); closeDescriptor(); });
+  verifier.once('error', () => { if (!response.writableEnded) response.destroy(); closeDescriptor(); });
+  verifier.once('finish', closeDescriptor);
+  stream.pipe(verifier).pipe(response);
 }
 
 export function createCoreHttpServer(core, options = {}) {

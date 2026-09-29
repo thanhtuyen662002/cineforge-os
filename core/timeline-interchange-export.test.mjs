@@ -237,6 +237,13 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
     try {
       assert.equal(Number.isInteger(openedWithFile.fileDescriptor), true);
       assert.equal(openedWithFile.length, 16);
+      const originalBytes = fs.readFileSync(openedWithFile.filePath);
+      fs.writeFileSync(openedWithFile.filePath, Buffer.alloc(originalBytes.length, 0x78));
+      assert.throws(
+        () => core.verifyTimelineInterchangeDownloadHandle(openedWithFile),
+        (error) => error.code === 'EXPORT_OBJECT_TAMPERED',
+      );
+      fs.writeFileSync(openedWithFile.filePath, originalBytes);
     } finally {
       if (openedWithFile.fileDescriptor !== null) fs.closeSync(openedWithFile.fileDescriptor);
     }
