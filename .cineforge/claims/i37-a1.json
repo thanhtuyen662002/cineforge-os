@@ -1,0 +1,14 @@
+{
+  "task_id": 37,
+  "claim_id": "i37-a1",
+  "contract_version": 1,
+  "contract_hash": "sha256:9097f97818e8189b9edabe4f1732df00b07f30d063549ed71e4cdf21ec01db2f",
+  "agent_instance_id": "cineforge-WORK-timeline-asset-picker",
+  "slot_id": "WORK-timeline-asset-picker",
+  "run_id": "WORK-timeline-asset-picker-20260929-A1",
+  "base_ref": "agent/i33-a1-media-preview",
+  "base_sha": "76b02087cdc6a16b388e592e812c5a070a1128fa",
+  "context_base_sha": "76b02087cdc6a16b388e592e812c5a070a1128fa",
+  "status": "CLAIMED",
+  "created_at": "2026-09-29T16:25:00+07:00"
+}
