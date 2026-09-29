@@ -2497,6 +2497,7 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const [actionError, setActionError] = useState<string | null>(null)
   const [needsUser, setNeedsUser] = useState(false)
   const [mutating, setMutating] = useState(false)
+  const [downloadLoading, setDownloadLoading] = useState(false)
   const loadGenerationRef = useRef(0)
   const projectEpochRef = useRef(0)
   const projectIdRef = useRef(projectId)
@@ -2518,6 +2519,16 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   // timeline/review evidence is still loading. Offline and unsupported
   // bridges still render the disabled control with an explanation.
   const createControlReady = !connected || !client.getTimelineWorkspace || timelineWorkspace !== null
+  const buildableStates = new Set(['PREFLIGHT', 'FAILED', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA'])
+  const exactSelectedSession = selectedWorkspace?.exportSession?.id && selectedWorkspace.exportSession.id === selectedHandoff?.id
+    ? selectedWorkspace.exportSession
+    : null
+  const canBuild = Boolean(
+    connected && client.buildTimelineInterchangeExport && exactSelectedSession?.id
+      && buildableStates.has(String(exactSelectedSession.state).toUpperCase())
+      && exactSelectedSession.dependencySnapshotHash && Number.isSafeInteger(exactSelectedSession.rowVersion)
+      && exactSelectedSession.rowVersion > 0 && !mutating,
+  )
 
   useEffect(() => {
     if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
@@ -2642,6 +2653,43 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const sanitization = selectedWorkspace?.handoffManifest?.sanitizationReport ?? selectedWorkspace?.sanitizationReport
   const manifest = selectedWorkspace?.handoffManifest
   const session = selectedWorkspace?.exportSession ?? selectedHandoff
+  const sessionNextStep = selectedWorkspace?.nextStep ?? session?.nextStep ?? (
+    String(session?.state ?? 'UNKNOWN').toUpperCase() === 'UNKNOWN'
+      ? (locale === 'vi' ? 'Core chưa xác nhận lifecycle; tải lại và không tự nhận artifact.' : 'Core has not confirmed the lifecycle; refresh and do not adopt the artifact automatically.')
+      : (locale === 'vi' ? 'Manifest chỉ chứa metadata an toàn; chưa có file media hoặc đường dẫn cục bộ.' : 'The manifest contains safe metadata only; no media bytes or local paths are included.')
+  )
+  const build = async () => {
+    if (!client.buildTimelineInterchangeExport || !canBuild || !projectId || !session?.id || !session.dependencySnapshotHash) return
+    ++loadGenerationRef.current
+    const buildProjectEpoch = projectEpochRef.current
+    setMutating(true); setActionError(null); setNeedsUser(false)
+    try {
+      const next = await client.buildTimelineInterchangeExport(projectId, session.id, session.dependencySnapshotHash, session.rowVersion, `timeline-interchange:${projectId}:${session.id}:${session.dependencySnapshotHash}:${session.rowVersion}`)
+      if (buildProjectEpoch !== projectEpochRef.current || projectIdRef.current !== projectId) return
+      const merged: HandoffWorkspace = {
+        ...next,
+        handoffManifest: next.handoffManifest ?? selectedWorkspace?.handoffManifest ?? null,
+        compatibilityReport: next.compatibilityReport.entries.length > 0 ? next.compatibilityReport : (selectedWorkspace?.compatibilityReport ?? next.compatibilityReport),
+        sanitizationReport: next.sanitizationReport ?? selectedWorkspace?.sanitizationReport,
+      }
+      const builtSession = merged.exportSession
+      if (builtSession?.id) {
+        setHandoffs((current) => current.map((item) => item.exportSession.id === builtSession.id
+          ? { ...item, exportSession: builtSession, handoffManifest: merged.handoffManifest ?? item.handoffManifest }
+          : item))
+      }
+      setSelectedWorkspace(merged)
+      onToast(locale === 'vi' ? 'Đã build và verify timeline interchange trong kho nội dung cục bộ.' : 'Built and verified the timeline interchange in the local content store.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+      if (session.id && client.getHandoff) {
+        try { setSelectedWorkspace(await client.getHandoff(projectId, session.id)) } catch { /* preserve the primary error */ }
+      }
+    } finally {
+      if (buildProjectEpoch === projectEpochRef.current) setMutating(false)
+    }
+  }
   const download = () => {
     if (!session || !manifest) return
     setActionError(null)
@@ -2655,6 +2703,25 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
       setActionError(cause instanceof Error ? cause.message : (locale === 'vi' ? 'Không thể tạo file manifest.' : 'Could not create the manifest file.'))
     }
   }
+  const downloadInterchange = async () => {
+    if (!client.resolveTimelineInterchangeDownload || !projectId || !session?.id || session.state !== 'COMPLETED' || !session.outputAssetRevisionId) return
+    setDownloadLoading(true); setActionError(null); setNeedsUser(false)
+    try {
+      const capability = await client.resolveTimelineInterchangeDownload(projectId, session.id)
+      if (!capability.downloadUrl) throw new Error(locale === 'vi' ? 'Core không trả về capability tải xuống hợp lệ.' : 'Core did not return a valid download capability.')
+      const anchor = document.createElement('a')
+      anchor.href = capability.downloadUrl
+      anchor.download = `cineforge-timeline-interchange-${session.id.slice(0, 12)}.json`
+      anchor.rel = 'noopener'
+      anchor.click()
+      onToast(locale === 'vi' ? 'Đã bắt đầu tải file timeline interchange đã verify.' : 'Started downloading the verified timeline interchange.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setDownloadLoading(false)
+    }
+  }
   return <div className="page handoff-page">
     <div className="page-heading"><div><p className="eyebrow">TIMELINE HANDOFF</p><h1>{locale === 'vi' ? 'Bàn giao timeline' : 'Timeline handoff'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Tạo manifest metadata bất biến từ timeline đã approve. Không render, transcode hoặc ghi file đích trong bước này.' : 'Create an immutable metadata manifest from an approved timeline. This step does not render, transcode or write to a destination.'}</p></div><div className="page-heading-actions"><button className="subtle-button tiny" onClick={() => void loadProject()} disabled={loading}><RefreshCw size={13} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip"><PackageOpen size={15} />{handoffs.length}</span></div></div>
     <div className="timeline-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="timeline-project-select" value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label={locale === 'vi' ? 'Project bàn giao' : 'Handoff project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className={`state-label ${connected ? '' : 'warning-text'}`}><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>
@@ -2666,9 +2733,10 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
         <div className="handoff-create-panel"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tạo handoff mới' : 'Create a handoff'}</h3><p>{locale === 'vi' ? 'Chỉ khả dụng khi evidence hiện tại đã approve.' : 'Available only when current evidence is approved.'}</p></div></div><form className="workspace-form" onSubmit={create}><label>{locale === 'vi' ? 'Timeline' : 'Timeline'}<select value={timelineId ?? ''} onChange={(event) => setTimelineId(event.target.value || null)} disabled={mutating}><option value="">{locale === 'vi' ? 'Chọn timeline' : 'Choose timeline'}</option>{timelines.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>{approvedRevision ? <div className="handoff-evidence"><span><strong>{locale === 'vi' ? 'Revision đã approve' : 'Approved revision'}</strong><code>{approvedRevision.id}</code></span><span><strong>{locale === 'vi' ? 'Review APPROVE' : 'APPROVE review'}</strong><code>{approvalReview?.id ?? (locale === 'vi' ? 'Thiếu' : 'Missing')}</code></span><span><strong>Dependency snapshot</strong><code>{dependencySnapshotHash || 'MISSING'}</code></span></div> : <div className="inline-state warning"><Info size={14} />{locale === 'vi' ? 'Timeline này chưa có revision APPROVED.' : 'This timeline has no APPROVED revision.'}</div>}<div className="form-grid two"><label>{locale === 'vi' ? 'Editor đích' : 'Target editor'}<input value={targetEditor} onChange={(event) => setTargetEditor(event.target.value)} placeholder="GENERIC" disabled={mutating} /></label><label>{locale === 'vi' ? 'Phiên bản' : 'Version'}<input value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)} placeholder="1" disabled={mutating} /></label></div>{createControlReady ? <button className="primary-button small" type="submit" disabled={!canCreate}>{mutating ? <RefreshCw size={14} className="spin" /> : <PackageOpen size={14} />}{locale === 'vi' ? 'Tạo manifest' : 'Create manifest'}</button> : <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Đang đọc exact revision và review từ Core…' : 'Reading exact revision and review evidence from Core…'}</p>}</form></div>
       </section>
       <section className="workspace-panel handoff-detail-card">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc manifest…' : 'Reading manifest…'} /> : !session ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một manifest' : 'Select a manifest'} detail={locale === 'vi' ? 'Chi tiết chain-of-custody và compatibility sẽ hiển thị ở đây.' : 'Chain-of-custody and compatibility details will appear here.'} /> : <>
-         <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon green"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Handoff workspace' : 'Handoff workspace'}</h2><p>{session.timelineRevisionId ?? '—'} · v{session.rowVersion}</p></div></div><div className="handoff-detail-actions"><button type="button" className="subtle-button tiny" onClick={download} disabled={!manifest?.manifestHash || detailLoading}><Download size={13} />{locale === 'vi' ? 'Tải manifest JSON' : 'Download manifest JSON'}</button><span className="state-label">{session.state}</span></div></div>
+         <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon green"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Handoff workspace' : 'Handoff workspace'}</h2><p>{session.timelineRevisionId ?? '—'} · v{session.rowVersion}</p></div></div><div className="handoff-detail-actions"><button type="button" className="subtle-button tiny" onClick={download} disabled={!manifest?.manifestHash || detailLoading}><Download size={13} />{locale === 'vi' ? 'Tải manifest JSON' : 'Download manifest JSON'}</button>{client.buildTimelineInterchangeExport && <button type="button" className="primary-button small" onClick={() => void build()} disabled={!canBuild}>{mutating ? <RefreshCw size={13} className="spin" /> : <Zap size={13} />}{locale === 'vi' ? 'Tạo interchange đã verify' : 'Build verified interchange'}</button>}{client.resolveTimelineInterchangeDownload && <button type="button" className="subtle-button tiny" onClick={() => void downloadInterchange()} disabled={downloadLoading || session.state !== 'COMPLETED' || !session.outputAssetRevisionId}><Download size={13} />{downloadLoading ? (locale === 'vi' ? 'Đang chuẩn bị…' : 'Preparing…') : (locale === 'vi' ? 'Tải interchange đã verify' : 'Download verified interchange')}</button>}<span className="state-label">{session.state}</span></div></div>
         <div className="timeline-metrics"><div><span>{locale === 'vi' ? 'Editor' : 'Editor'}</span><strong>{session.targetEditor ?? manifest?.targetEditor ?? 'UNKNOWN'}</strong></div><div><span>{locale === 'vi' ? 'Phiên bản' : 'Version'}</span><strong>{session.targetVersion ?? manifest?.targetVersion ?? 'UNKNOWN'}</strong></div><div><span>Manifest SHA-256</span><strong title={selectedWorkspace?.manifestHash ?? manifest?.manifestHash}>{(selectedWorkspace?.manifestHash ?? manifest?.manifestHash)?.slice(0, 16) ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Allowlist' : 'Allowlist'}</span><strong>{manifest?.artifactAllowlist.length ?? 0}</strong></div></div>
-        <p className="readonly-note"><Info size={14} />{selectedWorkspace?.nextStep ?? session.nextStep ?? (locale === 'vi' ? 'Manifest chỉ chứa metadata an toàn; chưa có file media hoặc đường dẫn cục bộ.' : 'The manifest contains safe metadata only; no media bytes or local paths are included.')}</p>
+         <p className="readonly-note"><Info size={14} />{sessionNextStep}</p>
+         {session.state === 'COMPLETED' && session.outputContentHash && <div className="handoff-evidence"><span><strong>{locale === 'vi' ? 'Interchange SHA-256' : 'Interchange SHA-256'}</strong><code>{session.outputContentHash}</code></span><span><strong>{locale === 'vi' ? 'Kích thước' : 'Byte size'}</strong><code>{session.outputByteSize ?? 0} bytes</code></span><span><strong>{locale === 'vi' ? 'Asset revision' : 'Asset revision'}</strong><code>{session.outputAssetRevisionId ?? '—'}</code></span></div>}
         {compatibility && <div className="handoff-section"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tương thích đích' : 'Target compatibility'}</h3><p>{compatibility.profileVersion ?? '—'} · {compatibility.editableClaim ? (locale === 'vi' ? 'Có thể chỉnh sửa theo claim' : 'Editable claim') : (locale === 'vi' ? 'Không claim editable' : 'No editable claim')}</p></div></div><div className="compatibility-list">{compatibility.entries.map((entry) => <div className="compatibility-row" key={`${entry.feature}:${entry.status}`}><span>{entry.feature}</span><span className={`compatibility-status ${entry.status.toLowerCase()}`}>{entry.status}</span><small>{entry.detail}</small></div>)}</div></div>}
         {manifest && <div className="handoff-section"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Artifact allowlist' : 'Artifact allowlist'}</h3><p>{locale === 'vi' ? 'Chỉ revision/hash/size và trạng thái readiness được phép đi qua.' : 'Only revision/hash/size and readiness state cross the boundary.'}</p></div></div>{manifest.artifactAllowlist.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Không có media artifact được pin.' : 'No media artifacts are pinned.'} /> : <div className="artifact-list">{manifest.artifactAllowlist.map((artifact) => <div className="artifact-row" key={`${artifact.assetRevisionId}:${artifact.contentHash}`}><span><strong>{artifact.assetRevisionId ?? artifact.assetId ?? '—'}</strong><small>{artifact.semanticRole ?? '—'} · {artifact.byteSize} bytes · {artifact.availabilityState ?? 'UNKNOWN'}</small></span><code>{artifact.contentHash ?? 'NO_HASH'}</code></div>)}</div>}</div>}
         {sanitization && <div className="handoff-section"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Sanitization report' : 'Sanitization report'}</h3><p>{sanitization.policy ?? 'HANDOFF_SANITIZATION_V1'}</p></div><span className="state-label">{sanitization.recorded ? 'RECORDED' : 'UNKNOWN'}</span></div><div className="sanitization-list">{sanitization.removedFields.map((field) => <code key={field}>{field}</code>)}</div></div>}

@@ -637,10 +637,12 @@ Exits:
 
 File existence after BUILDING is not completion; VALIDATING must decode/probe/check manifest.
 
-The generic export lifecycle above remains the contract for a future media
-export. Issue #25 implements only the explicit metadata preflight boundary:
-`PLANNED → PREFLIGHT`. A `PREFLIGHT` session contains no rendered bytes and
-must not be displayed as `BUILDING`, `VERIFIED` or `COMPLETED`.
+The generic export lifecycle remains the contract for future media mastering.
+The Issue #25 baseline implements the explicit metadata preflight boundary
+`PLANNED → PREFLIGHT`; the verified local timeline-interchange slice below
+implements the bounded JSON artifact path. A `PREFLIGHT` session contains no
+generated output bytes and must not be displayed as `BUILDING`, `VERIFIED` or
+`COMPLETED` until that build command supplies its own evidence.
 
 # 24A. Issue #25 handoff-manifest preflight
 
@@ -700,6 +702,48 @@ allowlist, compatibility/loss entries, sanitization, `needs_user` and
 exists. Repeating the same idempotency key replays the same immutable session
 and manifest; changing the payload under that key fails with an idempotency
 conflict.
+
+# 24B. Verified local timeline-interchange build
+
+`BuildTimelineInterchangeExport` is the first executable successor to the
+metadata preflight. It is deliberately limited to a deterministic,
+editor-neutral UTF-8 JSON artifact stored in the local content-addressed store:
+
+```text
+PREFLIGHT | BLOCKED_RIGHTS | BLOCKED_MEDIA | FAILED
+  → BUILDING
+  → VALIDATING
+  → VERIFIED
+  → COMPLETED
+```
+
+The build command rechecks the exact approved timeline/review/profile and
+dependency snapshot, then performs private staging, fsync, re-read, digest and
+size verification before CAS materialization. It binds one
+`TIMELINE_INTERCHANGE` asset revision only after the verified bytes and
+session output fields are committed. A generated interchange is
+`SYSTEM`/`REBUILDABLE` metadata and remains `UNREVIEWED`; it is not a release
+master, an approval, or a publish authorization.
+
+The explicit exits are conservative:
+
+- `BLOCKED_RIGHTS` records a current restricted, expired, revoked or unknown
+  rights/consent result and tells the user to repair rights before retrying;
+- `BLOCKED_MEDIA` records stale review/source/profile, missing or unready
+  materialization, unsafe timing or an oversized interchange and points to the
+  exact repair step;
+- `FAILED` records an unexpected persistence/storage failure without exposing
+  raw technical details in the public snapshot;
+- `CANCELLED` remains reserved for an explicit future cancellation command and
+  is not inferred from an HTTP disconnect.
+
+Retry uses the current export-session row version and a new idempotency key.
+Completed or verified sessions are terminal and cannot be rebuilt in place.
+The download capability is a separate read boundary: it rechecks the bound
+asset revision, local CAS location, reparse/nlink posture, byte size and
+SHA-256 on every request, and supports only bounded full/range reads. This
+state machine does not render, transcode, mix audio, dispatch providers, sign,
+publish or create a release manifest.
 
 # 25. Release candidate
 

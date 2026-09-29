@@ -54,6 +54,17 @@ const HANDOFF_MANIFEST_SCHEMA_VERSION = 1;
 const HANDOFF_COMPATIBILITY_PROFILE_VERSION = 'HANDOFF_COMPATIBILITY_V1';
 const RELEASE_CANDIDATE_STATES = new Set(['DRAFT', 'CANCELLED']);
 const RELEASE_CANDIDATE_SNAPSHOT_SCHEMA_VERSION = 1;
+const TIMELINE_INTERCHANGE_SCHEMA_VERSION = 1;
+const TIMELINE_INTERCHANGE_PROFILE = 'GENERIC_INTERCHANGE_V1';
+const TIMELINE_INTERCHANGE_MAX_BYTES = 8 * 1024 * 1024;
+const TIMELINE_INTERCHANGE_MAX_TRACKS = 64;
+const TIMELINE_INTERCHANGE_MAX_CLIPS = 10_000;
+const TIMELINE_INTERCHANGE_MAX_MARKERS = 10_000;
+const TIMELINE_INTERCHANGE_MAX_ARTIFACTS = 10_000;
+const TIMELINE_INTERCHANGE_DOWNLOAD_MAX_RANGE_BYTES = 16 * 1024 * 1024;
+const TIMELINE_INTERCHANGE_DOWNLOAD_MAX_FULL_BYTES = 32 * 1024 * 1024;
+const TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE = 'LOCAL_TIMELINE_INTERCHANGE_DOWNLOAD';
+const TIMELINE_INTERCHANGE_MUTATING_COMMANDS = new Set(['BuildTimelineInterchangeExport']);
 const RELEASE_CANDIDATE_EVIDENCE_KEYS = new Set([
   'asset_revision_id', 'asset_count', 'availability_state', 'availability_evidence_state', 'review_state',
   'asset_lifecycle_state', 'storage_class', 'location_state', 'rights_status', 'cue_count', 'track_count',
@@ -924,9 +935,25 @@ function publicExportSession(row) {
   const out = {};
   for (const field of [
     'id', 'project_id', 'timeline_revision_id', 'deliverable_type', 'target_profile', 'target_editor', 'target_version',
-    'state', 'output_manifest_id', 'command_id', 'review_session_id', 'dependency_snapshot_hash', 'subject_content_hash',
+    'state', 'output_manifest_id', 'output_asset_revision_id', 'output_content_hash', 'output_byte_size',
+    'validation_snapshot_json', 'command_id', 'review_session_id', 'dependency_snapshot_hash', 'subject_content_hash',
     'media_profile_revision_id', 'next_step',
   ]) if (Object.prototype.hasOwnProperty.call(row, field)) out[field] = row[field];
+  // Validation evidence is safe metadata, never raw generated output.  Keep
+  // the public projection bounded and avoid exposing stored JSON wholesale.
+  if (typeof out.validation_snapshot_json === 'string') {
+    const snapshot = parseJson(out.validation_snapshot_json, {});
+    out.validation_snapshot = {
+      schema_version: Number.isSafeInteger(Number(snapshot.schema_version)) ? Number(snapshot.schema_version) : 0,
+      export_profile: typeof snapshot.export_profile === 'string' ? snapshot.export_profile.slice(0, 80) : null,
+      artifact_count: Number.isSafeInteger(Number(snapshot.artifact_count)) && Number(snapshot.artifact_count) >= 0 ? Number(snapshot.artifact_count) : 0,
+      clip_count: Number.isSafeInteger(Number(snapshot.clip_count)) && Number(snapshot.clip_count) >= 0 ? Number(snapshot.clip_count) : 0,
+      document_hash: SHA256_HEX.test(String(snapshot.document_hash ?? '')) ? String(snapshot.document_hash).toLowerCase() : null,
+      verified_at: typeof snapshot.verified_at === 'string' ? snapshot.verified_at.slice(0, 80) : null,
+      error_code: typeof snapshot.error_code === 'string' ? snapshot.error_code.slice(0, 120) : null,
+    };
+    delete out.validation_snapshot_json;
+  }
   out.row_version = Number(row.row_version ?? 1);
   if (row.created_at_utc_us !== undefined && row.created_at_utc_us !== null) out.created_at = rfc3339FromUs(row.created_at_utc_us);
   if (row.updated_at_utc_us !== undefined && row.updated_at_utc_us !== null) out.updated_at = rfc3339FromUs(row.updated_at_utc_us);
@@ -2642,7 +2669,7 @@ export class CoreService {
     if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 200)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_idempotency_key', {});
     }
-    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType))
+    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType) || TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType))
       && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0)) {
       throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', {
         command_type: commandType,
@@ -2687,6 +2714,7 @@ export class CoreService {
       const importCommand = ['ImportAsset', 'RegisterAsset', 'ImportLocalAsset'].includes(commandType);
       const storageMode = String(payload.storage_mode ?? payload.storageMode ?? 'COPY').trim().toUpperCase();
       if (importCommand && storageMode === 'COPY') stagingReservation = this._reserveImportStaging(payload, commandId);
+      if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) stagingReservation = this._reserveGeneratedStaging(payload, expectedVersions, commandId);
       if (commandType === 'CreateBackup') {
         // VACUUM INTO cannot run inside a SQLite transaction.  Mark the
         // command executing first, create and verify the external artifact,
@@ -2736,6 +2764,9 @@ export class CoreService {
             if (['WRITING', 'COMPLETE', 'VERIFIED'].includes(current.state)) this._setStagingState(stagingReservation.id, 'ORPHANED');
           });
         } catch { /* preserve command failure; evidence remains queryable */ }
+      }
+      if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) {
+        this._markTimelineInterchangeExportFailure(payload, coreError, commandId);
       }
       if (backupReservation?.root) {
         try { fs.rmSync(backupReservation.root, { recursive: true, force: true }); } catch { /* preserve command failure */ }
@@ -2806,6 +2837,12 @@ export class CoreService {
       if (reviewSessionId) return this.db.prepare('SELECT project_id FROM review_sessions WHERE id = ?').get(reviewSessionId)?.project_id ?? null;
     }
     if (commandType === 'CreateReleaseCandidateDraft') {
+      if (typeof explicitProjectId === 'string' && explicitProjectId.trim()) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
+      return null;
+    }
+    if (commandType === 'BuildTimelineInterchangeExport') {
+      const exportSessionId = payload.export_session_id ?? payload.exportSessionId ?? payload.handoff_id ?? payload.handoffId;
+      if (typeof exportSessionId === 'string' && exportSessionId.trim()) return this.db.prepare('SELECT project_id FROM export_sessions WHERE id = ?').get(exportSessionId)?.project_id ?? null;
       if (typeof explicitProjectId === 'string' && explicitProjectId.trim()) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
       return null;
     }
@@ -2911,6 +2948,7 @@ export class CoreService {
     if (['CreateMediaProfileRevision', 'TransitionMediaProfileRevision', 'CreateTimeline', 'CreateTimelineRevision', 'TransitionTimelineRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['OpenReview', 'SubmitReview'].includes(commandType)) return 'COMPENSATABLE';
     if (RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
+    if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
     if (['CreateHandoffManifest', 'BeginTimelineWorkingSession', 'ApplyTimelineEditOp', 'UndoTimelineEditOp', 'RedoTimelineEditOp',
       'AutosaveTimelineWorkingSession', 'CheckpointTimelineWorkingSession', 'CloseTimelineWorkingSession'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateAudioCueRevision', 'TransitionAudioCueRevision', 'CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision'].includes(commandType)) return 'COMPENSATABLE';
@@ -2947,6 +2985,7 @@ export class CoreService {
       case 'SubmitReview': return this._submitReview(payload, expectedVersions);
       case 'CreateReleaseCandidateDraft': return this._createReleaseCandidateDraft(payload, commandId);
       case 'CancelReleaseCandidateDraft': return this._cancelReleaseCandidateDraft(payload, expectedVersions);
+      case 'BuildTimelineInterchangeExport': return this._buildTimelineInterchangeExport(payload, expectedVersions, commandId);
       case 'CreateHandoffManifest': return this._createHandoffManifest(payload, expectedVersions, commandId);
       case 'BeginTimelineWorkingSession': return this._beginTimelineWorkingSession(payload, expectedVersions);
       case 'ApplyTimelineEditOp': return this._applyTimelineEditOp(payload, expectedVersions);
@@ -4043,7 +4082,8 @@ export class CoreService {
           so.hash_algorithm, so.content_hash, so.byte_size
         FROM asset_revisions r JOIN storage_objects so ON so.id = r.storage_object_id
         WHERE r.id = ?`).get(assetRevisionId);
-      if (!row || !SHA256_HEX.test(String(row.content_hash ?? ''))) {
+      if (!row || row.hash_algorithm !== 'SHA-256' || !SHA256_HEX.test(String(row.content_hash ?? ''))
+        || !Number.isSafeInteger(Number(row.byte_size)) || Number(row.byte_size) < 0) {
         throw new CoreError('TIMELINE_ASSET_NOT_READY', 'CONFLICT', 'errors.timeline_asset_not_ready', { asset_revision_id: assetRevisionId }, { needsUser: true });
       }
       artifacts.push({
@@ -4221,6 +4261,392 @@ export class CoreService {
       event: { aggregateType: 'EXPORT_SESSION', aggregateId: exportSessionId, aggregateVersion: Number(sessionRow.row_version), eventType: 'HANDOFF_MANIFEST_CREATED', payload: { export_session_id: exportSessionId, handoff_manifest_id: manifestId, project_id: project.id, timeline_revision_id: revision.id, manifest_hash: manifestHash, dependency_snapshot_hash: reviewSession.dependency_snapshot_hash, subject_content_hash: revision.content_hash } },
       audit: { actionType: 'handoff.manifest.create', targetType: 'HANDOFF_MANIFEST', targetId: manifestId, payload: { export_session_id: exportSessionId, project_id: project.id, timeline_revision_id: revision.id, review_session_id: reviewSession.id, manifest_hash: manifestHash, dependency_snapshot_hash: reviewSession.dependency_snapshot_hash, subject_content_hash: revision.content_hash, artifact_count: artifacts.length, target_editor: target.targetEditor, target_version: target.targetVersion } },
     };
+  }
+
+  _interchangeRational(value, field, { allowZero = false } = {}) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const num = Number(source.num);
+    const den = Number(source.den);
+    if (!Number.isSafeInteger(num) || !Number.isSafeInteger(den) || den <= 0 || num < 0 || (!allowZero && num === 0)) {
+      throw new CoreError('EXPORT_TIMING_UNSAFE', 'CONFLICT', 'errors.export_timing_unsafe', { field }, { needsUser: true });
+    }
+    return { num, den };
+  }
+
+  _interchangeText(value, field, maxLength = 500) {
+    if (typeof value !== 'string') return '';
+    return safeReleaseCandidateText(value).slice(0, maxLength);
+  }
+
+  _timelineInterchangeContext(payload = {}, expectedVersions = {}) {
+    const projectId = requiredString(payload.project_id ?? payload.projectId, 'project_id');
+    const project = this._project(projectId);
+    const exportSessionId = requiredString(
+      payload.export_session_id ?? payload.exportSessionId ?? payload.handoff_id ?? payload.handoffId,
+      'export_session_id',
+    );
+    const row = this.db.prepare(`SELECT e.*, h.id AS handoff_id, h.export_session_id AS handoff_session_id,
+        h.project_id AS handoff_project_id, h.target_editor AS handoff_target_editor,
+        h.target_version AS handoff_target_version, h.compatibility_profile_version AS handoff_compatibility_profile_version,
+        h.manifest_hash AS handoff_manifest_hash, h.manifest_json AS handoff_manifest_json,
+        h.artifact_allowlist_json AS handoff_artifact_allowlist_json,
+        h.compatibility_report_json AS handoff_compatibility_report_json,
+        h.sanitization_report_json AS handoff_sanitization_report_json,
+        h.created_by_actor_id AS handoff_created_by_actor_id, h.created_at_utc_us AS handoff_created_at_utc_us
+      FROM export_sessions e JOIN handoff_manifests h ON h.export_session_id = e.id
+      WHERE e.id = ?`).get(exportSessionId);
+    if (!row) throw new CoreError('EXPORT_SESSION_NOT_FOUND', 'VALIDATION', 'errors.export_session_not_found', { export_session_id: exportSessionId });
+    if (row.project_id !== project.id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'EXPORT_SESSION', entity_id: row.id, project_id: project.id, actual_project_id: row.project_id,
+      }, { needsUser: true });
+    }
+    this._assertPayloadProjectScope(payload, project.id, 'EXPORT_SESSION', row.id);
+    this._assertProjectWritable(project);
+    this._expectedVersion(expectedVersions, 'EXPORT_SESSION', row.id, row.row_version);
+    if (['COMPLETED', 'VERIFIED'].includes(String(row.state).toUpperCase())) {
+      throw new CoreError('EXPORT_ALREADY_COMPLETED', 'CONFLICT', 'errors.export_already_completed', { export_session_id: row.id }, { needsUser: true });
+    }
+    if (!['PREFLIGHT', 'FAILED', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA'].includes(String(row.state).toUpperCase())) {
+      throw new CoreError('EXPORT_SESSION_NOT_BUILDABLE', 'CONFLICT', 'errors.export_session_not_buildable', { state: row.state }, { needsUser: true });
+    }
+    if (row.deliverable_type !== 'TIMELINE_INTERCHANGE' || row.target_profile !== HANDOFF_TARGET_PROFILE) {
+      throw new CoreError('EXPORT_PROFILE_UNSUPPORTED', 'VALIDATION', 'errors.export_profile_unsupported', { target_profile: row.target_profile }, { needsUser: true });
+    }
+    const suppliedSnapshot = requiredString(
+      payload.dependency_snapshot_hash ?? payload.dependencySnapshotHash,
+      'dependency_snapshot_hash', 128,
+    ).toLowerCase();
+    if (!SHA256_HEX.test(suppliedSnapshot) || suppliedSnapshot !== String(row.dependency_snapshot_hash ?? '').toLowerCase()) {
+      throw new CoreError('STALE_REVIEW', 'CONFLICT', 'errors.stale_review', { export_session_id: row.id }, { needsUser: true });
+    }
+
+    const revision = this._timelineRevision(row.timeline_revision_id);
+    const revisionContentHash = String(revision.content_hash ?? '').toLowerCase();
+    const sessionContentHash = String(row.subject_content_hash ?? '').toLowerCase();
+    if (!SHA256_HEX.test(revisionContentHash) || !SHA256_HEX.test(sessionContentHash)
+      || revision.project_id !== project.id || revision.lifecycle_state !== 'APPROVED'
+      || revisionContentHash !== sessionContentHash
+      || revision.media_profile_revision_id !== row.media_profile_revision_id) {
+      throw new CoreError('EXPORT_SOURCE_STALE', 'CONFLICT', 'errors.export_source_stale', { export_session_id: row.id }, { needsUser: true });
+    }
+    const profile = this._mediaProfileRevision(revision.media_profile_revision_id);
+    if (profile.project_id !== project.id || profile.lifecycle_state !== 'APPROVED') {
+      throw new CoreError('MEDIA_PROFILE_NOT_APPROVED', 'CONFLICT', 'errors.media_profile_not_approved', { media_profile_revision_id: profile.id }, { needsUser: true });
+    }
+    const review = this._reviewSession(row.review_session_id);
+    if (review.project_id !== project.id || review.subject_type !== 'TIMELINE_REVISION'
+      || review.subject_revision_id !== revision.id || review.state !== 'SUBMITTED') {
+      throw new CoreError('REVIEW_NOT_SUBMITTED', 'CONFLICT', 'errors.review_not_submitted', { review_session_id: review.id }, { needsUser: true });
+    }
+    const humanReview = this.db.prepare('SELECT * FROM human_reviews WHERE review_session_id = ?').get(review.id);
+    if (!humanReview || humanReview.decision !== 'APPROVE') {
+      throw new CoreError('REVIEW_APPROVAL_REQUIRED', 'CONFLICT', 'errors.review_approval_required', { review_session_id: review.id }, { needsUser: true });
+    }
+    const currentSnapshot = this._reviewSnapshot(revision);
+    if (currentSnapshot.hash !== row.dependency_snapshot_hash
+      || currentSnapshot.hash !== review.dependency_snapshot_hash
+      || String(review.subject_content_hash ?? '').toLowerCase() !== revisionContentHash
+      || !SHA256_HEX.test(String(review.subject_content_hash ?? '').toLowerCase())) {
+      throw new CoreError('STALE_REVIEW', 'CONFLICT', 'errors.stale_review', { review_session_id: review.id }, { needsUser: true });
+    }
+    const projection = currentSnapshot.projection;
+    const rawTracks = projection?.revision?.tracks ?? [];
+    if (rawTracks.length > TIMELINE_INTERCHANGE_MAX_TRACKS) {
+      throw new CoreError('EXPORT_INTERCHANGE_TOO_LARGE', 'CONFLICT', 'errors.export_interchange_too_large', { field: 'tracks' }, { needsUser: true });
+    }
+    let clipCount = 0;
+    for (const track of rawTracks) {
+      clipCount += Array.isArray(track?.clips) ? track.clips.length : 0;
+      if (clipCount > TIMELINE_INTERCHANGE_MAX_CLIPS) {
+        throw new CoreError('EXPORT_INTERCHANGE_TOO_LARGE', 'CONFLICT', 'errors.export_interchange_too_large', { field: 'clips' }, { needsUser: true });
+      }
+    }
+    const markerRows = Array.isArray(projection?.revision?.markers) ? projection.revision.markers : [];
+    if (markerRows.length > TIMELINE_INTERCHANGE_MAX_MARKERS) {
+      throw new CoreError('EXPORT_INTERCHANGE_TOO_LARGE', 'CONFLICT', 'errors.export_interchange_too_large', { field: 'markers' }, { needsUser: true });
+    }
+    const artifacts = this._handoffAssetRows(revision, rawTracks)
+      .sort((left, right) => String(left.asset_revision_id).localeCompare(String(right.asset_revision_id)));
+    if (artifacts.length > TIMELINE_INTERCHANGE_MAX_ARTIFACTS) {
+      throw new CoreError('EXPORT_INTERCHANGE_TOO_LARGE', 'CONFLICT', 'errors.export_interchange_too_large', { field: 'artifacts' }, { needsUser: true });
+    }
+    const profileRationals = {
+      timeline_rate: this._interchangeRational({ num: profile.timeline_rate_num, den: profile.timeline_rate_den }, 'timeline_rate'),
+      time_base: this._interchangeRational({ num: profile.time_base_num, den: profile.time_base_den }, 'time_base'),
+      pixel_aspect: this._interchangeRational({ num: profile.pixel_aspect_num, den: profile.pixel_aspect_den }, 'pixel_aspect'),
+    };
+    const safeTracks = rawTracks.map((track) => ({
+      id: this._interchangeText(track?.id, 'track.id', 160),
+      track_type: this._interchangeText(track?.track_type, 'track.track_type', 32),
+      order_index: Number.isSafeInteger(Number(track?.order_index)) && Number(track.order_index) >= 0 ? Number(track.order_index) : 0,
+      name: this._interchangeText(track?.name, 'track.name', 500),
+      enabled: track?.enabled !== false,
+      clips: (Array.isArray(track?.clips) ? track.clips : []).map((clip) => ({
+        id: this._interchangeText(clip?.id, 'clip.id', 160),
+        asset_revision_id: clip?.asset_revision_id ? this._interchangeText(clip.asset_revision_id, 'clip.asset_revision_id', 200) : null,
+        source_in: clip?.source_in ? this._interchangeRational(clip.source_in, 'clip.source_in', { allowZero: true }) : null,
+        source_out: clip?.source_out ? this._interchangeRational(clip.source_out, 'clip.source_out') : null,
+        timeline_in: this._interchangeRational(clip?.timeline_in, 'clip.timeline_in', { allowZero: true }),
+        timeline_out: this._interchangeRational(clip?.timeline_out, 'clip.timeline_out'),
+        speed: this._interchangeRational(clip?.speed ?? { num: 1, den: 1 }, 'clip.speed'),
+      })).sort((left, right) => String(left.id).localeCompare(String(right.id))),
+    })).sort((left, right) => (left.order_index - right.order_index) || left.id.localeCompare(right.id));
+    const safeMarkers = markerRows.map((marker) => ({
+      id: this._interchangeText(marker?.id, 'marker.id', 160),
+      time: this._interchangeRational(marker?.time, 'marker.time', { allowZero: true }),
+      marker_type: this._interchangeText(marker?.marker_type, 'marker.marker_type', 120),
+      label: this._interchangeText(marker?.label, 'marker.label', 500),
+    })).sort((left, right) => rationalCompare(left.time, right.time) || left.id.localeCompare(right.id));
+    const document = {
+      manifest_type: 'CINEFORGE_TIMELINE_INTERCHANGE',
+      manifest_schema_version: TIMELINE_INTERCHANGE_SCHEMA_VERSION,
+      export_profile: TIMELINE_INTERCHANGE_PROFILE,
+      deliverable_type: 'TIMELINE_INTERCHANGE',
+      source: {
+        project_id: project.id,
+        timeline_id: revision.timeline_id,
+        timeline_revision_id: revision.id,
+        revision_number: Number(revision.revision_number),
+        content_hash: String(revision.content_hash).toLowerCase(),
+        duration: this._interchangeRational({ num: revision.duration_num, den: revision.duration_den }, 'duration'),
+        media_profile: {
+          revision_id: profile.id,
+          timeline_rate: profileRationals.timeline_rate,
+          time_base: profileRationals.time_base,
+          pixel_aspect: profileRationals.pixel_aspect,
+          width: Number(profile.width),
+          height: Number(profile.height),
+          working_color_space: this._interchangeText(profile.working_color_space, 'working_color_space', 120),
+          transfer_function: this._interchangeText(profile.transfer_function, 'transfer_function', 120),
+          hdr_policy: this._interchangeText(profile.hdr_policy, 'hdr_policy', 120),
+          audio_sample_rate: Number(profile.audio_sample_rate),
+          audio_channel_layout: this._interchangeText(profile.audio_channel_layout, 'audio_channel_layout', 120),
+        },
+        review: {
+          session_id: review.id,
+          decision: 'APPROVE',
+          dependency_snapshot_hash: String(review.dependency_snapshot_hash).toLowerCase(),
+          subject_content_hash: String(review.subject_content_hash).toLowerCase(),
+        },
+        tracks: safeTracks,
+        markers: safeMarkers,
+      },
+      artifact_allowlist: artifacts.map((artifact) => ({
+        asset_revision_id: artifact.asset_revision_id,
+        asset_id: artifact.asset_id,
+        semantic_role: this._interchangeText(artifact.semantic_role, 'artifact.semantic_role', 120),
+        rebuildability: this._interchangeText(artifact.rebuildability, 'artifact.rebuildability', 40),
+        hash_algorithm: artifact.hash_algorithm,
+        content_hash: String(artifact.content_hash).toLowerCase(),
+        byte_size: Number(artifact.byte_size),
+      })),
+      sanitization: {
+        policy: 'EXPLICIT_ALLOWLIST_V1',
+        recorded: true,
+        removed_fields: ['absolute_local_paths', 'usernames', 'temporary_or_cache_locations', 'api_endpoints', 'credentials_and_secrets', 'provider_prompts', 'diagnostics', 'media_bytes', 'marker_payloads'],
+      },
+    };
+    const documentJson = canonicalJson(document);
+    const byteSize = Buffer.byteLength(documentJson, 'utf8');
+    if (!Number.isSafeInteger(byteSize) || byteSize <= 0 || byteSize > TIMELINE_INTERCHANGE_MAX_BYTES) {
+      throw new CoreError('EXPORT_INTERCHANGE_TOO_LARGE', 'CONFLICT', 'errors.export_interchange_too_large', { field: 'bytes' }, { needsUser: true });
+    }
+    const documentHash = crypto.createHash('sha256').update(documentJson, 'utf8').digest('hex');
+    return {
+      project, session: row, revision, profile, review, humanReview, artifacts,
+      document, documentJson, documentHash, byteSize, clipCount,
+      validationSnapshot: {
+        schema_version: TIMELINE_INTERCHANGE_SCHEMA_VERSION,
+        export_profile: TIMELINE_INTERCHANGE_PROFILE,
+        project_id: project.id,
+        timeline_revision_id: revision.id,
+        review_session_id: review.id,
+        dependency_snapshot_hash: String(review.dependency_snapshot_hash).toLowerCase(),
+        subject_content_hash: String(revision.content_hash).toLowerCase(),
+        artifact_count: artifacts.length,
+        clip_count: clipCount,
+        document_hash: documentHash,
+      },
+    };
+  }
+
+  _reserveGeneratedStaging(payload, expectedVersions, commandId) {
+    const context = this._timelineInterchangeContext(payload, expectedVersions);
+    const stagingId = uuidv7();
+    const created = nowUtcUs();
+    const { root, candidate } = this._stagingPath(stagingId);
+    fs.mkdirSync(root, { recursive: true });
+    this._assertNoReparsePath(root);
+    this._transaction(() => this.db.prepare(`INSERT INTO staging_objects
+      (id, command_id, temp_path, expected_size, current_size, hash_algorithm, source_path_fingerprint,
+       source_file_identity_json, reparse_state, state, row_version, created_at_utc_us, updated_at_utc_us)
+      VALUES (?, ?, ?, ?, 0, 'SHA-256', NULL, NULL, 'NOT_REPARSE', 'WRITING', 1, ?, ?)`)
+      .run(stagingId, commandId, candidate, context.byteSize, created, created));
+    let descriptor = null;
+    try {
+      descriptor = fs.openSync(candidate, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+      const bytes = Buffer.from(context.documentJson, 'utf8');
+      let offset = 0;
+      while (offset < bytes.length) offset += fs.writeSync(descriptor, bytes, offset, bytes.length - offset);
+      fs.fsyncSync(descriptor);
+      fs.closeSync(descriptor);
+      descriptor = null;
+      const stat = fs.lstatSync(candidate);
+      if (stat.isSymbolicLink() || !stat.isFile() || Number(stat.nlink ?? 1) !== 1) throw new CoreError('EXPORT_STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.export_staging_reparse_rejected', {}, { needsUser: false });
+      const digest = this._hashLocalFile(candidate);
+      if (digest.content_hash !== context.documentHash || digest.byte_size !== context.byteSize) throw new CoreError('EXPORT_STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.export_staging_verify_failed', {}, { needsUser: false });
+      this._transaction(() => {
+        this._setStagingState(stagingId, 'COMPLETE', { current_size: digest.byte_size, sha256: digest.content_hash, os_file_identity_json: json(this._sourceIdentity(stat)) });
+        this._setStagingState(stagingId, 'VERIFIED');
+      });
+      return { id: stagingId, digest, context };
+    } catch (error) {
+      if (descriptor !== null) { try { fs.closeSync(descriptor); } catch { /* preserve original error */ } }
+      try { this._transaction(() => { const current = this._stagingRow(stagingId); if (!['REGISTERED', 'ORPHANED', 'QUARANTINED'].includes(current.state)) this._setStagingState(stagingId, 'ORPHANED'); }); } catch { /* retain evidence */ }
+      throw error;
+    }
+  }
+
+  _buildTimelineInterchangeExport(payload, expectedVersions, commandId) {
+    const context = this._timelineInterchangeContext(payload, expectedVersions);
+    const stagingId = requiredString(payload.__staging_id ?? payload.staging_id, 'staging_id');
+    const staged = this._verifyStagingObject(stagingId);
+    if (staged.sha256 !== context.documentHash || Number(staged.expected_size) !== context.byteSize) {
+      throw new CoreError('EXPORT_STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.export_staging_verify_failed', {}, { needsUser: false });
+    }
+    let materialized = null;
+    let existingObject = null;
+    try {
+      const current = this._exportSessionRow(context.session.id);
+      const buildingVersion = Number(current.row_version) + 1;
+      this.db.prepare(`UPDATE export_sessions SET state = 'BUILDING', row_version = ?, updated_at_utc_us = ?, next_step = ? WHERE id = ?`)
+        .run(buildingVersion, nowUtcUs(), 'Đang materialize interchange JSON vào kho nội dung được quản lý.', current.id);
+      const validatingVersion = buildingVersion + 1;
+      this.db.prepare(`UPDATE export_sessions SET state = 'VALIDATING', row_version = ?, updated_at_utc_us = ?, next_step = ? WHERE id = ?`)
+        .run(validatingVersion, nowUtcUs(), 'Đang kiểm tra lại hash, kích thước và object identity.', current.id);
+      materialized = this._materializeStagedObject(stagingId, 'SHA-256', context.documentHash, context.byteSize);
+      const verified = this._hashLocalFile(materialized.target);
+      if (verified.content_hash !== context.documentHash || verified.byte_size !== context.byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+      existingObject = this.db.prepare('SELECT * FROM storage_objects WHERE hash_algorithm = ? AND content_hash = ?').get('SHA-256', context.documentHash);
+      if (existingObject && (Number(existingObject.byte_size) !== context.byteSize || existingObject.storage_class !== 'LOCAL_MANAGED')) throw new CoreError('EXPORT_STORAGE_CONFLICT', 'INTERNAL', 'errors.export_storage_conflict', {}, { needsUser: false });
+      const storedObject = existingObject ?? { id: uuidv7(), hash_algorithm: 'SHA-256', content_hash: context.documentHash, byte_size: context.byteSize, storage_class: 'LOCAL_MANAGED', verified_at_utc_us: nowUtcUs(), created_at_utc_us: nowUtcUs() };
+      if (!existingObject) this.db.prepare(`INSERT INTO storage_objects (id, hash_algorithm, content_hash, byte_size, storage_class, verified_at_utc_us, created_at_utc_us) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(storedObject.id, storedObject.hash_algorithm, storedObject.content_hash, storedObject.byte_size, storedObject.storage_class, storedObject.verified_at_utc_us, storedObject.created_at_utc_us);
+      const primary = this.db.prepare(`SELECT id FROM storage_object_locations WHERE storage_object_id = ? AND location_role = 'PRIMARY' AND state = 'AVAILABLE' LIMIT 1`).get(storedObject.id);
+      if (!primary) this.db.prepare(`INSERT INTO storage_object_locations (id, storage_object_id, storage_root, relative_path, location_role, state, last_verified_at_utc_us, created_at_utc_us) VALUES (?, ?, 'asset-store', ?, 'PRIMARY', 'AVAILABLE', ?, ?)`).run(uuidv7(), storedObject.id, materialized.relativePath.split(path.sep).join('/'), nowUtcUs(), nowUtcUs());
+      const now = nowUtcUs();
+      const assetId = uuidv7();
+      const revisionId = uuidv7();
+      const provenanceId = uuidv7();
+      this.db.prepare(`INSERT INTO provenance_records (id, origin_type, source_description, source_path_or_uri, source_path_fingerprint, source_metadata_json, created_by_actor_id, created_at_utc_us) VALUES (?, 'SYSTEM', ?, NULL, NULL, ?, ?, ?)`).run(provenanceId, 'CineForge verified timeline interchange export', json({ generated: true, export_profile: TIMELINE_INTERCHANGE_PROFILE, source_export_session_id: context.session.id, detected_mime: 'application/json' }), this.actorId, now);
+      this.db.prepare(`INSERT INTO assets (id, project_id, rights_identity_id, asset_type, display_name, origin_type, lifecycle_state, created_by_actor_id, created_at_utc_us, updated_at_utc_us, row_version) VALUES (?, ?, NULL, 'TIMELINE_INTERCHANGE', ?, 'SYSTEM', 'ACTIVE', ?, ?, ?, 1)`).run(assetId, context.project.id, `${context.project.code} timeline interchange`, this.actorId, now, now);
+      this.db.prepare(`INSERT INTO asset_revisions (id, asset_id, revision_number, storage_object_id, provenance_record_id, semantic_role, availability_state, review_state, rebuildability, availability_evidence_state, created_by_actor_id, created_at_utc_us) VALUES (?, ?, 1, ?, ?, 'TIMELINE_INTERCHANGE', 'AVAILABLE', 'UNREVIEWED', 'REBUILDABLE', 'VERIFIED', ?, ?)`).run(revisionId, assetId, storedObject.id, provenanceId, this.actorId, now);
+      this.db.prepare(`INSERT INTO asset_locations (id, asset_revision_id, location_type, path_or_uri, path_fingerprint, status, last_verified_at_utc_us, created_at_utc_us) VALUES (?, ?, 'MANAGED_OBJECT', ?, NULL, 'AVAILABLE', ?, ?)`).run(uuidv7(), revisionId, `object://sha-256/${context.documentHash}`, now, now);
+      const verifiedVersion = validatingVersion + 1;
+      const completedVersion = verifiedVersion + 1;
+      const validationSnapshot = { ...context.validationSnapshot, verified_at: new Date().toISOString(), output_content_hash: context.documentHash, output_byte_size: context.byteSize };
+      this.db.prepare(`UPDATE export_sessions SET state = 'VERIFIED', row_version = ?, updated_at_utc_us = ?, output_asset_revision_id = ?, output_content_hash = ?, output_byte_size = ?, validation_snapshot_json = ?, next_step = ? WHERE id = ?`).run(verifiedVersion, nowUtcUs(), revisionId, context.documentHash, context.byteSize, json(validationSnapshot), 'Interchange đã được verify; đang hoàn tất binding artifact.', context.session.id);
+      this.db.prepare(`UPDATE export_sessions SET state = 'COMPLETED', row_version = ?, updated_at_utc_us = ?, next_step = ? WHERE id = ?`).run(completedVersion, nowUtcUs(), 'Interchange JSON đã sẵn sàng tải xuống; technical master/export là boundary riêng.', context.session.id);
+      const sessionRow = this._exportSessionRow(context.session.id);
+      const assetRow = this.db.prepare('SELECT * FROM assets WHERE id = ?').get(assetId);
+      const revisionRow = this.db.prepare('SELECT * FROM asset_revisions WHERE id = ?').get(revisionId);
+      const provenance = this.db.prepare('SELECT * FROM provenance_records WHERE id = ?').get(provenanceId);
+      const locations = this.db.prepare('SELECT * FROM asset_locations WHERE asset_revision_id = ?').all(revisionId);
+      return {
+        projectId: context.project.id,
+        result: { export_session: publicExportSession(sessionRow), asset_revision_id: revisionId, output_content_hash: context.documentHash, output_byte_size: context.byteSize, asset: publicAsset(assetRow, revisionRow, storedObject, provenance, locations) },
+        event: { aggregateType: 'EXPORT_SESSION', aggregateId: context.session.id, aggregateVersion: completedVersion, eventType: 'TIMELINE_INTERCHANGE_EXPORT_COMPLETED', payload: { export_session_id: context.session.id, project_id: context.project.id, timeline_revision_id: context.revision.id, output_asset_revision_id: revisionId, output_content_hash: context.documentHash, output_byte_size: context.byteSize, state: 'COMPLETED' } },
+        audit: { actionType: 'export.timeline_interchange.build', targetType: 'EXPORT_SESSION', targetId: context.session.id, payload: { project_id: context.project.id, output_asset_revision_id: revisionId, output_content_hash: context.documentHash, output_byte_size: context.byteSize, artifact_count: context.artifacts.length, state: 'COMPLETED' } },
+      };
+    } catch (error) {
+      if (materialized?.created && !existingObject) { try { fs.rmSync(materialized.target, { force: true }); } catch { /* preserve primary error */ } }
+      throw error;
+    }
+  }
+
+  _markTimelineInterchangeExportFailure(payload, error, commandId) {
+    const rawSessionId = payload?.export_session_id ?? payload?.exportSessionId ?? payload?.handoff_id ?? payload?.handoffId;
+    if (typeof rawSessionId !== 'string' || rawSessionId.trim().length === 0) return;
+    const sessionId = rawSessionId.trim();
+    const noMutationCodes = new Set([
+      'INVALID_ARGUMENT', 'IDEMPOTENCY_KEY_REQUIRED', 'STALE_REVISION', 'EXPECTED_VERSION_REQUIRED',
+      'ENTITY_SCOPE_MISMATCH', 'PROJECT_NOT_FOUND', 'EXPORT_SESSION_NOT_FOUND', 'EXPORT_ALREADY_COMPLETED',
+      'EXPORT_SESSION_NOT_BUILDABLE', 'EXPORT_PROJECT_SCOPE',
+    ]);
+    if (noMutationCodes.has(String(error?.code ?? ''))) return;
+    const rightsBlocked = String(error?.code ?? '').startsWith('RIGHTS_')
+      || String(error?.code ?? '').includes('RIGHTS_BLOCKED')
+      || String(error?.code ?? '') === 'PREVIEW_RIGHTS_BLOCKED';
+    const mediaBlocked = rightsBlocked ? false : [
+      'STALE_REVIEW', 'EXPORT_SOURCE_STALE', 'MEDIA_PROFILE_NOT_APPROVED', 'REVIEW_NOT_SUBMITTED',
+      'REVIEW_APPROVAL_REQUIRED', 'EXPORT_PROFILE_UNSUPPORTED', 'EXPORT_TIMING_UNSAFE',
+      'TIMELINE_ASSET_NOT_READY', 'ASSET_REVISION_NOT_FOUND', 'TIMELINE_CLIP_ASSET_REQUIRED',
+      'TIMELINE_CLIP_SOURCE_REQUIRED', 'EXPORT_INTERCHANGE_TOO_LARGE', 'EXPORT_OBJECT_TAMPERED',
+      'EXPORT_STAGING_VERIFY_FAILED', 'EXPORT_STAGING_REPARSE_REJECTED', 'EXPORT_STORAGE_CONFLICT', 'STAGING_NOT_READY', 'STAGING_MISSING',
+      'STAGING_PATH_ESCAPE', 'STAGING_REPARSE_REJECTED', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED',
+      'ASSET_STORE_CORRUPT', 'ASSET_STORE_VERIFY_FAILED', 'EXPORT_PATH_ESCAPE',
+    ].includes(String(error?.code ?? ''));
+    const nextState = rightsBlocked ? 'BLOCKED_RIGHTS' : mediaBlocked ? 'BLOCKED_MEDIA' : 'FAILED';
+    const nextStep = rightsBlocked
+      ? 'Bổ sung hoặc sửa rights/consent của asset, rồi build lại interchange với snapshot mới.'
+      : mediaBlocked
+        ? 'Sửa nguồn timeline/review/media và tạo lại build với đúng revision evidence.'
+        : 'Kiểm tra lỗi build và retry bằng một idempotency key mới sau khi nguyên nhân đã được xử lý.';
+    try {
+      this._transaction(() => {
+        const row = this.db.prepare('SELECT * FROM export_sessions WHERE id = ?').get(sessionId);
+        if (!row || ['COMPLETED', 'VERIFIED', 'CANCELLED'].includes(String(row.state).toUpperCase())) return;
+        if (payload.project_id !== undefined && payload.project_id !== null && String(payload.project_id) !== String(row.project_id)) return;
+        const currentSnapshot = parseJson(row.validation_snapshot_json, {});
+        const validationSnapshot = {
+          schema_version: TIMELINE_INTERCHANGE_SCHEMA_VERSION,
+          ...currentSnapshot,
+          error_code: String(error?.code ?? 'INTERNAL_ERROR').slice(0, 120),
+          error_category: String(error?.category ?? 'INTERNAL').slice(0, 80),
+          needs_user: Boolean(error?.needsUser),
+          retryable: Boolean(error?.retryable),
+          failed_at: new Date().toISOString(),
+        };
+        const version = Number(row.row_version) + 1;
+        this.db.prepare(`UPDATE export_sessions SET state = ?, row_version = ?, updated_at_utc_us = ?, validation_snapshot_json = ?, next_step = ? WHERE id = ?`)
+          .run(nextState, version, nowUtcUs(), json(validationSnapshot), nextStep, sessionId);
+        this._insertEvent({
+          aggregateType: 'EXPORT_SESSION', aggregateId: sessionId, aggregateVersion: version,
+          eventType: nextState === 'FAILED' ? 'TIMELINE_INTERCHANGE_EXPORT_FAILED' : 'TIMELINE_INTERCHANGE_EXPORT_BLOCKED',
+          payload: { export_session_id: sessionId, project_id: row.project_id, state: nextState, error_code: validationSnapshot.error_code, next_step: nextStep },
+        }, commandId, this.actorId, null, commandId);
+        this._insertAudit({
+          actionType: 'export.timeline_interchange.failure', targetType: 'EXPORT_SESSION', targetId: sessionId,
+          payload: { project_id: row.project_id, state: nextState, error_code: validationSnapshot.error_code, next_step: nextStep },
+        }, commandId, this.actorId, 'FAILED');
+      });
+    } catch { /* preserve the original command error; failure evidence is best effort */ }
+  }
+
+  _exportSessionRow(id) {
+    const row = this.db.prepare('SELECT * FROM export_sessions WHERE id = ?').get(requiredString(id, 'export_session_id'));
+    if (!row) throw new CoreError('EXPORT_SESSION_NOT_FOUND', 'VALIDATION', 'errors.export_session_not_found', { export_session_id: id });
+    return row;
+  }
+
+  _exportList(params = {}) {
+    const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
+    this._project(projectId);
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const stateInput = params.state === undefined || params.state === null || params.state === '' ? null : String(params.state).trim().toUpperCase();
+    if (stateInput !== null && !HANDOFF_SESSION_STATES.has(stateInput)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_handoff_state', { state: stateInput });
+    const rows = this.db.prepare(`SELECT * FROM export_sessions WHERE project_id = ? AND (? IS NULL OR state = ?) ORDER BY created_at_utc_us DESC, id DESC LIMIT ?`).all(projectId, stateInput, stateInput, limit);
+    return { items: rows.map(publicExportSession), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _exportGet(id, projectIdValue = null) {
+    const row = this._exportSessionRow(id);
+    if (projectIdValue !== null && projectIdValue !== undefined) {
+      const projectId = requiredString(projectIdValue, 'project_id');
+      this._project(projectId);
+      if (row.project_id !== projectId) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'EXPORT_SESSION', entity_id: row.id, project_id: projectId, actual_project_id: row.project_id }, { needsUser: true });
+    }
+    return { export_session: publicExportSession(row), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
   _handoffList(params = {}) {
@@ -7249,6 +7675,9 @@ export class CoreService {
       }
       case 'query.handoff.list': return this._handoffList(params);
       case 'query.handoff.get': return this._handoffGet(params.handoff_id ?? params.handoffId ?? params.export_session_id ?? params.exportSessionId ?? params.id, params.project_id ?? params.projectId ?? null);
+      case 'query.export.list': return this._exportList(params);
+      case 'query.export.get': return this._exportGet(params.export_session_id ?? params.exportSessionId ?? params.handoff_id ?? params.handoffId ?? params.id, params.project_id ?? params.projectId ?? null);
+      case 'query.export.download': return this.resolveTimelineInterchangeDownload(params);
       case 'query.asset.rights': return this._rightsForAsset(params.asset_id ?? params.assetId, params);
       case 'query.media.resolve_preview': return this.resolveMediaPreview(params);
       case 'query.rights.evaluate': return this._evaluateRights(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
@@ -7515,6 +7944,108 @@ export class CoreService {
       etag: `\"${descriptor.contentHash}\"`,
       expiresAt: new Date(record.expiresAtMs).toISOString(),
     };
+  }
+
+  _timelineInterchangeDownloadDescriptor(projectIdValue, exportSessionIdValue) {
+    const projectId = requiredString(projectIdValue, 'project_id');
+    const exportSessionId = requiredString(exportSessionIdValue, 'export_session_id');
+    this._project(projectId);
+    const session = this._exportSessionRow(exportSessionId);
+    if (session.project_id !== projectId) throw new CoreError('EXPORT_PROJECT_SCOPE', 'CONFLICT', 'errors.export_project_scope', { project_id: projectId, export_session_id: exportSessionId }, { needsUser: true });
+    if (session.state !== 'COMPLETED' || !session.output_asset_revision_id || !SHA256_HEX.test(String(session.output_content_hash ?? ''))) {
+      throw new CoreError('EXPORT_NOT_READY', 'CONFLICT', 'errors.export_not_ready', { export_session_id: exportSessionId }, { needsUser: true });
+    }
+    const revision = this.db.prepare(`SELECT r.*, a.project_id, a.lifecycle_state AS asset_lifecycle_state, a.asset_type,
+        so.hash_algorithm, so.content_hash, so.byte_size, so.storage_class
+      FROM asset_revisions r JOIN assets a ON a.id = r.asset_id
+      JOIN storage_objects so ON so.id = r.storage_object_id
+      WHERE r.id = ?`).get(session.output_asset_revision_id);
+    if (!revision || revision.project_id !== projectId || revision.semantic_role !== 'TIMELINE_INTERCHANGE'
+      || revision.asset_lifecycle_state !== 'ACTIVE' || revision.availability_state !== 'AVAILABLE'
+      || revision.availability_evidence_state !== 'VERIFIED' || revision.storage_class !== 'LOCAL_MANAGED'
+      || String(revision.content_hash).toLowerCase() !== String(session.output_content_hash).toLowerCase()
+      || Number(revision.byte_size) !== Number(session.output_byte_size)) {
+      throw new CoreError('EXPORT_NOT_READY', 'CONFLICT', 'errors.export_not_ready', { export_session_id: exportSessionId }, { needsUser: true });
+    }
+    const byteSize = Number(revision.byte_size);
+    if (!Number.isSafeInteger(byteSize) || byteSize < 0 || byteSize > TIMELINE_INTERCHANGE_MAX_BYTES) throw new CoreError('EXPORT_NOT_READY', 'CONFLICT', 'errors.export_not_ready', { export_session_id: exportSessionId }, { needsUser: true });
+    const location = this.db.prepare(`SELECT * FROM storage_object_locations WHERE storage_object_id = ? AND storage_root = 'asset-store' AND location_role = 'PRIMARY' AND state = 'AVAILABLE' ORDER BY created_at_utc_us ASC, id ASC LIMIT 1`).get(revision.storage_object_id);
+    if (!location || typeof location.relative_path !== 'string' || location.relative_path.trim() === '') throw new CoreError('EXPORT_NOT_READY', 'CONFLICT', 'errors.export_not_ready', { export_session_id: exportSessionId }, { needsUser: true });
+    const relativePath = location.relative_path.replaceAll('\\', '/');
+    const segments = relativePath.split('/');
+    if (path.isAbsolute(relativePath) || segments.some((segment) => segment === '..' || segment === '')) throw new CoreError('EXPORT_PATH_ESCAPE', 'INTERNAL', 'errors.export_path_escape', {}, { needsUser: false });
+    const absolute = path.resolve(this.assetStorePath, relativePath);
+    if (!pathIsWithin(absolute, this.assetStorePath) || pathKey(absolute) === pathKey(this.assetStorePath)) throw new CoreError('EXPORT_PATH_ESCAPE', 'INTERNAL', 'errors.export_path_escape', {}, { needsUser: false });
+    try {
+      this._assertNoReparsePath(absolute);
+      const stat = fs.lstatSync(absolute);
+      if (stat.isSymbolicLink() || !stat.isFile() || Number(stat.nlink ?? 1) !== 1 || Number(stat.size) !== byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+      const digest = this._hashLocalFile(absolute);
+      if (digest.content_hash !== String(revision.content_hash).toLowerCase() || digest.byte_size !== byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+    } catch (error) {
+      if (error instanceof CoreError) throw error;
+      throw new CoreError('EXPORT_NOT_READY', 'CONFLICT', 'errors.export_not_ready', { export_session_id: exportSessionId }, { needsUser: true });
+    }
+    return { projectId, exportSessionId, filePath: absolute, mimeType: 'application/json', byteSize, contentHash: String(revision.content_hash).toLowerCase() };
+  }
+
+  _interchangeDownloadRange(value, byteSize) {
+    const raw = value === undefined || value === null ? '' : String(value).trim();
+    if (!raw) {
+      if (byteSize > TIMELINE_INTERCHANGE_DOWNLOAD_MAX_FULL_BYTES) throw new CoreError('EXPORT_DOWNLOAD_RANGE_REQUIRED', 'CONFLICT', 'errors.export_download_range_required', { max_bytes: TIMELINE_INTERCHANGE_DOWNLOAD_MAX_FULL_BYTES }, { needsUser: true });
+      return { status: 200, start: 0, end: Math.max(byteSize - 1, -1), length: byteSize, contentRange: null };
+    }
+    const match = /^bytes=(\d*)-(\d*)$/.exec(raw);
+    if (!match || (match[1] === '' && match[2] === '') || byteSize === 0) throw new CoreError('EXPORT_DOWNLOAD_RANGE_INVALID', 'VALIDATION', 'errors.export_download_range_invalid', {}, { needsUser: true });
+    let start; let end;
+    if (match[1] === '') {
+      const suffix = Number(match[2]);
+      if (!Number.isSafeInteger(suffix) || suffix <= 0) throw new CoreError('EXPORT_DOWNLOAD_RANGE_INVALID', 'VALIDATION', 'errors.export_download_range_invalid', {}, { needsUser: true });
+      start = Math.max(byteSize - suffix, 0); end = byteSize - 1;
+    } else {
+      start = Number(match[1]); end = match[2] === '' ? byteSize - 1 : Number(match[2]);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= byteSize) throw new CoreError('EXPORT_DOWNLOAD_RANGE_NOT_SATISFIABLE', 'CONFLICT', 'errors.export_download_range_not_satisfiable', { byte_size: byteSize }, { needsUser: true });
+      end = Math.min(end, byteSize - 1);
+    }
+    const length = end - start + 1;
+    if (!Number.isSafeInteger(length) || length > TIMELINE_INTERCHANGE_DOWNLOAD_MAX_RANGE_BYTES) throw new CoreError('EXPORT_DOWNLOAD_RANGE_TOO_LARGE', 'CONFLICT', 'errors.export_download_range_too_large', { max_bytes: TIMELINE_INTERCHANGE_DOWNLOAD_MAX_RANGE_BYTES }, { needsUser: true });
+    return { status: 206, start, end, length, contentRange: `bytes ${start}-${end}/${byteSize}` };
+  }
+
+  resolveTimelineInterchangeDownload(params = {}) {
+    const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
+    const exportSessionId = requiredString(params.export_session_id ?? params.exportSessionId ?? params.id, 'export_session_id');
+    const rawSessionId = params.session_id ?? params.sessionId;
+    if (typeof rawSessionId !== 'string' || rawSessionId.trim().length === 0) {
+      throw new CoreError('EXPORT_DOWNLOAD_SESSION_REQUIRED', 'AUTH_REQUIRED', 'errors.export_download_session_required', {}, { needsUser: true });
+    }
+    const sessionId = requiredString(rawSessionId, 'session_id', 256);
+    const descriptor = this._timelineInterchangeDownloadDescriptor(projectId, exportSessionId);
+    this._cleanPreviewTokens();
+    const token = crypto.randomBytes(32).toString('base64url');
+    const expiresAtMs = Date.now() + this.previewTokenTtlMs;
+    this.previewTokens.set(token, { epoch: this.previewEpoch, audience: TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE, nonce: crypto.randomBytes(16).toString('base64url'), sessionId, projectId, exportSessionId, expiresAtMs, contentHash: descriptor.contentHash, byteSize: descriptor.byteSize });
+    while (this.previewTokens.size > MEDIA_PREVIEW_MAX_TOKENS) {
+      const oldest = this.previewTokens.keys().next().value;
+      if (oldest === undefined) break;
+      this.previewTokens.delete(oldest);
+    }
+    return { project_id: projectId, export_session_id: exportSessionId, token, expires_at: new Date(expiresAtMs).toISOString(), mime_type: descriptor.mimeType, byte_size: descriptor.byteSize, content_hash: descriptor.contentHash, max_range_bytes: TIMELINE_INTERCHANGE_DOWNLOAD_MAX_RANGE_BYTES };
+  }
+
+  openTimelineInterchangeDownload(params = {}) {
+    const token = requiredString(params.token ?? params.download_token ?? params.downloadToken, 'download_token', 512);
+    this._cleanPreviewTokens();
+    const record = this.previewTokens.get(token);
+    if (!record) throw new CoreError('EXPORT_DOWNLOAD_TOKEN_INVALID', 'AUTH_REQUIRED', 'errors.export_download_token_invalid', {}, { needsUser: true });
+    if (record.expiresAtMs <= Date.now()) { this.previewTokens.delete(token); throw new CoreError('EXPORT_DOWNLOAD_TOKEN_EXPIRED', 'AUTH_REQUIRED', 'errors.export_download_token_expired', {}, { needsUser: true }); }
+    const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
+    const exportSessionId = requiredString(params.export_session_id ?? params.exportSessionId, 'export_session_id');
+    const sessionId = params.session_id ?? params.sessionId;
+    if (record.epoch !== this.previewEpoch || record.audience !== TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE || record.projectId !== projectId || record.exportSessionId !== exportSessionId || (sessionId !== undefined && sessionId !== null && String(sessionId) !== record.sessionId)) throw new CoreError('EXPORT_DOWNLOAD_TOKEN_SCOPE', 'AUTH_REQUIRED', 'errors.export_download_token_scope', {}, { needsUser: true });
+    const descriptor = this._timelineInterchangeDownloadDescriptor(projectId, exportSessionId);
+    if (descriptor.contentHash !== record.contentHash || descriptor.byteSize !== record.byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+    return { ...descriptor, ...this._interchangeDownloadRange(params.range ?? params.range_header ?? params.rangeHeader, descriptor.byteSize), etag: `"${descriptor.contentHash}"`, expiresAt: new Date(record.expiresAtMs).toISOString() };
   }
 
   _assetDetails(assetId) {
