@@ -18,7 +18,9 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
-> Executable Core schema: version 10 (the Issue #21 marker table is included).
+> Executable Core schema: version 13 (the Issue #27 working-session tables are
+> included). Issue #29 defines the next additive migration as schema version
+> 14; this design update does not claim that migration is implemented.
 > This document describes canonical data. Search indexes, embeddings, thumbnails, previews and caches are derived data.
 
 # 1. Physical conventions
@@ -976,6 +978,7 @@ PK(parent_asset_revision_id, child_asset_revision_id, relationship_type)
 ## caption_segments
 - id PK
 - timeline_revision_id FK
+- subtitle_track_revision_id nullable FK subtitle_track_revisions
 - language
 - start_num
 - start_den
@@ -1152,6 +1155,98 @@ tracks, transforms/effects, variable/reverse/freeze retime, playback,
 thumbnail/waveform generation, render/transcode, handoff/export, release,
 publish and provider execution remain outside Issue #27 and require separate
 contracts.
+
+## Issue #29 metadata-first audio cue and subtitle timing schema
+
+Issue #29 opens only a project-scoped timing metadata layer. It is a separate
+Core aggregate from the VIDEO-only `timeline_working_sessions` operation
+allowlist. The contract is anchored to the exact Issue #29 task contract
+(`sha256:8fffc235bd75016a309e832f98920c6cf076bc4ec8ae5f0bc375cfc36c55b32b`).
+This section is the design boundary; it does not claim that the schema or
+runtime is implemented.
+
+### Exact timeline binding
+
+Every new Issue #29 `audio_cue_revision` and `subtitle_track_revision` must
+store both:
+
+- `timing_dependency_revision_id`, an immutable `timeline_revisions.id`; and
+- `timing_dependency_content_hash`, the exact 64-hex `content_hash` observed in
+  the same Core transaction.
+
+Core resolves neither field through `latest`. It verifies that the revision is
+owned by the requested project/timeline, that the supplied hash equals the
+stored immutable revision hash, and that the parent aggregate has the same
+project scope. A revision row with a missing or mismatched pair is not a valid
+Issue #29 timing revision. `subtitle_tracks` derives its project ownership from
+the localization package and its explicit `timeline_id`; the command must
+reject a cross-project or cross-timeline chain rather than trusting either
+client-supplied parent.
+
+The revision stores exact positive rational frame/sample intervals. Audio cue
+revisions use `start_num/start_den` and `end_num/end_den`; subtitle timing is
+stored by `subtitle_track_segments` rows linked to
+`subtitle_track_revision_id`. Every segment inherits the exact pinned timeline
+revision relation through its parent revision, and Core rejects an interval
+outside the pinned timeline duration, an empty interval, an invalid/overflowed
+rational, or an overlapping segment in the same track unless a future
+accessibility policy explicitly permits that overlap. Text is untrusted input:
+Core applies UTF-8, segment-count, text-length and payload-byte limits before a
+row or event is written.
+
+### Rights and materialization closure
+
+`audio_cue_revisions.selected_asset_revision_id` is an exact asset-revision
+reference, never a provider ID, path or latest alias. For every non-`SILENCE`
+cue Core requires materialization `AVAILABLE` with verified evidence and an
+effective `ALLOWED` rights result for the requested timeline-audio purpose;
+`UNKNOWN`, `RESTRICTED`, `REVOKED`, `EXPIRED`, missing or unverified evidence
+fails closed. `SILENCE` may omit the selected asset but still participates in
+timing dependency checks. An optional subtitle font asset follows the same
+exact project, materialization and rights checks. The canonical
+`timing_dependency_hash` captures the timeline hash and timing dependency
+evidence; audio also stores an `asset_snapshot_hash` for the selected asset's
+rights/materialization evidence. The snapshots are evidence, not permission
+to bypass a later re-evaluation.
+
+### Derived staleness and retention
+
+Each timing revision creates a `TIMING` dependency edge to its pinned timeline
+revision and `RIGHTS`/`PROVENANCE` edges for selected assets and evidence. A
+newer checkpoint on the same timeline, a changed timeline content hash, a
+rights revocation/expiry, a materialization loss, or a changed localization
+source opens a `staleness_records` row and projects the derived timing revision
+as `STALE`. The immutable revision and its text/timing evidence remain
+readable; Core never silently retimes, rewrites, deletes or rebinds it. Recovery
+means creating a new revision against a newly named timeline revision/hash and
+re-running all gates. A stale row cannot be transitioned to `APPROVED`.
+
+### Additive migration and compatibility
+
+The implementation target is the next additive schema migration (version 14
+after the current executable version 13). It may add the timing/hash fields,
+the `subtitle_track_segments` table/binding, the dependency indexes and
+any append-only events required by the command contract. It must not rewrite
+approved revisions or infer a timeline pin for legacy rows. Existing audio or
+subtitle rows with null timing pins remain compatibility data and must project
+`UNPINNED`/`UNKNOWN` for this slice; they cannot be used as an approved Issue
+#29 timing revision until a new exact revision is created. Migration code must
+be idempotent, record its digest in `schema_migrations`, and preserve the
+independent Core API, domain schema/event and connector-host version contracts.
+
+Recommended indexes are:
+
+- `audio_cue_revisions(timing_dependency_revision_id,
+  timing_dependency_content_hash)`;
+- `subtitle_track_revisions(timing_dependency_revision_id,
+  timing_dependency_content_hash)`; and
+- `subtitle_track_segments(subtitle_track_revision_id, segment_index)`.
+
+The migration and Core tests must prove exact project/timeline scope,
+rational/overlap/bounds limits, unknown-rights/materialization rejection,
+stale projection after a new checkpoint, immutable approved revisions, safe
+idempotent replay and restart persistence. This maturity remains `SPECIFIED`
+until runtime evidence exists; prose is not implementation proof.
 
 # 12. Production workflow, generation and jobs
 
@@ -2049,21 +2144,37 @@ Examples:
 ## audio_cues
 - id PK FK entity_registry
 - project_id FK
+- timeline_id FK timelines (required for the Issue #29 project-scoped slice)
 - scene_id nullable
 - cue_type: DIALOGUE | ADR | NONVERBAL | FOLEY | SFX | AMBIENCE | ROOM_TONE | MUSIC | SILENCE
+- title
 - start_target_json nullable
 - end_target_json nullable
 - intent_text
 - source_dialogue_line_id nullable
 - character_id nullable
 - state
+- created_by_actor_id FK actors
+- created_at_utc_us
+- updated_at_utc_us
+- row_version
 
 ## audio_cue_revisions
 - id PK FK revision_registry
 - audio_cue_id FK
+- timing_dependency_revision_id nullable FK timeline_revisions (required for
+  Issue #29 timing revisions)
+- timing_dependency_content_hash nullable (exact SHA-256 of the pinned timeline
+  revision; required for Issue #29 timing revisions)
+- start_num
+- start_den
+- end_num
+- end_den
+- intent_text
 - parameters_json
 - selected_asset_revision_id nullable
-- timing_dependency_revision_id nullable
+- timing_dependency_hash (canonical timeline/timing dependency evidence)
+- asset_snapshot_hash nullable (canonical selected-asset rights/materialization evidence)
 
 ## adr_links
 - original_dialogue_take_id FK
@@ -2167,16 +2278,44 @@ PK(audio_cue_id, mix_bus_id)
 
 ## subtitle_tracks
 - id PK FK entity_registry
+- project_id FK (required for the Issue #29 project-scoped slice)
 - localization_package_id FK
 - timeline_id FK
+- locale
+- title
+- created_by_actor_id FK actors
+- created_at_utc_us
+- updated_at_utc_us
+- row_version
 
 ## subtitle_track_revisions
 - id PK FK revision_registry
 - subtitle_track_id FK
+- timing_dependency_revision_id nullable FK timeline_revisions (required for
+  Issue #29 timing revisions)
+- timing_dependency_content_hash nullable (exact SHA-256 of the pinned timeline
+  revision; required for Issue #29 timing revisions)
 - format_profile
 - font_asset_revision_id nullable
 - style_json
 - accessibility_mode
+- timing_dependency_hash (canonical timeline/timing dependency evidence)
+
+## subtitle_track_segments
+Issue #29 stores subtitle timing as immutable segment rows owned by one track
+revision. The older `caption_segments` table remains compatibility shape for
+future timeline snapshots and is not used to infer a track revision.
+- id PK
+- subtitle_track_revision_id FK
+- segment_index (unique within revision)
+- start_num
+- start_den
+- end_num
+- end_den
+- locale
+- text (untrusted UTF-8)
+- created_at_utc_us
+UNIQUE(subtitle_track_revision_id, segment_index)
 
 ## dubbing_tracks
 - id PK FK entity_registry

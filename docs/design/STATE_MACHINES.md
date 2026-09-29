@@ -1044,6 +1044,72 @@ Dubbing track:
 
 UI must distinguish translation approval from timing approval and voice/performance approval.
 
+# 42A. Issue #29 metadata-first timing revisions
+
+Issue #29 adds timing revisions as a separate state axis from the broad audio,
+localization and timeline lifecycles above. It does not open playback, media
+processing or the VIDEO-only working-session operation allowlist. The task
+contract is anchored to
+`sha256:8fffc235bd75016a309e832f98920c6cf076bc4ec8ae5f0bc375cfc36c55b32b`.
+
+Audio cue timing revision:
+
+```text
+DRAFT
+  → TIMED
+  → REVIEWED
+  → APPROVED
+```
+
+Subtitle track timing revision:
+
+```text
+DRAFT
+  → TIMED
+  → REVIEWED
+  → APPROVED
+```
+
+Either revision may exit to `REJECTED`. `STALE` is a derived dependency
+projection, not an in-place rewrite of an immutable revision:
+
+```text
+any non-rejected state ── dependency invalidation ──→ STALE (projection)
+```
+
+`CreateAudioCueRevision` and `CreateSubtitleTrackRevision` are auditable,
+idempotent Core commands. Each requires the exact project/timeline scope,
+`timing_dependency_revision_id`, the matching immutable
+`timing_dependency_content_hash`, expected parent versions and bounded
+rational timing. Subtitle creation validates the complete segment batch before
+committing it. A non-`SILENCE` audio cue and an optional subtitle font must pass
+materialization and effective-rights checks; `UNKNOWN`, unverified, missing or
+rights-ineligible evidence fails closed. Generated/recorded/provider output is
+not accepted by this state machine.
+
+`TransitionAudioCueRevision` and `TransitionSubtitleTrackRevision` revalidate
+the exact timeline/hash, duration/overlap rules, dependency snapshot,
+materialization and rights immediately before every transition. `APPROVED`
+requires an explicit human approval action and immutable evidence when the
+active review subject supports it. If that review subject is unavailable, Core
+returns a typed `REVIEW_NOT_SUPPORTED`/`needs_user` result and keeps the prior
+state; a selected row, autosave or successful read never implies approval.
+
+The dependency graph records a `TIMING` edge to the pinned timeline revision,
+plus `RIGHTS`/`PROVENANCE` edges for selected media/font revisions and a
+localization-source edge for subtitle text. A newer checkpoint, a changed
+timeline hash, asset materialization loss, rights revocation/expiry or source
+change opens `staleness_records` and projects `STALE` with a human-readable
+reason and `next_step`. A stale revision cannot transition to `APPROVED` or be
+silently retimed; recovery creates a new revision against an explicitly named
+current timeline revision/hash and repeats all gates. Historical text, timing,
+approval and stale evidence remain queryable.
+
+The transition commands are reversible only as new compensating metadata
+actions; no media bytes or external side effect exists in this slice. The
+state machine therefore has no `PLAYING`, `RENDERING`, `MIXING`, `GENERATING`,
+`EXPORTING` or `PUBLISHING` transition. Those are separate future contracts.
+
 # 43. Composition/VFX lifecycle
 
 Composition revision:
