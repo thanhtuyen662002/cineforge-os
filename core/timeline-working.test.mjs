@@ -15,9 +15,13 @@ function request(method, params = {}, requestId = method) {
 }
 
 function execute(core, commandType, payload, expectedVersions = {}, idempotencyKey) {
+  const workingCommand = new Set(['ApplyTimelineEditOp', 'UndoTimelineEditOp', 'RedoTimelineEditOp', 'AutosaveTimelineWorkingSession', 'CheckpointTimelineWorkingSession', 'CloseTimelineWorkingSession']);
+  const commandPayload = workingCommand.has(commandType) && payload.client_instance_id === undefined && payload.clientInstanceId === undefined
+    ? { ...payload, client_instance_id: 'test-client-1' }
+    : payload;
   return core.handle(request('command.execute', {
     command_type: commandType,
-    payload,
+    payload: commandPayload,
     expected_versions: expectedVersions,
     ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
   }, `${commandType}-${idempotencyKey ?? Math.random()}`));
@@ -129,6 +133,17 @@ function applyMarker(fixtureValue, session, operation = markerOperation(), key =
 test('timeline working session begins from an exact base and rejects stale or duplicate ownership', (t) => {
   const value = fixture();
   t.after(value.cleanup);
+  const missingIdempotencyKey = execute(value.core, 'BeginTimelineWorkingSession', {
+    project_id: value.projectId,
+    timeline_id: value.timeline.id,
+    base_revision_id: value.base.id,
+    base_revision_row_version: value.base.row_version,
+    base_content_hash: value.base.content_hash,
+    client_instance_id: 'test-client-1',
+    mode: 'EXCLUSIVE',
+  }, { TIMELINE: value.timeline.row_version });
+  assert.equal(missingIdempotencyKey.ok, false);
+  assert.equal(missingIdempotencyKey.error.code, 'IDEMPOTENCY_KEY_REQUIRED');
   const session = begin(value);
   assert.equal(session.mode, 'EXCLUSIVE');
   assert.equal(session.last_acknowledged_op_seq, 0);
@@ -158,6 +173,32 @@ test('timeline working session begins from an exact base and rejects stale or du
   assert.equal(staleBase.error.code, 'STALE_REVISION');
 });
 
+test('timeline working mutations remain bound to the session timeline', (t) => {
+  const value = fixture();
+  t.after(value.cleanup);
+  const session = begin(value, 'working-begin-scope');
+  const mismatchedOperation = execute(value.core, 'ApplyTimelineEditOp', {
+    project_id: value.projectId,
+    timeline_id: 'timeline-from-another-route',
+    working_session_id: session.id,
+    operation: markerOperation(2, 'scope-marker'),
+  }, { WORKING_SESSION: session.row_version }, 'working-scope-mismatch-op');
+  assert.equal(mismatchedOperation.ok, false);
+  assert.equal(mismatchedOperation.error.code, 'ENTITY_SCOPE_MISMATCH');
+  assert.equal(Number(value.core.db.prepare('SELECT COUNT(*) AS count FROM timeline_edit_ops WHERE working_session_id = ?').get(session.id).count), 0);
+
+  const mismatchedClose = execute(value.core, 'CloseTimelineWorkingSession', {
+    project_id: value.projectId,
+    timeline_id: 'timeline-from-another-route',
+    working_session_id: session.id,
+    disposition: 'ABANDON',
+  }, { WORKING_SESSION: session.row_version }, 'working-scope-mismatch-close');
+  assert.equal(mismatchedClose.ok, false);
+  assert.equal(mismatchedClose.error.code, 'ENTITY_SCOPE_MISMATCH');
+  const stillOpen = value.core.db.prepare('SELECT state FROM timeline_working_sessions WHERE id = ?').get(session.id);
+  assert.equal(stillOpen.state, 'OPEN');
+});
+
 test('timeline working operations are audited, idempotent, and stale-safe', (t) => {
   const value = fixture();
   t.after(value.cleanup);
@@ -171,6 +212,8 @@ test('timeline working operations are audited, idempotent, and stale-safe', (t) 
   assert.equal(applied.result.session.next_op_seq, 2);
   assert.equal(applied.result.session.draft.markers.length, 1);
   assert.equal(applied.result.accepted_operations[0].client_op_id, 'client-op-1');
+  assert.deepEqual(applied.result.impact_summary.dependent_domains, ['SUBTITLES', 'AUDIO', 'LIP_SYNC', 'MUSIC', 'RELEASE_READINESS']);
+  assert.equal(applied.result.impact_summary.dependency_state, 'NOT_RECOMPUTED_UNTIL_CHECKPOINT');
 
   // Idempotent retries must carry the original optimistic version tuple. The
   // command ledger replays before aggregate-version validation and therefore
@@ -201,6 +244,28 @@ test('timeline working operations are audited, idempotent, and stale-safe', (t) 
   }, { WORKING_SESSION: applied.result.session.row_version }, 'working-unsupported');
   assert.equal(unsupported.ok, false);
   assert.equal(unsupported.error.code, 'UNSUPPORTED_TIMELINE_EDIT_OPERATION');
+  assert.throws(
+    () => value.core.db.prepare('UPDATE timeline_edit_ops SET history_state = ? WHERE working_session_id = ? AND op_seq = 1').run('UNDONE', session.id),
+    /timeline_edit_op content is immutable/,
+  );
+});
+
+test('timeline working marker payloads are bounded and trim rejects fields for the opposite edge', (t) => {
+  const value = fixture();
+  t.after(value.cleanup);
+  const session = begin(value, 'working-begin-marker-shape');
+  const directMarker = applyMarker(value, session, {
+    op_type: 'ADD_MARKER', id: 'direct-marker', time: { num: 2, den: 1 }, marker_type: 'NOTE', label: 'Direct',
+    payload: { semantic: 'beat' },
+  }, 'working-direct-marker');
+  assert.equal(directMarker.ok, true, JSON.stringify(directMarker));
+  assert.deepEqual(directMarker.result.session.draft.markers[0].payload, { semantic: 'beat' });
+  const invalidTrim = execute(value.core, 'ApplyTimelineEditOp', {
+    project_id: value.projectId, working_session_id: session.id,
+    operation: { op_type: 'TRIM_CLIP', payload: { clip_id: 'missing', edge: 'IN', timeline_in: { num: 1, den: 1 }, timeline_out: { num: 2, den: 1 } } },
+  }, { WORKING_SESSION: directMarker.result.session.row_version }, 'working-trim-opposite-edge');
+  assert.equal(invalidTrim.ok, false);
+  assert.equal(invalidTrim.error.code, 'INVALID_ARGUMENT');
 });
 
 test('timeline working undo and redo restore exact rational draft snapshots and invalidate redo after a branch', (t) => {
@@ -287,13 +352,26 @@ test('timeline working autosave, checkpoint, close and reload preserve exact has
   assert.equal(checkpoint.result.checkpoint_revision.lifecycle_state, 'DRAFT_CHECKPOINT');
   assert.equal(checkpoint.result.session.last_checkpoint_revision_id, checkpoint.result.checkpoint_revision_id);
   assert.equal(checkpoint.result.checkpoint_revision.content_hash, checkpoint.result.session.draft_hash);
+  assert.equal(checkpoint.result.session.base_revision_id, checkpoint.result.checkpoint_revision_id);
+  assert.equal(checkpoint.result.session.base_revision_row_version, checkpoint.result.checkpoint_revision.row_version);
+  assert.equal(checkpoint.result.session.base_content_hash, checkpoint.result.checkpoint_revision.content_hash);
   assert.equal(checkpoint.result.timeline.row_version, value.timeline.row_version + 1);
+
+  const postCheckpoint = applyMarker(value, checkpoint.result.session, markerOperation(18, 'marker-after-checkpoint'), 'working-checkpoint-follow-up');
+  assert.equal(postCheckpoint.ok, true, JSON.stringify(postCheckpoint));
+  const undoneToCheckpoint = execute(value.core, 'UndoTimelineEditOp', {
+    project_id: value.projectId, working_session_id: dirty.id,
+  }, { WORKING_SESSION: postCheckpoint.result.session.row_version }, 'working-checkpoint-undo-follow-up');
+  assert.equal(undoneToCheckpoint.ok, true, JSON.stringify(undoneToCheckpoint));
+  assert.equal(undoneToCheckpoint.result.session.state, 'CLEAN');
+  assert.equal(undoneToCheckpoint.result.session.draft_hash, undoneToCheckpoint.result.session.autosaved_hash);
+  assert.equal(undoneToCheckpoint.result.session.base_revision_id, checkpoint.result.checkpoint_revision_id);
 
   const closed = execute(value.core, 'CloseTimelineWorkingSession', {
     project_id: value.projectId,
     working_session_id: dirty.id,
     disposition: 'SAVE',
-  }, { WORKING_SESSION: checkpoint.result.session.row_version }, 'working-close');
+  }, { WORKING_SESSION: undoneToCheckpoint.result.session.row_version }, 'working-close');
   assert.equal(closed.ok, true, JSON.stringify(closed));
   assert.equal(closed.result.session.state, 'CLOSED');
   assert.equal(closed.result.session.closed_at !== null, true);
@@ -306,7 +384,7 @@ test('timeline working autosave, checkpoint, close and reload preserve exact has
   assert.equal(queried.result.session.id, dirty.id);
   assert.equal(queried.result.session.state, 'CLOSED');
   assert.equal(queried.result.session.draft_hash, closed.result.session.draft_hash);
-  assert.equal(queried.result.session.operations.length, 1);
+  assert.equal(queried.result.session.operations.length, 2);
 });
 
 test('timeline working close requires an explicit disposition and never silently saves dirty drafts', (t) => {

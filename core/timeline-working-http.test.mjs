@@ -92,22 +92,35 @@ test('HTTP timeline working-session routes preserve exact hashes and version fen
   assert.equal(session.baseContentHash, value.base.content_hash);
 
   const sessionPath = `${sessionCollection}/${encodeURIComponent(session.id)}`;
+  const mismatchedTimelinePath = `/v1/projects/${projectPath}/timelines/${encodeURIComponent('timeline-from-another-route')}/working-sessions/${encodeURIComponent(session.id)}/ops`;
+  const mismatchedTimeline = await jsonRequest(baseUrl, mismatchedTimelinePath, {
+    method: 'POST',
+    headers: { 'idempotency-key': 'http-working-scope-mismatch' },
+    body: JSON.stringify({
+      operation: { op_type: 'ADD_MARKER', id: 'scope-marker', time: { num: 2, den: 1 }, marker_type: 'NOTE', label: 'Wrong route' },
+      client_instance_id: 'http-client-1', expected_version: session.rowVersion,
+    }),
+  });
+  assert.equal(mismatchedTimeline.response.status, 409, JSON.stringify(mismatchedTimeline.body));
+  assert.equal(mismatchedTimeline.body.error.code, 'ENTITY_SCOPE_MISMATCH');
+
   const operation = {
     op_type: 'ADD_MARKER', id: 'http-marker', time: { num: 6, den: 1 }, marker_type: 'NOTE', label: 'HTTP marker',
   };
   const applied = await jsonRequest(baseUrl, `${sessionPath}/ops`, {
     method: 'POST',
     headers: { 'idempotency-key': 'http-working-op' },
-    body: JSON.stringify({ operation, expected_version: session.rowVersion }),
+    body: JSON.stringify({ operation, client_instance_id: 'http-client-1', expected_version: session.rowVersion }),
   });
   assert.equal(applied.response.status, 200, JSON.stringify(applied.body));
   assert.equal(applied.body.result.session.state, 'DIRTY');
   assert.equal(applied.body.result.session.draft.markers.length, 1);
+  assert.equal(applied.body.result.impactSummary.dependency_state, 'NOT_RECOMPUTED_UNTIL_CHECKPOINT');
 
   const stale = await jsonRequest(baseUrl, `${sessionPath}/ops`, {
     method: 'POST',
     headers: { 'idempotency-key': 'http-working-stale' },
-    body: JSON.stringify({ operation: { ...operation, id: 'http-stale-marker' }, expected_version: session.rowVersion }),
+    body: JSON.stringify({ operation: { ...operation, id: 'http-stale-marker' }, client_instance_id: 'http-client-1', expected_version: session.rowVersion }),
   });
   assert.equal(stale.response.status, 409);
   assert.equal(stale.body.error.code, 'STALE_REVISION');
@@ -115,7 +128,7 @@ test('HTTP timeline working-session routes preserve exact hashes and version fen
   const autosave = await jsonRequest(baseUrl, `${sessionPath}/autosave`, {
     method: 'POST',
     headers: { 'idempotency-key': 'http-working-autosave' },
-    body: JSON.stringify({ expected_version: applied.body.result.session.rowVersion }),
+    body: JSON.stringify({ client_instance_id: 'http-client-1', expected_version: applied.body.result.session.rowVersion }),
   });
   assert.equal(autosave.response.status, 200, JSON.stringify(autosave.body));
   assert.equal(autosave.body.result.session.state, 'CLEAN');
@@ -126,6 +139,7 @@ test('HTTP timeline working-session routes preserve exact hashes and version fen
     headers: { 'idempotency-key': 'http-working-checkpoint' },
     body: JSON.stringify({
       expected_version: autosave.body.result.session.rowVersion,
+      client_instance_id: 'http-client-1',
       expected_timeline_version: value.timeline.row_version,
     }),
   });
@@ -138,10 +152,15 @@ test('HTTP timeline working-session routes preserve exact hashes and version fen
   assert.equal(detail.body.result.session.id, session.id);
   assert.equal(detail.body.result.session.operations.length, 1);
 
+  const history = await jsonRequest(baseUrl, `${sessionPath}/history?after_op_seq=0&limit=10`);
+  assert.equal(history.response.status, 200, JSON.stringify(history.body));
+  assert.equal(history.body.result.operations.length, 1);
+  assert.equal(history.body.result.cursor.hasMore, false);
+
   const close = await jsonRequest(baseUrl, `${sessionPath}/close`, {
     method: 'POST',
     headers: { 'idempotency-key': 'http-working-close' },
-    body: JSON.stringify({ disposition: 'ABANDON', expected_version: checkpoint.body.result.session.rowVersion }),
+    body: JSON.stringify({ disposition: 'ABANDON', client_instance_id: 'http-client-1', expected_version: checkpoint.body.result.session.rowVersion }),
   });
   assert.equal(close.response.status, 200, JSON.stringify(close.body));
   assert.equal(close.body.result.session.state, 'ABANDONED');
