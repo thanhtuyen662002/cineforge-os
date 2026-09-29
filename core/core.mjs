@@ -132,6 +132,7 @@ const MEDIA_PREVIEW_MIME_TYPES = new Set([
 ]);
 const MEDIA_PREVIEW_DEFAULT_TTL_MS = 60 * 1000;
 const MEDIA_PREVIEW_MAX_TTL_MS = 5 * 60 * 1000;
+const MEDIA_PREVIEW_MAX_TOKENS = 4096;
 const MEDIA_PREVIEW_MAX_FULL_BYTES = 64 * 1024 * 1024;
 const MEDIA_PREVIEW_MAX_RANGE_BYTES = 16 * 1024 * 1024;
 const MEDIA_PREVIEW_AUDIENCE = 'LOCAL_MEDIA_PREVIEW';
@@ -6717,6 +6718,10 @@ export class CoreService {
     if (revision.availability_state !== 'AVAILABLE' || revision.availability_evidence_state !== 'VERIFIED' || revision.review_state === 'REJECTED') {
       throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'AVAILABILITY_UNKNOWN' }, { needsUser: true });
     }
+    const expectedByteSize = Number(revision.byte_size);
+    if (!Number.isSafeInteger(expectedByteSize) || expectedByteSize < 0) {
+      throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'INVALID_CONTENT_SIZE' }, { needsUser: true });
+    }
     if (revision.storage_class !== 'LOCAL_MANAGED') {
       throw new CoreError('PREVIEW_EXTERNAL_REFERENCE', 'CONFLICT', 'errors.preview_external_reference', {}, { needsUser: true });
     }
@@ -6757,7 +6762,7 @@ export class CoreService {
       if (link.isSymbolicLink() || !link.isFile() || Number(link.nlink ?? 1) !== 1) {
         throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'MANAGED_OBJECT_INVALID' }, { needsUser: true });
       }
-      if (Number(link.size) !== Number(revision.byte_size)) {
+      if (Number(link.size) !== expectedByteSize) {
         throw new CoreError('PREVIEW_CONTENT_CHANGED', 'CONFLICT', 'errors.preview_content_changed', {}, { retryable: true, needsUser: true });
       }
     } catch (error) {
@@ -6772,7 +6777,7 @@ export class CoreService {
       if (error instanceof CoreError && error.code === 'PREVIEW_CONTENT_CHANGED') throw error;
       throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'MANAGED_OBJECT_UNREADABLE' }, { needsUser: true });
     }
-    if (String(digest.content_hash).toLowerCase() !== String(revision.content_hash).toLowerCase() || Number(digest.byte_size) !== Number(revision.byte_size)) {
+    if (String(digest.content_hash).toLowerCase() !== String(revision.content_hash).toLowerCase() || Number(digest.byte_size) !== expectedByteSize) {
       throw new CoreError('PREVIEW_CONTENT_CHANGED', 'CONFLICT', 'errors.preview_content_changed', {}, { retryable: true, needsUser: true });
     }
     const metadata = parseJson(revision.source_metadata_json, {});
@@ -6786,7 +6791,7 @@ export class CoreService {
       revisionId,
       filePath: absolute,
       mimeType,
-      byteSize: Number(revision.byte_size),
+      byteSize: expectedByteSize,
       contentHash: String(revision.content_hash).toLowerCase(),
       rightsStatus: rights.status,
       readinessState: revision.review_state === 'APPROVED' ? 'READY' : 'INSPECTION_READY',
@@ -6855,6 +6860,11 @@ export class CoreService {
       byteSize: descriptor.byteSize,
       mimeType: descriptor.mimeType,
     });
+    while (this.previewTokens.size > MEDIA_PREVIEW_MAX_TOKENS) {
+      const oldest = this.previewTokens.keys().next().value;
+      if (oldest === undefined) break;
+      this.previewTokens.delete(oldest);
+    }
     return {
       project_id: projectId,
       asset_revision_id: revisionId,
