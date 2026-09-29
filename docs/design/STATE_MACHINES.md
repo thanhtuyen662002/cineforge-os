@@ -2759,6 +2759,31 @@ RECOVERY_DIVERGENT:
 
 Side-effectful pending commands never auto-transition from RECOVERY_DIVERGENT to EXECUTING.
 
+# STATE-MEDIA-PREVIEW-CAPABILITY. Local media preview capability lifecycle
+
+Preview capability state is process-local and does not change the canonical
+asset revision:
+
+```text
+REQUESTED
+→ CHECKING_SCOPE_RIGHTS_BYTES
+→ ISSUED
+→ STREAMING
+→ CONSUMED
+```
+
+Alternate exits:
+
+- `CHECKING_SCOPE_RIGHTS_BYTES → BLOCKED_RIGHTS | BLOCKED_AVAILABILITY | BLOCKED_MIME | BLOCKED_INTEGRITY`
+- `ISSUED → EXPIRED | INVALIDATED_BY_RESTART | INVALIDATED_BY_REVOCATION`
+- `STREAMING → CANCELLED | RANGE_REJECTED | CONTENT_CHANGED`
+
+Every issuance and stream rechecks the exact project/revision, asset lifecycle,
+verified managed availability, current rights/consent, safe MIME and SHA-256
+content identity. Tokens bind the local session, purpose, nonce and Core
+process epoch and are held only in memory. A preview is an inspection aid; it
+never transitions a revision to `APPROVED`, `READY`, `EXPORTED` or `PUBLISHED`.
+
 # STATE-EVENT-STREAM-CURSOR. Event stream cursor lifecycle
 
 VALID

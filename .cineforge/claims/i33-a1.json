@@ -1,0 +1,14 @@
+{
+  "task_id": 33,
+  "claim_id": "i33-a1",
+  "contract_version": 1,
+  "contract_hash": "sha256:8fc74de89eaee4bf7f00da602d5b4de81d5596208a44883bcd3e2cc12086046f",
+  "agent_instance_id": "cineforge-WORK-media-preview",
+  "slot_id": "WORK-media-preview",
+  "run_id": "WORK-media-preview-20260929-A1",
+  "base_ref": "agent/i31-a1-closure-rebind",
+  "base_sha": "7cfa1d3d85f45d8a345fdc7267ad46906af23496",
+  "context_base_sha": "7cfa1d3d85f45d8a345fdc7267ad46906af23496",
+  "status": "CLAIMED",
+  "created_at": "2026-09-29T15:20:00+07:00"
+}

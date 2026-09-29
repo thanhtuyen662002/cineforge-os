@@ -752,6 +752,19 @@ export interface AssetSummary {
   latestRevision?: unknown
 }
 
+export interface MediaPreviewResolution {
+  projectId: string
+  revisionId: string
+  purpose: 'LIBRARY_PREVIEW' | 'TIMELINE_PREVIEW' | string
+  url: string
+  mimeType: string
+  byteSize: number
+  contentHash?: string
+  expiresAt?: string
+  readinessState?: string
+  rightsStatus?: RightsState | string
+}
+
 export interface StagedAsset {
   handle: string
   name: string
@@ -828,6 +841,7 @@ export interface CoreClient {
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
   getCharacters?(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]>

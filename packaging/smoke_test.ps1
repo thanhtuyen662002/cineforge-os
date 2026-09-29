@@ -541,6 +541,7 @@ try {
             asset_type = 'DOCUMENT'
             semantic_role = 'SOURCE_REFERENCE'
             storage_mode = 'COPY'
+            mime_type = 'image/png'
         } | ConvertTo-Json) -TimeoutSec 5
         if ([string]::IsNullOrWhiteSpace([string]$asset.id)) { throw 'Core asset import returned no asset id.' }
         if ([string]$asset.availability -ne 'AVAILABLE') { throw "Packaged asset import was not AVAILABLE: $($asset.availability)" }
@@ -558,7 +559,7 @@ try {
                 right_type = 'SOURCE_USE'
                 status = 'ALLOWED'
                 territory = @('VN')
-                purpose = @{ allowed = @('PRODUCTION') }
+                purpose = @{ allowed = @('PRODUCTION', 'MEDIA_PREVIEW') }
             }
         } | ConvertTo-Json -Depth 10) -TimeoutSec 5
         if (-not $rightsRecord.ok -or [string]$rightsRecord.result.record.status -ne 'ALLOWED') { throw 'Packaged rights record command returned an invalid record.' }
@@ -571,6 +572,41 @@ try {
         if (-not $rightsConsent.ok) { throw 'Packaged consent command failed.' }
         $rightsAllowed = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/assets/{1}/rights?territory=VN" -f $webPort, [Uri]::EscapeDataString([string]$asset.id)) -TimeoutSec 5
         if ([string]$rightsAllowed.result.status -ne 'ALLOWED' -or -not $rightsAllowed.result.eligible) { throw 'Packaged rights evaluation did not become ALLOWED after consent.' }
+
+        # Preview is a scoped inspection capability, not a filesystem proxy.
+        # Resolve through the same bootstrap origin, then verify HEAD/range
+        # streaming and the absence of local paths or opaque bytes in JSON.
+        $previewUri = "http://127.0.0.1:{0}/v1/projects/{1}/assets/{2}/preview?purpose=LIBRARY_PREVIEW" -f $webPort, [Uri]::EscapeDataString([string]$project.id), [Uri]::EscapeDataString([string]$asset.revisionId)
+        $previewResolved = Invoke-RestMethod -Uri $previewUri -Headers $browserHeaders -TimeoutSec 5
+        $previewResult = $previewResolved.result
+        if ($null -eq $previewResult -or [string]::IsNullOrWhiteSpace([string]$previewResult.preview_url) -or [string]$previewResult.mime_type -ne 'image/png') { throw 'Packaged media preview did not return an image capability.' }
+        $previewJson = $previewResolved | ConvertTo-Json -Depth 20 -Compress
+        if ($previewJson.Contains($dataRoot) -or $previewJson -match '(?i)(file://|provider_path|local_path|media_bytes|<script)') { throw 'Packaged preview capability leaked a path, provider field, or media bytes.' }
+        $previewUrl = "http://127.0.0.1:$webPort$([string]$previewResult.preview_url)"
+        # Windows PowerShell reserves Invoke-WebRequest's Range header for its
+        # file-transfer switches. Use the framework client so the smoke test
+        # exercises the actual HTTP byte-range contract on both PS editions.
+        $previewClient = [System.Net.Http.HttpClient]::new()
+        try {
+            $previewRangeRequest = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $previewUrl)
+            $previewRangeRequest.Headers.Range = [System.Net.Http.Headers.RangeHeaderValue]::Parse('bytes=0-3')
+            $previewRangeResponse = $previewClient.SendAsync($previewRangeRequest).GetAwaiter().GetResult()
+            $previewRangeHeader = [string]$previewRangeResponse.Content.Headers.ContentRange
+            $previewNoSniff = if ($previewRangeResponse.Headers.Contains('X-Content-Type-Options')) { [string]($previewRangeResponse.Headers.GetValues('X-Content-Type-Options') -join ',') } else { '' }
+            $previewRangeBytes = $previewRangeResponse.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+            if ([int]$previewRangeResponse.StatusCode -ne 206 -or $previewRangeHeader -notmatch '^bytes 0-3/') { throw 'Packaged preview did not return a bounded 206 range.' }
+            if ($previewNoSniff -ne 'nosniff' -or $previewRangeBytes.Length -ne 4) { throw 'Packaged preview omitted nosniff or returned an incorrect range length.' }
+            $previewHeadRequest = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Head, $previewUrl)
+            $previewHeadResponse = $previewClient.SendAsync($previewHeadRequest).GetAwaiter().GetResult()
+            if ([int]$previewHeadResponse.StatusCode -ne 200 -or [int64]$previewHeadResponse.Content.Headers.ContentLength -le 0) { throw 'Packaged preview HEAD did not return the stream length.' }
+            $previewBadRangeRequest = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $previewUrl)
+            $previewBadRangeRequest.Headers.Range = [System.Net.Http.Headers.RangeHeaderValue]::Parse('bytes=999999-1000000')
+            $previewBadRangeResponse = $previewClient.SendAsync($previewBadRangeRequest).GetAwaiter().GetResult()
+            if ([int]$previewBadRangeResponse.StatusCode -ne 416) { throw "Packaged preview invalid range was not rejected with HTTP 416 (actual: $([int]$previewBadRangeResponse.StatusCode))." }
+            $previewRangeResponse.Dispose(); $previewHeadResponse.Dispose(); $previewBadRangeResponse.Dispose()
+            $previewRangeRequest.Dispose(); $previewHeadRequest.Dispose(); $previewBadRangeRequest.Dispose()
+        }
+        finally { $previewClient.Dispose() }
         $rightsConsentReplay = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-rights-consent'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
             command_type = 'RecordConsent'
             payload = @{ rights_identity_id = $rightsIdentityId; consent_type = 'SOURCE_USE'; granted_by = 'packaging-smoke'; evidence_asset_revision_id = [string]$asset.revisionId }

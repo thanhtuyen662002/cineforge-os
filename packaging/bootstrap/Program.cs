@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -67,14 +68,16 @@ internal static class Program
             var corePort = PickPort(options.CorePort ?? DefaultCorePort);
             var webPort = PickPort(options.WebPort ?? DefaultWebPort, corePort);
             var coreBase = new Uri($"http://127.0.0.1:{corePort}");
-            core = StartCore(root, dataRoot, corePort, logsRoot);
+            var coreCapabilityToken = CreateCapabilityToken();
+            var sessionId = Guid.NewGuid().ToString("N");
+            core = StartCore(root, dataRoot, corePort, logsRoot, coreCapabilityToken);
             if (core is null)
             {
                 Log(bootstrapLog, "Core was not found or could not be started.");
                 Console.Error.WriteLine("CineForge Core was not found or could not be started.");
             }
 
-            var transport = core is not null ? await WaitForCoreAsync(core, coreBase, lifetime.Token) : CoreTransport.None;
+            var transport = core is not null ? await WaitForCoreAsync(core, coreBase, coreCapabilityToken, lifetime.Token) : CoreTransport.None;
             if (transport == CoreTransport.None && !options.AllowOffline)
             {
                 var message = "CineForge Core did not become ready. The packaged product refuses to open in demo mode; inspect logs\\bootstrap.log and logs\\core.log.";
@@ -92,7 +95,7 @@ internal static class Program
                 try { listener.Stop(); } catch (ObjectDisposedException) { }
             });
 
-            var health = new HealthState(webRoot, transport, core, dataRoot, webPort);
+            var health = new HealthState(webRoot, transport, core, dataRoot, webPort, coreCapabilityToken, sessionId);
             Log(bootstrapLog, $"ready url={webPrefix}; transport={transport}; data={dataRoot}");
             Console.WriteLine($"CineForge is ready: {webPrefix}");
             Console.WriteLine($"Core: {(health.CoreReady ? transport.ToString().ToLowerInvariant() : "offline/demo")}; data: {dataRoot}");
@@ -208,7 +211,16 @@ internal static class Program
         throw new InvalidOperationException("No available loopback port in the CineForge port range.");
     }
 
-    private static CoreHost? StartCore(string root, string dataRoot, int port, string logsRoot)
+    private static string CreateCapabilityToken()
+    {
+        // The token is process-local bootstrap/Core capability material. It is
+        // passed through the child environment (never command-line arguments
+        // or logs) and is replaced on every launch.
+        return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    private static CoreHost? StartCore(string root, string dataRoot, int port, string logsRoot, string capabilityToken)
     {
         var database = Path.Combine(dataRoot, "cineforge.sqlite3");
         var runtimeRoot = Path.Combine(root, "runtime");
@@ -246,6 +258,7 @@ internal static class Program
                 };
                 nodeStart.ArgumentList.Add(nodeServer);
                 AddServerArguments(nodeStart, database, port);
+                nodeStart.Environment["CINEFORGE_CORE_TOKEN"] = capabilityToken;
                 return StartProcess(nodeStart, logsRoot);
             }
             if (isPackagedCore)
@@ -302,6 +315,7 @@ internal static class Program
         }
 
         AddServerArguments(start, database, port);
+        start.Environment["CINEFORGE_CORE_TOKEN"] = capabilityToken;
         return StartProcess(start, logsRoot);
     }
 
@@ -408,14 +422,16 @@ internal static class Program
         return null;
     }
 
-    private static async Task<CoreTransport> WaitForCoreAsync(CoreHost core, Uri coreBase, CancellationToken cancellationToken)
+    private static async Task<CoreTransport> WaitForCoreAsync(CoreHost core, Uri coreBase, string capabilityToken, CancellationToken cancellationToken)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
         while (DateTimeOffset.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
         {
             try
             {
-                using var response = await Http.GetAsync(new Uri(coreBase, "/v1/dashboard"), cancellationToken);
+                using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(coreBase, "/v1/dashboard"));
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capabilityToken);
+                using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 if (response.IsSuccessStatusCode) return CoreTransport.Http;
             }
             catch (HttpRequestException) { }
@@ -479,7 +495,7 @@ internal static class Program
                 {
                     await WriteJsonAsync(context.Response, new { ok = false, error = new { code = "ORIGIN_NOT_ALLOWED", message = "The API mutation origin is not trusted." } }, 403);
                 }
-                else if (health.Transport == CoreTransport.Http) await ProxyAsync(context, coreBase, health.DataRoot, cancellationToken);
+                else if (health.Transport == CoreTransport.Http) await ProxyAsync(context, coreBase, health, cancellationToken);
                 else if (health.Transport == CoreTransport.Rpc && health.Core is not null) await RpcBridgeAsync(context, health.Core, cancellationToken);
                 else await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes("CineForge Core is not ready."), "text/plain; charset=utf-8", 503);
             }
@@ -508,7 +524,7 @@ internal static class Program
         }
     }
 
-    private static async Task ProxyAsync(HttpListenerContext context, Uri coreBase, string dataRoot, CancellationToken cancellationToken)
+    private static async Task ProxyAsync(HttpListenerContext context, Uri coreBase, HealthState health, CancellationToken cancellationToken)
     {
         var target = new Uri(coreBase, context.Request.Url!.PathAndQuery);
         using var request = new HttpRequestMessage(new HttpMethod(context.Request.HttpMethod), target);
@@ -522,7 +538,7 @@ internal static class Program
                 // Resolve + consume are one filesystem lease.  The lock is
                 // held across the Core request, so two concurrent idempotency
                 // keys cannot both import the same browser handle.
-                stagedRequest = RewriteStagedAssetRequest(body, dataRoot, context.Request.Headers["Idempotency-Key"]);
+                stagedRequest = RewriteStagedAssetRequest(body, health.DataRoot, context.Request.Headers["Idempotency-Key"]);
                 stagedLease = stagedRequest.Lease is not null;
                 request.Content = new ByteArrayContent(stagedRequest.Body);
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
@@ -533,11 +549,17 @@ internal static class Program
                 if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
                     request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(context.Request.ContentType);
             }
-            foreach (var headerName in new[] { "Accept", "Authorization", "Idempotency-Key", "If-Match", "If-None-Match", "X-Request-Id" })
+            foreach (var headerName in new[] { "Accept", "Idempotency-Key", "If-Match", "If-None-Match", "X-Request-Id", "Range", "If-Range", "X-CineForge-Preview" })
             {
                 var value = context.Request.Headers[headerName];
                 if (!string.IsNullOrWhiteSpace(value)) request.Headers.TryAddWithoutValidation(headerName, value);
             }
+            // Browser credentials never become Core credentials. The
+            // bootstrap owns this capability and binds preview reads to the
+            // current process session.
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", health.CoreCapabilityToken);
+            request.Headers.Remove("X-CineForge-Session");
+            request.Headers.TryAddWithoutValidation("X-CineForge-Session", health.SessionId);
             // Only versioned API headers cross the desktop boundary. Browser
             // cookies, Origin, forwarding headers, and hop-by-hop transport
             // metadata must never reach Core or become part of its trust model.
@@ -545,18 +567,26 @@ internal static class Program
             context.Response.StatusCode = (int)response.StatusCode;
             if (response.Content.Headers.ContentType is not null)
                 context.Response.ContentType = response.Content.Headers.ContentType.ToString();
+            if (response.Content.Headers.ContentLength is long contentLength)
+                context.Response.ContentLength64 = contentLength;
             foreach (var header in response.Headers)
             {
                 if (header.Key.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase)) continue;
                 try { context.Response.Headers[header.Key] = string.Join(", ", header.Value); } catch (ArgumentException) { }
             }
-            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            foreach (var header in response.Content.Headers)
+            {
+                if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+                    header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)) continue;
+                try { context.Response.Headers[header.Key] = string.Join(", ", header.Value); } catch (ArgumentException) { }
+            }
             if (stagedRequest?.Handle is not null && (int)response.StatusCode is >= 200 and < 300)
             {
-                try { MarkStagedUploadConsumed(dataRoot, stagedRequest.Handle, stagedRequest.IdempotencyKey!); }
+                try { MarkStagedUploadConsumed(health.DataRoot, stagedRequest.Handle, stagedRequest.IdempotencyKey!); }
                 catch { /* a successful Core command remains canonical if cleanup is interrupted */ }
             }
-            await context.Response.OutputStream.WriteAsync(bytes, cancellationToken);
+            if (!context.Request.HttpMethod.Equals("HEAD", StringComparison.OrdinalIgnoreCase))
+                await response.Content.CopyToAsync(context.Response.OutputStream, cancellationToken);
         }
         finally
         {
@@ -1142,13 +1172,15 @@ internal static class Program
 
     private sealed class HealthState
     {
-        public HealthState(string webRoot, CoreTransport transport, CoreHost? core, string dataRoot, int webPort)
+        public HealthState(string webRoot, CoreTransport transport, CoreHost? core, string dataRoot, int webPort, string coreCapabilityToken, string sessionId)
         {
             WebRoot = webRoot;
             Transport = transport;
             Core = core;
             DataRoot = dataRoot;
             WebOrigin = $"http://127.0.0.1:{webPort}";
+            CoreCapabilityToken = coreCapabilityToken;
+            SessionId = sessionId;
         }
 
         public string WebRoot { get; }
@@ -1156,6 +1188,8 @@ internal static class Program
         public CoreHost? Core { get; }
         public string DataRoot { get; }
         public string WebOrigin { get; }
+        public string CoreCapabilityToken { get; }
+        public string SessionId { get; }
         public bool CoreReady => Transport != CoreTransport.None;
     }
 

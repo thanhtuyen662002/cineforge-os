@@ -122,6 +122,20 @@ const BACKUP_FORMAT_VERSION = 1;
 const DEFAULT_BACKUP_RESERVE_BYTES = 64 * 1024 * 1024;
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 const MAX_ASSET_METADATA_BYTES = 64 * 1024;
+// Media preview is deliberately a narrow inspection capability.  It never
+// exposes a storage path or turns the managed CAS into a general file server.
+const MEDIA_PREVIEW_PURPOSES = new Set(['LIBRARY_PREVIEW', 'TIMELINE_PREVIEW']);
+const MEDIA_PREVIEW_MIME_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/flac',
+  'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-matroska',
+]);
+const MEDIA_PREVIEW_DEFAULT_TTL_MS = 60 * 1000;
+const MEDIA_PREVIEW_MAX_TTL_MS = 5 * 60 * 1000;
+const MEDIA_PREVIEW_MAX_TOKENS = 4096;
+const MEDIA_PREVIEW_MAX_FULL_BYTES = 64 * 1024 * 1024;
+const MEDIA_PREVIEW_MAX_RANGE_BYTES = 16 * 1024 * 1024;
+const MEDIA_PREVIEW_AUDIENCE = 'LOCAL_MEDIA_PREVIEW';
 const STAGING_STATES = new Set(['WRITING', 'COMPLETE', 'VERIFIED', 'REGISTERED', 'ORPHANED', 'QUARANTINED', 'FAILED']);
 const STAGING_TRANSITIONS = Object.freeze({
   WRITING: new Set(['COMPLETE', 'ORPHANED', 'FAILED', 'QUARANTINED']),
@@ -1077,12 +1091,22 @@ export class CoreService {
       ?? (dbPath === ':memory:' ? path.join(process.cwd(), '.cineforge', 'asset-store') : path.join(path.dirname(path.resolve(dbPath)), 'asset-store')));
     this.maxAssetBytes = Number.isSafeInteger(options.maxAssetBytes) && options.maxAssetBytes >= 0
       ? options.maxAssetBytes : 8 * 1024 * 1024 * 1024;
+    const requestedPreviewTtl = Number(options.previewTokenTtlMs);
+    this.previewTokenTtlMs = Number.isFinite(requestedPreviewTtl)
+      ? Math.min(Math.max(Math.trunc(requestedPreviewTtl), 1), MEDIA_PREVIEW_MAX_TTL_MS)
+      : MEDIA_PREVIEW_DEFAULT_TTL_MS;
+    // This process fence makes every capability stale after a Core restart.
+    // The epoch and token map are intentionally memory-only and are never
+    // written to the project database or returned in health projections.
+    this.previewEpoch = crypto.randomBytes(32).toString('base64url');
+    this.previewTokens = new Map();
     this.db = new DatabaseSync(dbPath);
     initializeDatabase(this.db);
     this._bootstrap(options);
   }
 
   close() {
+    this.previewTokens?.clear();
     this.db.close();
   }
 
@@ -6619,6 +6643,7 @@ export class CoreService {
       case 'query.handoff.list': return this._handoffList(params);
       case 'query.handoff.get': return this._handoffGet(params.handoff_id ?? params.handoffId ?? params.export_session_id ?? params.exportSessionId ?? params.id, params.project_id ?? params.projectId ?? null);
       case 'query.asset.rights': return this._rightsForAsset(params.asset_id ?? params.assetId, params);
+      case 'query.media.resolve_preview': return this.resolveMediaPreview(params);
       case 'query.rights.evaluate': return this._evaluateRights(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
       case 'query.rights.identity': return this._rightsIdentityDetails(params.rights_identity_id ?? params.rightsIdentityId ?? params.identity_id ?? params.identityId, params);
       case 'query.import.session': return this._importSession(params.import_session_id ?? params.importSessionId ?? params.id);
@@ -6651,6 +6676,237 @@ export class CoreService {
       notes: this._notes(projectId, { limit: 100 }),
       assets: this._assets({ project_id: projectId }).assets,
       characters: this._characterList({ project_id: projectId }).characters,
+    };
+  }
+
+  _previewPurpose(value) {
+    const purpose = String(value ?? 'LIBRARY_PREVIEW').trim().toUpperCase();
+    if (!MEDIA_PREVIEW_PURPOSES.has(purpose)) {
+      throw new CoreError('PREVIEW_PURPOSE_UNSUPPORTED', 'VALIDATION', 'errors.preview_purpose_unsupported', { purpose });
+    }
+    return purpose;
+  }
+
+  /**
+   * Resolve an exact managed CAS object for inspection.  This function is
+   * called at capability issuance and again immediately before every stream,
+   * so rights, lifecycle, availability evidence, path safety and content
+   * identity cannot become stale behind a previously issued URL.
+   */
+  _previewDescriptor(projectIdValue, revisionIdValue) {
+    const projectId = requiredString(projectIdValue, 'project_id');
+    const revisionId = requiredString(revisionIdValue, 'asset_revision_id');
+    this._project(projectId);
+    const revision = this.db.prepare(`SELECT r.*, a.project_id, a.lifecycle_state AS asset_lifecycle_state,
+        a.rights_identity_id, so.hash_algorithm, so.content_hash, so.byte_size, so.storage_class,
+        so.verified_at_utc_us, p.source_metadata_json
+      FROM asset_revisions r
+      JOIN assets a ON a.id = r.asset_id
+      JOIN storage_objects so ON so.id = r.storage_object_id
+      LEFT JOIN provenance_records p ON p.id = r.provenance_record_id
+      WHERE r.id = ?`).get(revisionId);
+    if (!revision) throw new CoreError('ASSET_REVISION_NOT_FOUND', 'VALIDATION', 'errors.asset_revision_not_found', { asset_revision_id: revisionId });
+    if (revision.project_id !== projectId) {
+      throw new CoreError('PREVIEW_PROJECT_SCOPE', 'CONFLICT', 'errors.preview_project_scope', { project_id: projectId, asset_revision_id: revisionId }, { needsUser: true });
+    }
+    if (revision.asset_lifecycle_state !== 'ACTIVE' || revision.lifecycle_state === 'TRASHED') {
+      throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'ASSET_INACTIVE' }, { needsUser: true });
+    }
+    // Preview is an inspection aid and may be used before a human content
+    // review.  It still requires verified materialization evidence and never
+    // treats an UNKNOWN/REFERENCE object as playable.
+    if (revision.availability_state !== 'AVAILABLE' || revision.availability_evidence_state !== 'VERIFIED' || revision.review_state === 'REJECTED') {
+      throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'AVAILABILITY_UNKNOWN' }, { needsUser: true });
+    }
+    const expectedByteSize = Number(revision.byte_size);
+    if (!Number.isSafeInteger(expectedByteSize) || expectedByteSize < 0) {
+      throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'INVALID_CONTENT_SIZE' }, { needsUser: true });
+    }
+    if (revision.storage_class !== 'LOCAL_MANAGED') {
+      throw new CoreError('PREVIEW_EXTERNAL_REFERENCE', 'CONFLICT', 'errors.preview_external_reference', {}, { needsUser: true });
+    }
+    let rights;
+    try {
+      rights = revision.rights_identity_id
+        ? this._evaluateRights(revision.rights_identity_id, {
+          right_type: DEFAULT_RIGHT_TYPE,
+          consent_type: DEFAULT_CONSENT_TYPE,
+          purpose: 'MEDIA_PREVIEW',
+        })
+        : null;
+    } catch {
+      rights = null;
+    }
+    if (!rights?.eligible || rights.status !== 'ALLOWED') {
+      throw new CoreError('PREVIEW_RIGHTS_BLOCKED', 'CONFLICT', 'errors.preview_rights_blocked', { status: rights?.status ?? 'UNKNOWN' }, { needsUser: true });
+    }
+
+    const storageLocation = this.db.prepare(`SELECT * FROM storage_object_locations
+      WHERE storage_object_id = ? AND storage_root = 'asset-store' AND location_role = 'PRIMARY' AND state = 'AVAILABLE'
+      ORDER BY created_at_utc_us ASC, id ASC LIMIT 1`).get(revision.storage_object_id);
+    if (!storageLocation || typeof storageLocation.relative_path !== 'string' || storageLocation.relative_path.trim() === '') {
+      throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'MANAGED_LOCATION_UNAVAILABLE' }, { needsUser: true });
+    }
+    const relativePath = storageLocation.relative_path.replaceAll('\\', '/');
+    const segments = relativePath.split('/');
+    if (path.isAbsolute(relativePath) || segments.some((segment) => segment === '..' || segment === '')) {
+      throw new CoreError('PREVIEW_PATH_ESCAPE', 'INTERNAL', 'errors.preview_path_escape', {}, { needsUser: false });
+    }
+    const absolute = path.resolve(this.assetStorePath, relativePath);
+    if (!pathIsWithin(absolute, this.assetStorePath) || pathKey(absolute) === pathKey(this.assetStorePath)) {
+      throw new CoreError('PREVIEW_PATH_ESCAPE', 'INTERNAL', 'errors.preview_path_escape', {}, { needsUser: false });
+    }
+    try {
+      this._assertNoReparsePath(absolute);
+      const link = fs.lstatSync(absolute);
+      if (link.isSymbolicLink() || !link.isFile() || Number(link.nlink ?? 1) !== 1) {
+        throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'MANAGED_OBJECT_INVALID' }, { needsUser: true });
+      }
+      if (Number(link.size) !== expectedByteSize) {
+        throw new CoreError('PREVIEW_CONTENT_CHANGED', 'CONFLICT', 'errors.preview_content_changed', {}, { retryable: true, needsUser: true });
+      }
+    } catch (error) {
+      if (error instanceof CoreError && error.code.startsWith('PREVIEW_')) throw error;
+      if (error?.code === 'ENOENT') throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'MANAGED_OBJECT_MISSING' }, { needsUser: true });
+      throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: error?.code === 'SOURCE_REPARSE_REJECTED' ? 'MANAGED_OBJECT_REPARSE' : 'MANAGED_OBJECT_UNREADABLE' }, { needsUser: true });
+    }
+    let digest;
+    try {
+      digest = this._hashLocalFile(absolute);
+    } catch (error) {
+      if (error instanceof CoreError && error.code === 'PREVIEW_CONTENT_CHANGED') throw error;
+      throw new CoreError('PREVIEW_NOT_READY', 'CONFLICT', 'errors.preview_not_ready', { reason: 'MANAGED_OBJECT_UNREADABLE' }, { needsUser: true });
+    }
+    if (String(digest.content_hash).toLowerCase() !== String(revision.content_hash).toLowerCase() || Number(digest.byte_size) !== expectedByteSize) {
+      throw new CoreError('PREVIEW_CONTENT_CHANGED', 'CONFLICT', 'errors.preview_content_changed', {}, { retryable: true, needsUser: true });
+    }
+    const metadata = parseJson(revision.source_metadata_json, {});
+    const rawMime = typeof metadata?.detected_mime === 'string' ? metadata.detected_mime : '';
+    const mimeType = rawMime.split(';', 1)[0].trim().toLowerCase();
+    if (!MEDIA_PREVIEW_MIME_TYPES.has(mimeType)) {
+      throw new CoreError('PREVIEW_MIME_UNSUPPORTED', 'VALIDATION', 'errors.preview_mime_unsupported', {}, { needsUser: true });
+    }
+    return {
+      projectId,
+      revisionId,
+      filePath: absolute,
+      mimeType,
+      byteSize: expectedByteSize,
+      contentHash: String(revision.content_hash).toLowerCase(),
+      rightsStatus: rights.status,
+      readinessState: revision.review_state === 'APPROVED' ? 'READY' : 'INSPECTION_READY',
+    };
+  }
+
+  _previewRange(value, byteSize) {
+    const raw = value === undefined || value === null ? '' : String(value).trim();
+    if (!raw) {
+      if (byteSize > MEDIA_PREVIEW_MAX_FULL_BYTES) {
+        throw new CoreError('PREVIEW_RANGE_REQUIRED', 'CONFLICT', 'errors.preview_range_required', { max_bytes: MEDIA_PREVIEW_MAX_FULL_BYTES, byte_size: byteSize }, { needsUser: true });
+      }
+      return { status: 200, start: 0, end: Math.max(byteSize - 1, -1), length: byteSize, contentRange: null };
+    }
+    const match = /^bytes=(\d*)-(\d*)$/.exec(raw);
+    if (!match || (match[1] === '' && match[2] === '') || byteSize === 0) {
+      throw new CoreError('PREVIEW_RANGE_INVALID', 'VALIDATION', 'errors.preview_range_invalid', {}, { needsUser: true });
+    }
+    let start;
+    let end;
+    if (match[1] === '') {
+      const suffix = Number(match[2]);
+      if (!Number.isSafeInteger(suffix) || suffix <= 0) throw new CoreError('PREVIEW_RANGE_INVALID', 'VALIDATION', 'errors.preview_range_invalid', {}, { needsUser: true });
+      start = Math.max(byteSize - suffix, 0);
+      end = byteSize - 1;
+    } else {
+      start = Number(match[1]);
+      end = match[2] === '' ? byteSize - 1 : Number(match[2]);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= byteSize) {
+        throw new CoreError('PREVIEW_RANGE_NOT_SATISFIABLE', 'CONFLICT', 'errors.preview_range_not_satisfiable', { byte_size: byteSize }, { needsUser: true });
+      }
+      end = Math.min(end, byteSize - 1);
+    }
+    const length = end - start + 1;
+    if (!Number.isSafeInteger(length) || length > MEDIA_PREVIEW_MAX_RANGE_BYTES) {
+      throw new CoreError('PREVIEW_RANGE_TOO_LARGE', 'CONFLICT', 'errors.preview_range_too_large', { max_bytes: MEDIA_PREVIEW_MAX_RANGE_BYTES }, { needsUser: true });
+    }
+    return { status: 206, start, end, length, contentRange: `bytes ${start}-${end}/${byteSize}` };
+  }
+
+  _cleanPreviewTokens(now = Date.now()) {
+    for (const [token, record] of this.previewTokens) {
+      if (record.expiresAtMs <= now || record.epoch !== this.previewEpoch) this.previewTokens.delete(token);
+    }
+  }
+
+  resolveMediaPreview(params = {}) {
+    const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
+    const revisionId = requiredString(params.asset_revision_id ?? params.assetRevisionId ?? params.revision_id ?? params.revisionId, 'asset_revision_id');
+    const sessionId = requiredString(params.session_id ?? params.sessionId, 'session_id', 256);
+    const purpose = this._previewPurpose(params.purpose);
+    const descriptor = this._previewDescriptor(projectId, revisionId);
+    this._cleanPreviewTokens();
+    const token = crypto.randomBytes(32).toString('base64url');
+    const expiresAtMs = Date.now() + this.previewTokenTtlMs;
+    this.previewTokens.set(token, {
+      epoch: this.previewEpoch,
+      audience: MEDIA_PREVIEW_AUDIENCE,
+      nonce: crypto.randomBytes(16).toString('base64url'),
+      sessionId,
+      projectId,
+      revisionId,
+      purpose,
+      expiresAtMs,
+      contentHash: descriptor.contentHash,
+      byteSize: descriptor.byteSize,
+      mimeType: descriptor.mimeType,
+    });
+    while (this.previewTokens.size > MEDIA_PREVIEW_MAX_TOKENS) {
+      const oldest = this.previewTokens.keys().next().value;
+      if (oldest === undefined) break;
+      this.previewTokens.delete(oldest);
+    }
+    return {
+      project_id: projectId,
+      asset_revision_id: revisionId,
+      purpose,
+      token,
+      expires_at: new Date(expiresAtMs).toISOString(),
+      mime_type: descriptor.mimeType,
+      byte_size: descriptor.byteSize,
+      content_hash: descriptor.contentHash,
+      readiness_state: descriptor.readinessState,
+      rights_status: descriptor.rightsStatus,
+      max_range_bytes: MEDIA_PREVIEW_MAX_RANGE_BYTES,
+    };
+  }
+
+  openMediaPreview(params = {}) {
+    const token = requiredString(params.token ?? params.preview_token ?? params.previewToken, 'preview_token', 512);
+    this._cleanPreviewTokens();
+    const record = this.previewTokens.get(token);
+    if (!record) throw new CoreError('PREVIEW_TOKEN_INVALID', 'AUTH_REQUIRED', 'errors.preview_token_invalid', {}, { needsUser: true });
+    if (record.expiresAtMs <= Date.now()) {
+      this.previewTokens.delete(token);
+      throw new CoreError('PREVIEW_TOKEN_EXPIRED', 'AUTH_REQUIRED', 'errors.preview_token_expired', {}, { needsUser: true });
+    }
+    const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
+    const revisionId = requiredString(params.asset_revision_id ?? params.assetRevisionId ?? params.revision_id ?? params.revisionId, 'asset_revision_id');
+    const purpose = this._previewPurpose(params.purpose ?? record.purpose);
+    const sessionId = params.session_id ?? params.sessionId;
+    if (record.epoch !== this.previewEpoch || record.audience !== MEDIA_PREVIEW_AUDIENCE || record.projectId !== projectId || record.revisionId !== revisionId || record.purpose !== purpose
+      || (sessionId !== undefined && sessionId !== null && String(sessionId) !== record.sessionId)) {
+      throw new CoreError('PREVIEW_TOKEN_SCOPE', 'AUTH_REQUIRED', 'errors.preview_token_scope', {}, { needsUser: true });
+    }
+    const descriptor = this._previewDescriptor(projectId, revisionId);
+    if (descriptor.contentHash !== record.contentHash || descriptor.byteSize !== record.byteSize || descriptor.mimeType !== record.mimeType) {
+      throw new CoreError('PREVIEW_CONTENT_CHANGED', 'CONFLICT', 'errors.preview_content_changed', {}, { retryable: true, needsUser: true });
+    }
+    const range = this._previewRange(params.range ?? params.range_header ?? params.rangeHeader, descriptor.byteSize);
+    return {
+      ...descriptor,
+      ...range,
+      etag: `\"${descriptor.contentHash}\"`,
+      expiresAt: new Date(record.expiresAtMs).toISOString(),
     };
   }
 
