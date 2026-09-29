@@ -671,6 +671,141 @@ Timeline op response includes impacted dependent domains:
 - music;
 - release readiness.
 
+## Issue #27 executable bounded working-session contract
+
+Issue #27 opens a local, project-scoped working session over the existing
+timeline checkpoint contract. The commands below are specified as Core
+commands; they are not permission for the UI, worker or connector to write
+timeline tables directly. A runtime may advertise a command only after its
+implementation and verification evidence exists.
+
+The command names are:
+
+- `BeginTimelineWorkingSession`;
+- `ApplyTimelineEditOp`;
+- `UndoTimelineEditOp`;
+- `RedoTimelineEditOp`;
+- `AutosaveTimelineWorkingSession`;
+- `CheckpointTimelineWorkingSession`; and
+- `CloseTimelineWorkingSession`.
+
+The corresponding query projections are:
+
+- `query.timeline.working_session({project_id, timeline_id, session_id?})`;
+- `query.timeline.edit_history({project_id, timeline_id, session_id, after_op_seq?, limit?})`; and
+- the existing `query.timeline.workspace`, which may include a redacted
+  working-session summary when the caller has explicitly selected one.
+
+Every mutating request carries an `Idempotency-Key` bound to the canonical
+request payload and the authenticated actor/session namespace. Every request
+also carries the relevant expected version. A repeated equivalent key returns
+the original result; the same key with a different payload, base revision or
+expected version returns `IDEMPOTENCY_KEY_REUSE_CONFLICT` and writes no second
+command, event or operation.
+
+After `BeginTimelineWorkingSession`, every session mutation also carries the
+same `client_instance_id` that was bound to the session. A missing or different
+client identity is rejected before the working snapshot is evaluated; a client
+cannot borrow another local client's session merely by knowing its ID.
+
+`BeginTimelineWorkingSession` requires an explicit `project_id`, `timeline_id`,
+`base_revision_id`, `base_content_hash` (equal to that revision's exact
+`content_hash`), `expected_timeline_version` and `client_instance_id`. The
+actor is resolved from the authenticated local
+session rather than trusted from the body. The base ID, content hash and row
+version must still identify the same immutable project-scoped revision. A
+missing, cross-project, superseded or `latest` reference is rejected. The
+second non-terminal session for the same timeline and actor returns
+`TIMELINE_WORKING_SESSION_ALREADY_OPEN`; it never silently takes ownership.
+
+`ApplyTimelineEditOp` accepts one typed operation or a bounded `operations`
+array (maximum 32 entries). The entire request is one Core transaction:
+operations receive consecutive `op_seq` values and a validation failure rolls
+back the whole batch; no prefix may be reported as accepted. Each entry uses
+the following semantic contract:
+
+| Operation | Required semantic payload | Required checks |
+|---|---|---|
+| `INSERT_CLIP` | exact `asset_revision_id`, VIDEO track/order, source and timeline rational intervals, positive constant speed | asset is materialized, available, same project and rights-allowed; no overlap or out-of-bounds interval |
+| `MOVE_CLIP` | exact clip ID and new timeline interval | clip belongs to this working snapshot; ordering and overlap rules hold |
+| `TRIM_CLIP` | exact clip ID and checked source/timeline bounds | intervals remain ordered and non-empty and remain pinned to the exact asset revision; asset-duration bounds are deferred until authoritative media-duration metadata is available |
+| `DELETE_CLIP` | exact clip ID | only the working snapshot is changed; immutable revisions are untouched |
+| `ADD_MARKER` | rational position, typed marker kind/label/payload | position is in the timeline bounds and the structured payload stays within Core's bounded object limits |
+
+The five-operation allowlist is closed. `SPLIT_CLIP`, `RETIME_CLIP`, audio,
+captions, transitions, links, transforms,
+effects, nested sequences, provider fields, paths, floats, NaN/Infinity,
+zero/negative denominators, overflowed rationals, cross-project IDs and
+unknown payload keys fail typed validation before mutation. Core assigns a
+monotonic `op_seq`; the request's `client_op_id` is unique within the session.
+The operation's canonical payload JSON, base revision/version binding and
+actor are committed atomically with the session row; the command ledger keeps
+the request fingerprint used for idempotent replay and reuse-conflict checks.
+The response includes the
+accepted sequence, working content hash, session state, dependency-impact
+summary, `needs_user` and `next_step`.
+
+`UndoTimelineEditOp` and `RedoTimelineEditOp` never rewind global project
+history. Undo creates an append-only causal compensating operation for the
+current actor's eligible reversible operation. Redo re-applies the most recent
+eligible undo relation. A target with newer dependent operations, an already
+resolved relation or an external/irreversible effect returns a typed conflict;
+a new edit after undo invalidates redo. Earlier operation rows and audit events
+remain visible in history.
+
+`AutosaveTimelineWorkingSession` durably records the current working snapshot
+and acknowledgement sequence only. It must not create, approve, supersede or
+mutate a canonical timeline revision, review, release or handoff. The response
+is successful only after the Core transaction commits and includes the server
+ autosave timestamp and durable op sequence. A stale base/session version
+ returns a typed `409 CONFLICT` and leaves the durable session unchanged; an
+ interrupted autosave/checkpoint is instead promoted to `RECOVERY_REQUIRED` on
+ the next Core start. Autosave cannot overwrite newer state.
+
+`CheckpointTimelineWorkingSession` requires a cleanly acknowledged operation
+prefix, the exact expected session/base version and no unresolved conflict. It
+replays the deterministic working snapshot, then revalidates the exact media
+profile, materialized asset revisions, rational bounds and current rights
+before invoking the existing `CreateTimelineRevision` semantics. Core also
+fences the session's captured base revision row version and content hash before
+the write. Success creates one immutable `DRAFT_CHECKPOINT`, leaves all
+earlier revisions untouched and re-bases the still-open session to that exact
+checkpoint (including its new base row version/hash) in `CLEAN`. It never
+promotes, approves, exports or publishes the checkpoint.
+
+`CloseTimelineWorkingSession` is explicit. A `CLEAN` session may close and
+becomes `CLOSED`; a dirty session must either checkpoint first or send an
+explicit `ABANDON` disposition, which preserves the durable draft and enters
+`ABANDONED`. After either terminal state, operations, autosave, undo and redo
+are rejected. Reopening starts a new session against an explicit revision.
+
+The project-scoped HTTP adapter maps these commands to:
+
+- `GET /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions`;
+- `GET /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}`;
+- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions`;
+- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/ops`;
+- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/undo`;
+- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/redo`;
+- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/autosave`;
+- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/checkpoint`; and
+- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/close`; and
+- `GET /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/history?after_op_seq=&limit=`.
+
+Malformed or unsupported payloads map to `400 VALIDATION`; unknown or
+cross-project IDs map to `404`; stale base/session versions, a second active
+session, idempotency mismatch, conflict, dirty close and unsynchronized
+checkpoint map to `409 CONFLICT` with `needs_user` and a human-readable
+`next_step` where a decision is required. A `503` is reserved for actual Core
+availability failure. Public errors redact filesystem paths, provider data,
+raw payloads and internal SQL details.
+
+This issue intentionally excludes multi-user collaboration, offline branch
+merge, leases/fencing, semantic conflict resolution, playback, thumbnails or
+waveforms, audio/caption/transition processing, render/transcode, external
+editor round-trip, handoff/export, release/publish, provider dispatch and
+arbitrary shell execution. Those boundaries remain separate contracts.
+
 # 17. Review API detail
 
 ## Issue #23 project-scoped timeline review baseline

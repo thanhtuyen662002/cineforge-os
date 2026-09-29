@@ -1,0 +1,14 @@
+{
+  "task_id": 27,
+  "claim_id": "i27-a1",
+  "contract_version": 1,
+  "contract_hash": "sha256:4508371098085b2c71671c20a60737c3156705ecbd10ee4b1c7d51c26daa4385",
+  "agent_instance_id": "cineforge-WORK-timeline-edit",
+  "slot_id": "WORK-timeline-edit",
+  "run_id": "WORK-timeline-edit-20260929-A1",
+  "base_ref": "agent/i25-a1-handoff-manifest",
+  "base_sha": "841c556e69b37342437fcd9051cbf0d1fb5ab63f",
+  "context_base_sha": "841c556e69b37342437fcd9051cbf0d1fb5ab63f",
+  "status": "CLAIMED",
+  "created_at": "2026-09-29T09:00:00+07:00"
+}

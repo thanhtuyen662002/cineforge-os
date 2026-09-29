@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -36,6 +36,15 @@ export interface CoreBridge {
   transitionMediaProfileRevision?(projectId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string): Promise<MediaProfileWorkspace>
   getTimelines?(projectId: string, signal?: AbortSignal): Promise<TimelineSummary[]>
   getTimelineWorkspace?(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace>
+  getTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, signal?: AbortSignal): Promise<TimelineWorkingWorkspace>
+  getTimelineWorkingHistory?(projectId: string, timelineId: string, sessionId: string, afterOpSeq?: number, limit?: number, signal?: AbortSignal): Promise<TimelineWorkingHistory>
+  beginTimelineWorkingSession?(projectId: string, timelineId: string, input: { baseRevisionId: string; baseRevisionRowVersion: number; baseContentHash: string; clientInstanceId: string; expectedTimelineVersion: number }, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  applyTimelineEditOps?(projectId: string, timelineId: string, sessionId: string, operations: Array<Record<string, unknown>>, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  undoTimelineEditOp?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  redoTimelineEditOp?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  autosaveTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  checkpointTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, expectedTimelineVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  closeTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, disposition: 'SAVE' | 'ABANDON', expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
   createTimeline?(projectId: string, input: TimelineInput, idempotencyKey?: string): Promise<TimelineSummary>
   createTimelineRevision?(projectId: string, timelineId: string, input: TimelineSnapshotInput, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
   transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string, reviewSessionId?: string, dependencySnapshotHash?: string): Promise<TimelineWorkspace>
@@ -253,6 +262,8 @@ function persistLocalWorkspace(projectId: string, value: LocalWorkspaceState) {
  * app remains useful for design review and first-run onboarding.
  */
 export class HttpCoreClient implements CoreClient {
+  private readonly timelineWorkingClientInstances = new Map<string, string>()
+
   constructor(private readonly baseUrl = import.meta.env.VITE_CORE_BASE_URL ?? globalThis.window?.__CINEFORGE_CORE_BASE_URL__ ?? '') {}
 
   isLive(): boolean {
@@ -710,6 +721,85 @@ export class HttpCoreClient implements CoreClient {
     if (!this.baseUrl) throw new CoreClientError('Timeline workspace requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/workspace`, { signal, headers: { Accept: 'application/json' } })
     return mapTimelineWorkspaceRecord(await readCorePayload(response, 'timeline workspace'))
+  }
+
+  async getTimelineWorkingSession(projectId: string, timelineId: string, sessionId: string, signal?: AbortSignal): Promise<TimelineWorkingWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Timeline working sessions require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/working-sessions/${encodeURIComponent(sessionId)}`, { signal, headers: { Accept: 'application/json' } })
+    const result = mapTimelineWorkingWorkspaceRecord(await readCorePayload(response, 'timeline working session'))
+    if (result.session?.id && result.session.clientInstanceId) this.timelineWorkingClientInstances.set(result.session.id, result.session.clientInstanceId)
+    return result
+  }
+
+  async getTimelineWorkingHistory(projectId: string, timelineId: string, sessionId: string, afterOpSeq = 0, limit = 100, signal?: AbortSignal): Promise<TimelineWorkingHistory> {
+    if (!this.baseUrl) throw new CoreClientError('Timeline working history requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!sessionId.trim() || !Number.isSafeInteger(afterOpSeq) || afterOpSeq < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new CoreClientError('A valid history cursor and bounded page size are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const query = new URLSearchParams({ after_op_seq: String(afterOpSeq), limit: String(limit) })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/working-sessions/${encodeURIComponent(sessionId)}/history?${query.toString()}`, { signal, headers: { Accept: 'application/json' } })
+    return mapTimelineWorkingHistoryRecord(await readCorePayload(response, 'timeline working history'))
+  }
+
+  async beginTimelineWorkingSession(projectId: string, timelineId: string, input: { baseRevisionId: string; baseRevisionRowVersion: number; baseContentHash: string; clientInstanceId: string; expectedTimelineVersion: number }, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkingWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Opening a timeline working session requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!input.baseRevisionId.trim() || !/^[0-9a-f]{64}$/i.test(input.baseContentHash) || !input.clientInstanceId.trim() || !Number.isSafeInteger(input.baseRevisionRowVersion) || input.baseRevisionRowVersion < 1 || !Number.isSafeInteger(input.expectedTimelineVersion) || input.expectedTimelineVersion < 1) {
+      throw new CoreClientError('The exact base revision, content hash, versions and client identity are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    }
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/working-sessions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ base_revision_id: input.baseRevisionId, base_revision_row_version: input.baseRevisionRowVersion, base_content_hash: input.baseContentHash.toLowerCase(), client_instance_id: input.clientInstanceId, expected_timeline_version: input.expectedTimelineVersion }),
+    })
+    const result = mapTimelineWorkingWorkspaceRecord(await readCorePayload(response, 'timeline working session opening'))
+    if (result.session?.id && result.session.clientInstanceId) this.timelineWorkingClientInstances.set(result.session.id, result.session.clientInstanceId)
+    return result
+  }
+
+  async applyTimelineEditOps(projectId: string, timelineId: string, sessionId: string, operations: Array<Record<string, unknown>>, expectedSessionVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkingWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Applying timeline edits requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!sessionId.trim() || !Array.isArray(operations) || operations.length < 1 || operations.length > 32 || !Number.isSafeInteger(expectedSessionVersion) || expectedSessionVersion < 1) throw new CoreClientError('A bounded operation batch and current working-session version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const clientInstanceId = this.timelineWorkingClientInstances.get(sessionId)
+    if (!clientInstanceId) throw new CoreClientError('The exact working-session client identity is unavailable; reload the session before editing.', { code: 'TIMELINE_WORKING_CLIENT_REQUIRED', category: 'AUTH_REQUIRED', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/working-sessions/${encodeURIComponent(sessionId)}/ops`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ operations, client_instance_id: clientInstanceId, expected_version: expectedSessionVersion }),
+    })
+    return mapTimelineWorkingWorkspaceRecord(await readCorePayload(response, 'timeline edit operations'))
+  }
+
+  private async timelineWorkingCommand(projectId: string, timelineId: string, sessionId: string, path: string, body: Record<string, unknown>, label: string, idempotencyKey: string): Promise<TimelineWorkingWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError(`${label} requires a connected Core.`, { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const clientInstanceId = this.timelineWorkingClientInstances.get(sessionId)
+    if (!clientInstanceId) throw new CoreClientError('The exact working-session client identity is unavailable; reload the session before continuing.', { code: 'TIMELINE_WORKING_CLIENT_REQUIRED', category: 'AUTH_REQUIRED', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/timelines/${encodeURIComponent(timelineId)}/working-sessions/${encodeURIComponent(sessionId)}/${path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ ...body, client_instance_id: clientInstanceId }),
+    })
+    const result = mapTimelineWorkingWorkspaceRecord(await readCorePayload(response, label))
+    if (['CLOSED', 'ABANDONED'].includes(result.session?.state ?? '')) this.timelineWorkingClientInstances.delete(sessionId)
+    return result
+  }
+
+  async undoTimelineEditOp(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkingWorkspace> {
+    if (!Number.isSafeInteger(expectedSessionVersion) || expectedSessionVersion < 1) throw new CoreClientError('A current working-session version is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    return this.timelineWorkingCommand(projectId, timelineId, sessionId, 'undo', { expected_version: expectedSessionVersion }, 'timeline undo', idempotencyKey)
+  }
+
+  async redoTimelineEditOp(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkingWorkspace> {
+    if (!Number.isSafeInteger(expectedSessionVersion) || expectedSessionVersion < 1) throw new CoreClientError('A current working-session version is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    return this.timelineWorkingCommand(projectId, timelineId, sessionId, 'redo', { expected_version: expectedSessionVersion }, 'timeline redo', idempotencyKey)
+  }
+
+  async autosaveTimelineWorkingSession(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkingWorkspace> {
+    if (!Number.isSafeInteger(expectedSessionVersion) || expectedSessionVersion < 1) throw new CoreClientError('A current working-session version is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    return this.timelineWorkingCommand(projectId, timelineId, sessionId, 'autosave', { expected_version: expectedSessionVersion }, 'timeline draft autosave', idempotencyKey)
+  }
+
+  async checkpointTimelineWorkingSession(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, expectedTimelineVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkingWorkspace> {
+    if (!Number.isSafeInteger(expectedSessionVersion) || expectedSessionVersion < 1 || !Number.isSafeInteger(expectedTimelineVersion) || expectedTimelineVersion < 1) throw new CoreClientError('Current session and timeline versions are required before checkpoint.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    return this.timelineWorkingCommand(projectId, timelineId, sessionId, 'checkpoint', { expected_version: expectedSessionVersion, expected_timeline_version: expectedTimelineVersion }, 'timeline checkpoint', idempotencyKey)
+  }
+
+  async closeTimelineWorkingSession(projectId: string, timelineId: string, sessionId: string, disposition: 'SAVE' | 'ABANDON', expectedSessionVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineWorkingWorkspace> {
+    if (!Number.isSafeInteger(expectedSessionVersion) || expectedSessionVersion < 1) throw new CoreClientError('A current working-session version is required before close.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    return this.timelineWorkingCommand(projectId, timelineId, sessionId, 'close', { disposition, expected_version: expectedSessionVersion }, 'timeline session close', idempotencyKey)
   }
 
   async createTimeline(projectId: string, input: TimelineInput, idempotencyKey: string = crypto.randomUUID()): Promise<TimelineSummary> {
@@ -1526,6 +1616,113 @@ function mapTimelineWorkspaceRecord(value: unknown): TimelineWorkspace {
     needsYou: arrayValue(envelope.needs_you ?? envelope.needsYou),
     projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0),
     generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
+  }
+}
+
+function mapTimelineWorkingWorkspaceRecord(value: unknown): TimelineWorkingWorkspace {
+  const envelope = asRecord(value)
+  const timeline = envelope.timeline ? mapTimelineSummaryRecord(envelope.timeline) : null
+  const sessionValue = envelope.session ? asRecord(envelope.session) : null
+  const draftValue = sessionValue ? asRecord(sessionValue.draft) : {}
+  const mapWorkingMarker = (item: unknown): TimelineMarker => {
+    const source = asRecord(item)
+    return {
+      id: stringValue(source.id ?? source.marker_id ?? source.markerId),
+      time: safeRationalRecord(source.time ?? source.position ?? { num: source.time_num ?? source.timeNum, den: source.time_den ?? source.timeDen }),
+      markerType: stringValue(source.marker_type ?? source.markerType ?? source.type) ?? 'NOTE',
+      label: stringValue(source.label ?? source.name) ?? '',
+      payload: asRecord(source.payload),
+    }
+  }
+  const draft = {
+    schemaVersion: numberValue(draftValue.schema_version ?? draftValue.schemaVersion, 1),
+    mediaProfileRevisionId: stringValue(draftValue.media_profile_revision_id ?? draftValue.mediaProfileRevisionId),
+    duration: safeRationalRecord(draftValue.duration ?? { num: draftValue.duration_num ?? draftValue.durationNum, den: draftValue.duration_den ?? draftValue.durationDen }),
+    tracks: arrayValue(draftValue.tracks ?? draftValue.timeline_tracks ?? draftValue.timelineTracks).map(mapTimelineTrackRecord),
+    markers: arrayValue(draftValue.markers ?? draftValue.timeline_markers ?? draftValue.timelineMarkers).map(mapWorkingMarker),
+  }
+  const operations = sessionValue ? arrayValue(sessionValue.operations).map((item) => {
+    const source = asRecord(item)
+    return {
+      id: stringValue(source.id), opSeq: numberValue(source.op_seq ?? source.opSeq, 0), opType: stringValue(source.op_type ?? source.opType) ?? 'UNKNOWN',
+      historyState: stringValue(source.history_state ?? source.historyState) ?? 'ACTIVE', resultHash: stringValue(source.result_hash ?? source.resultHash),
+      actorId: stringValue(source.actor_id ?? source.actorId), createdAt: stringValue(source.created_at ?? source.createdAt),
+    }
+  }) : []
+  const historyActions = sessionValue ? arrayValue(sessionValue.history_actions ?? sessionValue.historyActions).map((item) => {
+    const source = asRecord(item)
+    return {
+      id: stringValue(source.id), actionSeq: numberValue(source.action_seq ?? source.actionSeq, 0), actionType: stringValue(source.action_type ?? source.actionType) ?? 'UNKNOWN',
+      targetOpSeq: (source.target_op_seq ?? source.targetOpSeq) === null || (source.target_op_seq ?? source.targetOpSeq) === undefined ? null : numberValue(source.target_op_seq ?? source.targetOpSeq, 0), targetOpId: stringValue(source.target_op_id ?? source.targetOpId),
+      beforeHash: stringValue(source.before_hash ?? source.beforeHash), afterHash: stringValue(source.after_hash ?? source.afterHash),
+      actorId: stringValue(source.actor_id ?? source.actorId), createdAt: stringValue(source.created_at ?? source.createdAt),
+    }
+  }) : []
+  const session = sessionValue ? {
+    id: stringValue(sessionValue.id ?? sessionValue.working_session_id ?? sessionValue.workingSessionId),
+    timelineId: stringValue(sessionValue.timeline_id ?? sessionValue.timelineId),
+    baseRevisionId: stringValue(sessionValue.base_revision_id ?? sessionValue.baseRevisionId),
+    baseRevisionRowVersion: numberValue(sessionValue.base_revision_row_version ?? sessionValue.baseRevisionRowVersion, 0),
+    baseContentHash: stringValue(sessionValue.base_content_hash ?? sessionValue.baseContentHash),
+    actorId: stringValue(sessionValue.actor_id ?? sessionValue.actorId), clientInstanceId: stringValue(sessionValue.client_instance_id ?? sessionValue.clientInstanceId),
+    mode: stringValue(sessionValue.mode) ?? 'EXCLUSIVE', state: stringValue(sessionValue.state) ?? 'UNKNOWN',
+    draftHash: stringValue(sessionValue.draft_hash ?? sessionValue.draftHash), autosavedHash: stringValue(sessionValue.autosaved_hash ?? sessionValue.autosavedHash),
+    draft, lastAcknowledgedOpSeq: numberValue(sessionValue.last_acknowledged_op_seq ?? sessionValue.lastAcknowledgedOpSeq, 0), historyCursorSeq: numberValue(sessionValue.history_cursor_seq ?? sessionValue.historyCursorSeq, 0), nextOpSeq: numberValue(sessionValue.next_op_seq ?? sessionValue.nextOpSeq, 1),
+    lastCheckpointRevisionId: stringValue(sessionValue.last_checkpoint_revision_id ?? sessionValue.lastCheckpointRevisionId), nextStep: stringValue(sessionValue.next_step ?? sessionValue.nextStep), rowVersion: numberValue(sessionValue.row_version ?? sessionValue.rowVersion, 1),
+    lastAutosaveAt: stringValue(sessionValue.last_autosave_at ?? sessionValue.lastAutosaveAt), createdAt: stringValue(sessionValue.created_at ?? sessionValue.createdAt), updatedAt: stringValue(sessionValue.updated_at ?? sessionValue.updatedAt), closedAt: stringValue(sessionValue.closed_at ?? sessionValue.closedAt),
+    operations, historyActions,
+  } : null
+  const checkpoint = envelope.checkpoint_revision ?? envelope.checkpointRevision
+  const mapOperationRef = (item: unknown) => {
+    const source = asRecord(item)
+    return Object.keys(source).length === 0 ? null : {
+      id: stringValue(source.id), opSeq: numberValue(source.op_seq ?? source.opSeq, 0), opType: stringValue(source.op_type ?? source.opType) ?? 'UNKNOWN',
+    }
+  }
+  return {
+    timeline,
+    session,
+    checkpointRevision: checkpoint ? mapTimelineRevisionRecord(checkpoint) : null,
+    checkpointRevisionId: stringValue(envelope.checkpoint_revision_id ?? envelope.checkpointRevisionId),
+    acceptedOperations: arrayValue(envelope.accepted_operations ?? envelope.acceptedOperations).map((item) => {
+      const source = asRecord(item)
+      return { id: stringValue(source.id), opSeq: numberValue(source.op_seq ?? source.opSeq, 0), opType: stringValue(source.op_type ?? source.opType) ?? 'UNKNOWN', historyState: 'ACTIVE', resultHash: stringValue(source.result_hash ?? source.resultHash) }
+    }),
+    timelineRowVersion: numberValue(envelope.timeline_row_version ?? envelope.timelineRowVersion, 0),
+    impactSummary: envelope.impact_summary ?? envelope.impactSummary,
+    undoneOperation: mapOperationRef(envelope.undone_operation ?? envelope.undoneOperation),
+    redoneOperation: mapOperationRef(envelope.redone_operation ?? envelope.redoneOperation),
+    projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0), generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
+    idempotentReplay: Boolean(envelope.idempotent_replay ?? envelope.idempotentReplay),
+  }
+}
+
+function mapTimelineWorkingHistoryRecord(value: unknown): TimelineWorkingHistory {
+  const envelope = asRecord(value)
+  const mapOperation = (item: unknown) => {
+    const source = asRecord(item)
+    return {
+      id: stringValue(source.id), opSeq: numberValue(source.op_seq ?? source.opSeq, 0), opType: stringValue(source.op_type ?? source.opType) ?? 'UNKNOWN',
+      historyState: stringValue(source.history_state ?? source.historyState) ?? 'ACTIVE', resultHash: stringValue(source.result_hash ?? source.resultHash),
+      actorId: stringValue(source.actor_id ?? source.actorId), createdAt: stringValue(source.created_at ?? source.createdAt),
+    }
+  }
+  const mapAction = (item: unknown) => {
+    const source = asRecord(item)
+    return {
+      id: stringValue(source.id), actionSeq: numberValue(source.action_seq ?? source.actionSeq, 0), actionType: stringValue(source.action_type ?? source.actionType) ?? 'UNKNOWN',
+      targetOpSeq: (source.target_op_seq ?? source.targetOpSeq) === null || (source.target_op_seq ?? source.targetOpSeq) === undefined ? null : numberValue(source.target_op_seq ?? source.targetOpSeq, 0),
+      targetOpId: stringValue(source.target_op_id ?? source.targetOpId), beforeHash: stringValue(source.before_hash ?? source.beforeHash), afterHash: stringValue(source.after_hash ?? source.afterHash),
+      actorId: stringValue(source.actor_id ?? source.actorId), createdAt: stringValue(source.created_at ?? source.createdAt),
+    }
+  }
+  const cursor = asRecord(envelope.cursor)
+  return {
+    timeline: envelope.timeline ? mapTimelineSummaryRecord(envelope.timeline) : null,
+    workingSessionId: stringValue(envelope.working_session_id ?? envelope.workingSessionId),
+    operations: arrayValue(envelope.operations).map(mapOperation), historyActions: arrayValue(envelope.history_actions ?? envelope.historyActions).map(mapAction),
+    cursor: { afterOpSeq: numberValue(cursor.after_op_seq ?? cursor.afterOpSeq, 0), hasMore: Boolean(cursor.has_more ?? cursor.hasMore) },
+    projectionSeq: numberValue(envelope.projection_seq ?? envelope.projectionSeq, 0), generatedAt: stringValue(envelope.generated_at ?? envelope.generatedAt),
   }
 }
 

@@ -52,6 +52,24 @@ const HANDOFF_COMPATIBILITY_STATUSES = new Set(['NATIVE', 'APPROXIMATED', 'UNSUP
 const HANDOFF_TARGET_PROFILE = 'GENERIC_INTERCHANGE';
 const HANDOFF_MANIFEST_SCHEMA_VERSION = 1;
 const HANDOFF_COMPATIBILITY_PROFILE_VERSION = 'HANDOFF_COMPATIBILITY_V1';
+const TIMELINE_WORKING_SESSION_STATES = new Set(['OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED', 'CLOSED', 'ABANDONED']);
+const TIMELINE_WORKING_ACTIVE_STATES = new Set(['OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED']);
+const TIMELINE_WORKING_EDITABLE_STATES = new Set(['OPEN', 'DIRTY', 'CLEAN']);
+const TIMELINE_WORKING_OP_TYPES = new Set(['INSERT_CLIP', 'MOVE_CLIP', 'TRIM_CLIP', 'DELETE_CLIP', 'ADD_MARKER']);
+const TIMELINE_WORKING_UNSUPPORTED_OP_TYPES = new Set(['SPLIT_CLIP', 'RETIME_CLIP', 'SET_TRANSFORM', 'SET_GAIN', 'LINK', 'UNLINK', 'ADD_TRANSITION', 'REMOVE_TRANSITION', 'UPDATE_CAPTION']);
+const TIMELINE_WORKING_MODES = new Set(['EXCLUSIVE', 'BRANCH_REQUIRED']);
+const TIMELINE_WORKING_MUTATING_COMMANDS = new Set([
+  'BeginTimelineWorkingSession',
+  'ApplyTimelineEditOp',
+  'UndoTimelineEditOp',
+  'RedoTimelineEditOp',
+  'AutosaveTimelineWorkingSession',
+  'CheckpointTimelineWorkingSession',
+  'CloseTimelineWorkingSession',
+]);
+const MAX_TIMELINE_WORKING_OPS = 10_000;
+const MAX_TIMELINE_WORKING_BATCH = 32;
+const MAX_TIMELINE_CLIENT_ID = 200;
 const TIMELINE_TRACK_TYPES = new Set(['VIDEO', 'AUDIO', 'CAPTION', 'DATA']);
 const MAX_RATIONAL_COMPONENT = 9_000_000_000;
 const MAX_TIMELINE_TRACKS = 64;
@@ -211,10 +229,57 @@ function rationalCompare(left, right) {
 function rationalSubtract(left, right) {
   const numerator = BigInt(left.num) * BigInt(right.den) - BigInt(right.num) * BigInt(left.den);
   const denominator = BigInt(left.den) * BigInt(right.den);
-  if (numerator <= 0n || numerator > BigInt(MAX_RATIONAL_COMPONENT) || denominator > BigInt(MAX_RATIONAL_COMPONENT)) {
+  if (numerator <= 0n || denominator <= 0n) {
     throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'duration' });
   }
-  return { num: Number(numerator), den: Number(denominator) };
+  let a = numerator;
+  let b = denominator;
+  while (b !== 0n) {
+    const next = a % b;
+    a = b;
+    b = next;
+  }
+  const divisor = a || 1n;
+  const reducedNumerator = numerator / divisor;
+  const reducedDenominator = denominator / divisor;
+  if (reducedNumerator > BigInt(MAX_RATIONAL_COMPONENT) || reducedDenominator > BigInt(MAX_RATIONAL_COMPONENT)) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'duration' });
+  }
+  return { num: Number(reducedNumerator), den: Number(reducedDenominator) };
+}
+
+function rationalAdd(left, right) {
+  const numerator = BigInt(left.num) * BigInt(right.den) + BigInt(right.num) * BigInt(left.den);
+  const denominator = BigInt(left.den) * BigInt(right.den);
+  const gcd = (a, b) => {
+    let x = a < 0n ? -a : a;
+    let y = b < 0n ? -b : b;
+    while (y !== 0n) {
+      const next = x % y;
+      x = y;
+      y = next;
+    }
+    return x || 1n;
+  };
+  const divisor = gcd(numerator, denominator);
+  const reducedNumerator = numerator / divisor;
+  const reducedDenominator = denominator / divisor;
+  if (reducedNumerator < 0n || reducedNumerator > BigInt(MAX_RATIONAL_COMPONENT) || reducedDenominator < 1n || reducedDenominator > BigInt(MAX_RATIONAL_COMPONENT)) {
+    throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'rational' });
+  }
+  return { num: Number(reducedNumerator), den: Number(reducedDenominator) };
+}
+
+function timelineMarkerSortKey(marker) {
+  return canonicalJson({
+    markerType: marker.markerType ?? marker.marker_type ?? 'NOTE',
+    label: marker.label ?? '',
+    payload: marker.payload ?? {},
+  });
+}
+
+function compareTimelineMarkers(left, right) {
+  return rationalCompare(left.time, right.time) || timelineMarkerSortKey(left).localeCompare(timelineMarkerSortKey(right));
 }
 
 function pathKey(value) {
@@ -634,6 +699,55 @@ function publicTimelineRevision(row, tracks = [], options = {}) {
   return out;
 }
 
+function publicTimelineWorkingSession(row, draft = {}, operations = [], historyActions = []) {
+  if (!row) return null;
+  const out = {
+    id: row.id,
+    timeline_id: row.timeline_id,
+    base_revision_id: row.base_revision_id,
+    base_revision_row_version: Number(row.base_revision_row_version),
+    base_content_hash: String(row.base_content_hash ?? '').toLowerCase(),
+    actor_id: row.actor_id,
+    client_instance_id: row.client_instance_id,
+    mode: row.mode,
+    state: row.state,
+    draft_hash: String(row.draft_hash ?? '').toLowerCase(),
+    autosaved_hash: String(row.autosaved_hash ?? '').toLowerCase(),
+    draft,
+    last_acknowledged_op_seq: Number(row.last_acknowledged_op_seq ?? 0),
+    history_cursor_seq: Number(row.history_cursor_seq ?? 0),
+    next_op_seq: Number(row.next_op_seq ?? 1),
+    last_checkpoint_revision_id: row.last_checkpoint_revision_id ?? null,
+    next_step: row.next_step ?? null,
+    row_version: Number(row.row_version ?? 1),
+    last_autosave_at: row.last_autosave_at_utc_us ? rfc3339FromUs(row.last_autosave_at_utc_us) : null,
+    created_at: row.created_at_utc_us ? rfc3339FromUs(row.created_at_utc_us) : null,
+    updated_at: row.updated_at_utc_us ? rfc3339FromUs(row.updated_at_utc_us) : null,
+    closed_at: row.closed_at_utc_us ? rfc3339FromUs(row.closed_at_utc_us) : null,
+    operations: operations.map((operation) => ({
+      id: operation.id,
+      op_seq: Number(operation.op_seq),
+      op_type: operation.op_type,
+      history_state: operation.history_state,
+      result_hash: String(operation.result_hash ?? '').toLowerCase(),
+      actor_id: operation.actor_id,
+      created_at: operation.created_at_utc_us ? rfc3339FromUs(operation.created_at_utc_us) : null,
+    })),
+    history_actions: historyActions.map((action) => ({
+      id: action.id,
+      action_seq: Number(action.action_seq),
+      action_type: action.action_type,
+      target_op_seq: action.target_op_seq === null || action.target_op_seq === undefined ? null : Number(action.target_op_seq),
+      target_op_id: action.target_op_id ?? null,
+      before_hash: String(action.before_hash ?? '').toLowerCase(),
+      after_hash: String(action.after_hash ?? '').toLowerCase(),
+      actor_id: action.actor_id,
+      created_at: action.created_at_utc_us ? rfc3339FromUs(action.created_at_utc_us) : null,
+    })),
+  };
+  return out;
+}
+
 function publicHumanReview(row) {
   if (!row) return null;
   const out = rowObject(row);
@@ -887,6 +1001,21 @@ export class CoreService {
     } catch {
       // Core remains available for read-only recovery even if reconciliation
       // itself encounters a damaged staging row.
+    }
+    // A process that stops while a working-session transition is in flight
+    // must never look clean on the next launch. The command transaction makes
+    // the common path atomic; this fence covers an interrupted legacy image
+    // and leaves the durable draft available for an explicit user decision.
+    try {
+      this.db.prepare(`UPDATE timeline_working_sessions
+        SET state = 'RECOVERY_REQUIRED',
+            next_step = 'Kiểm tra draft đã lưu rồi chọn autosave, checkpoint hoặc đóng phiên.',
+            row_version = row_version + 1,
+            updated_at_utc_us = ?
+        WHERE state IN ('AUTOSAVING', 'CHECKPOINTING')`).run(nowUtcUs());
+    } catch {
+      // Older databases are upgraded before this point; keep startup read-only
+      // if an interrupted migration cannot expose the recovery marker.
     }
   }
 
@@ -2289,6 +2418,12 @@ export class CoreService {
     if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 200)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_idempotency_key', {});
     }
+    if (TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType)
+      && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0)) {
+      throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', {
+        command_type: commandType,
+      }, { needsUser: true });
+    }
     const requestFingerprint = idempotencyKey ? idempotencyFingerprint(payload, expectedVersions) : null;
     const previous = this._findIdempotent(commandType, idempotencyKey);
     if (previous) {
@@ -2437,6 +2572,14 @@ export class CoreService {
       if (revisionId) return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r
         JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(revisionId)?.project_id ?? null;
     }
+    if (['BeginTimelineWorkingSession', 'ApplyTimelineEditOp', 'UndoTimelineEditOp', 'RedoTimelineEditOp',
+      'AutosaveTimelineWorkingSession', 'CheckpointTimelineWorkingSession', 'CloseTimelineWorkingSession'].includes(commandType)) {
+      const sessionId = payload.working_session_id ?? payload.workingSessionId ?? payload.session_id ?? payload.sessionId;
+      if (sessionId) return this.db.prepare(`SELECT t.project_id FROM timeline_working_sessions s
+        JOIN timelines t ON t.id = s.timeline_id WHERE s.id = ?`).get(sessionId)?.project_id ?? null;
+      const timelineId = payload.timeline_id ?? payload.timelineId;
+      if (timelineId) return this.db.prepare('SELECT project_id FROM timelines WHERE id = ?').get(timelineId)?.project_id ?? null;
+    }
     const derivesTask = ['UpdateTask', 'AddTaskNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'TASK');
     const derivesShot = ['UpdateShot', 'AddShotNote'].includes(commandType) || (commandType === 'AddNote' && entityType === 'SHOT');
     if (['ResolveDecisionRequest', 'DismissDecisionRequest', 'ObsoleteDecisionRequest'].includes(commandType)) {
@@ -2520,7 +2663,8 @@ export class CoreService {
     if (['CreateCharacter', 'CreateVisualIdentityRevision', 'CreateVoiceIdentityRevision', 'CreatePerformanceBibleRevision', 'TransitionCharacterRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateMediaProfileRevision', 'TransitionMediaProfileRevision', 'CreateTimeline', 'CreateTimelineRevision', 'TransitionTimelineRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['OpenReview', 'SubmitReview'].includes(commandType)) return 'COMPENSATABLE';
-    if (['CreateHandoffManifest'].includes(commandType)) return 'COMPENSATABLE';
+    if (['CreateHandoffManifest', 'BeginTimelineWorkingSession', 'ApplyTimelineEditOp', 'UndoTimelineEditOp', 'RedoTimelineEditOp',
+      'AutosaveTimelineWorkingSession', 'CheckpointTimelineWorkingSession', 'CloseTimelineWorkingSession'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -2549,6 +2693,13 @@ export class CoreService {
       case 'OpenReview': return this._openReview(payload, expectedVersions);
       case 'SubmitReview': return this._submitReview(payload, expectedVersions);
       case 'CreateHandoffManifest': return this._createHandoffManifest(payload, expectedVersions, commandId);
+      case 'BeginTimelineWorkingSession': return this._beginTimelineWorkingSession(payload, expectedVersions);
+      case 'ApplyTimelineEditOp': return this._applyTimelineEditOp(payload, expectedVersions);
+      case 'UndoTimelineEditOp': return this._undoTimelineEditOp(payload, expectedVersions);
+      case 'RedoTimelineEditOp': return this._redoTimelineEditOp(payload, expectedVersions);
+      case 'AutosaveTimelineWorkingSession': return this._autosaveTimelineWorkingSession(payload, expectedVersions);
+      case 'CheckpointTimelineWorkingSession': return this._checkpointTimelineWorkingSession(payload, expectedVersions, commandId);
+      case 'CloseTimelineWorkingSession': return this._closeTimelineWorkingSession(payload, expectedVersions);
       case 'CreateDecisionRequest': return this._createDecisionRequest(payload);
       case 'ResolveDecisionRequest': return this._resolveDecisionRequest(payload, expectedVersions);
       case 'DismissDecisionRequest': return this._dismissDecisionRequest(payload, expectedVersions);
@@ -3255,7 +3406,7 @@ export class CoreService {
         payload: structuredValue(rawMarker.payload ?? {}, `markers[${markerIndex}].payload`, {}, 'object', 32 * 1024),
       };
     });
-    markers.sort((left, right) => rationalCompare(left.time, right.time));
+    markers.sort(compareTimelineMarkers);
     return markers;
   }
 
@@ -3296,6 +3447,20 @@ export class CoreService {
       throw new CoreError('TIMELINE_ASSET_NOT_READY', 'CONFLICT', 'errors.timeline_asset_not_ready', { asset_revision_id: id }, { needsUser: true });
     }
     return { asset_revision_id: id, asset_id: row.asset_id };
+  }
+
+  _timelineWorkingValidateMaterializedClips(draft, projectId) {
+    for (const track of draft.tracks ?? []) {
+      for (const clip of track.clips ?? []) {
+        if (typeof clip.asset_revision_id !== 'string' || clip.asset_revision_id.trim().length === 0) {
+          throw new CoreError('TIMELINE_CLIP_ASSET_REQUIRED', 'CONFLICT', 'errors.timeline_clip_asset_required', { track_id: track.id, clip_id: clip.id }, { needsUser: true });
+        }
+        if (!clip.source_in || !clip.source_out) {
+          throw new CoreError('TIMELINE_CLIP_SOURCE_REQUIRED', 'CONFLICT', 'errors.timeline_clip_source_required', { clip_id: clip.id }, { needsUser: true });
+        }
+        this._timelineAssetReadiness(clip.asset_revision_id, projectId);
+      }
+    }
   }
 
   _timelineRevisionReadiness(revision, tracks) {
@@ -3862,6 +4027,788 @@ export class CoreService {
     };
   }
 
+  _timelineWorkingSession(sessionId) {
+    const id = requiredString(sessionId, 'working_session_id');
+    const row = this.db.prepare('SELECT * FROM timeline_working_sessions WHERE id = ?').get(id);
+    if (!row) throw new CoreError('TIMELINE_WORKING_SESSION_NOT_FOUND', 'VALIDATION', 'errors.timeline_working_session_not_found', { working_session_id: id });
+    return row;
+  }
+
+  _timelineWorkingDraftFromRevision(revision) {
+    const trackRows = this.db.prepare('SELECT * FROM timeline_tracks WHERE timeline_revision_id = ? ORDER BY order_index ASC, id ASC').all(revision.id);
+    const tracks = trackRows.map((track) => ({
+      id: track.id,
+      track_type: track.track_type,
+      order_index: Number(track.order_index),
+      name: track.name,
+      enabled: Boolean(Number(track.enabled)),
+      clips: this.db.prepare('SELECT * FROM timeline_clip_instances WHERE track_id = ? ORDER BY timeline_in_num, timeline_in_den, id').all(track.id).map((clip) => ({
+        id: clip.id,
+        asset_revision_id: clip.asset_revision_id,
+        source_in: clip.source_in_num === null || clip.source_in_num === undefined ? null : { num: Number(clip.source_in_num), den: Number(clip.source_in_den) },
+        source_out: clip.source_out_num === null || clip.source_out_num === undefined ? null : { num: Number(clip.source_out_num), den: Number(clip.source_out_den) },
+        timeline_in: { num: Number(clip.timeline_in_num), den: Number(clip.timeline_in_den) },
+        timeline_out: { num: Number(clip.timeline_out_num), den: Number(clip.timeline_out_den) },
+        speed: { num: Number(clip.speed_num), den: Number(clip.speed_den) },
+      })),
+    }));
+    const markers = this.db.prepare('SELECT * FROM timeline_markers WHERE timeline_revision_id = ? ORDER BY position_num, position_den, id').all(revision.id).map((marker) => ({
+      id: marker.id,
+      time: { num: Number(marker.position_num), den: Number(marker.position_den) },
+      marker_type: marker.marker_type,
+      label: marker.label,
+      payload: parseJson(marker.payload_json, {}),
+    }));
+    return {
+      schema_version: 1,
+      media_profile_revision_id: revision.media_profile_revision_id,
+      duration: { num: Number(revision.duration_num), den: Number(revision.duration_den) },
+      tracks,
+      markers,
+    };
+  }
+
+  // Revisions created before the working-session schema marker was added used
+  // the original stable time-only ordering for equal-time clips and markers.
+  // Their immutable content hash must remain usable after the canonical V1
+  // ordering became stricter. SQLite rowid preserves the insertion order that
+  // the old normalizer received, so reconstruct that legacy byte shape only as
+  // a compatibility check; all new drafts continue to use the deterministic
+  // schema-versioned hash above.
+  _timelineWorkingLegacyHashFromRevision(revision) {
+    const trackRows = this.db.prepare('SELECT * FROM timeline_tracks WHERE timeline_revision_id = ? ORDER BY order_index ASC, rowid ASC').all(revision.id);
+    const tracks = trackRows.map((track) => {
+      const clips = this.db.prepare('SELECT * FROM timeline_clip_instances WHERE track_id = ? ORDER BY rowid ASC').all(track.id).map((clip) => ({
+        asset_revision_id: clip.asset_revision_id ?? null,
+        source_in: clip.source_in_num === null || clip.source_in_num === undefined ? null : { num: Number(clip.source_in_num), den: Number(clip.source_in_den) },
+        source_out: clip.source_out_num === null || clip.source_out_num === undefined ? null : { num: Number(clip.source_out_num), den: Number(clip.source_out_den) },
+        timeline_in: { num: Number(clip.timeline_in_num), den: Number(clip.timeline_in_den) },
+        timeline_out: { num: Number(clip.timeline_out_num), den: Number(clip.timeline_out_den) },
+        speed: { num: Number(clip.speed_num), den: Number(clip.speed_den) },
+      })).sort((left, right) => rationalCompare(left.timeline_in, right.timeline_in));
+      return {
+        track_type: track.track_type,
+        order_index: Number(track.order_index),
+        name: track.name,
+        enabled: Boolean(Number(track.enabled)),
+        clips,
+      };
+    }).sort((left, right) => left.order_index - right.order_index);
+    const markers = this.db.prepare('SELECT * FROM timeline_markers WHERE timeline_revision_id = ? ORDER BY rowid ASC').all(revision.id).map((marker) => ({
+      time: { num: Number(marker.position_num), den: Number(marker.position_den) },
+      markerType: marker.marker_type,
+      label: marker.label,
+      payload: parseJson(marker.payload_json, {}),
+    })).sort((left, right) => rationalCompare(left.time, right.time));
+    const content = {
+      media_profile_revision_id: revision.media_profile_revision_id,
+      duration: { num: Number(revision.duration_num), den: Number(revision.duration_den) },
+      tracks,
+      markers,
+    };
+    return crypto.createHash('sha256').update(canonicalJson(content), 'utf8').digest('hex');
+  }
+
+  _timelineWorkingCanonicalContent(draft, { includeSchemaVersion = true } = {}) {
+    const content = {
+      media_profile_revision_id: draft.media_profile_revision_id,
+      duration: draft.duration,
+      tracks: draft.tracks.map((track) => ({
+        track_type: track.track_type,
+        order_index: track.order_index,
+        name: track.name,
+        enabled: Boolean(track.enabled),
+        clips: track.clips.map((clip) => ({
+          asset_revision_id: clip.asset_revision_id ?? null,
+          source_in: clip.source_in ?? null,
+          source_out: clip.source_out ?? null,
+          timeline_in: clip.timeline_in,
+          timeline_out: clip.timeline_out,
+          speed: clip.speed,
+        })),
+      })),
+      markers: draft.markers.map((marker) => ({
+        time: marker.time,
+        markerType: marker.marker_type,
+        label: marker.label,
+        payload: marker.payload ?? {},
+      })),
+    };
+    if (includeSchemaVersion) content.schema_version = Number(draft.schema_version ?? 1);
+    return content;
+  }
+
+  _timelineWorkingHash(draft, options = {}) {
+    return crypto.createHash('sha256').update(canonicalJson(this._timelineWorkingCanonicalContent(draft, options)), 'utf8').digest('hex');
+  }
+
+  _timelineWorkingMatchesBase(session, draftHash, draft) {
+    const baseHash = String(session.base_content_hash).toLowerCase();
+    if (draftHash.toLowerCase() === baseHash
+      || this._timelineWorkingHash(draft, { includeSchemaVersion: false }).toLowerCase() === baseHash) return true;
+    // A legacy revision may differ only in equal-time insertion order. Once
+    // the session has normalized that snapshot, compare against the current
+    // canonical reconstruction as well as the immutable legacy hash.
+    try {
+      const revision = this._timelineRevision(session.base_revision_id);
+      if (this._timelineWorkingLegacyHashFromRevision(revision).toLowerCase() === baseHash) {
+        const normalizedBase = this._timelineWorkingNormalizeDraft(this._timelineWorkingDraftFromRevision(revision), revision.project_id, null).draft;
+        return this._timelineWorkingHash(normalizedBase).toLowerCase() === draftHash.toLowerCase()
+          || this._timelineWorkingHash(normalizedBase, { includeSchemaVersion: false }).toLowerCase() === draftHash.toLowerCase();
+      }
+    } catch {
+      // Preserve the ordinary hash-only decision if the compatibility read is
+      // unavailable during recovery or a partially migrated database.
+    }
+    return false;
+  }
+
+  _timelineWorkingNormalizeDraft(rawDraft, projectId, expectedProfileId = null, { checkAssets = false } = {}) {
+    if (!rawDraft || typeof rawDraft !== 'object' || Array.isArray(rawDraft)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'draft' });
+    }
+    const schemaVersion = Number(rawDraft.schema_version ?? rawDraft.schemaVersion ?? 1);
+    if (schemaVersion !== 1) throw new CoreError('UNSUPPORTED_TIMELINE_WORKING_SCHEMA', 'VALIDATION', 'errors.unsupported_timeline_working_schema', { schema_version: schemaVersion }, { needsUser: true });
+    const profileId = requiredString(rawDraft.media_profile_revision_id ?? rawDraft.mediaProfileRevisionId, 'media_profile_revision_id');
+    const profile = this._mediaProfileRevision(profileId);
+    if (profile.project_id !== projectId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'MEDIA_PROFILE_REVISION', entity_id: profileId, project_id: projectId, actual_project_id: profile.project_id }, { needsUser: true });
+    }
+    if (expectedProfileId && profileId !== expectedProfileId) {
+      throw new CoreError('TIMELINE_WORKING_PROFILE_CHANGED', 'CONFLICT', 'errors.timeline_working_profile_changed', { expected_profile_revision_id: expectedProfileId, actual_profile_revision_id: profileId }, { needsUser: true });
+    }
+    const duration = this._timelineRational(rawDraft, 'duration', { allowZero: false });
+    if (duration.num > MAX_TIMELINE_DURATION_TICKS) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'duration' });
+    const rawTracks = arrayValue(rawDraft.tracks ?? [], 'tracks');
+    if (rawTracks.length > MAX_TIMELINE_TRACKS) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.field_too_large', { field: 'tracks', max_items: MAX_TIMELINE_TRACKS });
+    const trackIds = new Set();
+    const orderIndexes = new Set();
+    const tracks = rawTracks.map((rawTrack, trackIndex) => {
+      if (!rawTrack || typeof rawTrack !== 'object' || Array.isArray(rawTrack)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `tracks[${trackIndex}]` });
+      const trackType = enumValue(rawTrack.track_type ?? rawTrack.trackType ?? 'VIDEO', 'track_type', /^[A-Z]+$/);
+      if (trackType !== 'VIDEO') throw new CoreError('UNSUPPORTED_TIMELINE_TRACK', 'VALIDATION', 'errors.unsupported_timeline_track', { track_type: trackType }, { needsUser: true });
+      const trackId = requiredString(rawTrack.id ?? rawTrack.track_id ?? rawTrack.trackId, `tracks[${trackIndex}].id`, 200);
+      if (trackIds.has(trackId)) throw new CoreError('DUPLICATE_TIMELINE_TRACK_ID', 'CONFLICT', 'errors.duplicate_timeline_track_id', { track_id: trackId });
+      trackIds.add(trackId);
+      const orderIndex = boundedInteger(rawTrack.order_index ?? rawTrack.orderIndex ?? trackIndex, 'order_index', { min: 0, max: MAX_TIMELINE_TRACKS - 1 });
+      if (orderIndexes.has(orderIndex)) throw new CoreError('DUPLICATE_TIMELINE_TRACK_ORDER', 'CONFLICT', 'errors.duplicate_timeline_track_order', { order_index: orderIndex });
+      orderIndexes.add(orderIndex);
+      const enabled = nullableBoolean(rawTrack.enabled, 'enabled');
+      const rawClips = arrayValue(rawTrack.clips ?? [], `tracks[${trackIndex}].clips`);
+      if (rawClips.length > MAX_TIMELINE_CLIPS_PER_TRACK) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.field_too_large', { field: `tracks[${trackIndex}].clips`, max_items: MAX_TIMELINE_CLIPS_PER_TRACK });
+      const clipIds = new Set();
+      const clips = rawClips.map((rawClip, clipIndex) => {
+        const clipId = requiredString(rawClip?.id ?? rawClip?.clip_id ?? rawClip?.clipId, `tracks[${trackIndex}].clips[${clipIndex}].id`, 200);
+        if (clipIds.has(clipId)) throw new CoreError('DUPLICATE_TIMELINE_CLIP_ID', 'CONFLICT', 'errors.duplicate_timeline_clip_id', { clip_id: clipId });
+        clipIds.add(clipId);
+        const normalized = this._timelineClipInput(rawClip, clipIndex);
+        if (rationalCompare(normalized.timelineOut, duration) > 0) throw new CoreError('TIMELINE_CLIP_OUT_OF_BOUNDS', 'VALIDATION', 'errors.timeline_clip_out_of_bounds', { field: 'timeline_out' }, { needsUser: true });
+        if (checkAssets && normalized.assetRevisionId) this._timelineAssetReadiness(normalized.assetRevisionId, projectId);
+        return {
+          id: clipId,
+          asset_revision_id: normalized.assetRevisionId,
+          source_in: normalized.sourceIn,
+          source_out: normalized.sourceOut,
+          timeline_in: normalized.timelineIn,
+          timeline_out: normalized.timelineOut,
+          speed: normalized.speed,
+        };
+      }).sort((left, right) => rationalCompare(left.timeline_in, right.timeline_in) || left.id.localeCompare(right.id));
+      for (let index = 1; index < clips.length; index += 1) {
+        if (rationalCompare(clips[index - 1].timeline_out, clips[index].timeline_in) > 0) throw new CoreError('TIMELINE_CLIP_OVERLAP', 'CONFLICT', 'errors.timeline_clip_overlap', { track_index: trackIndex, clip_index: index }, { needsUser: true });
+      }
+      return {
+        id: trackId,
+        track_type: trackType,
+        order_index: orderIndex,
+        name: optionalString(rawTrack.name, `tracks[${trackIndex}].name`, 200, `Video ${orderIndex + 1}`),
+        enabled: enabled === null ? true : Boolean(enabled),
+        clips,
+      };
+    }).sort((left, right) => left.order_index - right.order_index || left.id.localeCompare(right.id));
+    const markerIds = new Set();
+    const rawMarkers = arrayValue(rawDraft.markers ?? [], 'markers');
+    if (rawMarkers.length > MAX_TIMELINE_MARKERS) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.field_too_large', { field: 'markers', max_items: MAX_TIMELINE_MARKERS });
+    const markers = rawMarkers.map((rawMarker, markerIndex) => {
+      const markerId = requiredString(rawMarker?.id ?? rawMarker?.marker_id ?? rawMarker?.markerId, `markers[${markerIndex}].id`, 200);
+      if (markerIds.has(markerId)) throw new CoreError('DUPLICATE_TIMELINE_MARKER_ID', 'CONFLICT', 'errors.duplicate_timeline_marker_id', { marker_id: markerId });
+      markerIds.add(markerId);
+      const normalized = this._normalizeTimelineMarkers({ markers: [rawMarker] }, duration)[0];
+      return { id: markerId, time: normalized.time, marker_type: normalized.markerType, label: normalized.label, payload: normalized.payload };
+    }).sort(compareTimelineMarkers);
+    const draft = { schema_version: 1, media_profile_revision_id: profileId, duration, tracks, markers };
+    return { draft, contentHash: this._timelineWorkingHash(draft), profile };
+  }
+
+  _timelineWorkingPublicProjection(sessionOrId, requestedProjectId = null, requestedTimelineId = null) {
+    const session = typeof sessionOrId === 'string' ? this._timelineWorkingSession(sessionOrId) : sessionOrId;
+    const timeline = this._timeline(session.timeline_id);
+    if (requestedProjectId !== null && requestedProjectId !== undefined && requestedProjectId !== timeline.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE_WORKING_SESSION', entity_id: session.id, project_id: requestedProjectId, actual_project_id: timeline.project_id }, { needsUser: true });
+    }
+    if (requestedTimelineId !== null && requestedTimelineId !== undefined && requestedTimelineId !== timeline.id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE', entity_id: timeline.id, requested_timeline_id: requestedTimelineId }, { needsUser: true });
+    }
+    let draft = parseJson(session.draft_payload_json, {});
+    try { draft = this._timelineWorkingNormalizeDraft(draft, timeline.project_id, null).draft; } catch { /* keep recovery evidence visible */ }
+    const operations = this._timelineWorkingOperations(session);
+    const historyActions = this.db.prepare('SELECT * FROM timeline_edit_actions WHERE working_session_id = ? ORDER BY action_seq ASC').all(session.id);
+    return {
+      timeline: publicTimeline(timeline),
+      session: publicTimelineWorkingSession(session, draft, operations, historyActions),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _timelineWorkingList(params = {}) {
+    const timelineId = requiredString(params.timeline_id ?? params.timelineId, 'timeline_id');
+    const timeline = this._timeline(timelineId);
+    const requestedProjectId = params.project_id ?? params.projectId;
+    if (requestedProjectId !== undefined && requestedProjectId !== null && requestedProjectId !== timeline.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE', entity_id: timeline.id, project_id: requestedProjectId, actual_project_id: timeline.project_id }, { needsUser: true });
+    }
+    const includeClosed = Boolean(params.include_closed ?? params.includeClosed);
+    const states = includeClosed ? null : ['OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED'];
+    const rows = states
+      ? this.db.prepare(`SELECT * FROM timeline_working_sessions WHERE timeline_id = ? AND state IN (${states.map(() => '?').join(',')}) ORDER BY updated_at_utc_us DESC, id DESC`).all(timeline.id, ...states)
+      : this.db.prepare('SELECT * FROM timeline_working_sessions WHERE timeline_id = ? ORDER BY updated_at_utc_us DESC, id DESC').all(timeline.id);
+    return {
+      timeline: publicTimeline(timeline),
+      sessions: rows.map((row) => {
+        let draft = parseJson(row.draft_payload_json, {});
+        try { draft = this._timelineWorkingNormalizeDraft(draft, timeline.project_id, null).draft; } catch { /* recovery evidence remains visible */ }
+        const operations = this._timelineWorkingOperations(row);
+        const historyActions = this.db.prepare('SELECT * FROM timeline_edit_actions WHERE working_session_id = ? ORDER BY action_seq ASC').all(row.id);
+        return publicTimelineWorkingSession(row, draft, operations, historyActions);
+      }),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _timelineWorkingEditHistory(params = {}) {
+    const sessionId = requiredString(params.working_session_id ?? params.workingSessionId ?? params.session_id ?? params.sessionId, 'working_session_id');
+    const session = this._timelineWorkingSession(sessionId);
+    const timeline = this._timeline(session.timeline_id);
+    const requestedProjectId = params.project_id ?? params.projectId;
+    const requestedTimelineId = params.timeline_id ?? params.timelineId;
+    if (requestedProjectId !== undefined && requestedProjectId !== null && requestedProjectId !== timeline.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE_WORKING_SESSION', entity_id: session.id, project_id: requestedProjectId, actual_project_id: timeline.project_id }, { needsUser: true });
+    }
+    if (requestedTimelineId !== undefined && requestedTimelineId !== null && requestedTimelineId !== timeline.id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE', entity_id: timeline.id, requested_timeline_id: requestedTimelineId }, { needsUser: true });
+    }
+    const afterOpSeq = Math.max(asInt(params.after_op_seq ?? params.afterOpSeq, 0), 0);
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 500);
+    const operations = this._timelineWorkingOperations(session).filter((operation) => Number(operation.op_seq) > afterOpSeq);
+    const pageOperations = operations.slice(0, limit);
+    const lastOpSeq = pageOperations.length ? Number(pageOperations.at(-1).op_seq) : afterOpSeq;
+    // History is paged by operation sequence. Return only causal actions for
+    // that operation window and cap the action fan-out so a long undo/redo
+    // session cannot turn one page request into an unbounded response.
+    const actions = pageOperations.length
+      ? this.db.prepare(`SELECT * FROM timeline_edit_actions
+          WHERE working_session_id = ? AND target_op_seq > ? AND target_op_seq <= ?
+          ORDER BY action_seq ASC LIMIT ?`).all(session.id, afterOpSeq, lastOpSeq, Math.min(limit * 4, 2_000))
+      : [];
+    const publicSession = publicTimelineWorkingSession(session, {}, pageOperations, actions);
+    const page = publicSession.operations;
+    return {
+      timeline: publicTimeline(timeline),
+      working_session_id: session.id,
+      operations: page,
+      history_actions: publicSession.history_actions,
+      cursor: { after_op_seq: lastOpSeq, has_more: operations.length > page.length },
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _timelineWorkingAssertWritable(session, payload, expectedVersions) {
+    const timeline = this._timeline(session.timeline_id);
+    this._assertPayloadProjectScope(payload, timeline.project_id, 'TIMELINE_WORKING_SESSION', session.id);
+    const payloadEntityType = String(payload?.entity_type ?? payload?.entityType ?? '').trim().toUpperCase();
+    const suppliedTimelineId = payload?.timeline_id ?? payload?.timelineId
+      ?? (payloadEntityType === 'TIMELINE' ? (payload?.entity_id ?? payload?.entityId) : undefined);
+    if (suppliedTimelineId !== undefined && suppliedTimelineId !== null && suppliedTimelineId !== timeline.id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'TIMELINE', entity_id: suppliedTimelineId, expected_entity_id: timeline.id,
+      }, { needsUser: true });
+    }
+    const project = this._project(timeline.project_id);
+    this._assertProjectWritable(project);
+    if (session.actor_id !== this.actorId) throw new CoreError('AUTH_REQUIRED', 'AUTH_REQUIRED', 'errors.timeline_working_session_actor_mismatch', { working_session_id: session.id }, { needsUser: true });
+    const clientInstanceId = requiredString(payload.client_instance_id ?? payload.clientInstanceId, 'client_instance_id', MAX_TIMELINE_CLIENT_ID);
+    if (clientInstanceId !== session.client_instance_id) {
+      throw new CoreError('TIMELINE_WORKING_CLIENT_MISMATCH', 'AUTH_REQUIRED', 'errors.timeline_working_session_client_mismatch', { working_session_id: session.id }, { needsUser: true });
+    }
+    this._expectedVersion(expectedVersions, 'WORKING_SESSION', session.id, session.row_version);
+    if (!TIMELINE_WORKING_SESSION_STATES.has(session.state)) throw new CoreError('INVALID_TIMELINE_WORKING_STATE', 'CONFLICT', 'errors.invalid_timeline_working_state', { state: session.state }, { needsUser: true });
+    return { timeline, project };
+  }
+
+  _timelineWorkingAssertEditable(session) {
+    if (!TIMELINE_WORKING_EDITABLE_STATES.has(session.state)) {
+      throw new CoreError('TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'CONFLICT', 'errors.timeline_working_session_not_editable', { state: session.state }, { needsUser: true });
+    }
+  }
+
+  _beginTimelineWorkingSession(payload, expectedVersions) {
+    const timeline = this._timeline(payload.timeline_id ?? payload.timelineId);
+    this._assertPayloadProjectScope(payload, timeline.project_id, 'TIMELINE', timeline.id);
+    const project = this._project(timeline.project_id);
+    this._assertProjectWritable(project);
+    if (timeline.lifecycle_state !== 'ACTIVE') throw new CoreError('TIMELINE_NOT_WRITABLE', 'CONFLICT', 'errors.timeline_not_writable', { state: timeline.lifecycle_state }, { needsUser: true });
+    this._expectedVersion(expectedVersions, 'TIMELINE', timeline.id, timeline.row_version);
+    const baseRevisionId = requiredString(payload.base_revision_id ?? payload.baseRevisionId, 'base_revision_id');
+    const baseRevision = this._timelineRevision(baseRevisionId);
+    if (baseRevision.timeline_id !== timeline.id || baseRevision.project_id !== project.id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE_REVISION', entity_id: baseRevision.id, project_id: project.id, actual_project_id: baseRevision.project_id }, { needsUser: true });
+    }
+    if (!['DRAFT_CHECKPOINT', 'CANDIDATE', 'APPROVED'].includes(baseRevision.lifecycle_state)) {
+      throw new CoreError('TIMELINE_WORKING_BASE_NOT_EDITABLE', 'CONFLICT', 'errors.timeline_working_base_not_editable', { state: baseRevision.lifecycle_state }, { needsUser: true });
+    }
+    const expectedBaseVersion = payload.base_revision_row_version ?? payload.baseRevisionRowVersion;
+    if (expectedBaseVersion === undefined || expectedBaseVersion === null) throw new CoreError('BASE_REVISION_VERSION_REQUIRED', 'CONFLICT', 'errors.base_revision_version_required', { base_revision_id: baseRevision.id }, { needsUser: true });
+    if (asInt(expectedBaseVersion, -1) !== Number(baseRevision.row_version)) {
+      throw new CoreError('STALE_REVISION', 'STALE_REVISION', 'errors.stale_revision', { entity_type: 'TIMELINE_REVISION', entity_id: baseRevision.id, expected: expectedBaseVersion, current: Number(baseRevision.row_version) }, { needsUser: true });
+    }
+    const suppliedBaseHash = requiredString(payload.base_content_hash ?? payload.baseContentHash, 'base_content_hash', 128).toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(suppliedBaseHash) || suppliedBaseHash !== String(baseRevision.content_hash).toLowerCase()) {
+      throw new CoreError('TIMELINE_WORKING_BASE_HASH_MISMATCH', 'CONFLICT', 'errors.timeline_working_base_hash_mismatch', { base_revision_id: baseRevision.id }, { needsUser: true });
+    }
+    const clientInstanceId = requiredString(payload.client_instance_id ?? payload.clientInstanceId, 'client_instance_id', MAX_TIMELINE_CLIENT_ID);
+    const mode = String(payload.mode ?? 'EXCLUSIVE').trim().toUpperCase();
+    if (!TIMELINE_WORKING_MODES.has(mode) || mode !== 'EXCLUSIVE') throw new CoreError('UNSUPPORTED_TIMELINE_WORKING_MODE', 'VALIDATION', 'errors.unsupported_timeline_working_mode', { mode }, { needsUser: true });
+    const active = this.db.prepare(`SELECT * FROM timeline_working_sessions
+      WHERE timeline_id = ? AND actor_id = ? AND state IN ('OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED')
+      ORDER BY updated_at_utc_us DESC, id DESC LIMIT 1`).get(timeline.id, this.actorId);
+    if (active) throw new CoreError('TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'CONFLICT', 'errors.timeline_working_session_already_open', { working_session_id: active.id }, { needsUser: true, technicalDetails: { working_session_id: active.id } });
+    const normalized = this._timelineWorkingNormalizeDraft(this._timelineWorkingDraftFromRevision(baseRevision), project.id, baseRevision.media_profile_revision_id);
+    const legacyContentHash = this._timelineWorkingHash(normalized.draft, { includeSchemaVersion: false });
+    const legacyRevisionHash = this._timelineWorkingLegacyHashFromRevision(baseRevision);
+    if (normalized.contentHash.toLowerCase() !== String(baseRevision.content_hash).toLowerCase()
+      && legacyContentHash.toLowerCase() !== String(baseRevision.content_hash).toLowerCase()
+      && legacyRevisionHash.toLowerCase() !== String(baseRevision.content_hash).toLowerCase()) {
+      throw new CoreError('TIMELINE_WORKING_BASE_HASH_MISMATCH', 'CONFLICT', 'errors.timeline_working_base_hash_mismatch', { base_revision_id: baseRevision.id }, { needsUser: true });
+    }
+    const sessionId = uuidv7();
+    const created = nowUtcUs();
+    this.db.prepare(`INSERT INTO timeline_working_sessions
+      (id, timeline_id, base_revision_id, base_revision_row_version, base_content_hash, actor_id, client_instance_id,
+       mode, state, draft_payload_json, draft_hash, autosaved_hash, last_acknowledged_op_seq, history_cursor_seq,
+       next_op_seq, last_checkpoint_revision_id, next_step, row_version, last_autosave_at_utc_us, created_at_utc_us, updated_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, 0, 0, 1, NULL, ?, 1, ?, ?, ?)`).run(
+      sessionId, timeline.id, baseRevision.id, Number(baseRevision.row_version), String(baseRevision.content_hash).toLowerCase(), this.actorId, clientInstanceId,
+      mode, canonicalJson(normalized.draft), normalized.contentHash, normalized.contentHash,
+      'Chọn thao tác chỉnh sửa hoặc autosave draft trước khi đóng phiên.', created, created, created,
+    );
+    const session = this._timelineWorkingSession(sessionId);
+    const projection = this._timelineWorkingPublicProjection(session);
+    return {
+      projectId: project.id,
+      result: projection,
+      event: { aggregateType: 'TIMELINE_WORKING_SESSION', aggregateId: sessionId, aggregateVersion: 1, eventType: 'TIMELINE_WORKING_SESSION_OPENED', payload: { working_session_id: sessionId, project_id: project.id, timeline_id: timeline.id, base_revision_id: baseRevision.id, base_content_hash: baseRevision.content_hash, client_instance_id: clientInstanceId } },
+      audit: { actionType: 'timeline.working_session.begin', targetType: 'TIMELINE_WORKING_SESSION', targetId: sessionId, payload: { project_id: project.id, timeline_id: timeline.id, base_revision_id: baseRevision.id, base_revision_row_version: Number(baseRevision.row_version), client_instance_id: clientInstanceId } },
+    };
+  }
+
+  _timelineWorkingOperation(draft, operation, projectId) {
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'operation' });
+    const opType = String(operation.op_type ?? operation.opType ?? operation.type ?? '').trim().toUpperCase();
+    if (TIMELINE_WORKING_UNSUPPORTED_OP_TYPES.has(opType)) throw new CoreError('UNSUPPORTED_TIMELINE_EDIT_OPERATION', 'VALIDATION', 'errors.unsupported_timeline_edit_operation', { op_type: opType }, { needsUser: true });
+    if (!TIMELINE_WORKING_OP_TYPES.has(opType)) throw new CoreError('INVALID_TIMELINE_EDIT_OPERATION', 'VALIDATION', 'errors.invalid_timeline_edit_operation', { op_type: opType });
+    const rawOperationPayload = operation.payload && typeof operation.payload === 'object' && !Array.isArray(operation.payload) ? operation.payload : null;
+    const markerFields = new Set(['id', 'marker_id', 'markerId', 'time', 'marker_type', 'markerType', 'type', 'label', 'client_op_id', 'clientOpId']);
+    const directMarker = opType === 'ADD_MARKER' && rawOperationPayload !== null
+      && Object.keys(operation).some((key) => markerFields.has(key))
+      && !Object.keys(rawOperationPayload).some((key) => markerFields.has(key));
+    const operationPayload = directMarker ? null : rawOperationPayload;
+    const payload = operationPayload ?? operation;
+    const allowed = {
+      INSERT_CLIP: new Set(['op_type', 'opType', 'type', 'payload', 'track_id', 'trackId', 'track_order_index', 'trackOrderIndex', 'clip', 'client_op_id', 'clientOpId']),
+      MOVE_CLIP: new Set(['op_type', 'opType', 'type', 'payload', 'clip_id', 'clipId', 'timeline_in', 'timelineIn', 'client_op_id', 'clientOpId']),
+      TRIM_CLIP: new Set(['op_type', 'opType', 'type', 'payload', 'clip_id', 'clipId', 'edge', 'timeline_in', 'timelineIn', 'timeline_out', 'timelineOut', 'source_in', 'sourceIn', 'source_out', 'sourceOut', 'client_op_id', 'clientOpId']),
+      DELETE_CLIP: new Set(['op_type', 'opType', 'type', 'payload', 'clip_id', 'clipId', 'client_op_id', 'clientOpId']),
+      ADD_MARKER: new Set(['op_type', 'opType', 'type', 'payload', 'id', 'marker_id', 'markerId', 'time', 'marker_type', 'markerType', 'label', 'payload', 'client_op_id', 'clientOpId']),
+    }[opType];
+    for (const key of Object.keys(operation)) if (!allowed.has(key)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `operation.${key}` });
+    if (operation.payload && (typeof operation.payload !== 'object' || Array.isArray(operation.payload))) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'operation.payload' });
+    const source = operationPayload ? { ...operationPayload, op_type: opType } : { ...operation, op_type: opType };
+    const nestedAllowed = {
+      INSERT_CLIP: new Set(['op_type', 'opType', 'type', 'track_id', 'trackId', 'track_order_index', 'trackOrderIndex', 'clip', 'client_op_id', 'clientOpId']),
+      MOVE_CLIP: new Set(['op_type', 'opType', 'type', 'clip_id', 'clipId', 'timeline_in', 'timelineIn', 'client_op_id', 'clientOpId']),
+      TRIM_CLIP: new Set(['op_type', 'opType', 'type', 'clip_id', 'clipId', 'edge', 'timeline_in', 'timelineIn', 'timeline_out', 'timelineOut', 'source_in', 'sourceIn', 'source_out', 'sourceOut', 'client_op_id', 'clientOpId']),
+      DELETE_CLIP: new Set(['op_type', 'opType', 'type', 'clip_id', 'clipId', 'client_op_id', 'clientOpId']),
+      ADD_MARKER: new Set(['op_type', 'opType', 'type', 'id', 'marker_id', 'markerId', 'time', 'marker_type', 'markerType', 'label', 'payload', 'client_op_id', 'clientOpId']),
+    }[opType];
+    for (const key of Object.keys(source)) if (!nestedAllowed.has(key)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `operation.payload.${key}` });
+    const next = structuredClone(draft);
+    if (opType === 'INSERT_CLIP') {
+      const trackId = source.track_id ?? source.trackId;
+      const orderIndex = source.track_order_index ?? source.trackOrderIndex;
+      if ((trackId === undefined || trackId === null) === (orderIndex === undefined || orderIndex === null)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.timeline_working_track_target_required');
+      const track = trackId !== undefined && trackId !== null
+        ? next.tracks.find((candidate) => candidate.id === String(trackId))
+        : next.tracks.find((candidate) => Number(candidate.order_index) === asInt(orderIndex, -1));
+      if (!track) throw new CoreError('TIMELINE_TRACK_NOT_FOUND', 'VALIDATION', 'errors.timeline_track_not_found', { track_id: trackId ?? orderIndex });
+      const rawClip = source.clip;
+      if (!rawClip || typeof rawClip !== 'object' || Array.isArray(rawClip)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.required_field', { field: 'clip' });
+      const clipKeys = new Set(['id', 'clip_id', 'clipId', 'asset_revision_id', 'assetRevisionId', 'source_in', 'sourceIn', 'source_out', 'sourceOut', 'timeline_in', 'timelineIn', 'timeline_out', 'timelineOut', 'speed']);
+      for (const key of Object.keys(rawClip)) if (!clipKeys.has(key)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `clip.${key}` });
+      const clipId = rawClip.id ?? rawClip.clip_id ?? rawClip.clipId ?? uuidv7();
+      const assetRevisionId = rawClip.asset_revision_id ?? rawClip.assetRevisionId;
+      if (typeof assetRevisionId !== 'string' || assetRevisionId.trim().length === 0) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.required_field', { field: 'clip.asset_revision_id' });
+      }
+      const normalized = this._timelineClipInput(rawClip, track.clips.length);
+      // Working INSERT_CLIP is deliberately stricter than the legacy
+      // checkpoint importer: every new clip must pin one exact, materialized
+      // asset revision and a non-empty source interval before it can enter the
+      // durable operation ledger.
+      this._timelineAssetReadiness(normalized.assetRevisionId, projectId);
+      if (next.tracks.some((candidate) => candidate.clips.some((clip) => clip.id === String(clipId)))) throw new CoreError('DUPLICATE_TIMELINE_CLIP_ID', 'CONFLICT', 'errors.duplicate_timeline_clip_id', { clip_id: clipId });
+      track.clips.push({ id: String(clipId), asset_revision_id: normalized.assetRevisionId, source_in: normalized.sourceIn, source_out: normalized.sourceOut, timeline_in: normalized.timelineIn, timeline_out: normalized.timelineOut, speed: normalized.speed });
+    } else if (opType === 'MOVE_CLIP') {
+      const clipId = requiredString(source.clip_id ?? source.clipId, 'clip_id');
+      const newIn = this._timelineRational(source, 'timeline_in', { allowZero: true });
+      const found = this._timelineWorkingFindClip(next, clipId);
+      const duration = rationalSubtract(found.clip.timeline_out, found.clip.timeline_in);
+      found.clip.timeline_in = newIn;
+      found.clip.timeline_out = rationalAdd(newIn, duration);
+    } else if (opType === 'TRIM_CLIP') {
+      const clipId = requiredString(source.clip_id ?? source.clipId, 'clip_id');
+      const edge = String(source.edge ?? '').trim().toUpperCase();
+      if (!['IN', 'OUT'].includes(edge)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'edge' });
+      const timelineField = edge === 'IN' ? 'timeline_in' : 'timeline_out';
+      const sourceField = edge === 'IN' ? 'source_in' : 'source_out';
+      const timelineCamel = timelineField.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+      const sourceCamel = sourceField.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+      const otherTimelineField = edge === 'IN' ? 'timeline_out' : 'timeline_in';
+      const otherSourceField = edge === 'IN' ? 'source_out' : 'source_in';
+      const otherTimelineCamel = otherTimelineField.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+      const otherSourceCamel = otherSourceField.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+      if (source[otherTimelineField] !== undefined || source[otherTimelineCamel] !== undefined
+        || source[`${otherTimelineField}_num`] !== undefined || source[otherSourceField] !== undefined
+        || source[otherSourceCamel] !== undefined || source[`${otherSourceField}_num`] !== undefined) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `edge=${edge} trim fields` });
+      }
+      const found = this._timelineWorkingFindClip(next, clipId);
+      const hasTimeline = source[timelineField] !== undefined || source[timelineCamel] !== undefined || source[`${timelineField}_num`] !== undefined;
+      const hasSource = source[sourceField] !== undefined || source[sourceCamel] !== undefined || source[`${sourceField}_num`] !== undefined;
+      if (!hasTimeline && !hasSource) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.required_field', { field: `${timelineField} or ${sourceField}` });
+      if (hasTimeline) found.clip[timelineField] = this._timelineRational(source, timelineField, { allowZero: edge === 'IN' });
+      if (hasSource) {
+        if (found.clip.source_in === null || found.clip.source_out === null) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.required_field', { field: 'source_in/source_out' });
+        found.clip[sourceField] = this._timelineRational(source, sourceField, { allowZero: edge === 'IN' });
+      }
+    } else if (opType === 'DELETE_CLIP') {
+      const clipId = requiredString(source.clip_id ?? source.clipId, 'clip_id');
+      const found = this._timelineWorkingFindClip(next, clipId);
+      found.track.clips.splice(found.track.clips.indexOf(found.clip), 1);
+    } else if (opType === 'ADD_MARKER') {
+      const markerId = source.id ?? source.marker_id ?? source.markerId ?? uuidv7();
+      if (next.markers.some((marker) => marker.id === String(markerId))) throw new CoreError('DUPLICATE_TIMELINE_MARKER_ID', 'CONFLICT', 'errors.duplicate_timeline_marker_id', { marker_id: markerId });
+      const marker = this._normalizeTimelineMarkers({ markers: [{ id: markerId, time: source.time, marker_type: source.marker_type ?? source.markerType, label: source.label, payload: source.payload ?? {} }] }, next.duration)[0];
+      next.markers.push({ id: String(markerId), time: marker.time, marker_type: marker.markerType, label: marker.label, payload: marker.payload });
+    }
+    const normalized = this._timelineWorkingNormalizeDraft(next, projectId, draft.media_profile_revision_id);
+    return { opType, draft: normalized.draft, contentHash: normalized.contentHash, clientOpId: source.client_op_id ?? source.clientOpId ?? null };
+  }
+
+  _timelineWorkingFindClip(draft, clipId) {
+    for (const track of draft.tracks) {
+      const clip = track.clips.find((candidate) => candidate.id === clipId);
+      if (clip) return { track, clip };
+    }
+    throw new CoreError('TIMELINE_CLIP_NOT_FOUND', 'VALIDATION', 'errors.timeline_clip_not_found', { clip_id: clipId });
+  }
+
+  _timelineWorkingOperations(session) {
+    const operations = this.db.prepare('SELECT * FROM timeline_edit_ops WHERE working_session_id = ? ORDER BY op_seq ASC').all(session.id);
+    const actions = this.db.prepare('SELECT * FROM timeline_edit_actions WHERE working_session_id = ? ORDER BY action_seq ASC').all(session.id);
+    const latestAction = new Map();
+    for (const action of actions) if (action.target_op_seq !== null && action.target_op_seq !== undefined) latestAction.set(Number(action.target_op_seq), action.action_type);
+    return operations.map((operation) => {
+      const action = latestAction.get(Number(operation.op_seq));
+      return { ...operation, history_state: action === 'UNDO' ? 'UNDONE' : action === 'DISCARD_REDO_BRANCH' ? 'DISCARDED' : 'ACTIVE' };
+    });
+  }
+
+  _appendTimelineWorkingHistoryAction(sessionId, actionType, targetOperation, beforeHash, afterHash) {
+    const current = this.db.prepare('SELECT COALESCE(MAX(action_seq), 0) AS max_seq FROM timeline_edit_actions WHERE working_session_id = ?').get(sessionId);
+    const actionSeq = Number(current.max_seq) + 1;
+    this.db.prepare(`INSERT INTO timeline_edit_actions
+      (id, working_session_id, action_seq, action_type, target_op_seq, target_op_id, before_hash, after_hash, actor_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      uuidv7(), sessionId, actionSeq, actionType, targetOperation?.op_seq ?? null, targetOperation?.id ?? null,
+      String(beforeHash).toLowerCase(), String(afterHash).toLowerCase(), this.actorId, nowUtcUs(),
+    );
+    return actionSeq;
+  }
+
+  _applyTimelineEditOp(payload, expectedVersions) {
+    const session = this._timelineWorkingSession(payload.working_session_id ?? payload.workingSessionId ?? payload.session_id ?? payload.sessionId);
+    const { timeline, project } = this._timelineWorkingAssertWritable(session, payload, expectedVersions);
+    this._timelineWorkingAssertEditable(session);
+    const operationsValue = payload.operations ?? payload.ops ?? (payload.operation ? [payload.operation] : null);
+    if (operationsValue === null) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.required_field', { field: 'operations' });
+    const operations = operationsValue;
+    if (!Array.isArray(operations) || operations.length < 1 || operations.length > MAX_TIMELINE_WORKING_BATCH) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.timeline_working_batch_invalid', { max_items: MAX_TIMELINE_WORKING_BATCH });
+    const currentOpCount = Number(this.db.prepare('SELECT COUNT(*) AS count FROM timeline_edit_ops WHERE working_session_id = ?').get(session.id).count);
+    if (currentOpCount + operations.length > MAX_TIMELINE_WORKING_OPS) throw new CoreError('TIMELINE_WORKING_OP_LIMIT', 'CONFLICT', 'errors.timeline_working_op_limit', { max_ops: MAX_TIMELINE_WORKING_OPS }, { needsUser: true });
+    let draft = parseJson(session.draft_payload_json, {});
+    const normalizedCurrent = this._timelineWorkingNormalizeDraft(draft, project.id);
+    if (normalizedCurrent.contentHash.toLowerCase() !== String(session.draft_hash).toLowerCase()) throw new CoreError('TIMELINE_WORKING_DRAFT_CORRUPT', 'CONFLICT', 'errors.timeline_working_draft_corrupt', { working_session_id: session.id }, { needsUser: true });
+    draft = normalizedCurrent.draft;
+    let cursor = Number(session.history_cursor_seq);
+    const maxOp = Number(this.db.prepare('SELECT COALESCE(MAX(op_seq), 0) AS max_seq FROM timeline_edit_ops WHERE working_session_id = ?').get(session.id).max_seq);
+    let nextSeq = Math.max(Number(session.next_op_seq), maxOp + 1);
+    const accepted = [];
+    if (cursor < maxOp) {
+      const discarded = this.db.prepare(`SELECT * FROM timeline_edit_ops
+        WHERE working_session_id = ? AND op_seq > ? AND history_state != 'DISCARDED' ORDER BY op_seq ASC`).all(session.id, cursor);
+      for (const operation of discarded) {
+        this._appendTimelineWorkingHistoryAction(session.id, 'DISCARD_REDO_BRANCH', operation, String(operation.result_hash), String(operation.result_hash));
+      }
+    }
+    for (const operation of operations) {
+      const before = draft;
+      const applied = this._timelineWorkingOperation(before, operation, project.id);
+      const opSeq = nextSeq;
+      nextSeq += 1;
+      const opId = uuidv7();
+      const created = nowUtcUs();
+      const clientOpId = applied.clientOpId === null || applied.clientOpId === undefined ? null : requiredString(applied.clientOpId, 'client_op_id', 200);
+      if (clientOpId && this.db.prepare('SELECT id FROM timeline_edit_ops WHERE working_session_id = ? AND client_op_id = ?').get(session.id, clientOpId)) {
+        throw new CoreError('TIMELINE_EDIT_OP_ALREADY_EXISTS', 'CONFLICT', 'errors.timeline_edit_op_already_exists', { client_op_id: clientOpId }, { needsUser: true });
+      }
+      this.db.prepare(`INSERT INTO timeline_edit_ops
+        (id, working_session_id, op_seq, op_type, payload_json, before_payload_json, after_payload_json,
+         result_hash, history_state, actor_id, client_op_id, created_at_utc_us)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`).run(
+        opId, session.id, opSeq, applied.opType, canonicalJson(operation), canonicalJson(before), canonicalJson(applied.draft), applied.contentHash, this.actorId, clientOpId, created,
+      );
+      draft = applied.draft;
+      cursor = opSeq;
+      accepted.push({ id: opId, op_seq: opSeq, op_type: applied.opType, result_hash: applied.contentHash, client_op_id: clientOpId });
+    }
+    const nextHash = this._timelineWorkingHash(draft);
+    const nextVersion = Number(session.row_version) + 1;
+    const nextStep = 'Autosave draft trước khi checkpoint hoặc đóng phiên.';
+    this.db.prepare(`UPDATE timeline_working_sessions SET state = 'DIRTY', draft_payload_json = ?, draft_hash = ?,
+      last_acknowledged_op_seq = ?, history_cursor_seq = ?, next_op_seq = ?, next_step = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      canonicalJson(draft), nextHash, cursor, cursor, nextSeq, nextStep, nextVersion, nowUtcUs(), session.id,
+    );
+    const updated = this._timelineWorkingSession(session.id);
+    const projection = this._timelineWorkingPublicProjection(updated);
+    return {
+      projectId: project.id,
+      result: {
+        ...projection,
+        accepted_operations: accepted,
+        timeline_row_version: Number(timeline.row_version),
+        impact_summary: {
+          changed_scope: 'TIMELINE_WORKING_DRAFT',
+          operation_types: accepted.map((operation) => operation.op_type),
+          dependent_domains: ['SUBTITLES', 'AUDIO', 'LIP_SYNC', 'MUSIC', 'RELEASE_READINESS'],
+          dependency_state: 'NOT_RECOMPUTED_UNTIL_CHECKPOINT',
+          requires_autosave: true,
+        },
+      },
+      event: { aggregateType: 'TIMELINE_WORKING_SESSION', aggregateId: session.id, aggregateVersion: nextVersion, eventType: 'TIMELINE_EDIT_OPS_APPLIED', payload: { working_session_id: session.id, project_id: project.id, timeline_id: timeline.id, operation_count: accepted.length, last_acknowledged_op_seq: cursor, draft_hash: nextHash } },
+      audit: { actionType: 'timeline.working_session.apply_ops', targetType: 'TIMELINE_WORKING_SESSION', targetId: session.id, payload: { project_id: project.id, timeline_id: timeline.id, operation_count: accepted.length, operation_types: accepted.map((operation) => operation.op_type), last_acknowledged_op_seq: cursor, draft_hash: nextHash } },
+    };
+  }
+
+  _undoTimelineEditOp(payload, expectedVersions) {
+    const session = this._timelineWorkingSession(payload.working_session_id ?? payload.workingSessionId ?? payload.session_id ?? payload.sessionId);
+    const { timeline, project } = this._timelineWorkingAssertWritable(session, payload, expectedVersions);
+    this._timelineWorkingAssertEditable(session);
+    const cursor = Number(session.history_cursor_seq);
+    if (cursor < 1) throw new CoreError('TIMELINE_NO_UNDO', 'CONFLICT', 'errors.timeline_no_undo', { working_session_id: session.id }, { needsUser: true });
+    const operation = this.db.prepare('SELECT * FROM timeline_edit_ops WHERE working_session_id = ? AND op_seq = ?').get(session.id, cursor);
+    if (!operation) throw new CoreError('TIMELINE_WORKING_HISTORY_CORRUPT', 'CONFLICT', 'errors.timeline_working_history_corrupt', { working_session_id: session.id, op_seq: cursor }, { needsUser: true });
+    const draft = this._timelineWorkingNormalizeDraft(parseJson(operation.before_payload_json, {}), project.id).draft;
+    const draftHash = this._timelineWorkingHash(draft);
+    const nextCursor = cursor - 1;
+    this._appendTimelineWorkingHistoryAction(session.id, 'UNDO', operation, String(session.draft_hash), draftHash);
+    const nextVersion = Number(session.row_version) + 1;
+    const state = this._timelineWorkingMatchesBase(session, draftHash, draft) ? 'CLEAN' : 'DIRTY';
+    const nextStep = state === 'CLEAN' ? 'Có thể chỉnh sửa tiếp hoặc đóng phiên.' : 'Autosave draft sau khi undo trước khi checkpoint.';
+    this.db.prepare(`UPDATE timeline_working_sessions SET state = ?, draft_payload_json = ?, draft_hash = ?,
+      last_acknowledged_op_seq = ?, history_cursor_seq = ?, next_step = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      state, canonicalJson(draft), draftHash, nextCursor, nextCursor, nextStep, nextVersion, nowUtcUs(), session.id,
+    );
+    const updated = this._timelineWorkingSession(session.id);
+    return {
+      projectId: project.id,
+      result: { ...this._timelineWorkingPublicProjection(updated), undone_operation: { id: operation.id, op_seq: Number(operation.op_seq), op_type: operation.op_type } },
+      event: { aggregateType: 'TIMELINE_WORKING_SESSION', aggregateId: session.id, aggregateVersion: nextVersion, eventType: 'TIMELINE_EDIT_OP_UNDONE', payload: { working_session_id: session.id, project_id: project.id, timeline_id: timeline.id, op_seq: Number(operation.op_seq), draft_hash: draftHash } },
+      audit: { actionType: 'timeline.working_session.undo', targetType: 'TIMELINE_WORKING_SESSION', targetId: session.id, payload: { project_id: project.id, timeline_id: timeline.id, undone_op_seq: Number(operation.op_seq), op_type: operation.op_type, draft_hash: draftHash } },
+    };
+  }
+
+  _redoTimelineEditOp(payload, expectedVersions) {
+    const session = this._timelineWorkingSession(payload.working_session_id ?? payload.workingSessionId ?? payload.session_id ?? payload.sessionId);
+    const { timeline, project } = this._timelineWorkingAssertWritable(session, payload, expectedVersions);
+    this._timelineWorkingAssertEditable(session);
+    const cursor = Number(session.history_cursor_seq);
+    const operation = this.db.prepare('SELECT * FROM timeline_edit_ops WHERE working_session_id = ? AND op_seq = ?').get(session.id, cursor + 1);
+    if (!operation) throw new CoreError('TIMELINE_NO_REDO', 'CONFLICT', 'errors.timeline_no_redo', { working_session_id: session.id }, { needsUser: true });
+    const latestAction = this.db.prepare(`SELECT action_type FROM timeline_edit_actions
+      WHERE working_session_id = ? AND target_op_seq = ? ORDER BY action_seq DESC LIMIT 1`).get(session.id, cursor + 1);
+    if (!latestAction || latestAction.action_type !== 'UNDO') throw new CoreError('TIMELINE_NO_REDO', 'CONFLICT', 'errors.timeline_no_redo', { working_session_id: session.id }, { needsUser: true });
+    const draft = this._timelineWorkingNormalizeDraft(parseJson(operation.after_payload_json, {}), project.id).draft;
+    const draftHash = this._timelineWorkingHash(draft);
+    this._appendTimelineWorkingHistoryAction(session.id, 'REDO', operation, String(session.draft_hash), draftHash);
+    const nextCursor = Number(operation.op_seq);
+    const nextVersion = Number(session.row_version) + 1;
+    const state = draftHash === String(session.autosaved_hash).toLowerCase() ? 'CLEAN' : 'DIRTY';
+    const nextStep = state === 'CLEAN' ? 'Có thể chỉnh sửa tiếp hoặc đóng phiên.' : 'Autosave draft sau khi redo trước khi checkpoint.';
+    this.db.prepare(`UPDATE timeline_working_sessions SET state = ?, draft_payload_json = ?, draft_hash = ?,
+      last_acknowledged_op_seq = ?, history_cursor_seq = ?, next_step = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      state, canonicalJson(draft), draftHash, nextCursor, nextCursor, nextStep, nextVersion, nowUtcUs(), session.id,
+    );
+    const updated = this._timelineWorkingSession(session.id);
+    return {
+      projectId: project.id,
+      result: { ...this._timelineWorkingPublicProjection(updated), redone_operation: { id: operation.id, op_seq: Number(operation.op_seq), op_type: operation.op_type } },
+      event: { aggregateType: 'TIMELINE_WORKING_SESSION', aggregateId: session.id, aggregateVersion: nextVersion, eventType: 'TIMELINE_EDIT_OP_REDONE', payload: { working_session_id: session.id, project_id: project.id, timeline_id: timeline.id, op_seq: Number(operation.op_seq), draft_hash: draftHash } },
+      audit: { actionType: 'timeline.working_session.redo', targetType: 'TIMELINE_WORKING_SESSION', targetId: session.id, payload: { project_id: project.id, timeline_id: timeline.id, redone_op_seq: Number(operation.op_seq), op_type: operation.op_type, draft_hash: draftHash } },
+    };
+  }
+
+  _autosaveTimelineWorkingSession(payload, expectedVersions) {
+    const session = this._timelineWorkingSession(payload.working_session_id ?? payload.workingSessionId ?? payload.session_id ?? payload.sessionId);
+    const { timeline, project } = this._timelineWorkingAssertWritable(session, payload, expectedVersions);
+    const recovery = Boolean(payload.recover ?? payload.recovery ?? false);
+    if (!TIMELINE_WORKING_EDITABLE_STATES.has(session.state)) {
+      if (session.state !== 'RECOVERY_REQUIRED' || !recovery) {
+        throw new CoreError('TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'CONFLICT', 'errors.timeline_working_session_not_editable', { state: session.state }, { needsUser: true });
+      }
+    }
+    if (session.state === 'RECOVERY_REQUIRED' && !recovery) throw new CoreError('TIMELINE_WORKING_RECOVERY_REQUIRED', 'CONFLICT', 'errors.timeline_working_recovery_required', { working_session_id: session.id }, { needsUser: true });
+    const normalized = this._timelineWorkingNormalizeDraft(parseJson(session.draft_payload_json, {}), project.id);
+    if (normalized.contentHash.toLowerCase() !== String(session.draft_hash).toLowerCase()) throw new CoreError('TIMELINE_WORKING_DRAFT_CORRUPT', 'CONFLICT', 'errors.timeline_working_draft_corrupt', { working_session_id: session.id }, { needsUser: true });
+    const autosavingVersion = Number(session.row_version) + 1;
+    this.db.prepare(`UPDATE timeline_working_sessions SET state = 'AUTOSAVING', next_step = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      'Đang ghi draft bền vững; chưa tạo hoặc approve canon.', autosavingVersion, nowUtcUs(), session.id,
+    );
+    const savedAt = nowUtcUs();
+    const finalVersion = autosavingVersion + 1;
+    this.db.prepare(`UPDATE timeline_working_sessions SET state = 'CLEAN', autosaved_hash = ?, last_autosave_at_utc_us = ?,
+      next_step = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      normalized.contentHash, savedAt, 'Draft đã autosave; có thể checkpoint hoặc đóng phiên.', finalVersion, savedAt, session.id,
+    );
+    const updated = this._timelineWorkingSession(session.id);
+    return {
+      projectId: project.id,
+      result: this._timelineWorkingPublicProjection(updated),
+      event: { aggregateType: 'TIMELINE_WORKING_SESSION', aggregateId: session.id, aggregateVersion: finalVersion, eventType: 'TIMELINE_WORKING_SESSION_AUTOSAVED', payload: { working_session_id: session.id, project_id: project.id, timeline_id: timeline.id, draft_hash: normalized.contentHash, recovered: recovery } },
+      audit: { actionType: 'timeline.working_session.autosave', targetType: 'TIMELINE_WORKING_SESSION', targetId: session.id, payload: { project_id: project.id, timeline_id: timeline.id, draft_hash: normalized.contentHash, recovered: recovery } },
+    };
+  }
+
+  _checkpointTimelineWorkingSession(payload, expectedVersions, commandId) {
+    const session = this._timelineWorkingSession(payload.working_session_id ?? payload.workingSessionId ?? payload.session_id ?? payload.sessionId);
+    const { timeline, project } = this._timelineWorkingAssertWritable(session, payload, expectedVersions);
+    if (!['OPEN', 'DIRTY', 'CLEAN'].includes(session.state)) throw new CoreError('TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'CONFLICT', 'errors.timeline_working_session_not_editable', { state: session.state }, { needsUser: true });
+    const baseRevision = this._timelineRevision(session.base_revision_id);
+    if (Number(baseRevision.row_version) !== Number(session.base_revision_row_version)
+      || String(baseRevision.content_hash).toLowerCase() !== String(session.base_content_hash).toLowerCase()) {
+      throw new CoreError('STALE_REVISION', 'STALE_REVISION', 'errors.stale_revision', {
+        entity_type: 'TIMELINE_REVISION', entity_id: baseRevision.id,
+        expected: session.base_revision_row_version, current: Number(baseRevision.row_version),
+      }, { needsUser: true, technicalDetails: { base_revision_id: baseRevision.id, expected_content_hash: session.base_content_hash, current_content_hash: baseRevision.content_hash } });
+    }
+    const draftNormalized = this._timelineWorkingNormalizeDraft(parseJson(session.draft_payload_json, {}), project.id, null, { checkAssets: true });
+    this._timelineWorkingValidateMaterializedClips(draftNormalized.draft, project.id);
+    if (draftNormalized.contentHash.toLowerCase() !== String(session.draft_hash).toLowerCase()) throw new CoreError('TIMELINE_WORKING_DRAFT_CORRUPT', 'CONFLICT', 'errors.timeline_working_draft_corrupt', { working_session_id: session.id }, { needsUser: true });
+    if (draftNormalized.contentHash.toLowerCase() !== String(session.autosaved_hash).toLowerCase()) throw new CoreError('TIMELINE_DRAFT_NOT_AUTOSAVED', 'CONFLICT', 'errors.timeline_draft_not_autosaved', { working_session_id: session.id }, { needsUser: true });
+    const expectedTimelineVersion = payload.expected_timeline_version ?? payload.expectedTimelineVersion ?? expectedVersions.TIMELINE ?? expectedVersions.timeline;
+    if (expectedTimelineVersion === undefined || expectedTimelineVersion === null) throw new CoreError('EXPECTED_VERSION_REQUIRED', 'CONFLICT', 'errors.expected_version_required', { entity_type: 'TIMELINE', entity_id: timeline.id }, { needsUser: true });
+    const profile = this._mediaProfileRevision(draftNormalized.draft.media_profile_revision_id);
+    if (profile.lifecycle_state !== 'APPROVED') throw new CoreError('MEDIA_PROFILE_NOT_APPROVED', 'CONFLICT', 'errors.media_profile_not_approved', { media_profile_revision_id: profile.id }, { needsUser: true });
+    const checkpointingVersion = Number(session.row_version) + 1;
+    this.db.prepare(`UPDATE timeline_working_sessions SET state = 'CHECKPOINTING', next_step = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      'Đang kiểm tra pin revision, rights và readiness trước khi tạo checkpoint immutable.', checkpointingVersion, nowUtcUs(), session.id,
+    );
+    const revisionOperation = this._createTimelineRevision({
+      project_id: project.id,
+      timeline_id: timeline.id,
+      media_profile_revision_id: draftNormalized.draft.media_profile_revision_id,
+      duration: draftNormalized.draft.duration,
+      tracks: draftNormalized.draft.tracks,
+      markers: draftNormalized.draft.markers.map((marker) => ({ time: marker.time, marker_type: marker.marker_type, label: marker.label, payload: marker.payload })),
+    }, { TIMELINE: expectedTimelineVersion });
+    const checkpointRevisionId = revisionOperation.result?.revision?.id ?? revisionOperation.result?.current_revision?.id;
+    if (!checkpointRevisionId) throw new CoreError('TIMELINE_CHECKPOINT_FAILED', 'INTERNAL', 'errors.timeline_checkpoint_failed', {}, { needsUser: false });
+    // Preserve the normal timeline revision event/audit inside the same
+    // command transaction; the outer operation records the session state.
+    this._insertEvent(revisionOperation.event, commandId, this.actorId, null, commandId);
+    this._insertAudit(revisionOperation.audit, commandId, this.actorId, 'SUCCEEDED');
+    const checkpointRevision = this._timelineRevision(checkpointRevisionId);
+    const nextVersion = checkpointingVersion + 1;
+    this.db.prepare(`UPDATE timeline_working_sessions SET state = 'CLEAN',
+      base_revision_id = ?, base_revision_row_version = ?, base_content_hash = ?,
+      last_checkpoint_revision_id = ?, next_step = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      checkpointRevision.id, Number(checkpointRevision.row_version), String(checkpointRevision.content_hash).toLowerCase(),
+      checkpointRevisionId, 'Checkpoint immutable đã tạo; review/approval vẫn là bước riêng.', nextVersion, nowUtcUs(), session.id,
+    );
+    const updated = this._timelineWorkingSession(session.id);
+    const projection = this._timelineWorkingPublicProjection(updated);
+    return {
+      projectId: project.id,
+      result: { ...projection, checkpoint_revision: revisionOperation.result.revision, checkpoint_revision_id: checkpointRevisionId },
+      event: { aggregateType: 'TIMELINE_WORKING_SESSION', aggregateId: session.id, aggregateVersion: nextVersion, eventType: 'TIMELINE_WORKING_SESSION_CHECKPOINTED', payload: { working_session_id: session.id, project_id: project.id, timeline_id: timeline.id, checkpoint_revision_id: checkpointRevisionId, content_hash: draftNormalized.contentHash } },
+      audit: { actionType: 'timeline.working_session.checkpoint', targetType: 'TIMELINE_WORKING_SESSION', targetId: session.id, payload: { project_id: project.id, timeline_id: timeline.id, checkpoint_revision_id: checkpointRevisionId, content_hash: draftNormalized.contentHash } },
+    };
+  }
+
+  _closeTimelineWorkingSession(payload, expectedVersions) {
+    const session = this._timelineWorkingSession(payload.working_session_id ?? payload.workingSessionId ?? payload.session_id ?? payload.sessionId);
+    const timeline = this._timeline(session.timeline_id);
+    this._assertPayloadProjectScope(payload, timeline.project_id, 'TIMELINE_WORKING_SESSION', session.id);
+    const payloadEntityType = String(payload?.entity_type ?? payload?.entityType ?? '').trim().toUpperCase();
+    const suppliedTimelineId = payload?.timeline_id ?? payload?.timelineId
+      ?? (payloadEntityType === 'TIMELINE' ? (payload?.entity_id ?? payload?.entityId) : undefined);
+    if (suppliedTimelineId !== undefined && suppliedTimelineId !== null && suppliedTimelineId !== timeline.id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'TIMELINE', entity_id: suppliedTimelineId, expected_entity_id: timeline.id,
+      }, { needsUser: true });
+    }
+    if (session.actor_id !== this.actorId) throw new CoreError('AUTH_REQUIRED', 'AUTH_REQUIRED', 'errors.timeline_working_session_actor_mismatch', { working_session_id: session.id }, { needsUser: true });
+    const clientInstanceId = requiredString(payload.client_instance_id ?? payload.clientInstanceId, 'client_instance_id', MAX_TIMELINE_CLIENT_ID);
+    if (clientInstanceId !== session.client_instance_id) {
+      throw new CoreError('TIMELINE_WORKING_CLIENT_MISMATCH', 'AUTH_REQUIRED', 'errors.timeline_working_session_client_mismatch', { working_session_id: session.id }, { needsUser: true });
+    }
+    this._expectedVersion(expectedVersions, 'WORKING_SESSION', session.id, session.row_version);
+    if (['CLOSED', 'ABANDONED'].includes(session.state)) throw new CoreError('TIMELINE_WORKING_SESSION_CLOSED', 'CONFLICT', 'errors.timeline_working_session_closed', { state: session.state }, { needsUser: true });
+    const disposition = String(payload.disposition ?? payload.close_mode ?? payload.closeMode ?? '').trim().toUpperCase();
+    if (!['SAVE', 'ABANDON'].includes(disposition)) throw new CoreError('TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'CONFLICT', 'errors.timeline_close_disposition_required', {}, { needsUser: true });
+    const draftHash = String(session.draft_hash).toLowerCase();
+    const autosavedHash = String(session.autosaved_hash).toLowerCase();
+    if (disposition === 'SAVE' && (session.state !== 'CLEAN' || draftHash !== autosavedHash)) throw new CoreError('TIMELINE_DRAFT_NOT_AUTOSAVED', 'CONFLICT', 'errors.timeline_draft_not_autosaved', { working_session_id: session.id }, { needsUser: true });
+    const state = disposition === 'ABANDON' ? 'ABANDONED' : 'CLOSED';
+    const nextStep = disposition === 'ABANDON'
+      ? 'Phiên đã đóng nhưng draft vẫn được giữ; mở phiên mới để tiếp tục chỉnh sửa.'
+      : 'Phiên đã đóng sau khi draft được autosave.';
+    const nextVersion = Number(session.row_version) + 1;
+    const closedAt = nowUtcUs();
+    this.db.prepare(`UPDATE timeline_working_sessions SET state = ?, next_step = ?, closed_at_utc_us = ?, row_version = ?, updated_at_utc_us = ? WHERE id = ?`).run(
+      state, nextStep, closedAt, nextVersion, closedAt, session.id,
+    );
+    const updated = this._timelineWorkingSession(session.id);
+    return {
+      projectId: timeline.project_id,
+      result: this._timelineWorkingPublicProjection(updated),
+      event: { aggregateType: 'TIMELINE_WORKING_SESSION', aggregateId: session.id, aggregateVersion: nextVersion, eventType: `TIMELINE_WORKING_SESSION_${state}`, payload: { working_session_id: session.id, project_id: timeline.project_id, timeline_id: timeline.id, disposition, state } },
+      audit: { actionType: 'timeline.working_session.close', targetType: 'TIMELINE_WORKING_SESSION', targetId: session.id, payload: { project_id: timeline.project_id, timeline_id: timeline.id, disposition, state } },
+    };
+  }
+
   _createTimeline(payload) {
     const project = this._project(payload.project_id ?? payload.projectId);
     this._assertProjectWritable(project);
@@ -3915,6 +4862,7 @@ export class CoreService {
       }
     }
     const content = {
+      schema_version: 1,
       media_profile_revision_id: profileRevision.id,
       duration,
       tracks: tracks.map((track) => ({
@@ -4874,6 +5822,7 @@ export class CoreService {
     if (aggregateType === 'MEDIA_PROFILE') return this.db.prepare('SELECT project_id FROM project_media_profiles WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'TIMELINE') return this.db.prepare('SELECT project_id FROM timelines WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'TIMELINE_REVISION') return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r JOIN timelines t ON t.id = r.timeline_id WHERE r.id = ?`).get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'TIMELINE_WORKING_SESSION') return this.db.prepare(`SELECT t.project_id FROM timeline_working_sessions s JOIN timelines t ON t.id = s.timeline_id WHERE s.id = ?`).get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'EXPORT_SESSION') return this.db.prepare('SELECT project_id FROM export_sessions WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'HANDOFF_MANIFEST') return this.db.prepare('SELECT project_id FROM handoff_manifests WHERE id = ?').get(aggregateId)?.project_id ?? null;
     return null;
@@ -5014,6 +5963,13 @@ export class CoreService {
       case 'query.media_profile.get': return this._mediaProfileWorkspace(params.project_id ?? params.projectId);
       case 'query.timeline.list': return this._timelineList(params);
       case 'query.timeline.workspace': return this._timelineWorkspace(params.timeline_id ?? params.timelineId, params.project_id ?? params.projectId ?? null);
+      case 'query.timeline.working_session.list': return this._timelineWorkingList(params);
+      case 'query.timeline.working_session': return this._timelineWorkingPublicProjection(
+        params.working_session_id ?? params.workingSessionId ?? params.session_id ?? params.sessionId,
+        params.project_id ?? params.projectId ?? null,
+        params.timeline_id ?? params.timelineId ?? null,
+      );
+      case 'query.timeline.edit_history': return this._timelineWorkingEditHistory(params);
       case 'query.review.list': return this._reviewList(params);
       case 'query.review.get': {
         const session = this._reviewSession(params.review_session_id ?? params.reviewSessionId ?? params.id);
@@ -5182,12 +6138,13 @@ export class CoreService {
        UNION SELECT id FROM decision_requests WHERE project_id = ?
        UNION SELECT id FROM characters WHERE project_id = ?
        UNION SELECT id FROM timelines WHERE project_id = ?
+       UNION SELECT id FROM timeline_working_sessions WHERE timeline_id IN (SELECT id FROM timelines WHERE project_id = ?)
        UNION SELECT id FROM review_sessions WHERE project_id = ?
         UNION SELECT id FROM export_sessions WHERE project_id = ?
         UNION SELECT id FROM project_media_profiles WHERE project_id = ?
         ) ORDER BY seq DESC LIMIT ?`).all(
       projectId, projectId, projectId, projectId, projectId,
-      projectId, projectId, projectId, projectId, projectId, projectId, limit,
+      projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit,
     );
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }

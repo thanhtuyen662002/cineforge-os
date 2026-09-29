@@ -1045,6 +1045,114 @@ already exists:
   schema, but V1 commands must reject them with a typed unsupported-scope
   result rather than silently dropping data.
 
+## Issue #27 bounded timeline working-session schema
+
+Issue #27 opens the compatibility tables above as a deliberately bounded,
+project-scoped local editing surface. It does not change the immutable
+timeline-revision model and it does not make a working copy canonical.
+
+`timeline_working_sessions` retains the following contract fields:
+
+- `id` PK and immutable session identity;
+- `timeline_id` FK, which must resolve to a `scope_type=PROJECT` timeline;
+- `base_revision_id` FK to one exact immutable timeline revision;
+- `base_content_hash` (the exact base revision `content_hash`) and
+  `base_revision_row_version`, captured at begin time and advanced only by an
+  explicit successful checkpoint rebase;
+- `actor_id` FK and `client_instance_id`, both part of the session identity;
+- `mode`, which is `EXCLUSIVE` for this local slice (shared and branch modes
+  remain future compatibility values);
+- `state`, `row_version`, `history_cursor_seq`, `next_op_seq`, and
+  `last_acknowledged_op_seq`;
+- `last_autosave_at_utc_us`, `created_at_utc_us`, and `updated_at_utc_us`.
+
+Only one non-terminal session may be open for a given `(timeline_id,
+actor_id)` in this slice. A second begin request returns a typed conflict;
+Core never silently steals or merges the existing session. Timeline, actor,
+client and mode identity cannot be changed in place. A successful checkpoint
+explicitly rebases the still-open session to that newly created immutable
+checkpoint and records the exact new base hash/version. A closed or abandoned
+session cannot accept another operation.
+
+`timeline_edit_ops` is an append-only operation ledger. The executable
+implementation records the immutable operation identity, typed
+`payload_json`, exact before/after canonical snapshots, result content hash,
+`client_op_id`, actor and server creation time. `(working_session_id,
+op_seq)` and `(working_session_id, client_op_id)` are unique. An accepted
+operation is never deleted or rewritten to make history appear different.
+Command idempotency is recorded by the Core command ledger; an equivalent
+retry returns the original result and a changed payload/version is rejected.
+
+`timeline_edit_actions` is a separate append-only causal relation ledger. It
+records `UNDO`, `REDO` and `DISCARD_REDO_BRANCH` action sequence, target
+operation, before/after draft hashes, actor and creation time. The operation
+content row remains immutable while its public `history_state` is derived from
+the latest action relation and current session cursor. No history is silently
+deleted or compacted.
+
+## timeline_edit_actions
+- id PK
+- working_session_id FK
+- action_seq
+- action_type (`UNDO`, `REDO`, `DISCARD_REDO_BRANCH`)
+- target operation sequence/ID
+- before/after draft hashes
+- actor and creation timestamp
+UNIQUE(working_session_id, action_seq)
+
+The Issue #27 operation allowlist is exactly:
+
+- `INSERT_CLIP` — add one VIDEO clip with an exact materialized asset revision,
+  source/timeline rational intervals and positive constant speed;
+- `MOVE_CLIP` — move an existing clip while preserving its source pin and
+  positive duration;
+- `TRIM_CLIP` — change a clip's checked source or timeline bounds while
+  preserving ordered, non-empty intervals;
+- `DELETE_CLIP` — remove a working-copy clip reference;
+- `ADD_MARKER` — append a typed marker at a checked rational position.
+
+`SPLIT_CLIP`, `RETIME_CLIP`, audio/caption/transition/link/effect operations
+and all other operation names in the broader deferred API list are explicitly
+unsupported by Issue #27. They must return a typed result rather than being
+silently approximated.
+
+Every payload is versioned canonical JSON with an allowlisted key set. Asset,
+profile and timeline references are exact IDs from the pinned project; `latest`,
+provider identifiers, filesystem paths, floating-point time, NaN, Infinity,
+zero/negative denominators, overflowed rationals, cross-project references and
+unknown fields are rejected before a row or event is written. The operation
+ledger and its derived working snapshot are bounded by Core limits for
+operation count, payload bytes and working-set storage. A limit rejection
+preserves the prior durable session and reports the limit and next step; it
+does not silently compact away undo history.
+
+An `UNDO` is an explicit causal compensating operation for one of the current
+actor's reversible operations. A `REDO` re-applies the most recent eligible
+undo relation. Neither command deletes history or rewinds unrelated project
+state. A new edit after undo invalidates the redo branch. External publication,
+upload, charge, provider dispatch or other irreversible side effects are not
+part of this slice and can never be labelled reversible here.
+
+Autosave persists only the working snapshot/operation acknowledgement and
+updates `last_autosave_at_utc_us`; it never writes a canonical timeline
+revision, approval, review decision or release state. A durable autosave is
+reported only after its Core transaction commits. Checkpoint replays the
+accepted operation ledger, requires all operations acknowledged and the exact
+base/version still current, revalidates profile, materialization, asset pins
+and rights, then calls the existing immutable checkpoint contract. Success
+creates one new `DRAFT_CHECKPOINT`, leaves prior revisions untouched, and
+re-bases the open session to that exact new revision in `CLEAN`; it does not
+approve or publish anything. Close requires `CLEAN`, or an explicit abandon
+choice that preserves the draft and enters `ABANDONED`; dirty close cannot
+silently discard edits.
+
+The working-session schema is not a collaboration implementation. Offline
+multi-user branch/reconcile, leases, semantic merge, audio/caption/transition
+tracks, transforms/effects, variable/reverse/freeze retime, playback,
+thumbnail/waveform generation, render/transcode, handoff/export, release,
+publish and provider execution remain outside Issue #27 and require separate
+contracts.
+
 # 12. Production workflow, generation and jobs
 
 ## workflows / workflow_revisions

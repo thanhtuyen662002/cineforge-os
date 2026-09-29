@@ -34,6 +34,13 @@ controls:
     maturity: SPECIFIED
     current_slice_required: true
 
+  - id: CF-CTRL-TIMELINE-WORKING-SESSION
+    title: Bounded timeline working-session durability and stale-write safety
+    owner: docs/design/STATE_MACHINES.md
+    applicability: V1_FOUNDATION
+    maturity: SPECIFIED
+    current_slice_required: true
+
   - id: CF-CTRL-OBJECT-STAGING
     title: Staged hash/decode-verified artifact registration
     owner: docs/design/EXTREME_HARDENING_CONTRACTS.md

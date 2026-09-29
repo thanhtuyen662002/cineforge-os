@@ -290,8 +290,35 @@ h3 { font-size: 13px; font-weight: 600; }
 .timeline-metrics strong { overflow: hidden; color: var(--text-soft); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-deferred { display: flex; align-items: flex-start; gap: 7px; margin-top: 15px; border-radius: 8px; padding: 9px 10px; color: var(--text-muted); background: var(--canvas-raised); font-size: 9px; line-height: 1.45; }
 .timeline-deferred svg { flex-shrink: 0; color: var(--indigo-bright); margin-top: 1px; }
+.timeline-working-panel { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.timeline-working-panel h3 { margin: 0; color: var(--text-soft); font-size: 11px; }
+.timeline-working-panel .card-heading p { margin-top: 4px; color: var(--text-muted); font-size: 9px; line-height: 1.4; }
+.working-session-empty { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; color: var(--text-muted); font-size: 10px; line-height: 1.45; }
+.working-session-empty p { flex: 1 1 100%; margin: 0; }
+.working-session-empty small { flex-basis: 100%; }
+.working-session-metrics { margin-top: 12px; }
+.working-marker-form { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
+.form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.working-clip-tools { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
+.working-tool-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.working-tool-heading strong { color: var(--text-soft); font-size: 10px; }
+.working-tool-heading span { color: var(--text-muted); font-size: 9px; }
+.working-clip-tools > label { display: flex; flex-direction: column; gap: 5px; color: var(--text-muted); font-size: 9px; }
+.working-clip-tools > label select { width: 100%; }
+.working-clip-operation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
+.working-clip-operation-grid .workspace-form { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: var(--canvas-raised); }
+.working-clip-operation-grid .danger-button { align-self: end; min-height: 32px; }
+.working-insert-form { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.working-draft-records { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; color: var(--text-muted); font-size: 9px; }
+.working-draft-row { display: flex; justify-content: space-between; gap: 10px; }
+.working-draft-row small { color: var(--text-soft); }
+.working-session-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.working-session-actions .primary-button, .working-session-actions .subtle-button { white-space: nowrap; }
+.danger-button { color: var(--red) !important; }
 @media (max-width: 950px) { .timeline-grid { grid-template-columns: 1fr; }.timeline-list-card { grid-row: auto; } }
-@media (max-width: 620px) { .timeline-toolbar { align-items: stretch; flex-direction: column; }.timeline-project-select { width: 100%; min-width: 0; }.timeline-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.timeline-profile-revision, .timeline-revision-row, .timeline-track-row { align-items: flex-start; flex-direction: column; }.timeline-profile-revision .subtle-button, .timeline-revision-row .subtle-button { align-self: stretch; justify-content: center; } }
+@media (max-width: 760px) { .working-clip-operation-grid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .timeline-toolbar { align-items: stretch; flex-direction: column; }.timeline-project-select { width: 100%; min-width: 0; }.timeline-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.form-grid.three, .form-grid.four { grid-template-columns: 1fr; }.timeline-profile-revision, .timeline-revision-row, .timeline-track-row { align-items: flex-start; flex-direction: column; }.timeline-profile-revision .subtle-button, .timeline-revision-row .subtle-button { align-self: stretch; justify-content: center; }.working-session-actions { align-items: stretch; flex-direction: column; }.working-session-actions button { justify-content: center; } }
 .review-grid { display: grid; grid-template-columns: minmax(280px, .9fr) minmax(360px, 1.1fr); gap: 18px; align-items: start; }
 .review-list-card, .review-detail-card { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); padding: 21px; background: var(--panel); }
 .review-detail-card { min-height: 430px; }

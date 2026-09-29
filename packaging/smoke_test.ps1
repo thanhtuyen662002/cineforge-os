@@ -192,7 +192,9 @@ try {
         if ($null -eq $resolvedDecisionRecord) { $resolvedDecisionRecord = $resolvedDecision.result }
         if ([string]$resolvedDecisionRecord.state -ne 'RESOLVED' -or [string]$resolvedDecisionRecord.resolved_choice_id -ne 'continue') { throw 'DecisionRequest did not resolve to the selected choice.' }
         $resolvedReplay = Invoke-RestMethod -Uri $decisionResolveUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-decision-resolve'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ choice_id = 'continue'; expected_decision_version = [int]$decisionRecord.decision_version } | ConvertTo-Json) -TimeoutSec 5
-        if (-not $resolvedReplay.result.idempotent_replay) { throw 'DecisionRequest resolve retry was not an idempotent replay.' }
+        $resolvedReplayFlag = Get-OptionalProperty $resolvedReplay 'idempotent_replay'
+        if ($null -eq $resolvedReplayFlag) { $resolvedReplayFlag = Get-OptionalProperty $resolvedReplay.result 'idempotent_replay' }
+        if (-not $resolvedReplayFlag) { throw 'DecisionRequest resolve retry was not an idempotent replay.' }
 
         # Exercise the metadata-first review gate through the packaged
         # bootstrap.  A timeline revision cannot become APPROVED until an
@@ -237,10 +239,11 @@ try {
             expected_version = [int]$timelineRecord.rowVersion
             media_profile_revision_id = [string]$approvedProfile.id
             duration = @{ num = 24; den = 1 }
-            tracks = @(@{ track_type = 'VIDEO'; order_index = 0; name = 'Picture'; clips = @(
-                @{ timeline_in = @{ num = 0; den = 1 }; timeline_out = @{ num = 12; den = 1 } }
-                @{ timeline_in = @{ num = 12; den = 1 }; timeline_out = @{ num = 24; den = 1 } }
-            ) })
+            # Keep this metadata/review fixture clip-free. Working-session
+            # checkpointing requires every existing clip to carry an exact
+            # materialized asset pin; INSERT_CLIP coverage is exercised by
+            # Core tests and a separate asset-intake smoke below.
+            tracks = @(@{ track_type = 'VIDEO'; order_index = 0; name = 'Picture'; clips = @() })
             markers = @(@{ time = @{ num = 6; den = 1 }; marker_type = 'NOTE'; label = 'Review gate' })
         } | ConvertTo-Json -Depth 15) -TimeoutSec 5
         $checkpointResult = $checkpointEnvelope.result
@@ -291,6 +294,68 @@ try {
         if (@($reviewList.result.reviews | Where-Object { $_.id -eq $reviewRecord.id -and $_.state -eq 'SUBMITTED' -and $_.humanReview.decision -eq 'APPROVE' }).Count -ne 1) { throw 'Submitted APPROVE review was missing from the packaged project review list.' }
         $reviewDetail = Invoke-RestMethod -Uri "$reviewsUri/$reviewId" -TimeoutSec 5
         if ([string]$reviewDetail.result.review.state -ne 'SUBMITTED' -or [string]$reviewDetail.result.subject.state -ne 'APPROVED') { throw 'Packaged review detail did not reflect the approved timeline subject.' }
+
+        # Exercise the bounded, local timeline working-session editor through
+        # the same packaged HTTP boundary.  The session is pinned to the exact
+        # approved revision/hash and every edit is versioned, idempotent and
+        # durable before the immutable checkpoint is created.
+        $approvedWorkspace = Invoke-RestMethod -Uri ("{0}/{1}/workspace" -f $timelineUri, $timelineId) -TimeoutSec 5
+        $workingTimeline = $approvedWorkspace.result.timeline
+        $workingBase = $approvedWorkspace.result.currentRevision
+        if ($null -eq $workingBase -or [string]$workingBase.state -ne 'APPROVED' -or [string]$workingBase.editHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Working-session smoke could not recover the exact approved base revision/hash.' }
+        $workingSessionsUri = "{0}/{1}/working-sessions" -f $timelineUri, $timelineId
+        $workingBeginHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-begin'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $workingBeginBody = @{
+            base_revision_id = [string]$workingBase.id
+            base_revision_row_version = [int]$workingBase.rowVersion
+            base_content_hash = [string]$workingBase.editHash
+            client_instance_id = 'packaging-smoke-client'
+            expected_timeline_version = [int]$workingTimeline.rowVersion
+        } | ConvertTo-Json -Depth 10
+        $workingBegin = Invoke-RestMethod -Uri $workingSessionsUri -Method Post -Headers $workingBeginHeaders -ContentType 'application/json' -Body $workingBeginBody -TimeoutSec 5
+        $workingSession = $workingBegin.result.session
+        if ($null -eq $workingSession -or [string]$workingSession.state -ne 'OPEN' -or [int]$workingSession.rowVersion -ne 1 -or [string]$workingSession.baseContentHash -ne [string]$workingBase.editHash) { throw 'Working-session begin did not bind the exact approved base evidence.' }
+        $workingSessionUri = "$workingSessionsUri/$([Uri]::EscapeDataString([string]$workingSession.id))"
+        $workingOpsUri = "$workingSessionUri/ops"
+        $workingOpHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-op'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $workingOpBody = @{
+            operations = @(@{ op_type = 'ADD_MARKER'; payload = @{ id = 'packaged-marker-1'; time = @{ num = 1; den = 1 }; marker_type = 'NOTE'; label = 'Packaged smoke'; payload = @{} } })
+            client_instance_id = 'packaging-smoke-client'
+            expected_version = [int]$workingSession.rowVersion
+        } | ConvertTo-Json -Depth 20
+        $workingApplied = Invoke-RestMethod -Uri $workingOpsUri -Method Post -Headers $workingOpHeaders -ContentType 'application/json' -Body $workingOpBody -TimeoutSec 5
+        $workingSession = $workingApplied.result.session
+        if ([string]$workingSession.state -ne 'DIRTY' -or [int]$workingSession.lastAcknowledgedOpSeq -ne 1 -or [string]$workingSession.draftHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Working-session edit did not return a dirty, hashed draft acknowledgement.' }
+        $workingReplay = Invoke-RestMethod -Uri $workingOpsUri -Method Post -Headers $workingOpHeaders -ContentType 'application/json' -Body $workingOpBody -TimeoutSec 5
+        $workingReplayFlag = Get-OptionalProperty $workingReplay 'idempotent_replay'
+        if ($null -eq $workingReplayFlag) { $workingReplayFlag = Get-OptionalProperty $workingReplay.result 'idempotent_replay' }
+        if (-not $workingReplayFlag) { throw 'Working-session operation retry was not an idempotent replay.' }
+        $workingStaleStatus = 0
+        try {
+            Invoke-RestMethod -Uri $workingOpsUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-stale'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ operations = @(@{ op_type = 'ADD_MARKER'; payload = @{ id = 'packaged-marker-stale'; time = @{ num = 2; den = 1 }; marker_type = 'NOTE'; label = 'stale'; payload = @{} } }); client_instance_id = 'packaging-smoke-client'; expected_version = 1 } | ConvertTo-Json -Depth 20) -TimeoutSec 5 | Out-Null
+        } catch { if ($null -ne $_.Exception.Response) { $workingStaleStatus = [int]$_.Exception.Response.StatusCode } }
+        if ($workingStaleStatus -ne 409) { throw "Stale working-session edit was not rejected with HTTP 409 (actual: $workingStaleStatus)." }
+        $workingUndo = Invoke-RestMethod -Uri "$workingSessionUri/undo" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-undo'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        $workingSession = $workingUndo.result.session
+        if ([string]$workingSession.state -ne 'CLEAN' -or $null -eq $workingUndo.result.undoneOperation -or [int]$workingUndo.result.undoneOperation.opSeq -ne 1) { throw 'Working-session undo did not restore the exact clean base projection.' }
+        $workingRedo = Invoke-RestMethod -Uri "$workingSessionUri/redo" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-redo'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        $workingSession = $workingRedo.result.session
+        if ([string]$workingSession.state -ne 'DIRTY' -or $null -eq $workingRedo.result.redoneOperation -or [int]$workingRedo.result.redoneOperation.opSeq -ne 1) { throw 'Working-session redo did not restore the exact edited draft projection.' }
+        $workingAutosave = Invoke-RestMethod -Uri "$workingSessionUri/autosave" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-autosave'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        $workingSession = $workingAutosave.result.session
+        if ([string]$workingSession.state -ne 'CLEAN' -or [string]$workingSession.autosavedHash -ne [string]$workingSession.draftHash) { throw 'Working-session autosave did not durably acknowledge the exact draft hash.' }
+        $workingCheckpoint = Invoke-RestMethod -Uri "$workingSessionUri/checkpoint" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-checkpoint'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion; expected_timeline_version = [int]$workingTimeline.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        $workingCheckpointRevision = $workingCheckpoint.result.checkpointRevision
+        $workingSession = $workingCheckpoint.result.session
+        if ($null -eq $workingCheckpointRevision -or [string]$workingCheckpointRevision.state -ne 'DRAFT_CHECKPOINT' -or [string]$workingCheckpointRevision.editHash -ne [string]$workingSession.draftHash) { throw 'Working-session checkpoint did not create an exact immutable DRAFT_CHECKPOINT.' }
+        $workingOp2Body = @{ operations = @(@{ op_type = 'ADD_MARKER'; payload = @{ id = 'packaged-marker-2'; time = @{ num = 2; den = 1 }; marker_type = 'NOTE'; label = 'Close test'; payload = @{} } }); client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json -Depth 20
+        $workingOp2 = Invoke-RestMethod -Uri $workingOpsUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-op-2'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body $workingOp2Body -TimeoutSec 5
+        $workingSession = $workingOp2.result.session
+        $workingClosed = Invoke-RestMethod -Uri "$workingSessionUri/close" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-abandon'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ disposition = 'ABANDON'; client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        if ([string]$workingClosed.result.session.state -ne 'ABANDONED') { throw 'Working-session ABANDON close did not preserve a terminal durable draft.' }
+        $workingDetail = Invoke-RestMethod -Uri $workingSessionUri -TimeoutSec 5
+        $workingHistoryActions = @($workingDetail.result.session.historyActions)
+        if ([string]$workingDetail.result.session.state -ne 'ABANDONED' -or @($workingHistoryActions | Where-Object { $_.actionType -eq 'UNDO' }).Count -lt 1 -or @($workingHistoryActions | Where-Object { $_.actionType -eq 'REDO' }).Count -lt 1) { throw 'Working-session detail did not preserve the terminal audit projection.' }
 
         # Handoff is a metadata-only, immutable boundary. It must bind the
         # exact approved revision/review/snapshot, remain conservative for an
@@ -388,7 +453,9 @@ try {
             command_type = 'RecordConsent'
             payload = @{ rights_identity_id = $rightsIdentityId; consent_type = 'SOURCE_USE'; granted_by = 'packaging-smoke'; evidence_asset_revision_id = [string]$asset.revisionId }
         } | ConvertTo-Json -Depth 10) -TimeoutSec 5
-        if (-not $rightsConsentReplay.result.idempotent_replay) { throw 'Packaged consent retry was not an idempotent replay.' }
+        $rightsConsentReplayFlag = Get-OptionalProperty $rightsConsentReplay 'idempotent_replay'
+        if ($null -eq $rightsConsentReplayFlag) { $rightsConsentReplayFlag = Get-OptionalProperty $rightsConsentReplay.result 'idempotent_replay' }
+        if (-not $rightsConsentReplayFlag) { throw 'Packaged consent retry was not an idempotent replay.' }
         $rightsRestricted = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/assets/{1}/rights?territory=US" -f $webPort, [Uri]::EscapeDataString([string]$asset.id)) -TimeoutSec 5
         if ([string]$rightsRestricted.result.status -ne 'RESTRICTED' -or $rightsRestricted.result.eligible) { throw 'Packaged territory restriction did not fail closed.' }
         $expiredNowUs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() * 1000

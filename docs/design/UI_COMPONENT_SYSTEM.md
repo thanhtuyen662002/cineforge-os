@@ -679,6 +679,47 @@ progress or editable-project promise. `PREFLIGHT` is not `BUILDING`,
 `VERIFIED` or `COMPLETED`; later media export, external-editor round-trip,
 release and publish each require their own state and approval contract.
 
+## Issue #27 bounded Working Session workspace
+
+Issue #27 adds a local project-scoped editing surface over the typed Core
+working-session contract. It is an editor for a durable draft, not an approval
+or export surface. The workspace must show:
+
+- project and timeline selectors plus the exact immutable base revision/hash;
+- the session state (`OPEN`, `DIRTY`, `AUTOSAVING`, `CHECKPOINTING`, `CLEAN`,
+  `CONFLICT`, `RECOVERY_REQUIRED`, `CLOSED` or `ABANDONED`);
+- evidence-backed dirty/unsaved status, last durable autosave time and the
+  acknowledged operation sequence;
+- the bounded VIDEO/marker operation history with the current operation,
+  causal undo relation and redo availability;
+- primary actions for `Undo`, `Redo`, `Autosave`, `Create checkpoint` and
+  `Close`, with an explicit `Abandon draft` path for dirty sessions; and
+- the Core-provided `needs_user`, blocker, impact and `next_step` text.
+
+The visible operation affordances are limited to clip insert, move, trim,
+delete and marker add. Split, retime, audio, captions, transitions, links,
+effects, nested sequences, playback, render, export, handoff and provider
+controls remain absent and are described as unavailable.
+The UI never invents a latest revision, profile, rights result or progress
+percentage. It reports a successful autosave or checkpoint only after the
+durable Core response, and it labels a checkpoint as `DRAFT_CHECKPOINT`, never
+as approved.
+
+When Core reports `CONFLICT`, the workspace freezes mutation controls, keeps
+the local durable draft visible, identifies the exact stale base and explains
+the user action required. `RECOVERY_REQUIRED` shows the last acknowledged
+operation and offers reconciliation/reload guidance; it does not retry a
+stale write invisibly. A dirty close opens the explicit abandon choice and
+never discards operations through navigation or window close. A second active
+session is reported as a conflict instead of being silently replaced.
+
+The surface remains vi-VN by default with en-US as the secondary locale, uses
+keyboard-accessible controls and visible focus, and works at the existing
+150–200% scaling target. Undo text follows the existing reversible-action
+rules: it describes the affected clip/marker and never promises reversal of an
+external or irreversible effect. The UI stores no canonical timeline data and
+does not bypass Core commands.
+
 ## TimelineCanvas
 The full editor target (deferred beyond Issue #21) must support:
 - clips;
