@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -28,6 +28,8 @@ export interface CoreBridge {
   getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
+  getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
+  reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
@@ -725,6 +727,33 @@ export class HttpCoreClient implements CoreClient {
       body: JSON.stringify({}),
     })
     return mapBackupCommandResultRecord(await readCorePayload(response, 'backup verification'))
+  }
+
+  async getStaging(state?: string, limit = 100, signal?: AbortSignal): Promise<StagingWorkspace> {
+    if (!this.baseUrl) return { items: [] }
+    const boundedLimit = integerValue(limit, 100, 1, 200)
+    const query = new URLSearchParams({ limit: String(boundedLimit) })
+    const normalizedState = state?.trim().toUpperCase()
+    if (normalizedState) query.set('state', normalizedState)
+    const response = await fetch(`${this.baseUrl}/v1/storage/staging?${query.toString()}`, {
+      signal,
+      headers: { Accept: 'application/json' },
+    })
+    return mapStagingWorkspaceRecord(await readCorePayload(response, 'staging evidence'))
+  }
+
+  async reconcileStaging(stagingId?: string, idempotencyKey: string = crypto.randomUUID()): Promise<StagingWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Staging reconciliation requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const normalizedId = stagingId?.trim()
+    if (stagingId !== undefined && !normalizedId) throw new CoreClientError('A staging id is required when a staging scope is supplied.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    if (!idempotencyKey.trim()) throw new CoreClientError('An idempotency key is required for staging reconciliation.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const body = normalizedId ? { staging_id: normalizedId } : {}
+    const response = await fetch(`${this.baseUrl}/v1/storage/staging/reconcile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify(body),
+    })
+    return mapStagingCommandResultRecord(await readCorePayload(response, 'staging reconciliation'))
   }
 
   async resolveMediaPreview(projectId: string, revisionId: string, purpose = 'LIBRARY_PREVIEW', signal?: AbortSignal): Promise<MediaPreviewResolution> {
@@ -1594,6 +1623,61 @@ function mapStorageAdmissionRecord(value: unknown): StorageAdmission {
     projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
     generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }
+}
+
+function safeBasename(value: unknown): string | undefined {
+  const candidate = stringValue(value)?.trim()
+  if (!candidate || candidate === '.' || candidate === '..') return undefined
+  const basename = candidate.split(/[\\/]/).at(-1)?.trim()
+  return basename && basename !== '.' && basename !== '..' ? basename.slice(0, 255) : undefined
+}
+
+function safeEvidenceState(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined
+  if (typeof value === 'string') return value.trim().slice(0, 80) || undefined
+  const source = asRecord(value)
+  const state = stringValue(source.state ?? source.status ?? source.outcome ?? source.evidence_state ?? source.evidenceState)
+  if (state) return state.slice(0, 80)
+  return Object.keys(source).length > 0 ? 'PRESENT' : 'UNKNOWN'
+}
+
+function mapStagingEvidenceRecord(value: unknown): StagingEvidence {
+  const source = asRecord(value)
+  const state = stringValue(source.state ?? source.lifecycle_state ?? source.lifecycleState)?.trim().toUpperCase() || 'UNKNOWN'
+  return {
+    id: stringValue(source.id ?? source.staging_id ?? source.stagingId),
+    importItemId: stringValue(source.import_item_id ?? source.importItemId),
+    state,
+    tempName: safeBasename(source.temp_name ?? source.tempName),
+    expectedSize: optionalNumberValue(source.expected_size ?? source.expectedSize),
+    currentSize: optionalNumberValue(source.current_size ?? source.currentSize),
+    hashAlgorithm: stringValue(source.hash_algorithm ?? source.hashAlgorithm),
+    sha256: stringValue(source.sha256 ?? source.content_hash ?? source.contentHash),
+    sourcePathFingerprint: stringValue(source.source_path_fingerprint ?? source.sourcePathFingerprint),
+    reparseState: stringValue(source.reparse_state ?? source.reparseState)?.trim().toUpperCase(),
+    sourceFileIdentityState: safeEvidenceState(source.source_file_identity ?? source.sourceFileIdentity),
+    osFileIdentityState: safeEvidenceState(source.os_file_identity ?? source.osFileIdentity),
+    finalizationIdentityState: safeEvidenceState(source.finalization_identity ?? source.finalizationIdentity),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+  }
+}
+
+function mapStagingWorkspaceRecord(value: unknown): StagingWorkspace {
+  const source = asRecord(value)
+  return {
+    items: arrayValue(source.items ?? source.staging_items ?? source.stagingItems).map(mapStagingEvidenceRecord),
+    checkedCount: optionalNumberValue(source.checked_count ?? source.checkedCount),
+    projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapStagingCommandResultRecord(value: unknown): StagingWorkspace {
+  const source = asRecord(value)
+  const staging = source.staging && typeof source.staging === 'object' && !Array.isArray(source.staging) ? source.staging : source
+  return mapStagingWorkspaceRecord(staging)
 }
 
 function mapCharacterRights(value: unknown): RightsSummary | null {

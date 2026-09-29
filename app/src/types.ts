@@ -887,6 +887,39 @@ export interface StorageAdmission {
   generatedAt?: string
 }
 
+/**
+ * Redacted evidence for a durable import staging row.
+ *
+ * The Core may know the private staging path and rich file identities, but
+ * those are deliberately not part of the desktop contract.  The UI only
+ * receives a safe basename plus scalar size/hash/evidence fields.
+ */
+export interface StagingEvidence {
+  id?: string
+  importItemId?: string
+  state: string
+  tempName?: string
+  expectedSize?: number
+  currentSize?: number
+  hashAlgorithm?: string
+  sha256?: string
+  sourcePathFingerprint?: string
+  reparseState?: string
+  sourceFileIdentityState?: string
+  osFileIdentityState?: string
+  finalizationIdentityState?: string
+  rowVersion: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface StagingWorkspace {
+  items: StagingEvidence[]
+  checkedCount?: number
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
@@ -909,6 +942,8 @@ export interface CoreClient {
   getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
+  getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
+  reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
