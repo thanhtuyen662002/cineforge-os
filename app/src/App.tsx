@@ -1244,10 +1244,43 @@ function rationalLabel(value: { num: number | string; den: number | string } | u
   return value ? `${value.num}/${value.den}` : '—'
 }
 
+function timelineAssetIsSelectable(asset: AssetSummary, projectId: string) {
+  return Boolean(
+    asset.projectId && asset.projectId === projectId,
+  )
+    && String(asset.state).toUpperCase() === 'ACTIVE'
+    && String(asset.availability).toUpperCase() === 'AVAILABLE'
+    && String(asset.readinessState).toUpperCase() === 'READY'
+    && Boolean(asset.revisionId)
+    && asset.rights?.eligible === true
+    && String(asset.rights.status ?? 'UNKNOWN').toUpperCase() === 'ALLOWED'
+}
+
+function timelineAssetBlocker(asset: AssetSummary, projectId: string, locale: Locale) {
+  if (!asset.projectId) return locale === 'vi' ? 'Thiếu project scope' : 'Project scope unknown'
+  if (asset.projectId !== projectId) return locale === 'vi' ? 'Khác project' : 'Different project'
+  if (!asset.revisionId) return locale === 'vi' ? 'Thiếu revision cụ thể' : 'Missing exact revision'
+  if (String(asset.state).toUpperCase() !== 'ACTIVE') return locale === 'vi' ? 'Asset không còn active' : 'Asset is not active'
+  if (String(asset.availability).toUpperCase() !== 'AVAILABLE') return locale === 'vi' ? 'Chưa materialize/verify' : 'Not materialized/verified'
+  if (String(asset.readinessState).toUpperCase() !== 'READY') return locale === 'vi' ? 'Readiness chưa READY' : 'Readiness is not READY'
+  if (String(asset.rights?.status ?? 'UNKNOWN').toUpperCase() !== 'ALLOWED' || asset.rights?.eligible !== true) return locale === 'vi' ? 'Thiếu rights/consent ALLOWED' : 'Rights/consent are not ALLOWED'
+  return locale === 'vi' ? 'Sẵn sàng' : 'Ready'
+}
+
+function timelineAssetOptionLabel(asset: AssetSummary, projectId: string, locale: Locale) {
+  const name = asset.name || (locale === 'vi' ? 'Asset không tên' : 'Unnamed asset')
+  const revision = asset.revisionId ? asset.revisionId.slice(0, 12) : '—'
+  const state = timelineAssetBlocker(asset, projectId, locale)
+  return `${name} · ${revision} · ${state}`
+}
+
 export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; onToast: (message: string) => void }) {
   const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
   const [mediaProfile, setMediaProfile] = useState<MediaProfileWorkspace | null>(null)
   const [timelines, setTimelines] = useState<TimelineSummary[]>([])
+  const [assets, setAssets] = useState<AssetSummary[]>([])
+  const [assetsLoading, setAssetsLoading] = useState(false)
+  const [assetsError, setAssetsError] = useState<string | null>(null)
   const [selectedTimelineId, setSelectedTimelineId] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<TimelineWorkspace | null>(null)
   const [workingWorkspace, setWorkingWorkspace] = useState<TimelineWorkingWorkspace | null>(null)
@@ -1325,6 +1358,10 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
     if (!projectId) {
       setMediaProfile(null)
       setTimelines([])
+      setAssets([])
+      setAssetsError(null)
+      setAssetsLoading(false)
+      setInsertAssetRevisionId('')
       setSelectedTimelineId(null)
       setWorkspace(null)
       setLoading(false)
@@ -1332,20 +1369,30 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
     }
     if (!client.getMediaProfile || !client.getTimelines) {
       setError(locale === 'vi' ? 'Core chưa cung cấp workspace Timeline.' : 'Core does not expose the Timeline workspace yet.')
+      setAssetsLoading(false)
       setLoading(false)
       return
     }
     setLoading(true)
+    setAssetsLoading(Boolean(client.getAssets))
     setError(null)
+    setAssetsError(null)
     setWorkspaceError(null)
     try {
-      const [profileResult, timelineResult] = await Promise.all([
+      const assetResult = client.getAssets
+        ? client.getAssets(projectId, signal).then((value) => ({ assets: value, error: null as unknown })).catch((cause) => ({ assets: [] as AssetSummary[], error: cause }))
+        : Promise.resolve({ assets: [] as AssetSummary[], error: null as unknown })
+      const [profileResult, timelineResult, loadedAssets] = await Promise.all([
         client.getMediaProfile(projectId, signal),
         client.getTimelines(projectId, signal),
+        assetResult,
       ])
       if (signal?.aborted || generation !== loadGenerationRef.current) return
       setMediaProfile(profileResult)
       setTimelines(timelineResult)
+      setAssets(loadedAssets.assets)
+      setAssetsError(loadedAssets.error ? workspaceErrorMessage(loadedAssets.error, locale) : null)
+      setInsertAssetRevisionId((current) => loadedAssets.assets.some((asset) => asset.revisionId === current && timelineAssetIsSelectable(asset, projectId)) ? current : '')
       setSelectedTimelineId((current) => current && timelineResult.some((item) => item.id === current) ? current : timelineResult[0]?.id ?? null)
       if (timelineResult.length === 0) setWorkspace(null)
     } catch (cause) {
@@ -1353,10 +1400,16 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
       setError(workspaceErrorMessage(cause, locale))
       setMediaProfile(null)
       setTimelines([])
+      setAssets([])
+      setAssetsError(null)
+      setInsertAssetRevisionId('')
       setSelectedTimelineId(null)
       setWorkspace(null)
     } finally {
-      if (!signal?.aborted && generation === loadGenerationRef.current) setLoading(false)
+      if (!signal?.aborted && generation === loadGenerationRef.current) {
+        setLoading(false)
+        setAssetsLoading(false)
+      }
     }
   }, [client, locale, projectId])
 
@@ -1366,6 +1419,10 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
     // visible if this bridge lacks the new query methods or the request fails.
     setMediaProfile(null)
     setTimelines([])
+    setAssets([])
+    setAssetsError(null)
+    setAssetsLoading(false)
+    setInsertAssetRevisionId('')
     setSelectedTimelineId(null)
     setWorkspace(null)
     setWorkingWorkspace(null)
@@ -1784,15 +1841,17 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
                   <form className="workspace-form" onSubmit={applyTrimClip}><div className="form-grid three"><label>{locale === 'vi' ? 'Cạnh' : 'Edge'}<select value={clipTrimEdge} onChange={(event) => setClipTrimEdge(event.target.value as 'IN' | 'OUT')} disabled={!connected || mutating !== null || !workingEditable}><option value="IN">IN</option><option value="OUT">OUT</option></select></label><label>{locale === 'vi' ? 'Trim num' : 'Trim num'}<input value={clipTrimNum} onChange={(event) => setClipTrimNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>{locale === 'vi' ? 'Trim den' : 'Trim den'}<input value={clipTrimDen} onChange={(event) => setClipTrimDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><button type="submit" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingEditable || workingClips.length === 0}>{locale === 'vi' ? 'Trim' : 'Trim'}</button></form>
                   <button type="button" className="subtle-button tiny danger-button" onClick={() => void applyDeleteClip()} disabled={!connected || mutating !== null || !workingEditable || workingClips.length === 0}>{locale === 'vi' ? 'Xoá clip' : 'Delete clip'}</button>
                 </div>
-                <form className="workspace-form working-insert-form" onSubmit={applyInsertClip}><div className="form-grid two"><label>{locale === 'vi' ? 'Track ID' : 'Track ID'}<select value={insertTrackId} onChange={(event) => setInsertTrackId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable}><option value="">{locale === 'vi' ? 'Chọn track' : 'Choose a track'}</option>{workingTracks.map((track) => <option value={track.id ?? ''} key={track.id ?? track.orderIndex}>{track.name} · {track.id}</option>)}</select></label><label>{locale === 'vi' ? 'Asset revision ID' : 'Asset revision ID'}<input value={insertAssetRevisionId} onChange={(event) => setInsertAssetRevisionId(event.target.value)} placeholder="exact-id" disabled={!connected || mutating !== null || !workingEditable} /></label><label>{locale === 'vi' ? 'Clip ID (tuỳ chọn)' : 'Clip ID (optional)'}<input value={insertClipId} onChange={(event) => setInsertClipId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable} /></label></div><div className="form-grid four"><label>Timeline in num<input value={insertTimelineInNum} onChange={(event) => setInsertTimelineInNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline in den<input value={insertTimelineInDen} onChange={(event) => setInsertTimelineInDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline out num<input value={insertTimelineOutNum} onChange={(event) => setInsertTimelineOutNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline out den<input value={insertTimelineOutDen} onChange={(event) => setInsertTimelineOutDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><div className="form-grid four"><label>Source in num<input value={insertSourceInNum} onChange={(event) => setInsertSourceInNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source in den<input value={insertSourceInDen} onChange={(event) => setInsertSourceInDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source out num<input value={insertSourceOutNum} onChange={(event) => setInsertSourceOutNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source out den<input value={insertSourceOutDen} onChange={(event) => setInsertSourceOutDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><button type="submit" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingEditable || workingTracks.length === 0 || !insertAssetRevisionId.trim()}>{locale === 'vi' ? 'Chèn clip' : 'Insert clip'}</button></form>
-                <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Asset revision phải là ID cụ thể đã materialize và có rights/readiness phù hợp; Core sẽ từ chối UNKNOWN hoặc cross-project.' : 'The asset revision must be an exact materialized ID with valid rights/readiness; Core rejects UNKNOWN and cross-project references.'}</p>
+                <form className="workspace-form working-insert-form" onSubmit={applyInsertClip}><div className="form-grid two"><label>{locale === 'vi' ? 'Track ID' : 'Track ID'}<select value={insertTrackId} onChange={(event) => setInsertTrackId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable}><option value="">{locale === 'vi' ? 'Chọn track' : 'Choose a track'}</option>{workingTracks.map((track) => <option value={track.id ?? ''} key={track.id ?? track.orderIndex}>{track.name} · {track.id}</option>)}</select></label><label>{locale === 'vi' ? 'Asset cho clip' : 'Clip asset'}<select aria-label={locale === 'vi' ? 'Asset cho clip' : 'Clip asset'} value={insertAssetRevisionId} onChange={(event) => setInsertAssetRevisionId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable || assetsLoading || assets.length === 0}><option value="">{assetsLoading ? (locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…') : assets.length === 0 ? (locale === 'vi' ? 'Chưa có asset project' : 'No project assets') : (locale === 'vi' ? 'Chọn asset đã verify' : 'Choose a verified asset')}</option>{assets.map((asset) => <option value={asset.revisionId ?? ''} key={asset.id} disabled={!timelineAssetIsSelectable(asset, projectId)}>{timelineAssetOptionLabel(asset, projectId, locale)}</option>)}</select></label><label>{locale === 'vi' ? 'Clip ID (tuỳ chọn)' : 'Clip ID (optional)'}<input value={insertClipId} onChange={(event) => setInsertClipId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable} /></label></div><div className="form-grid four"><label>Timeline in num<input value={insertTimelineInNum} onChange={(event) => setInsertTimelineInNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline in den<input value={insertTimelineInDen} onChange={(event) => setInsertTimelineInDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline out num<input value={insertTimelineOutNum} onChange={(event) => setInsertTimelineOutNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline out den<input value={insertTimelineOutDen} onChange={(event) => setInsertTimelineOutDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><div className="form-grid four"><label>Source in num<input value={insertSourceInNum} onChange={(event) => setInsertSourceInNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source in den<input value={insertSourceInDen} onChange={(event) => setInsertSourceInDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source out num<input value={insertSourceOutNum} onChange={(event) => setInsertSourceOutNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source out den<input value={insertSourceOutDen} onChange={(event) => setInsertSourceOutDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><button type="submit" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingEditable || workingTracks.length === 0 || !insertAssetRevisionId.trim()}>{locale === 'vi' ? 'Chèn clip' : 'Insert clip'}</button></form>
+                {assetsError && <p className="readonly-note warning-text"><AlertCircle size={14} />{assetsError}</p>}
+                {assets.length > 0 && assets.every((asset) => !timelineAssetIsSelectable(asset, projectId)) && <p className="readonly-note warning-text"><Info size={14} />{locale === 'vi' ? 'Chưa có asset đủ điều kiện. Mỗi dòng bị khoá sẽ nêu lý do; hãy hoàn tất materialization và rights/consent trước.' : 'No asset is eligible yet. Locked options explain the reason; finish materialization and rights/consent first.'}</p>}
+                <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chỉ gửi exact asset revision đã verify; Core vẫn kiểm tra lại project, readiness và rights trước khi ghi draft.' : 'Only an exact verified asset revision is submitted; Core rechecks project scope, readiness, and rights before writing the draft.'}</p>
               </div>
               <div className="working-draft-records"><strong>{locale === 'vi' ? 'Draft hiện tại' : 'Current draft'}</strong>{workingTracks.map((track) => <div className="working-draft-row" key={track.id ?? track.orderIndex}><span>{track.name}</span><small>{track.clips.length} {locale === 'vi' ? 'clip' : 'clips'}</small></div>)}<div className="working-draft-row"><span>{locale === 'vi' ? 'Markers' : 'Markers'}</span><small>{workingSession?.draft.markers.length ?? 0}</small></div></div>
               <div className="working-session-actions"><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || workingWorkspace.session.historyCursorSeq < 1 || !client.undoTimelineEditOp || !workingEditable} onClick={() => void runWorkingCommand('undo')}><Undo2 size={13} />Undo</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingWorkspace.session.operations.some((operation) => operation.opSeq === workingWorkspace.session!.historyCursorSeq + 1 && operation.historyState === 'UNDONE') || !client.redoTimelineEditOp || !workingEditable} onClick={() => void runWorkingCommand('redo')}><Redo2 size={13} />Redo</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !client.autosaveTimelineWorkingSession || !workingEditable} onClick={() => void runWorkingCommand('autosave')}><Save size={13} />Autosave</button><button type="button" className="primary-button small" disabled={!connected || mutating !== null || !client.checkpointTimelineWorkingSession || workingWorkspace.session.draftHash !== workingWorkspace.session.autosavedHash || ['CLOSED', 'ABANDONED', 'CONFLICT', 'RECOVERY_REQUIRED'].includes(workingWorkspace.session.state)} onClick={() => void runWorkingCommand('checkpoint')}><CheckCircle2 size={13} />{locale === 'vi' ? 'Tạo checkpoint' : 'Create checkpoint'}</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !client.closeTimelineWorkingSession || workingWorkspace.session.state !== 'CLEAN' || workingWorkspace.session.draftHash !== workingWorkspace.session.autosavedHash} onClick={() => void runWorkingCommand('close', 'SAVE')}><XCircle size={13} />{locale === 'vi' ? 'Đóng sạch' : 'Close cleanly'}</button><button type="button" className="subtle-button tiny danger-button" disabled={!connected || mutating !== null || !client.closeTimelineWorkingSession || ['CLOSED', 'ABANDONED'].includes(workingWorkspace.session.state)} onClick={() => { if (window.confirm(locale === 'vi' ? 'Giữ draft và đóng phiên? Bạn sẽ cần mở phiên mới để tiếp tục.' : 'Keep the draft and close this session? You will need a new session to continue.')) void runWorkingCommand('close', 'ABANDON') }}><XCircle size={13} />{locale === 'vi' ? 'Đóng, giữ draft' : 'Abandon with draft'}</button></div>
               <p className="readonly-note"><Info size={14} />{locale === 'vi' ? `${workingWorkspace.session.draft.markers.length} marker · ${workingWorkspace.session.operations.length} operation · history action ${workingWorkspace.session.historyActions.length}.` : `${workingWorkspace.session.draft.markers.length} markers · ${workingWorkspace.session.operations.length} operations · ${workingWorkspace.session.historyActions.length} history actions.`}</p>
             </>}
           </div>
-          {currentRevision && selectedTimelineId && <TimelineTimingPanel projectId={projectId} timelineId={selectedTimelineId} revision={currentRevision} connected={connected} locale={locale} client={client} onToast={onToast} />}
+          {currentRevision && selectedTimelineId && <TimelineTimingPanel projectId={projectId} timelineId={selectedTimelineId} revision={currentRevision} connected={connected} locale={locale} client={client} onToast={onToast} assets={assets} assetsLoading={assetsLoading} assetsError={assetsError} />}
           {currentRevision && <div className="timeline-track-list">{currentRevision.tracks.map((track) => <div className="timeline-track-row" key={track.id ?? `${track.trackType}-${track.orderIndex}`}><span><strong>{track.name}</strong><small>{track.trackType} · {track.clips.length} {locale === 'vi' ? 'clip' : 'clips'}</small></span><span className="record-code">{track.enabled ? 'ON' : 'OFF'}</span></div>)}</div>}
           <form className="workspace-form timeline-checkpoint-form" onSubmit={createRevision}>
             <div className="form-grid two"><label>{locale === 'vi' ? 'Duration num' : 'Duration num'}<input value={durationNum} onChange={(event) => setDurationNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label><label>{locale === 'vi' ? 'Duration den' : 'Duration den'}<input value={durationDen} onChange={(event) => setDurationDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label></div>
@@ -1836,7 +1895,7 @@ function nextSubtitleTimingState(state: string | undefined): TimelineTimingLifec
   return null
 }
 
-function TimelineTimingPanel({ projectId, timelineId, revision, connected, locale, client, onToast }: { projectId: string; timelineId: string; revision: TimelineRevision; connected: boolean; locale: Locale; client: CoreClient; onToast: (message: string) => void }) {
+function TimelineTimingPanel({ projectId, timelineId, revision, connected, locale, client, onToast, assets, assetsLoading, assetsError }: { projectId: string; timelineId: string; revision: TimelineRevision; connected: boolean; locale: Locale; client: CoreClient; onToast: (message: string) => void; assets: AssetSummary[]; assetsLoading: boolean; assetsError: string | null }) {
   const [audioTiming, setAudioTiming] = useState<AudioCueTiming | null>(null)
   const [subtitleTiming, setSubtitleTiming] = useState<SubtitleTiming | null>(null)
   const [timingImpact, setTimingImpact] = useState<TimelineTimingImpact | null>(null)
@@ -1897,6 +1956,21 @@ function TimelineTimingPanel({ projectId, timelineId, revision, connected, local
     void loadTiming(controller.signal)
     return () => controller.abort()
   }, [loadTiming])
+
+  // Asset choices are exact revision IDs. Never carry a choice across a
+  // project/timeline/checkpoint boundary, and drop it if the refreshed
+  // projection no longer proves the revision eligible.
+  useEffect(() => {
+    setCueAssetRevisionId('')
+  }, [projectId, timelineId, revisionId])
+
+  useEffect(() => {
+    setCueAssetRevisionId((current) => current && assets.some((asset) => asset.revisionId === current && timelineAssetIsSelectable(asset, projectId)) ? current : '')
+  }, [assets, projectId])
+
+  useEffect(() => {
+    if (cueType === 'SILENCE') setCueAssetRevisionId('')
+  }, [cueType])
 
   const createAudioCue = async (event: FormEvent) => {
     event.preventDefault()
@@ -1971,7 +2045,7 @@ function TimelineTimingPanel({ projectId, timelineId, revision, connected, local
     {loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc metadata timing…' : 'Reading timing metadata…'} /> : timingError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{timingError}</span><button type="button" className="subtle-button tiny" onClick={() => void loadTiming()}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button>{needsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện rồi thử lại.' : 'Core needs you to resolve the condition before retrying.'}</small>}</div> : <>
       <div className="timeline-timing-columns">
         <section className="timeline-timing-section"><div className="working-tool-heading"><strong>{locale === 'vi' ? 'Audio cue' : 'Audio cues'}</strong><span>{audioTiming?.cues.length ?? 0}</span></div>{!client.getTimelineAudioTiming ? <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ audio metadata.' : 'This bridge does not expose audio metadata yet.'}</p> : (audioTiming?.cues.length ?? 0) === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có audio cue.' : 'No audio cue yet.'} /> : <div className="timeline-timing-list">{audioTiming?.cues.map((item, index) => { const cue = item.audioCue; const itemRevision = item.revision; const nextState = nextAudioTimingState(itemRevision?.state); return <div className={`timeline-timing-row ${itemRevision?.stale ? 'stale' : ''}`} key={itemRevision?.id ?? cue?.id ?? index}><div><strong>{cue?.title ?? 'Audio cue'}</strong><small>{cue?.cueType ?? 'UNKNOWN'} · {rationalLabel(itemRevision?.start)} → {rationalLabel(itemRevision?.end)} · {timingStateLabel(itemRevision?.state, locale)}</small>{itemRevision?.assetGate && itemRevision.assetGate.state !== 'NOT_APPLICABLE' && <small className={itemRevision.assetGate.state === 'READY' ? '' : 'warning-text'}>{locale === 'vi' ? `Asset: ${itemRevision.assetGate.state} · rights ${itemRevision.assetGate.rightsStatus ?? 'UNKNOWN'}${itemRevision.assetGate.reason ? ` · ${itemRevision.assetGate.reason}` : ''}` : `Asset: ${itemRevision.assetGate.state} · rights ${itemRevision.assetGate.rightsStatus ?? 'UNKNOWN'}${itemRevision.assetGate.reason ? ` · ${itemRevision.assetGate.reason}` : ''}`}</small>}{itemRevision?.stale && <small className="warning-text">{itemRevision.staleReason ? `${itemRevision.staleReason} · ` : ''}{itemRevision.nextStep ?? (locale === 'vi' ? 'Tạo lại trên checkpoint mới.' : 'Create a new revision on the current checkpoint.')}</small>}</div>{nextState && cue?.id && itemRevision?.id && <button type="button" className="subtle-button tiny" disabled={!canWrite || !client.transitionAudioCueRevision} onClick={() => void transitionAudio(cue.id!, itemRevision.id!, nextState, itemRevision.rowVersion)}>{mutating === `audio-transition:${itemRevision.id}` ? <RefreshCw size={12} className="spin" /> : <ArrowRight size={12} />}{timingStateLabel(nextState, locale)}</button>}</div> })}</div>}
-          <form className="workspace-form timeline-timing-form" onSubmit={createAudioCue}><div className="form-grid two"><label>{locale === 'vi' ? 'Loại cue' : 'Cue type'}<select value={cueType} onChange={(event) => setCueType(event.target.value)} disabled={!canWrite}><option value="SILENCE">SILENCE</option><option value="DIALOGUE">DIALOGUE</option><option value="ADR">ADR</option><option value="NONVERBAL">NONVERBAL</option><option value="FOLEY">FOLEY</option><option value="SFX">SFX</option><option value="AMBIENCE">AMBIENCE</option><option value="ROOM_TONE">ROOM_TONE</option><option value="MUSIC">MUSIC</option></select></label><label>{locale === 'vi' ? 'Tên cue' : 'Cue title'}<input value={cueTitle} onChange={(event) => setCueTitle(event.target.value)} maxLength={200} disabled={!canWrite} /></label></div><div className="form-grid four"><label>Start num<input value={cueStartNum} onChange={(event) => setCueStartNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>Start den<input value={cueStartDen} onChange={(event) => setCueStartDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End num<input value={cueEndNum} onChange={(event) => setCueEndNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End den<input value={cueEndDen} onChange={(event) => setCueEndDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label></div><label>{locale === 'vi' ? 'Ý định (tuỳ chọn)' : 'Intent (optional)'}<textarea value={cueIntent} onChange={(event) => setCueIntent(event.target.value)} rows={2} maxLength={8000} disabled={!canWrite} /></label>{cueType !== 'SILENCE' && <label>{locale === 'vi' ? 'Asset revision ID (bắt buộc)' : 'Asset revision ID (required)'}<input value={cueAssetRevisionId} onChange={(event) => setCueAssetRevisionId(event.target.value)} placeholder="exact-id" disabled={!canWrite} /></label>}<button type="submit" className="subtle-button tiny" disabled={!canWrite || !client.createAudioCueRevision}>{mutating === 'audio-create' ? <RefreshCw size={12} className="spin" /> : <Plus size={12} />}{locale === 'vi' ? 'Thêm audio cue' : 'Add audio cue'}</button></form>
+          <form className="workspace-form timeline-timing-form" onSubmit={createAudioCue}><div className="form-grid two"><label>{locale === 'vi' ? 'Loại cue' : 'Cue type'}<select value={cueType} onChange={(event) => setCueType(event.target.value)} disabled={!canWrite}><option value="SILENCE">SILENCE</option><option value="DIALOGUE">DIALOGUE</option><option value="ADR">ADR</option><option value="NONVERBAL">NONVERBAL</option><option value="FOLEY">FOLEY</option><option value="SFX">SFX</option><option value="AMBIENCE">AMBIENCE</option><option value="ROOM_TONE">ROOM_TONE</option><option value="MUSIC">MUSIC</option></select></label><label>{locale === 'vi' ? 'Tên cue' : 'Cue title'}<input value={cueTitle} onChange={(event) => setCueTitle(event.target.value)} maxLength={200} disabled={!canWrite} /></label></div><div className="form-grid four"><label>Start num<input value={cueStartNum} onChange={(event) => setCueStartNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>Start den<input value={cueStartDen} onChange={(event) => setCueStartDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End num<input value={cueEndNum} onChange={(event) => setCueEndNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End den<input value={cueEndDen} onChange={(event) => setCueEndDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label></div><label>{locale === 'vi' ? 'Ý định (tuỳ chọn)' : 'Intent (optional)'}<textarea value={cueIntent} onChange={(event) => setCueIntent(event.target.value)} rows={2} maxLength={8000} disabled={!canWrite} /></label>{cueType !== 'SILENCE' && <><label>{locale === 'vi' ? 'Asset audio đã verify' : 'Verified audio asset'}<select aria-label={locale === 'vi' ? 'Asset audio' : 'Audio asset'} value={cueAssetRevisionId} onChange={(event) => setCueAssetRevisionId(event.target.value)} disabled={!canWrite || assetsLoading || assets.length === 0}><option value="">{assetsLoading ? (locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…') : assets.length === 0 ? (locale === 'vi' ? 'Chưa có asset project' : 'No project assets') : (locale === 'vi' ? 'Chọn asset đã verify' : 'Choose a verified asset')}</option>{assets.map((asset) => <option value={asset.revisionId ?? ''} key={asset.id} disabled={!timelineAssetIsSelectable(asset, projectId)}>{timelineAssetOptionLabel(asset, projectId, locale)}</option>)}</select></label>{assetsError && <small className="warning-text">{assetsError}</small>}</>}<button type="submit" className="subtle-button tiny" disabled={!canWrite || !client.createAudioCueRevision || (cueType !== 'SILENCE' && !cueAssetRevisionId.trim())}>{mutating === 'audio-create' ? <RefreshCw size={12} className="spin" /> : <Plus size={12} />}{locale === 'vi' ? 'Thêm audio cue' : 'Add audio cue'}</button></form>
         </section>
         <section className="timeline-timing-section"><div className="working-tool-heading"><strong>{locale === 'vi' ? 'Subtitle track' : 'Subtitle tracks'}</strong><span>{subtitleTiming?.tracks.length ?? 0}</span></div>{!client.getTimelineSubtitleTiming ? <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ subtitle metadata.' : 'This bridge does not expose subtitle metadata yet.'}</p> : (subtitleTiming?.tracks.length ?? 0) === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có track phụ đề.' : 'No subtitle track yet.'} /> : <div className="timeline-timing-list">{subtitleTiming?.tracks.map((item, index) => { const track = item.subtitleTrack; const itemRevision = item.revision; const nextState = nextSubtitleTimingState(itemRevision?.state); return <div className={`timeline-timing-row ${itemRevision?.stale ? 'stale' : ''}`} key={itemRevision?.id ?? track?.id ?? index}><div><strong>{track?.title ?? 'Subtitle track'}</strong><small>{track?.locale ?? 'UNKNOWN'} · {itemRevision?.segments.length ?? 0} {locale === 'vi' ? 'đoạn' : 'segments'} · {timingStateLabel(itemRevision?.state, locale)}</small>{itemRevision?.segments.slice(0, 2).map((segment) => <small key={segment.id ?? segment.segmentIndex}>{rationalLabel(segment.start)} → {rationalLabel(segment.end)} · {segment.text}</small>)}{itemRevision?.stale && <small className="warning-text">{itemRevision.staleReason ? `${itemRevision.staleReason} · ` : ''}{itemRevision.nextStep ?? (locale === 'vi' ? 'Tạo lại trên checkpoint mới.' : 'Create a new revision on the current checkpoint.')}</small>}</div>{nextState && track?.id && itemRevision?.id && <button type="button" className="subtle-button tiny" disabled={!canWrite || !client.transitionSubtitleTrackRevision} onClick={() => void transitionSubtitle(track.id!, itemRevision.id!, nextState, itemRevision.rowVersion)}>{mutating === `subtitle-transition:${itemRevision.id}` ? <RefreshCw size={12} className="spin" /> : <ArrowRight size={12} />}{timingStateLabel(nextState, locale)}</button>}</div> })}</div>}
           <form className="workspace-form timeline-timing-form" onSubmit={createSubtitleTrack}><div className="form-grid two"><label>{locale === 'vi' ? 'Locale' : 'Locale'}<input value={subtitleLocale} onChange={(event) => setSubtitleLocale(event.target.value)} maxLength={32} disabled={!canWrite} /></label><label>{locale === 'vi' ? 'Tên track' : 'Track title'}<input value={subtitleTitle} onChange={(event) => setSubtitleTitle(event.target.value)} maxLength={200} disabled={!canWrite} /></label></div><div className="form-grid four"><label>Start num<input value={subtitleStartNum} onChange={(event) => setSubtitleStartNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>Start den<input value={subtitleStartDen} onChange={(event) => setSubtitleStartDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End num<input value={subtitleEndNum} onChange={(event) => setSubtitleEndNum(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label><label>End den<input value={subtitleEndDen} onChange={(event) => setSubtitleEndDen(event.target.value)} inputMode="numeric" disabled={!canWrite} /></label></div><label>{locale === 'vi' ? 'Nội dung phụ đề' : 'Subtitle text'}<textarea value={subtitleText} onChange={(event) => setSubtitleText(event.target.value)} rows={2} maxLength={2000} disabled={!canWrite} placeholder={locale === 'vi' ? 'Nhập một đoạn; có thể tạo revision mới cho các đoạn tiếp theo.' : 'Enter one segment; create a new revision for additional segments.'} /></label><button type="submit" className="subtle-button tiny" disabled={!canWrite || !client.createSubtitleTrackRevision}>{mutating === 'subtitle-create' ? <RefreshCw size={12} className="spin" /> : <Plus size={12} />}{locale === 'vi' ? 'Thêm track phụ đề' : 'Add subtitle track'}</button></form>
