@@ -1,0 +1,14 @@
+{
+  "task_id": 31,
+  "claim_id": "i31-a1",
+  "contract_version": 1,
+  "contract_hash": "sha256:a8db88681e7183e6b7e4ca04698440ebd13461846686ffa986f67a6f3ead2a2e",
+  "agent_instance_id": "cineforge-WORK-closure-rebind",
+  "slot_id": "WORK-closure-rebind",
+  "run_id": "WORK-closure-rebind-20260929-A1",
+  "base_ref": "agent/i29-a1-audio-subtitle",
+  "base_sha": "f535aab62d1405e3e73a1b82204d012929004734",
+  "context_base_sha": "f535aab62d1405e3e73a1b82204d012929004734",
+  "status": "CLAIMED",
+  "created_at": "2026-09-29T15:00:00+07:00"
+}
