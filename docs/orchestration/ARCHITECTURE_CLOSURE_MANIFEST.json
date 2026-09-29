@@ -46,5 +46,5 @@
   "coverage_open_unowned_pending_audit_count": 0,
   "source_digest_algorithm": "SHA-256(path\\0normalized-UTF8-content\\0 sorted)",
   "source_digest_scope": "AGENTS.md, authoritative architecture/design/orchestration sources, all lane owner documents named by PROMOTION_LANE_MATRIX.json, and the closure/promotion gate implementations plus the canonical finding coverage and owner-mapping approval artifacts; ARCHITECTURE_CLOSURE_MANIFEST.json is intentionally excluded to avoid self-reference",
-  "source_digest": "sha256:4cb36718c2e4282dafc0a0dc8d424bb13672d819774ed0beb6e78c202adc057c"
+  "source_digest": "sha256:c0072ff73bbc922eac0d513be77f9edf6b8d26c06642b356d32104a367336358"
 }
