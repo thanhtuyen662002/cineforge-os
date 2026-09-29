@@ -67,6 +67,10 @@ const TIMELINE_WORKING_MUTATING_COMMANDS = new Set([
   'CheckpointTimelineWorkingSession',
   'CloseTimelineWorkingSession',
 ]);
+const TIMING_METADATA_MUTATING_COMMANDS = new Set([
+  'CreateAudioCueRevision', 'TransitionAudioCueRevision',
+  'CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision',
+]);
 const MAX_TIMELINE_WORKING_OPS = 10_000;
 const MAX_TIMELINE_WORKING_BATCH = 32;
 const MAX_TIMELINE_CLIENT_ID = 200;
@@ -76,6 +80,30 @@ const MAX_TIMELINE_TRACKS = 64;
 const MAX_TIMELINE_CLIPS_PER_TRACK = 10_000;
 const MAX_TIMELINE_MARKERS = 10_000;
 const MAX_TIMELINE_DURATION_TICKS = 9_000_000_000;
+const AUDIO_CUE_TYPES = new Set(['DIALOGUE', 'ADR', 'NONVERBAL', 'FOLEY', 'SFX', 'AMBIENCE', 'ROOM_TONE', 'MUSIC', 'SILENCE']);
+const AUDIO_CUE_STATES = new Set(['DRAFT', 'CANDIDATE', 'SELECTED', 'APPROVED', 'STALE', 'REJECTED']);
+const AUDIO_CUE_TRANSITIONS = Object.freeze({
+  DRAFT: new Set(['CANDIDATE', 'REJECTED']),
+  CANDIDATE: new Set(['SELECTED', 'REJECTED']),
+  SELECTED: new Set(['REJECTED']),
+  APPROVED: new Set(['STALE']),
+  STALE: new Set(['DRAFT']),
+  REJECTED: new Set(),
+});
+const SUBTITLE_TRACK_STATES = new Set(['DRAFT', 'TIMED', 'REVIEWED', 'APPROVED', 'STALE', 'REJECTED']);
+const SUBTITLE_TRACK_TRANSITIONS = Object.freeze({
+  DRAFT: new Set(['TIMED', 'REJECTED']),
+  TIMED: new Set(['REVIEWED', 'REJECTED']),
+  REVIEWED: new Set(['REJECTED']),
+  APPROVED: new Set(['STALE']),
+  STALE: new Set(['DRAFT']),
+  REJECTED: new Set(),
+});
+const MAX_AUDIO_CUE_TITLE = 200;
+const MAX_AUDIO_INTENT = 8_000;
+const MAX_SUBTITLE_SEGMENTS = 2_000;
+const MAX_SUBTITLE_TEXT = 2_000;
+const MAX_SUBTITLE_LOCALE = 32;
 const NOTE_ENTITY_TYPES = new Set(['PROJECT', 'TASK', 'SHOT']);
 const DECISION_STATES = new Set(['OPEN', 'RESOLVED', 'DISMISSED', 'EXPIRED', 'OBSOLETE']);
 const DECISION_SCOPE_TYPES = new Set(['TASK', 'SHOT', 'SCENE', 'PROJECT', 'RELEASE', 'SYSTEM']);
@@ -696,6 +724,100 @@ function publicTimelineRevision(row, tracks = [], options = {}) {
   out.next_step = options.nextStep ?? null;
   if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
   for (const field of ['created_at_utc_us', 'duration_num', 'duration_den']) delete out[field];
+  return out;
+}
+
+function publicAudioCue(row) {
+  if (!row) return null;
+  const out = {
+    id: row.id,
+    project_id: row.project_id,
+    timeline_id: row.timeline_id,
+    cue_type: row.cue_type,
+    title: row.title,
+    row_version: Number(row.row_version ?? 1),
+  };
+  if (row.created_at_utc_us !== undefined) out.created_at = rfc3339FromUs(row.created_at_utc_us);
+  if (row.updated_at_utc_us !== undefined) out.updated_at = rfc3339FromUs(row.updated_at_utc_us);
+  return out;
+}
+
+function publicAudioCueRevision(row, options = {}) {
+  if (!row) return null;
+  const out = {
+    id: row.id,
+    audio_cue_id: row.audio_cue_id,
+    revision_number: Number(row.revision_number),
+    lifecycle_state: options.stale ? 'STALE' : row.lifecycle_state,
+    timeline_revision_id: row.timeline_revision_id,
+    timeline_content_hash: String(row.timeline_content_hash ?? '').toLowerCase(),
+    // Public Issue #29 contract names the pin as a timing dependency. Keep
+    // the timeline aliases for existing clients while making the immutable
+    // dependency explicit at the API boundary.
+    timing_dependency_revision_id: row.timeline_revision_id,
+    timing_dependency_content_hash: String(row.timeline_content_hash ?? '').toLowerCase(),
+    timing_dependency_hash: String(row.timing_dependency_hash ?? '').toLowerCase(),
+    start: { num: Number(row.start_num), den: Number(row.start_den) },
+    end: { num: Number(row.end_num), den: Number(row.end_den) },
+    intent_text: row.intent_text ?? '',
+    selected_asset_revision_id: row.selected_asset_revision_id ?? null,
+    asset_snapshot_hash: row.asset_snapshot_hash ?? null,
+    row_version: Number(row.row_version ?? 1),
+    stale: Boolean(options.stale),
+    stale_reason: options.staleReason ?? null,
+    next_step: options.nextStep ?? null,
+  };
+  if (row.created_at_utc_us !== undefined) out.created_at = rfc3339FromUs(row.created_at_utc_us);
+  return out;
+}
+
+function publicSubtitleTrack(row) {
+  if (!row) return null;
+  const out = {
+    id: row.id,
+    project_id: row.project_id,
+    timeline_id: row.timeline_id,
+    locale: row.locale,
+    title: row.title,
+    row_version: Number(row.row_version ?? 1),
+  };
+  if (row.created_at_utc_us !== undefined) out.created_at = rfc3339FromUs(row.created_at_utc_us);
+  if (row.updated_at_utc_us !== undefined) out.updated_at = rfc3339FromUs(row.updated_at_utc_us);
+  return out;
+}
+
+function publicSubtitleSegment(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    segment_index: Number(row.segment_index),
+    start: { num: Number(row.start_num), den: Number(row.start_den) },
+    end: { num: Number(row.end_num), den: Number(row.end_den) },
+    locale: row.locale,
+    text: row.text,
+  };
+}
+
+function publicSubtitleTrackRevision(row, segments = [], options = {}) {
+  if (!row) return null;
+  const out = {
+    id: row.id,
+    subtitle_track_id: row.subtitle_track_id,
+    revision_number: Number(row.revision_number),
+    lifecycle_state: options.stale ? 'STALE' : row.lifecycle_state,
+    timeline_revision_id: row.timeline_revision_id,
+    timeline_content_hash: String(row.timeline_content_hash ?? '').toLowerCase(),
+    timing_dependency_revision_id: row.timeline_revision_id,
+    timing_dependency_content_hash: String(row.timeline_content_hash ?? '').toLowerCase(),
+    timing_dependency_hash: String(row.timing_dependency_hash ?? '').toLowerCase(),
+    format_profile: row.format_profile,
+    segments: segments.map(publicSubtitleSegment).filter(Boolean),
+    row_version: Number(row.row_version ?? 1),
+    stale: Boolean(options.stale),
+    stale_reason: options.staleReason ?? null,
+    next_step: options.nextStep ?? null,
+  };
+  if (row.created_at_utc_us !== undefined) out.created_at = rfc3339FromUs(row.created_at_utc_us);
   return out;
 }
 
@@ -2418,7 +2540,7 @@ export class CoreService {
     if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 200)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_idempotency_key', {});
     }
-    if (TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType)
+    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType))
       && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0)) {
       throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', {
         command_type: commandType,
@@ -2553,6 +2675,24 @@ export class CoreService {
       const timelineId = payload.timeline_id ?? payload.timelineId;
       if (timelineId) return this.db.prepare('SELECT project_id FROM timelines WHERE id = ?').get(timelineId)?.project_id ?? null;
     }
+    if (['CreateAudioCueRevision', 'TransitionAudioCueRevision'].includes(commandType)) {
+      const cueId = payload.audio_cue_id ?? payload.audioCueId ?? payload.cue_id ?? payload.cueId;
+      if (cueId) return this.db.prepare('SELECT project_id FROM audio_cues WHERE id = ?').get(cueId)?.project_id ?? null;
+      const cueRevisionId = payload.audio_cue_revision_id ?? payload.audioCueRevisionId;
+      if (cueRevisionId) return this.db.prepare(`SELECT c.project_id FROM audio_cue_revisions r
+        JOIN audio_cues c ON c.id = r.audio_cue_id WHERE r.id = ?`).get(cueRevisionId)?.project_id ?? null;
+      const timelineId = payload.timeline_id ?? payload.timelineId;
+      if (timelineId) return this.db.prepare('SELECT project_id FROM timelines WHERE id = ?').get(timelineId)?.project_id ?? null;
+    }
+    if (['CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision'].includes(commandType)) {
+      const trackId = payload.subtitle_track_id ?? payload.subtitleTrackId ?? payload.track_id ?? payload.trackId;
+      if (trackId) return this.db.prepare('SELECT project_id FROM subtitle_tracks WHERE id = ?').get(trackId)?.project_id ?? null;
+      const trackRevisionId = payload.subtitle_track_revision_id ?? payload.subtitleTrackRevisionId;
+      if (trackRevisionId) return this.db.prepare(`SELECT t.project_id FROM subtitle_track_revisions r
+        JOIN subtitle_tracks t ON t.id = r.subtitle_track_id WHERE r.id = ?`).get(trackRevisionId)?.project_id ?? null;
+      const timelineId = payload.timeline_id ?? payload.timelineId;
+      if (timelineId) return this.db.prepare('SELECT project_id FROM timelines WHERE id = ?').get(timelineId)?.project_id ?? null;
+    }
     if (commandType === 'TransitionTimelineRevision') {
       const timelineRevisionId = payload.timeline_revision_id ?? payload.timelineRevisionId ?? payload.revision_id ?? payload.revisionId;
       if (timelineRevisionId) return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r
@@ -2665,6 +2805,7 @@ export class CoreService {
     if (['OpenReview', 'SubmitReview'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateHandoffManifest', 'BeginTimelineWorkingSession', 'ApplyTimelineEditOp', 'UndoTimelineEditOp', 'RedoTimelineEditOp',
       'AutosaveTimelineWorkingSession', 'CheckpointTimelineWorkingSession', 'CloseTimelineWorkingSession'].includes(commandType)) return 'COMPENSATABLE';
+    if (['CreateAudioCueRevision', 'TransitionAudioCueRevision', 'CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision'].includes(commandType)) return 'COMPENSATABLE';
     return 'REVERSIBLE';
   }
 
@@ -2690,6 +2831,10 @@ export class CoreService {
       case 'CreateTimeline': return this._createTimeline(payload);
       case 'CreateTimelineRevision': return this._createTimelineRevision(payload, expectedVersions);
       case 'TransitionTimelineRevision': return this._transitionTimelineRevision(payload, expectedVersions);
+      case 'CreateAudioCueRevision': return this._createAudioCueRevision(payload, expectedVersions);
+      case 'TransitionAudioCueRevision': return this._transitionAudioCueRevision(payload, expectedVersions);
+      case 'CreateSubtitleTrackRevision': return this._createSubtitleTrackRevision(payload, expectedVersions);
+      case 'TransitionSubtitleTrackRevision': return this._transitionSubtitleTrackRevision(payload, expectedVersions);
       case 'OpenReview': return this._openReview(payload, expectedVersions);
       case 'SubmitReview': return this._submitReview(payload, expectedVersions);
       case 'CreateHandoffManifest': return this._createHandoffManifest(payload, expectedVersions, commandId);
@@ -3410,7 +3555,7 @@ export class CoreService {
     return markers;
   }
 
-  _timelineAssetReadiness(assetRevisionId, projectId) {
+  _timelineAssetReadiness(assetRevisionId, projectId, options = {}) {
     const id = requiredString(assetRevisionId, 'asset_revision_id');
     const row = this.db.prepare(`SELECT r.id, r.asset_id, r.availability_state, r.review_state, r.availability_evidence_state,
         a.project_id, a.lifecycle_state AS asset_lifecycle_state,
@@ -3430,7 +3575,7 @@ export class CoreService {
         entity_type: 'ASSET_REVISION', entity_id: id, project_id: projectId, actual_project_id: row.project_id,
       }, { needsUser: true });
     }
-    const rights = this._rightsForAsset(row.asset_id);
+    const rights = this._rightsForAsset(row.asset_id, { purpose: options.purpose ?? null });
     if (!rights.eligible) {
       throw new CoreError('RIGHTS_BLOCKED', 'RIGHTS_BLOCKED', 'errors.timeline_asset_rights_blocked', { asset_revision_id: id }, {
         needsUser: true,
@@ -4993,6 +5138,493 @@ export class CoreService {
     };
   }
 
+  _audioCue(audioCueId) {
+    const id = requiredString(audioCueId, 'audio_cue_id');
+    const row = this.db.prepare('SELECT * FROM audio_cues WHERE id = ?').get(id);
+    if (!row) throw new CoreError('AUDIO_CUE_NOT_FOUND', 'VALIDATION', 'errors.audio_cue_not_found', { audio_cue_id: id });
+    return row;
+  }
+
+  _audioCueRevision(audioCueRevisionId) {
+    const id = requiredString(audioCueRevisionId, 'audio_cue_revision_id');
+    const row = this.db.prepare(`SELECT r.*, c.project_id, c.timeline_id, c.cue_type, c.title
+      FROM audio_cue_revisions r JOIN audio_cues c ON c.id = r.audio_cue_id WHERE r.id = ?`).get(id);
+    if (!row) throw new CoreError('AUDIO_CUE_REVISION_NOT_FOUND', 'VALIDATION', 'errors.audio_cue_revision_not_found', { audio_cue_revision_id: id });
+    return row;
+  }
+
+  _subtitleTrack(subtitleTrackId) {
+    const id = requiredString(subtitleTrackId, 'subtitle_track_id');
+    const row = this.db.prepare('SELECT * FROM subtitle_tracks WHERE id = ?').get(id);
+    if (!row) throw new CoreError('SUBTITLE_TRACK_NOT_FOUND', 'VALIDATION', 'errors.subtitle_track_not_found', { subtitle_track_id: id });
+    return row;
+  }
+
+  _subtitleTrackRevision(subtitleTrackRevisionId) {
+    const id = requiredString(subtitleTrackRevisionId, 'subtitle_track_revision_id');
+    const row = this.db.prepare(`SELECT r.*, t.project_id, t.timeline_id, t.locale, t.title
+      FROM subtitle_track_revisions r JOIN subtitle_tracks t ON t.id = r.subtitle_track_id WHERE r.id = ?`).get(id);
+    if (!row) throw new CoreError('SUBTITLE_TRACK_REVISION_NOT_FOUND', 'VALIDATION', 'errors.subtitle_track_revision_not_found', { subtitle_track_revision_id: id });
+    return row;
+  }
+
+  _timingRevision(payload, projectId) {
+    const timeline = this._timeline(payload.timeline_id ?? payload.timelineId);
+    if (timeline.project_id !== projectId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'TIMELINE', entity_id: timeline.id, project_id: projectId, actual_project_id: timeline.project_id,
+      }, { needsUser: true });
+    }
+    const revision = this._timelineRevision(payload.timing_dependency_revision_id ?? payload.timingDependencyRevisionId
+      ?? payload.timeline_revision_id ?? payload.timelineRevisionId);
+    if (revision.timeline_id !== timeline.id || revision.project_id !== projectId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'TIMELINE_REVISION', entity_id: revision.id, project_id: projectId, timeline_id: timeline.id,
+      }, { needsUser: true });
+    }
+    const suppliedHash = payload.timing_dependency_content_hash ?? payload.timingDependencyContentHash
+      ?? payload.timeline_content_hash ?? payload.timelineContentHash;
+    if (typeof suppliedHash !== 'string' || !SHA256_HEX.test(suppliedHash.trim())) {
+      throw new CoreError('TIMING_DEPENDENCY_HASH_REQUIRED', 'CONFLICT', 'errors.timing_dependency_hash_required', { timeline_revision_id: revision.id }, { needsUser: true });
+    }
+    if (suppliedHash.trim().toLowerCase() !== String(revision.content_hash).toLowerCase()) {
+      throw new CoreError('TIMING_DEPENDENCY_HASH_MISMATCH', 'CONFLICT', 'errors.timing_dependency_hash_mismatch', { timeline_revision_id: revision.id }, { needsUser: true });
+    }
+    return { timeline, revision };
+  }
+
+  _timingRange(startValue, endValue, revision, fieldPrefix = 'timing') {
+    const start = normalizeRational(startValue, `${fieldPrefix}.start`, { allowZero: true });
+    const end = normalizeRational(endValue, `${fieldPrefix}.end`, { allowZero: false });
+    const duration = { num: Number(revision.duration_num), den: Number(revision.duration_den) };
+    if (rationalCompare(start, end) >= 0) {
+      throw new CoreError('INVALID_TIME_INTERVAL', 'VALIDATION', 'errors.invalid_time_interval', { field: fieldPrefix });
+    }
+    if (rationalCompare(end, duration) > 0) {
+      throw new CoreError('TIMING_OUT_OF_BOUNDS', 'CONFLICT', 'errors.timing_out_of_bounds', { field: fieldPrefix, timeline_revision_id: revision.id }, { needsUser: true });
+    }
+    return { start, end };
+  }
+
+  _timingDependencyHash(kind, revision, details) {
+    return crypto.createHash('sha256').update(canonicalJson({
+      kind,
+      timeline_revision_id: revision.id,
+      timeline_content_hash: revision.content_hash,
+      ...details,
+    })).digest('hex');
+  }
+
+  _timingRevisionStaleness(revision) {
+    const latest = this.db.prepare(`SELECT id, content_hash FROM timeline_revisions
+      WHERE timeline_id = ? ORDER BY revision_number DESC, id DESC LIMIT 1`).get(revision.timeline_id);
+    if (!latest || latest.id !== revision.timeline_revision_id || String(latest.content_hash).toLowerCase() !== String(revision.timeline_content_hash).toLowerCase()) {
+      return { stale: true, reason: 'TIMELINE_REVISION_CHANGED', nextStep: 'Tạo revision timing mới trên checkpoint timeline hiện tại.' };
+    }
+    if (revision.selected_asset_revision_id) {
+      try {
+        this._audioCueAssetSnapshot(revision.selected_asset_revision_id, revision.project_id, { requireReady: true });
+      } catch (error) {
+        return {
+          stale: true,
+          reason: error?.code === 'RIGHTS_BLOCKED' ? 'AUDIO_RIGHTS_CHANGED' : 'AUDIO_MATERIALIZATION_CHANGED',
+          nextStep: 'Kiểm tra lại rights/materialization của audio asset hoặc tạo revision timing mới.',
+        };
+      }
+    }
+    return { stale: false, reason: null, nextStep: null };
+  }
+
+  _timingRevisionStale(revision) {
+    return this._timingRevisionStaleness(revision).stale;
+  }
+
+  _audioCueAssetSnapshot(assetRevisionId, projectId, { requireReady = false } = {}) {
+    if (!assetRevisionId) return { hash: null, readiness: null };
+    const revision = this.db.prepare(`SELECT r.id, r.asset_id, r.availability_state, r.review_state,
+        r.availability_evidence_state, a.project_id, a.lifecycle_state AS asset_lifecycle_state,
+        so.storage_class, sol.state AS location_state
+      FROM asset_revisions r JOIN assets a ON a.id = r.asset_id
+      LEFT JOIN storage_objects so ON so.id = r.storage_object_id
+      LEFT JOIN storage_object_locations sol ON sol.id = (
+        SELECT location.id FROM storage_object_locations location
+        WHERE location.storage_object_id = r.storage_object_id AND location.location_role = 'PRIMARY'
+        ORDER BY CASE WHEN location.state = 'AVAILABLE' THEN 0 ELSE 1 END, location.id ASC LIMIT 1
+      ) WHERE r.id = ?`).get(assetRevisionId);
+    if (!revision) throw new CoreError('ASSET_REVISION_NOT_FOUND', 'VALIDATION', 'errors.asset_revision_not_found', { asset_revision_id: assetRevisionId });
+    if (revision.project_id !== projectId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'ASSET_REVISION', entity_id: assetRevisionId, project_id: projectId, actual_project_id: revision.project_id,
+      }, { needsUser: true });
+    }
+    let readiness = null;
+    if (requireReady) readiness = this._timelineAssetReadiness(assetRevisionId, projectId, { purpose: 'TIMELINE_AUDIO' });
+    const rights = this._rightsForAsset(revision.asset_id, { purpose: 'TIMELINE_AUDIO' });
+    const hash = crypto.createHash('sha256').update(canonicalJson({
+      asset_revision_id: revision.id,
+      availability_state: revision.availability_state,
+      review_state: revision.review_state,
+      availability_evidence_state: revision.availability_evidence_state,
+      asset_lifecycle_state: revision.asset_lifecycle_state,
+      storage_class: revision.storage_class ?? 'UNKNOWN',
+      location_state: revision.location_state ?? 'UNKNOWN',
+      purpose: 'TIMELINE_AUDIO',
+      rights_status: rights.status ?? 'UNKNOWN',
+      rights_eligible: Boolean(rights.eligible),
+    })).digest('hex');
+    return { hash, readiness };
+  }
+
+  _audioCueAssetGate(row) {
+    if (!row.selected_asset_revision_id) {
+      return { state: row.cue_type === 'SILENCE' ? 'NOT_APPLICABLE' : 'UNKNOWN', rights_status: null, materialization_state: null, reason: row.cue_type === 'SILENCE' ? null : 'AUDIO_ASSET_REQUIRED' };
+    }
+    const asset = this.db.prepare(`SELECT r.id, r.asset_id, r.availability_state, r.review_state,
+        r.availability_evidence_state, a.lifecycle_state AS asset_lifecycle_state,
+        so.storage_class, sol.state AS location_state
+      FROM asset_revisions r JOIN assets a ON a.id = r.asset_id
+      LEFT JOIN storage_objects so ON so.id = r.storage_object_id
+      LEFT JOIN storage_object_locations sol ON sol.id = (
+        SELECT location.id FROM storage_object_locations location
+        WHERE location.storage_object_id = r.storage_object_id AND location.location_role = 'PRIMARY'
+        ORDER BY CASE WHEN location.state = 'AVAILABLE' THEN 0 ELSE 1 END, location.id ASC LIMIT 1
+      ) WHERE r.id = ?`).get(row.selected_asset_revision_id);
+    if (!asset) return { state: 'BLOCKED', rights_status: 'UNKNOWN', materialization_state: 'UNKNOWN', reason: 'ASSET_REVISION_NOT_FOUND' };
+    let rights;
+    try { rights = this._rightsForAsset(asset.asset_id, { purpose: 'TIMELINE_AUDIO' }); } catch { rights = { status: 'UNKNOWN', eligible: false }; }
+    const materialized = asset.asset_lifecycle_state !== 'TRASHED'
+      && asset.availability_state === 'AVAILABLE'
+      && asset.review_state === 'APPROVED'
+      && asset.availability_evidence_state === 'VERIFIED'
+      && asset.storage_class !== 'EXTERNAL_REFERENCE'
+      && asset.location_state === 'AVAILABLE';
+    return {
+      state: rights.eligible && materialized ? 'READY' : 'BLOCKED',
+      rights_status: rights.status ?? 'UNKNOWN',
+      materialization_state: materialized ? 'AVAILABLE' : (asset.availability_state ?? 'UNKNOWN'),
+      reason: rights.eligible ? (materialized ? null : 'TIMELINE_ASSET_NOT_READY') : 'RIGHTS_BLOCKED',
+    };
+  }
+
+  _audioCueRevisionProjection(rowOrId) {
+    const row = typeof rowOrId === 'string' ? this._audioCueRevision(rowOrId) : rowOrId;
+    const staleness = this._timingRevisionStaleness(row);
+    const projection = publicAudioCueRevision(row, { stale: staleness.stale, staleReason: staleness.reason, nextStep: staleness.nextStep });
+    projection.asset_gate = this._audioCueAssetGate(row);
+    return projection;
+  }
+
+  _subtitleTrackRevisionProjection(rowOrId) {
+    const row = typeof rowOrId === 'string' ? this._subtitleTrackRevision(rowOrId) : rowOrId;
+    const segments = this.db.prepare('SELECT * FROM subtitle_track_segments WHERE subtitle_track_revision_id = ? ORDER BY segment_index ASC, id ASC').all(row.id);
+    const staleness = this._timingRevisionStaleness(row);
+    const nextStep = staleness.stale ? (staleness.reason === 'TIMELINE_REVISION_CHANGED'
+      ? 'Tạo revision phụ đề mới trên checkpoint timeline hiện tại.' : staleness.nextStep) : null;
+    return publicSubtitleTrackRevision(row, segments, { stale: staleness.stale, staleReason: staleness.reason, nextStep });
+  }
+
+  _createAudioCueRevision(payload, expectedVersions = {}) {
+    const project = this._project(payload.project_id ?? payload.projectId);
+    this._assertProjectWritable(project);
+    const { timeline, revision: timelineRevision } = this._timingRevision(payload, project.id);
+    const cueType = String(payload.cue_type ?? payload.cueType ?? '').trim().toUpperCase();
+    if (!AUDIO_CUE_TYPES.has(cueType)) throw new CoreError('INVALID_AUDIO_CUE_TYPE', 'VALIDATION', 'errors.invalid_audio_cue_type', { cue_type: cueType });
+    const title = requiredString(payload.title ?? `${cueType} cue`, 'title', MAX_AUDIO_CUE_TITLE);
+    const intentText = optionalString(payload.intent_text ?? payload.intentText, 'intent_text', MAX_AUDIO_INTENT, '');
+    const { start, end } = this._timingRange(payload.start ?? payload.start_time ?? payload.startTime, payload.end ?? payload.end_time ?? payload.endTime, timelineRevision, 'audio_cue');
+    const selectedAssetRevisionId = payload.selected_asset_revision_id ?? payload.selectedAssetRevisionId ?? null;
+    if (cueType !== 'SILENCE' && !selectedAssetRevisionId) {
+      throw new CoreError('AUDIO_ASSET_REQUIRED', 'CONFLICT', 'errors.audio_asset_required', { cue_type: cueType }, { needsUser: true });
+    }
+    const assetSnapshot = this._audioCueAssetSnapshot(selectedAssetRevisionId, project.id, { requireReady: cueType !== 'SILENCE' });
+    const cueIdInput = payload.audio_cue_id ?? payload.audioCueId ?? payload.cue_id ?? payload.cueId ?? null;
+    let cue = null;
+    if (cueIdInput) {
+      cue = this._audioCue(cueIdInput);
+      if (cue.project_id !== project.id || cue.timeline_id !== timeline.id || cue.cue_type !== cueType) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'AUDIO_CUE', entity_id: cue.id }, { needsUser: true });
+      }
+      this._expectedVersion(expectedVersions, 'AUDIO_CUE', cue.id, cue.row_version);
+    }
+    const created = nowUtcUs();
+    const audioCueId = cue?.id ?? uuidv7();
+    if (!cue) {
+      this.db.prepare(`INSERT INTO audio_cues
+        (id, project_id, timeline_id, cue_type, title, created_by_actor_id, created_at_utc_us, updated_at_utc_us, row_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(audioCueId, project.id, timeline.id, cueType, title, this.actorId, created, created);
+    } else {
+      const nextCueVersion = Number(cue.row_version) + 1;
+      this.db.prepare('UPDATE audio_cues SET updated_at_utc_us = ?, row_version = ? WHERE id = ?').run(created, nextCueVersion, cue.id);
+    }
+    const revisionId = uuidv7();
+    const revisionNumber = Number(this.db.prepare('SELECT COALESCE(MAX(revision_number), 0) AS n FROM audio_cue_revisions WHERE audio_cue_id = ?').get(audioCueId).n) + 1;
+    const dependencyHash = this._timingDependencyHash('AUDIO_CUE', timelineRevision, { cue_type: cueType, start, end, intent_text: intentText, selected_asset_revision_id: selectedAssetRevisionId });
+    this.db.prepare(`INSERT INTO audio_cue_revisions
+      (id, audio_cue_id, revision_number, lifecycle_state, timeline_revision_id, timeline_content_hash,
+       timing_dependency_hash, start_num, start_den, end_num, end_den, intent_text, selected_asset_revision_id,
+       asset_snapshot_hash, created_by_actor_id, created_at_utc_us, row_version)
+      VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+      revisionId, audioCueId, revisionNumber, timelineRevision.id, timelineRevision.content_hash,
+      dependencyHash, start.num, start.den, end.num, end.den, intentText, selectedAssetRevisionId,
+      assetSnapshot.hash, this.actorId, created,
+    );
+    const createdCue = this._audioCue(audioCueId);
+    const createdRevision = this._audioCueRevision(revisionId);
+    return {
+      projectId: project.id,
+      result: { audio_cue: publicAudioCue(createdCue), revision: this._audioCueRevisionProjection(createdRevision) },
+      event: { aggregateType: 'AUDIO_CUE', aggregateId: audioCueId, aggregateVersion: Number(createdCue.row_version), eventType: 'AUDIO_CUE_REVISION_CREATED', payload: { audio_cue_id: audioCueId, audio_cue_revision_id: revisionId, timeline_revision_id: timelineRevision.id, timeline_content_hash: timelineRevision.content_hash } },
+      audit: { actionType: 'audio_cue.revision.create', targetType: 'AUDIO_CUE_REVISION', targetId: revisionId, payload: { project_id: project.id, audio_cue_id: audioCueId, timeline_revision_id: timelineRevision.id } },
+    };
+  }
+
+  _transitionAudioCueRevision(payload, expectedVersions) {
+    const revision = this._audioCueRevision(payload.audio_cue_revision_id ?? payload.audioCueRevisionId ?? payload.revision_id ?? payload.revisionId);
+    this._assertPayloadProjectScope(payload, revision.project_id, 'AUDIO_CUE_REVISION', revision.id);
+    const project = this._project(revision.project_id);
+    this._assertProjectWritable(project);
+    const timingBinding = this._timingRevision(payload, project.id);
+    if (timingBinding.revision.id !== revision.timeline_revision_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'TIMING_DEPENDENCY', entity_id: revision.id, timeline_revision_id: revision.timeline_revision_id,
+      }, { needsUser: true });
+    }
+    this._expectedVersion(expectedVersions, 'AUDIO_CUE_REVISION', revision.id, revision.row_version);
+    if (this._timingRevisionStale(revision)) throw new CoreError('AUDIO_CUE_STALE', 'CONFLICT', 'errors.audio_cue_stale', { audio_cue_revision_id: revision.id }, { needsUser: true });
+    const nextState = String(payload.next_state ?? payload.nextState ?? payload.state ?? '').trim().toUpperCase();
+    if (nextState === 'APPROVED') throw new CoreError('REVIEW_NOT_SUPPORTED', 'CONFLICT', 'errors.review_not_supported', { subject_type: 'AUDIO_CUE_REVISION', audio_cue_revision_id: revision.id }, { needsUser: true });
+    if (!AUDIO_CUE_STATES.has(nextState) || !AUDIO_CUE_TRANSITIONS[revision.lifecycle_state]?.has(nextState)) {
+      throw new CoreError('INVALID_STATE_TRANSITION', 'CONFLICT', 'errors.invalid_state_transition', { from: revision.lifecycle_state, to: nextState }, { needsUser: true });
+    }
+    if (['CANDIDATE', 'SELECTED'].includes(nextState) && revision.cue_type !== 'SILENCE') this._audioCueAssetSnapshot(revision.selected_asset_revision_id, project.id, { requireReady: true });
+    const nextVersion = Number(revision.row_version) + 1;
+    this.db.prepare('UPDATE audio_cue_revisions SET lifecycle_state = ?, row_version = ? WHERE id = ?').run(nextState, nextVersion, revision.id);
+    const next = this._audioCueRevision(revision.id);
+    return {
+      projectId: project.id,
+      result: { audio_cue: publicAudioCue(this._audioCue(revision.audio_cue_id)), revision: this._audioCueRevisionProjection(next) },
+      event: { aggregateType: 'AUDIO_CUE', aggregateId: revision.audio_cue_id, aggregateVersion: nextVersion, eventType: `AUDIO_CUE_REVISION_${nextState}`, payload: { audio_cue_id: revision.audio_cue_id, audio_cue_revision_id: revision.id, lifecycle_state: nextState } },
+      audit: { actionType: 'audio_cue.revision.transition', targetType: 'AUDIO_CUE_REVISION', targetId: revision.id, payload: { from: revision.lifecycle_state, to: nextState } },
+    };
+  }
+
+  _createSubtitleTrackRevision(payload, expectedVersions = {}) {
+    const project = this._project(payload.project_id ?? payload.projectId);
+    this._assertProjectWritable(project);
+    const { timeline, revision: timelineRevision } = this._timingRevision(payload, project.id);
+    const locale = requiredString(payload.locale ?? payload.language ?? 'vi-VN', 'locale', MAX_SUBTITLE_LOCALE);
+    const title = requiredString(payload.title ?? `Subtitles ${locale}`, 'title', MAX_AUDIO_CUE_TITLE);
+    const formatProfile = requiredString(payload.format_profile ?? payload.formatProfile ?? 'TEXT', 'format_profile', 120).toUpperCase();
+    const segmentsInput = arrayValue(payload.segments, 'segments');
+    if (segmentsInput.length > MAX_SUBTITLE_SEGMENTS) throw new CoreError('FIELD_TOO_LARGE', 'VALIDATION', 'errors.field_too_large', { field: 'segments', max_items: MAX_SUBTITLE_SEGMENTS });
+    const segments = segmentsInput.map((segment, index) => {
+      if (!segment || typeof segment !== 'object' || Array.isArray(segment)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: `segments[${index}]` });
+      const range = this._timingRange(segment.start ?? segment.start_time ?? segment.startTime, segment.end ?? segment.end_time ?? segment.endTime, timelineRevision, `segments[${index}]`);
+      const text = requiredString(segment.text, `segments[${index}].text`, MAX_SUBTITLE_TEXT);
+      const segmentLocale = requiredString(segment.locale ?? locale, `segments[${index}].locale`, MAX_SUBTITLE_LOCALE);
+      return { id: requiredString(segment.id ?? uuidv7(), `segments[${index}].id`, 200), segmentIndex: index, ...range, locale: segmentLocale, text };
+    });
+    const byLocale = new Map();
+    for (const segment of segments) byLocale.set(segment.locale, [...(byLocale.get(segment.locale) ?? []), segment]);
+    for (const localeSegments of byLocale.values()) {
+      const sorted = localeSegments.sort((left, right) => rationalCompare(left.start, right.start) || left.segmentIndex - right.segmentIndex);
+      for (let index = 1; index < sorted.length; index += 1) {
+        if (rationalCompare(sorted[index - 1].end, sorted[index].start) > 0) throw new CoreError('SUBTITLE_SEGMENT_OVERLAP', 'CONFLICT', 'errors.subtitle_segment_overlap', { index }, { needsUser: true });
+      }
+    }
+    const trackIdInput = payload.subtitle_track_id ?? payload.subtitleTrackId ?? payload.track_id ?? payload.trackId ?? null;
+    let track = null;
+    if (trackIdInput) {
+      track = this._subtitleTrack(trackIdInput);
+      if (track.project_id !== project.id || track.timeline_id !== timeline.id || track.locale !== locale) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'SUBTITLE_TRACK', entity_id: track.id }, { needsUser: true });
+      this._expectedVersion(expectedVersions, 'SUBTITLE_TRACK', track.id, track.row_version);
+    }
+    const created = nowUtcUs();
+    const subtitleTrackId = track?.id ?? uuidv7();
+    if (!track) {
+      this.db.prepare(`INSERT INTO subtitle_tracks
+        (id, project_id, timeline_id, locale, title, created_by_actor_id, created_at_utc_us, updated_at_utc_us, row_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(subtitleTrackId, project.id, timeline.id, locale, title, this.actorId, created, created);
+    } else {
+      this.db.prepare('UPDATE subtitle_tracks SET updated_at_utc_us = ?, row_version = ? WHERE id = ?').run(created, Number(track.row_version) + 1, track.id);
+    }
+    const revisionId = uuidv7();
+    const revisionNumber = Number(this.db.prepare('SELECT COALESCE(MAX(revision_number), 0) AS n FROM subtitle_track_revisions WHERE subtitle_track_id = ?').get(subtitleTrackId).n) + 1;
+    const dependencyHash = this._timingDependencyHash('SUBTITLE_TRACK', timelineRevision, { locale, format_profile: formatProfile, segments });
+    this.db.prepare(`INSERT INTO subtitle_track_revisions
+      (id, subtitle_track_id, revision_number, lifecycle_state, timeline_revision_id, timeline_content_hash,
+       timing_dependency_hash, format_profile, created_by_actor_id, created_at_utc_us, row_version)
+      VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, 1)`).run(
+      revisionId, subtitleTrackId, revisionNumber, timelineRevision.id, timelineRevision.content_hash,
+      dependencyHash, formatProfile, this.actorId, created,
+    );
+    const insertSegment = this.db.prepare(`INSERT INTO subtitle_track_segments
+      (id, subtitle_track_revision_id, segment_index, start_num, start_den, end_num, end_den, locale, text, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const segment of segments) insertSegment.run(segment.id, revisionId, segment.segmentIndex, segment.start.num, segment.start.den, segment.end.num, segment.end.den, segment.locale, segment.text, created);
+    const createdTrack = this._subtitleTrack(subtitleTrackId);
+    const createdRevision = this._subtitleTrackRevision(revisionId);
+    return {
+      projectId: project.id,
+      result: { subtitle_track: publicSubtitleTrack(createdTrack), revision: this._subtitleTrackRevisionProjection(createdRevision) },
+      event: { aggregateType: 'SUBTITLE_TRACK', aggregateId: subtitleTrackId, aggregateVersion: Number(createdTrack.row_version), eventType: 'SUBTITLE_TRACK_REVISION_CREATED', payload: { subtitle_track_id: subtitleTrackId, subtitle_track_revision_id: revisionId, timeline_revision_id: timelineRevision.id, timeline_content_hash: timelineRevision.content_hash } },
+      audit: { actionType: 'subtitle_track.revision.create', targetType: 'SUBTITLE_TRACK_REVISION', targetId: revisionId, payload: { project_id: project.id, subtitle_track_id: subtitleTrackId, timeline_revision_id: timelineRevision.id, segment_count: segments.length } },
+    };
+  }
+
+  _transitionSubtitleTrackRevision(payload, expectedVersions) {
+    const revision = this._subtitleTrackRevision(payload.subtitle_track_revision_id ?? payload.subtitleTrackRevisionId ?? payload.revision_id ?? payload.revisionId);
+    this._assertPayloadProjectScope(payload, revision.project_id, 'SUBTITLE_TRACK_REVISION', revision.id);
+    const project = this._project(revision.project_id);
+    this._assertProjectWritable(project);
+    const timingBinding = this._timingRevision(payload, project.id);
+    if (timingBinding.revision.id !== revision.timeline_revision_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'TIMING_DEPENDENCY', entity_id: revision.id, timeline_revision_id: revision.timeline_revision_id,
+      }, { needsUser: true });
+    }
+    this._expectedVersion(expectedVersions, 'SUBTITLE_TRACK_REVISION', revision.id, revision.row_version);
+    if (this._timingRevisionStale(revision)) throw new CoreError('SUBTITLE_TRACK_STALE', 'CONFLICT', 'errors.subtitle_track_stale', { subtitle_track_revision_id: revision.id }, { needsUser: true });
+    const nextState = String(payload.next_state ?? payload.nextState ?? payload.state ?? '').trim().toUpperCase();
+    if (nextState === 'APPROVED') throw new CoreError('REVIEW_NOT_SUPPORTED', 'CONFLICT', 'errors.review_not_supported', { subject_type: 'SUBTITLE_TRACK_REVISION', subtitle_track_revision_id: revision.id }, { needsUser: true });
+    if (!SUBTITLE_TRACK_STATES.has(nextState) || !SUBTITLE_TRACK_TRANSITIONS[revision.lifecycle_state]?.has(nextState)) throw new CoreError('INVALID_STATE_TRANSITION', 'CONFLICT', 'errors.invalid_state_transition', { from: revision.lifecycle_state, to: nextState }, { needsUser: true });
+    const nextVersion = Number(revision.row_version) + 1;
+    this.db.prepare('UPDATE subtitle_track_revisions SET lifecycle_state = ?, row_version = ? WHERE id = ?').run(nextState, nextVersion, revision.id);
+    const next = this._subtitleTrackRevision(revision.id);
+    return {
+      projectId: project.id,
+      result: { subtitle_track: publicSubtitleTrack(this._subtitleTrack(revision.subtitle_track_id)), revision: this._subtitleTrackRevisionProjection(next) },
+      event: { aggregateType: 'SUBTITLE_TRACK', aggregateId: revision.subtitle_track_id, aggregateVersion: nextVersion, eventType: `SUBTITLE_TRACK_REVISION_${nextState}`, payload: { subtitle_track_id: revision.subtitle_track_id, subtitle_track_revision_id: revision.id, lifecycle_state: nextState } },
+      audit: { actionType: 'subtitle_track.revision.transition', targetType: 'SUBTITLE_TRACK_REVISION', targetId: revision.id, payload: { from: revision.lifecycle_state, to: nextState } },
+    };
+  }
+
+  _audioTiming(params = {}) {
+    const timeline = this._timeline(params.timeline_id ?? params.timelineId);
+    const projectId = params.project_id ?? params.projectId;
+    if (projectId !== undefined && projectId !== null && projectId !== timeline.project_id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE', entity_id: timeline.id, project_id: projectId, actual_project_id: timeline.project_id }, { needsUser: true });
+    const revisionId = params.timing_dependency_revision_id ?? params.timingDependencyRevisionId
+      ?? params.timeline_revision_id ?? params.timelineRevisionId;
+    const timelineRevision = this._timelineRevision(revisionId);
+    if (timelineRevision.timeline_id !== timeline.id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE_REVISION', entity_id: timelineRevision.id }, { needsUser: true });
+    const requestedState = params.state ?? params.lifecycle_state ?? params.lifecycleState;
+    if (requestedState !== undefined && requestedState !== null && !AUDIO_CUE_STATES.has(String(requestedState).trim().toUpperCase())) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'state' });
+    }
+    const state = requestedState === undefined || requestedState === null ? null : String(requestedState).trim().toUpperCase();
+    const offset = params.cursor === undefined || params.cursor === null || params.cursor === '' ? 0 : boundedInteger(params.cursor, 'cursor', { min: 0, max: 1_000_000 });
+    const limit = Math.min(Math.max(asInt(params.limit, 200), 1), 200);
+    const rows = this.db.prepare(`SELECT r.*, c.project_id, c.timeline_id, c.cue_type, c.title
+      FROM audio_cue_revisions r JOIN audio_cues c ON c.id = r.audio_cue_id
+      WHERE c.project_id = ? AND c.timeline_id = ? AND r.timeline_revision_id = ?
+      ORDER BY r.created_at_utc_us ASC, r.id ASC`).all(timeline.project_id, timeline.id, timelineRevision.id);
+    const filtered = rows.map((row) => ({ audio_cue: publicAudioCue(row), revision: this._audioCueRevisionProjection(row) }))
+      .filter((item) => !state || item.revision.lifecycle_state === state);
+    const projected = filtered.slice(offset, offset + limit);
+    return {
+      timeline: publicTimeline(timeline), timeline_revision: publicTimelineRevision(timelineRevision),
+      cues: projected,
+      next_cursor: offset + projected.length < filtered.length ? String(offset + projected.length) : null,
+      projection_seq: this._projectionSeq(), generated_at: new Date().toISOString(),
+    };
+  }
+
+  _subtitleTiming(params = {}) {
+    const timeline = this._timeline(params.timeline_id ?? params.timelineId);
+    const projectId = params.project_id ?? params.projectId;
+    if (projectId !== undefined && projectId !== null && projectId !== timeline.project_id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE', entity_id: timeline.id, project_id: projectId, actual_project_id: timeline.project_id }, { needsUser: true });
+    const timelineRevision = this._timelineRevision(params.timing_dependency_revision_id ?? params.timingDependencyRevisionId
+      ?? params.timeline_revision_id ?? params.timelineRevisionId);
+    if (timelineRevision.timeline_id !== timeline.id) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'TIMELINE_REVISION', entity_id: timelineRevision.id }, { needsUser: true });
+    const requestedState = params.state ?? params.lifecycle_state ?? params.lifecycleState;
+    if (requestedState !== undefined && requestedState !== null && !SUBTITLE_TRACK_STATES.has(String(requestedState).trim().toUpperCase())) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'state' });
+    }
+    const state = requestedState === undefined || requestedState === null ? null : String(requestedState).trim().toUpperCase();
+    const requestedLocale = params.locale === undefined || params.locale === null ? null : String(params.locale).trim();
+    const offset = params.cursor === undefined || params.cursor === null || params.cursor === '' ? 0 : boundedInteger(params.cursor, 'cursor', { min: 0, max: 1_000_000 });
+    const limit = Math.min(Math.max(asInt(params.limit, 200), 1), 200);
+    const rows = this.db.prepare(`SELECT r.*, t.project_id, t.timeline_id, t.locale, t.title
+      FROM subtitle_track_revisions r JOIN subtitle_tracks t ON t.id = r.subtitle_track_id
+      WHERE t.project_id = ? AND t.timeline_id = ? AND r.timeline_revision_id = ?
+      ORDER BY r.created_at_utc_us ASC, r.id ASC`).all(timeline.project_id, timeline.id, timelineRevision.id);
+    const filtered = rows.map((row) => ({ subtitle_track: publicSubtitleTrack(row), revision: this._subtitleTrackRevisionProjection(row) }))
+      .filter((item) => (!state || item.revision.lifecycle_state === state) && (!requestedLocale || item.subtitle_track.locale === requestedLocale));
+    const projected = filtered.slice(offset, offset + limit);
+    return {
+      timeline: publicTimeline(timeline), timeline_revision: publicTimelineRevision(timelineRevision),
+      tracks: projected,
+      next_cursor: offset + projected.length < filtered.length ? String(offset + projected.length) : null,
+      projection_seq: this._projectionSeq(), generated_at: new Date().toISOString(),
+    };
+  }
+
+  _timingImpact(params = {}) {
+    const timeline = this._timeline(params.timeline_id ?? params.timelineId);
+    const projectId = params.project_id ?? params.projectId;
+    if (projectId !== undefined && projectId !== null && projectId !== timeline.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'TIMELINE', entity_id: timeline.id, project_id: projectId, actual_project_id: timeline.project_id,
+      }, { needsUser: true });
+    }
+    const pinnedRevisionId = params.timing_dependency_revision_id ?? params.timingDependencyRevisionId
+      ?? params.timeline_revision_id ?? params.timelineRevisionId;
+    if (pinnedRevisionId) {
+      const pinned = this._timelineRevision(pinnedRevisionId);
+      if (pinned.timeline_id !== timeline.id) {
+        throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+          entity_type: 'TIMELINE_REVISION', entity_id: pinned.id, timeline_id: timeline.id,
+        }, { needsUser: true });
+      }
+    }
+    const audioRows = this.db.prepare(`SELECT r.*, c.project_id, c.timeline_id, c.cue_type, c.title
+      FROM audio_cue_revisions r JOIN audio_cues c ON c.id = r.audio_cue_id
+      WHERE c.project_id = ? AND c.timeline_id = ?
+      ORDER BY r.created_at_utc_us ASC, r.id ASC`).all(timeline.project_id, timeline.id);
+    const subtitleRows = this.db.prepare(`SELECT r.*, t.project_id, t.timeline_id, t.locale, t.title
+      FROM subtitle_track_revisions r JOIN subtitle_tracks t ON t.id = r.subtitle_track_id
+      WHERE t.project_id = ? AND t.timeline_id = ?
+      ORDER BY r.created_at_utc_us ASC, r.id ASC`).all(timeline.project_id, timeline.id);
+    const audio = audioRows.map((row) => {
+      const revision = this._audioCueRevisionProjection(row);
+      return {
+        audio_cue_id: row.audio_cue_id,
+        audio_cue_revision_id: row.id,
+        timeline_revision_id: row.timeline_revision_id,
+        lifecycle_state: revision.lifecycle_state,
+        stale: Boolean(revision.stale),
+        next_step: revision.next_step,
+      };
+    });
+    const subtitles = subtitleRows.map((row) => {
+      const revision = this._subtitleTrackRevisionProjection(row);
+      return {
+        subtitle_track_id: row.subtitle_track_id,
+        subtitle_track_revision_id: row.id,
+        timeline_revision_id: row.timeline_revision_id,
+        lifecycle_state: revision.lifecycle_state,
+        stale: Boolean(revision.stale),
+        next_step: revision.next_step,
+      };
+    });
+    const staleAudio = audio.filter((row) => row.stale).length;
+    const staleSubtitles = subtitles.filter((row) => row.stale).length;
+    return {
+      timeline: publicTimeline(timeline),
+      pinned_timeline_revision_id: pinnedRevisionId ?? null,
+      audio_cues: audio,
+      subtitle_tracks: subtitles,
+      counts: {
+        audio_cues: audio.length,
+        subtitle_tracks: subtitles.length,
+        stale_audio_cues: staleAudio,
+        stale_subtitle_tracks: staleSubtitles,
+        stale_total: staleAudio + staleSubtitles,
+      },
+      projection_seq: this._projectionSeq(), generated_at: new Date().toISOString(),
+    };
+  }
+
   _timelineList(params = {}) {
     const projectId = params.project_id ?? params.projectId ?? null;
     if (projectId) this._project(projectId);
@@ -5970,6 +6602,11 @@ export class CoreService {
         params.timeline_id ?? params.timelineId ?? null,
       );
       case 'query.timeline.edit_history': return this._timelineWorkingEditHistory(params);
+      case 'query.audio.timing':
+      case 'query.timeline.audio_cue_timing': return this._audioTiming(params);
+      case 'query.localization.subtitle_timing':
+      case 'query.timeline.subtitle_timing': return this._subtitleTiming(params);
+      case 'query.timeline.timing_impact': return this._timingImpact(params);
       case 'query.review.list': return this._reviewList(params);
       case 'query.review.get': {
         const session = this._reviewSession(params.review_session_id ?? params.reviewSessionId ?? params.id);

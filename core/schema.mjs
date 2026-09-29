@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -719,6 +719,96 @@ export function initializeDatabase(db) {
     CREATE INDEX IF NOT EXISTS timeline_edit_actions_session_idx
       ON timeline_edit_actions(working_session_id, action_seq ASC);
 
+    /* Metadata-first audio/subtitle aggregates.  These remain separate from
+     * the VIDEO-only timeline snapshot and pin exact timeline content. */
+    CREATE TABLE IF NOT EXISTS audio_cues (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      timeline_id TEXT NOT NULL REFERENCES timelines(id),
+      cue_type TEXT NOT NULL CHECK (cue_type IN ('DIALOGUE', 'ADR', 'NONVERBAL', 'FOLEY', 'SFX', 'AMBIENCE', 'ROOM_TONE', 'MUSIC', 'SILENCE')),
+      title TEXT NOT NULL,
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1)
+    );
+    CREATE INDEX IF NOT EXISTS audio_cues_project_timeline_idx
+      ON audio_cues(project_id, timeline_id, created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS audio_cue_revisions (
+      id TEXT PRIMARY KEY,
+      audio_cue_id TEXT NOT NULL REFERENCES audio_cues(id),
+      revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+      lifecycle_state TEXT NOT NULL DEFAULT 'DRAFT'
+        /* TIMED/REVIEWED remain accepted only for pre-v14 development rows;
+         * new Core transitions use DRAFT -> CANDIDATE -> SELECTED. */
+        CHECK (lifecycle_state IN ('DRAFT', 'CANDIDATE', 'SELECTED', 'TIMED', 'REVIEWED', 'APPROVED', 'STALE', 'REJECTED')),
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      timeline_content_hash TEXT NOT NULL CHECK (length(timeline_content_hash) = 64),
+      timing_dependency_hash TEXT NOT NULL CHECK (length(timing_dependency_hash) = 64),
+      start_num INTEGER NOT NULL CHECK (start_num >= 0),
+      start_den INTEGER NOT NULL CHECK (start_den > 0),
+      end_num INTEGER NOT NULL CHECK (end_num > 0),
+      end_den INTEGER NOT NULL CHECK (end_den > 0),
+      intent_text TEXT NOT NULL DEFAULT '',
+      selected_asset_revision_id TEXT REFERENCES asset_revisions(id),
+      asset_snapshot_hash TEXT,
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(audio_cue_id, revision_number)
+    );
+    CREATE INDEX IF NOT EXISTS audio_cue_revisions_timing_idx
+      ON audio_cue_revisions(timeline_revision_id, lifecycle_state, start_num, start_den, id);
+
+    CREATE TABLE IF NOT EXISTS subtitle_tracks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      timeline_id TEXT NOT NULL REFERENCES timelines(id),
+      locale TEXT NOT NULL,
+      title TEXT NOT NULL,
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1)
+    );
+    CREATE INDEX IF NOT EXISTS subtitle_tracks_project_timeline_idx
+      ON subtitle_tracks(project_id, timeline_id, locale, created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS subtitle_track_revisions (
+      id TEXT PRIMARY KEY,
+      subtitle_track_id TEXT NOT NULL REFERENCES subtitle_tracks(id),
+      revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+      lifecycle_state TEXT NOT NULL DEFAULT 'DRAFT'
+        CHECK (lifecycle_state IN ('DRAFT', 'TIMED', 'REVIEWED', 'APPROVED', 'STALE', 'REJECTED')),
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      timeline_content_hash TEXT NOT NULL CHECK (length(timeline_content_hash) = 64),
+      timing_dependency_hash TEXT NOT NULL CHECK (length(timing_dependency_hash) = 64),
+      format_profile TEXT NOT NULL DEFAULT 'TEXT',
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      UNIQUE(subtitle_track_id, revision_number)
+    );
+    CREATE INDEX IF NOT EXISTS subtitle_track_revisions_timing_idx
+      ON subtitle_track_revisions(timeline_revision_id, lifecycle_state, revision_number DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS subtitle_track_segments (
+      id TEXT PRIMARY KEY,
+      subtitle_track_revision_id TEXT NOT NULL REFERENCES subtitle_track_revisions(id),
+      segment_index INTEGER NOT NULL CHECK (segment_index >= 0),
+      start_num INTEGER NOT NULL CHECK (start_num >= 0),
+      start_den INTEGER NOT NULL CHECK (start_den > 0),
+      end_num INTEGER NOT NULL CHECK (end_num > 0),
+      end_den INTEGER NOT NULL CHECK (end_den > 0),
+      locale TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(subtitle_track_revision_id, segment_index)
+    );
+    CREATE INDEX IF NOT EXISTS subtitle_track_segments_revision_idx
+      ON subtitle_track_segments(subtitle_track_revision_id, segment_index ASC, id ASC);
+
     /* Compatibility shape for future non-timeline working copies. The V1
      * editor uses timeline_working_sessions as its durable draft source. */
     CREATE TABLE IF NOT EXISTS working_copies (
@@ -846,6 +936,74 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS timeline_markers_no_delete
       BEFORE DELETE ON timeline_markers
       BEGIN SELECT RAISE(ABORT, 'timeline_markers are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS audio_cues_no_delete
+      BEFORE DELETE ON audio_cues
+      BEGIN SELECT RAISE(ABORT, 'audio_cues are retained for provenance'); END;
+    CREATE TRIGGER IF NOT EXISTS audio_cues_identity_no_update
+      BEFORE UPDATE ON audio_cues
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.timeline_id IS NOT OLD.timeline_id
+        OR NEW.cue_type IS NOT OLD.cue_type
+        OR NEW.title IS NOT OLD.title
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'audio_cue identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS audio_cue_revisions_no_delete
+      BEFORE DELETE ON audio_cue_revisions
+      BEGIN SELECT RAISE(ABORT, 'audio_cue_revisions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS audio_cue_revisions_identity_no_update
+      BEFORE UPDATE ON audio_cue_revisions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.audio_cue_id IS NOT OLD.audio_cue_id
+        OR NEW.revision_number IS NOT OLD.revision_number
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.timeline_content_hash IS NOT OLD.timeline_content_hash
+        OR NEW.timing_dependency_hash IS NOT OLD.timing_dependency_hash
+        OR NEW.start_num IS NOT OLD.start_num
+        OR NEW.start_den IS NOT OLD.start_den
+        OR NEW.end_num IS NOT OLD.end_num
+        OR NEW.end_den IS NOT OLD.end_den
+        OR NEW.intent_text IS NOT OLD.intent_text
+        OR NEW.selected_asset_revision_id IS NOT OLD.selected_asset_revision_id
+        OR NEW.asset_snapshot_hash IS NOT OLD.asset_snapshot_hash
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'audio_cue_revision content is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS subtitle_tracks_no_delete
+      BEFORE DELETE ON subtitle_tracks
+      BEGIN SELECT RAISE(ABORT, 'subtitle_tracks are retained for provenance'); END;
+    CREATE TRIGGER IF NOT EXISTS subtitle_tracks_identity_no_update
+      BEFORE UPDATE ON subtitle_tracks
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.timeline_id IS NOT OLD.timeline_id
+        OR NEW.locale IS NOT OLD.locale
+        OR NEW.title IS NOT OLD.title
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'subtitle_track identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS subtitle_track_revisions_no_delete
+      BEFORE DELETE ON subtitle_track_revisions
+      BEGIN SELECT RAISE(ABORT, 'subtitle_track_revisions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS subtitle_track_revisions_identity_no_update
+      BEFORE UPDATE ON subtitle_track_revisions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.subtitle_track_id IS NOT OLD.subtitle_track_id
+        OR NEW.revision_number IS NOT OLD.revision_number
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.timeline_content_hash IS NOT OLD.timeline_content_hash
+        OR NEW.timing_dependency_hash IS NOT OLD.timing_dependency_hash
+        OR NEW.format_profile IS NOT OLD.format_profile
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'subtitle_track_revision content is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS subtitle_track_segments_no_update
+      BEFORE UPDATE ON subtitle_track_segments
+      BEGIN SELECT RAISE(ABORT, 'subtitle_track_segments are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS subtitle_track_segments_no_delete
+      BEFORE DELETE ON subtitle_track_segments
+      BEGIN SELECT RAISE(ABORT, 'subtitle_track_segments are append-only'); END;
     CREATE TRIGGER IF NOT EXISTS timeline_working_sessions_no_delete
       BEFORE DELETE ON timeline_working_sessions
       BEGIN SELECT RAISE(ABORT, 'timeline_working_sessions are retained for recovery'); END;

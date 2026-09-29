@@ -617,12 +617,13 @@ evidence. vi-VN remains the default locale and en-US the secondary locale.
 
 Working-session editing, autosave, undo/redo, collaboration, playback,
 thumbnail/waveform generation, audio/caption/transition editing, render,
-media export and release are explicitly deferred. Issue #25 adds a separate
-metadata-only handoff preflight described below; it does not create media bytes
-or an editable external project. The baseline therefore does not show
-play/pause controls, a fake editor lease or controls that imply those
-capabilities exist. Unsupported data is explained as unavailable rather than
-silently omitted.
+media export and release are explicitly deferred from this Issue #21 surface.
+Issue #25 adds a separate metadata-only handoff preflight described below, and
+Issue #29 adds a separate metadata-only audio/subtitle timing panel; neither
+creates media bytes or an editable external project. The baseline therefore
+does not show play/pause controls, a fake editor lease or controls that imply
+those capabilities exist. Unsupported data is explained as unavailable rather
+than silently omitted.
 
 ## Issue #23 executable Review workspace
 
@@ -699,7 +700,9 @@ or export surface. The workspace must show:
 The visible operation affordances are limited to clip insert, move, trim,
 delete and marker add. Split, retime, audio, captions, transitions, links,
 effects, nested sequences, playback, render, export, handoff and provider
-controls remain absent and are described as unavailable.
+controls remain absent from the working-session editor and are described as
+unavailable. Issue #29's timing panel is a separate Core command surface; it
+does not expand this operation allowlist or store canonical data in the UI.
 The UI never invents a latest revision, profile, rights result or progress
 percentage. It reports a successful autosave or checkpoint only after the
 durable Core response, and it labels a checkpoint as `DRAFT_CHECKPOINT`, never
@@ -719,6 +722,49 @@ keyboard-accessible controls and visible focus, and works at the existing
 rules: it describes the affected clip/marker and never promises reversal of an
 external or irreversible effect. The UI stores no canonical timeline data and
 does not bypass Core commands.
+
+## Issue #29 metadata-only audio and subtitle timing workspace
+
+Issue #29 adds a bounded panel beside the Timeline workspace. It records
+project-scoped audio-cue intent and subtitle timing metadata against one exact
+immutable timeline revision; it does not turn the VIDEO-only working session
+into a general editor. The panel must show:
+
+- project, timeline, exact pinned timeline revision ID and content hash;
+- an Audio cues list grouped by cue type (`DIALOGUE`, `ADR`, `NONVERBAL`,
+  `FOLEY`, `SFX`, `AMBIENCE`, `ROOM_TONE`, `MUSIC`, `SILENCE`), with rational
+  start/end, intent, selected asset-revision ID and Core-provided
+  materialization/rights result;
+- a Subtitles list grouped by locale and track revision, with rational
+  start/end, bounded text, optional dialogue-line reference and timing state;
+- explicit `Tạo bản nháp`, `Đánh dấu đã canh thời gian`, `Gửi duyệt`/`Duyệt`
+  actions only when Core supplies the required authority/evidence; and
+- dependency impact showing the exact reason and next step when a cue or track
+  is `STALE` because the timeline, asset, rights or localization source moved.
+
+The forms accept typed rational frame/sample values and bounded UTF-8 text.
+They never accept provider IDs, filesystem paths, arbitrary JSON, `latest` or
+raw audio/subtitle bytes. A non-`SILENCE` cue remains blocked until Core
+reports materialized, verified and rights-allowed evidence; `UNKNOWN` is shown
+as blocked, never as ready. The panel renders
+friendly locale time while retaining exact rational values in requests.
+
+The panel has loading, empty, offline, validation, stale,
+rights/materialization blocked, `needs_user`, conflict and successful metadata
+states. It reports Core-provided `next_step` text and never invents playback,
+waveform, render or percentage progress. Timeline checkpoint changes show a
+non-destructive impact notice such as `2 cue và 4 subtitle cần canh lại`;
+recovery opens a new draft against the explicitly named current revision and
+never silently retimes or deletes the old evidence.
+
+All mutations go through the authenticated Core command boundary with expected
+row versions, mandatory idempotency keys and an audit/action record. Public
+projections redact local paths, provider fields and secrets. The UI is
+Vietnamese-first, keyboard accessible, uses visible focus at 150–200% scaling,
+and labels this surface `metadata only — chưa có phát/render`. Recording,
+generation, provider dispatch, mixing/stems, playback, waveform bytes,
+render/transcode, export, handoff, release, publish and arbitrary shell remain
+outside this surface.
 
 ## TimelineCanvas
 The full editor target (deferred beyond Issue #21) must support:

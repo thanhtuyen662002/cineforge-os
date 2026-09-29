@@ -1288,6 +1288,138 @@ Commands:
 
 Original creative text remains addressable alongside localization.
 
+## 35A. Issue #29 metadata-first audio cue and subtitle timing contract
+
+Issue #29 opens a bounded metadata layer after the canonical timeline,
+review/approval and VIDEO-only working-session slices. It does not add audio or
+caption operations to `ApplyTimelineEditOp`. The bounded command subset below
+is executable in the v14 runtime; the broader production catalog above remains
+non-executable until each command has its own contract and evidence. The
+contract is anchored to task hash
+`sha256:8fffc235bd75016a309e832f98920c6cf076bc4ec8ae5f0bc375cfc36c55b32b`.
+
+### Commands
+
+The executable command subset is:
+
+- `CreateAudioCueRevision` — create a project-owned cue identity when no
+  `audio_cue_id` is supplied, or one immutable draft timing revision for an
+  existing cue;
+- `TransitionAudioCueRevision` — make an explicit candidate/selected
+  transition after revalidation; `APPROVED` remains reserved for a supported
+  audio-cue review subject;
+- `CreateSubtitleTrackRevision` — create a project/timeline-owned track when no
+  `subtitle_track_id` is supplied, or one immutable draft with a bounded
+  segment batch for an existing track; and
+- `TransitionSubtitleTrackRevision` — make an explicit timed/reviewed
+  transition after revalidation; `APPROVED` remains reserved for a supported
+  subtitle review subject.
+
+`ApproveAudioCue` and `ApproveSubtitleTrack` are compatibility command names in
+the broader catalog. An implementation may expose them as typed aliases of the
+transition commands only when it preserves the same exact revision, actor,
+row-version, idempotency and evidence checks. No command may infer approval
+from a selected row, autosave, a successful read or a newer timeline.
+
+`CreateAudioCueRevision` requires:
+
+```json
+{
+  "project_id": "project-id",
+  "timeline_id": "timeline-id",
+  "audio_cue_id": "cue-id",
+  "timing_dependency_revision_id": "timeline-revision-id",
+  "timing_dependency_content_hash": "64-hex-sha256",
+  "cue_type": "DIALOGUE",
+  "start": {"num": 0, "den": 1},
+  "end": {"num": 120, "den": 24},
+  "intent_text": "...",
+  "selected_asset_revision_id": "asset-revision-id"
+}
+```
+
+`SILENCE` may omit `selected_asset_revision_id`; all other cue types require an
+exact asset revision whose materialization is `AVAILABLE` with verified
+evidence and whose effective rights evaluate to `ALLOWED` for the requested
+timeline-audio purpose. The command rejects a missing/mismatched timeline
+hash, cross-project parent, unsupported type, invalid or overflowed rational,
+non-positive interval, out-of-bounds interval, unbounded text/payload or
+`latest`/provider/path field before writing a row. Core captures a canonical
+`timing_dependency_hash` and, when an asset is selected, an
+`asset_snapshot_hash` for the rights/materialization evidence.
+
+`CreateSubtitleTrackRevision` requires the same exact timeline ID/hash pair,
+locale and a bounded array of segments. Each segment carries positive rational
+`start`/`end` and untrusted UTF-8 text.
+Segments must fit the pinned timeline duration, remain ordered and
+non-overlapping under the active subtitle policy, and stay within Core's count,
+text-length and payload limits. The complete batch is atomic; a malformed
+segment cannot leave a partial track revision. The bounded v14 command does not
+accept a provider/path field or an optional dialogue-line foreign key; source
+line integration belongs to a later localization slice.
+
+Both transition commands require the current expected revision row version and
+the same exact timeline ID/hash. They re-evaluate timing, project ownership,
+materialization and rights immediately before the transition. An explicit
+human approval action is required for `APPROVED`; if an audio/subtitle review
+subject is not supported by the active review contract, the command returns a
+typed `REVIEW_NOT_SUPPORTED`/`needs_user` response and leaves the revision in
+its previous state instead of silently labelling metadata approved. Approved
+content is immutable.
+
+Every mutation requires an authenticated Core actor, an `Idempotency-Key`
+bound to the canonical payload and expected versions, and an auditable
+Command/Action record. Equivalent retries replay the original result; key
+reuse with changed payload, timeline hash or expected version writes nothing.
+
+### Queries and project-scoped HTTP adapter
+
+The read projections are:
+
+- `query.timeline.audio_cue_timing({project_id, timeline_id,
+  timeline_revision_id, state?, cursor?})`;
+- `query.timeline.subtitle_timing({project_id, timeline_id,
+  timeline_revision_id, locale?, state?, cursor?})`; and
+- `query.timeline.timing_impact({project_id, timeline_id,
+  timeline_revision_id})`, which reports exact dependent revision IDs, stale
+  reasons and the next human action.
+
+The loopback adapter maps them and the commands to:
+
+- `GET /v1/projects/{project_id}/timelines/{timeline_id}/revisions/{timeline_revision_id}/audio-cues`;
+- `GET /v1/projects/{project_id}/timelines/{timeline_id}/revisions/{timeline_revision_id}/subtitle-tracks`;
+- `GET /v1/projects/{project_id}/timelines/{timeline_id}/revisions/{timeline_revision_id}/timing-impact`;
+- `POST /v1/projects/{project_id}/audio-cues`;
+- `POST /v1/projects/{project_id}/audio-cues/{cue_id}/revisions`;
+- `POST /v1/projects/{project_id}/audio-cues/{cue_id}/revisions/{revision_id}/transition`;
+- `POST /v1/projects/{project_id}/subtitle-tracks`;
+- `POST /v1/projects/{project_id}/subtitle-tracks/{track_id}/revisions`; and
+- `POST /v1/projects/{project_id}/subtitle-tracks/{track_id}/revisions/{revision_id}/transition`.
+
+Mutation paths must bind the body `timeline_id` and exact revision/hash to the
+project and route scope; a route/body mismatch is a typed conflict. Public
+responses include stable IDs, enum states, rational values, timeline hash,
+dependency hash, redacted stale reasons and `needs_user`/`next_step`. They may
+include exact selected-audio asset-revision IDs, digests and readiness/rights
+outcomes, but never filesystem paths, provider fields, secrets, raw payloads or
+waveform and audio bytes.
+
+Malformed or unsupported input maps to `400 VALIDATION`; unknown or
+cross-project IDs map to `404`; stale timeline pins, row versions, idempotency
+reuse, rights/materialization failures, overlap/bounds conflicts and a stale
+transition map to `409 CONFLICT` with a human-readable next step. `UNKNOWN` is
+never coerced to `PASS`. A `503` is reserved for actual Core availability
+failure.
+
+Reads project a timing revision as `STALE` when the pinned timeline revision or
+content hash is no longer the current exact head for that timeline, or when a
+selected asset, rights record or localization source has an open hard
+dependency invalidation. The projection preserves the immutable draft and
+offers creation of a new revision against an explicitly named current
+timeline; it never silently retimes or deletes data. This slice has no
+recording, provider dispatch, generation, mixing/stems, playback, waveform,
+render/transcode, export, handoff, release, publish or arbitrary-shell route.
+
 # 36. Composition/VFX API
 
 Queries:

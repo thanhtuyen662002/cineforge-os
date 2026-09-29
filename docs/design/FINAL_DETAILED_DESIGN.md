@@ -364,12 +364,28 @@ Deliver:
 - impact/staleness.
 
 ## Slice 5 — Timeline/Audio
-Deliver:
-- canonical timeline;
-- dialogue/audio cues;
-- basic mix/stems;
-- subtitle track;
-- timing invalidation.
+The first executable Slice 5 vertical is the metadata-first Issue #29
+audio/subtitle timing baseline. It delivers:
+
+- the canonical timeline dependency already established by the timeline slices;
+- project-scoped `AudioCue` identities with immutable timing revisions pinned to
+  one exact timeline revision ID and content hash;
+- project/timeline-scoped `SubtitleTrack` identities with immutable, bounded
+  rational timing segments pinned to that same exact timeline revision/hash;
+- fail-closed materialization and rights checks for selected audio asset
+  revisions, with `UNKNOWN` remaining blocked;
+- dependency edges and derived `STALE` projections when the pinned timeline,
+  selected asset, localization source or rights/materialization evidence
+  changes; and
+- Vietnamese-first metadata views with explicit next steps and no implied media
+  work.
+
+This vertical does not record, generate, mix, play, render, transcode, export,
+publish or produce waveform/audio bytes. It does not add audio or caption
+operations to the VIDEO-only timeline working session. Basic mix/stems,
+generation/recording, playback and media delivery remain later Slice 5/6 work;
+they must consume an exact approved timing revision rather than resolving
+`latest`.
 
 ## Slice 6 — Handoff/Release/Storage
 Deliver:

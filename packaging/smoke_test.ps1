@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ArtifactRoot,
@@ -64,6 +64,22 @@ function Get-OptionalProperty($Object, [string]$Name) {
     $property = $Object.PSObject.Properties[$Name]
     if ($null -eq $property) { return $null }
     return $property.Value
+}
+
+function Get-HttpErrorCode($Caught) {
+    $message = ''
+    try { $message = [string]$Caught.ErrorDetails.Message } catch { }
+    if ([string]::IsNullOrWhiteSpace($message) -and $null -ne $Caught.Exception.Response) {
+        try {
+            $stream = $Caught.Exception.Response.GetResponseStream()
+            if ($null -ne $stream) {
+                $reader = [IO.StreamReader]::new($stream)
+                try { $message = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            }
+        } catch { }
+    }
+    if ([string]::IsNullOrWhiteSpace($message)) { return '' }
+    try { return [string](($message | ConvertFrom-Json).error.code) } catch { return '' }
 }
 
 try {
@@ -295,6 +311,106 @@ try {
         $reviewDetail = Invoke-RestMethod -Uri "$reviewsUri/$reviewId" -TimeoutSec 5
         if ([string]$reviewDetail.result.review.state -ne 'SUBMITTED' -or [string]$reviewDetail.result.subject.state -ne 'APPROVED') { throw 'Packaged review detail did not reflect the approved timeline subject.' }
 
+        # Exercise the Issue #29 metadata-first timing slice through the
+        # packaged boundary. These records pin the exact approved timeline
+        # revision/hash, require idempotency, reject unsafe rational ranges and
+        # asset/rights gaps, and expose only redacted projections.
+        $timingRevisionId = [string]$approvedTimelineRevision.id
+        $timingContentHash = [string]$approvedTimelineRevision.editHash
+        if ($timingContentHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Timing smoke did not receive an exact timeline content hash.' }
+        $timingHeaders = @{ Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $audioCuesUri = "http://127.0.0.1:{0}/v1/projects/{1}/audio-cues" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $audioBody = @{
+            timeline_id = [string]$timelineRecord.id
+            timing_dependency_revision_id = $timingRevisionId
+            timing_dependency_content_hash = $timingContentHash
+            cue_type = 'SILENCE'
+            title = 'Packaged room tone gap'
+            start = @{ num = 0; den = 1 }
+            end = @{ num = 2; den = 1 }
+            intent_text = 'Metadata-only smoke cue'
+        } | ConvertTo-Json -Depth 10
+        $audioHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-audio-create'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $audioCreate = Invoke-RestMethod -Uri $audioCuesUri -Method Post -Headers $audioHeaders -ContentType 'application/json' -Body $audioBody -TimeoutSec 5
+        $audioRecord = $audioCreate.result.audioCue
+        $audioRevision = $audioCreate.result.revision
+        if ($null -eq $audioRecord -or $null -eq $audioRevision -or [string]$audioRevision.state -ne 'DRAFT' -or [string]$audioRevision.timingDependencyRevisionId -ne $timingRevisionId -or [string]$audioRevision.timingDependencyContentHash -ne $timingContentHash) { throw 'Packaged audio timing creation did not preserve the exact timeline pin.' }
+        if ($null -eq $audioRevision.assetGate -or [string]$audioRevision.assetGate.state -ne 'NOT_APPLICABLE') { throw 'Intentional SILENCE audio cue did not report a redacted NOT_APPLICABLE asset gate.' }
+        $audioReplay = Invoke-RestMethod -Uri $audioCuesUri -Method Post -Headers $audioHeaders -ContentType 'application/json' -Body $audioBody -TimeoutSec 5
+        $audioReplayFlag = Get-OptionalProperty $audioReplay 'idempotent_replay'
+        if ($null -eq $audioReplayFlag) { $audioReplayFlag = Get-OptionalProperty $audioReplay.result 'idempotent_replay' }
+        if (-not $audioReplayFlag -or [string]$audioReplay.result.revision.id -ne [string]$audioRevision.id) { throw 'Audio timing retry was not an idempotent replay.' }
+        $audioInvalidStatus = 0
+        $audioInvalidCode = ''
+        try {
+            Invoke-RestMethod -Uri $audioCuesUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-audio-invalid'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+                timeline_id = [string]$timelineRecord.id
+                timing_dependency_revision_id = $timingRevisionId
+                timing_dependency_content_hash = $timingContentHash
+                cue_type = 'SILENCE'
+                start = @{ num = 23; den = 1 }
+                end = @{ num = 25; den = 1 }
+            } | ConvertTo-Json -Depth 10) -TimeoutSec 5 | Out-Null
+        } catch { if ($null -ne $_.Exception.Response) { $audioInvalidStatus = [int]$_.Exception.Response.StatusCode; $audioInvalidCode = Get-HttpErrorCode $_ } }
+        if ($audioInvalidStatus -ne 409 -or $audioInvalidCode -ne 'TIMING_OUT_OF_BOUNDS') { throw "Invalid audio timing was not rejected with HTTP 409/TIMING_OUT_OF_BOUNDS (actual: $audioInvalidStatus/$audioInvalidCode)." }
+        $audioMissingAssetStatus = 0
+        $audioMissingAssetCode = ''
+        try {
+            Invoke-RestMethod -Uri $audioCuesUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-audio-missing-asset'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+                timeline_id = [string]$timelineRecord.id
+                timing_dependency_revision_id = $timingRevisionId
+                timing_dependency_content_hash = $timingContentHash
+                cue_type = 'DIALOGUE'
+                title = 'Missing asset must block'
+                start = @{ num = 3; den = 1 }
+                end = @{ num = 4; den = 1 }
+            } | ConvertTo-Json -Depth 10) -TimeoutSec 5 | Out-Null
+        } catch { if ($null -ne $_.Exception.Response) { $audioMissingAssetStatus = [int]$_.Exception.Response.StatusCode; $audioMissingAssetCode = Get-HttpErrorCode $_ } }
+        if ($audioMissingAssetStatus -ne 409 -or $audioMissingAssetCode -ne 'AUDIO_ASSET_REQUIRED') { throw "Audio without an asset was not rejected with HTTP 409/AUDIO_ASSET_REQUIRED (actual: $audioMissingAssetStatus/$audioMissingAssetCode)." }
+
+        $subtitleTracksUri = "http://127.0.0.1:{0}/v1/projects/{1}/subtitle-tracks" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $overlapStatus = 0
+        $overlapCode = ''
+        try {
+            Invoke-RestMethod -Uri $subtitleTracksUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-subtitle-overlap'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+                timeline_id = [string]$timelineRecord.id
+                timing_dependency_revision_id = $timingRevisionId
+                timing_dependency_content_hash = $timingContentHash
+                locale = 'vi-VN'
+                title = 'Overlap must block'
+                segments = @(
+                    @{ start = @{ num = 1; den = 1 }; end = @{ num = 5; den = 1 }; text = 'Một' }
+                    @{ start = @{ num = 4; den = 1 }; end = @{ num = 6; den = 1 }; text = 'Hai' }
+                )
+            } | ConvertTo-Json -Depth 10) -TimeoutSec 5 | Out-Null
+        } catch { if ($null -ne $_.Exception.Response) { $overlapStatus = [int]$_.Exception.Response.StatusCode; $overlapCode = Get-HttpErrorCode $_ } }
+        if ($overlapStatus -ne 409 -or $overlapCode -ne 'SUBTITLE_SEGMENT_OVERLAP') { throw "Overlapping subtitle segments were not rejected with HTTP 409/SUBTITLE_SEGMENT_OVERLAP (actual: $overlapStatus/$overlapCode)." }
+        $subtitleHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-subtitle-create'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $subtitleBody = @{
+            timeline_id = [string]$timelineRecord.id
+            timing_dependency_revision_id = $timingRevisionId
+            timing_dependency_content_hash = $timingContentHash
+            locale = 'vi-VN'
+            title = 'Phụ đề smoke'
+            segments = @(@{ start = @{ num = 7; den = 1 }; end = @{ num = 9; den = 1 }; text = 'Xin chào' })
+        } | ConvertTo-Json -Depth 10
+        $subtitleCreate = Invoke-RestMethod -Uri $subtitleTracksUri -Method Post -Headers $subtitleHeaders -ContentType 'application/json' -Body $subtitleBody -TimeoutSec 5
+        $subtitleRevision = $subtitleCreate.result.revision
+        if ($null -eq $subtitleRevision -or [string]$subtitleRevision.state -ne 'DRAFT' -or [string]$subtitleRevision.timingDependencyRevisionId -ne $timingRevisionId) { throw 'Packaged subtitle timing creation did not preserve the exact timeline pin.' }
+        $subtitleReplay = Invoke-RestMethod -Uri $subtitleTracksUri -Method Post -Headers $subtitleHeaders -ContentType 'application/json' -Body $subtitleBody -TimeoutSec 5
+        $subtitleReplayFlag = Get-OptionalProperty $subtitleReplay 'idempotent_replay'
+        if ($null -eq $subtitleReplayFlag) { $subtitleReplayFlag = Get-OptionalProperty $subtitleReplay.result 'idempotent_replay' }
+        if (-not $subtitleReplayFlag -or [string]$subtitleReplay.result.revision.id -ne [string]$subtitleRevision.id) { throw 'Subtitle timing retry was not an idempotent replay.' }
+        $audioTimingUri = "http://127.0.0.1:{0}/v1/projects/{1}/timelines/{2}/revisions/{3}/audio-cues" -f $webPort, [Uri]::EscapeDataString([string]$project.id), [Uri]::EscapeDataString([string]$timelineRecord.id), [Uri]::EscapeDataString($timingRevisionId)
+        $subtitleTimingUri = "http://127.0.0.1:{0}/v1/projects/{1}/timelines/{2}/revisions/{3}/subtitle-tracks?locale=vi-VN" -f $webPort, [Uri]::EscapeDataString([string]$project.id), [Uri]::EscapeDataString([string]$timelineRecord.id), [Uri]::EscapeDataString($timingRevisionId)
+        $timingImpactUri = "http://127.0.0.1:{0}/v1/projects/{1}/timelines/{2}/revisions/{3}/timing-impact" -f $webPort, [Uri]::EscapeDataString([string]$project.id), [Uri]::EscapeDataString([string]$timelineRecord.id), [Uri]::EscapeDataString($timingRevisionId)
+        $timingAudioRead = Invoke-RestMethod -Uri $audioTimingUri -TimeoutSec 5
+        $timingSubtitleRead = Invoke-RestMethod -Uri $subtitleTimingUri -TimeoutSec 5
+        $timingImpact = Invoke-RestMethod -Uri $timingImpactUri -TimeoutSec 5
+        if (@($timingAudioRead.result.cues).Count -ne 1 -or @($timingSubtitleRead.result.tracks).Count -ne 1 -or [int]$timingImpact.result.counts.staleTotal -ne 0) { throw 'Fresh packaged timing projections did not return the created metadata.' }
+        $timingPayload = ($timingAudioRead | ConvertTo-Json -Depth 30 -Compress) + ($timingSubtitleRead | ConvertTo-Json -Depth 30 -Compress) + ($timingImpact | ConvertTo-Json -Depth 30 -Compress)
+        if ($timingPayload.Contains($dataRoot) -or $timingPayload -match '(?i)(provider_path|storage_uri|local_path|credentials|media_bytes)') { throw 'Packaged timing projections leaked paths, provider fields, credentials or media bytes.' }
+
         # Exercise the bounded, local timeline working-session editor through
         # the same packaged HTTP boundary.  The session is pinned to the exact
         # approved revision/hash and every edit is versioned, idempotent and
@@ -348,6 +464,12 @@ try {
         $workingCheckpointRevision = $workingCheckpoint.result.checkpointRevision
         $workingSession = $workingCheckpoint.result.session
         if ($null -eq $workingCheckpointRevision -or [string]$workingCheckpointRevision.state -ne 'DRAFT_CHECKPOINT' -or [string]$workingCheckpointRevision.editHash -ne [string]$workingSession.draftHash) { throw 'Working-session checkpoint did not create an exact immutable DRAFT_CHECKPOINT.' }
+        $staleTimingAudio = Invoke-RestMethod -Uri $audioTimingUri -TimeoutSec 5
+        $staleTimingImpact = Invoke-RestMethod -Uri $timingImpactUri -TimeoutSec 5
+        if ([string]$staleTimingAudio.result.cues[0].revision.state -ne 'STALE' -or [string]$staleTimingAudio.result.cues[0].revision.staleReason -ne 'TIMELINE_REVISION_CHANGED') { throw 'A packaged timeline checkpoint did not project the old audio timing revision as STALE.' }
+        if ([int]$staleTimingImpact.result.counts.staleTotal -lt 2) { throw 'Packaged timing impact did not count both stale audio and subtitle revisions after a checkpoint.' }
+        $staleTimingPayload = ($staleTimingAudio | ConvertTo-Json -Depth 30 -Compress) + ($staleTimingImpact | ConvertTo-Json -Depth 30 -Compress)
+        if ($staleTimingPayload.Contains($dataRoot) -or $staleTimingPayload -match '(?i)(provider_path|storage_uri|local_path|credentials|media_bytes)') { throw 'Stale packaged timing projections leaked paths, provider fields, credentials or media bytes.' }
         $workingOp2Body = @{ operations = @(@{ op_type = 'ADD_MARKER'; payload = @{ id = 'packaged-marker-2'; time = @{ num = 2; den = 1 }; marker_type = 'NOTE'; label = 'Close test'; payload = @{} } }); client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json -Depth 20
         $workingOp2 = Invoke-RestMethod -Uri $workingOpsUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-op-2'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body $workingOp2Body -TimeoutSec 5
         $workingSession = $workingOp2.result.session
