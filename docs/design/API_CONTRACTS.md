@@ -1042,6 +1042,69 @@ bounded `Range`/`HEAD`, rejects unsatisfiable or oversized ranges and rechecks
 the digest on every read. The capability response strips the raw token from
 the JSON projection and returns a relative/adapter-resolved `download_url`.
 
+# 17C. Returned external-edit registration
+
+The verified export has a bounded return-registration boundary. It records that
+an editor returned a managed CineForge interchange artifact; it does not apply
+the artifact to the canonical timeline. The project-scoped routes are:
+
+- `GET /v1/projects/{project_id}/external-edits?validation_state=&limit=`
+- `GET /v1/projects/{project_id}/external-edits/{external_edit_id}`
+- `POST /v1/projects/{project_id}/external-edits`
+
+The POST body names every identity needed for an exact, stale-safe join:
+
+```json
+{
+  "handoff_manifest_id": "<immutable-handoff>",
+  "export_session_id": "<completed-export>",
+  "returned_asset_revision_id": "<managed-timeline-interchange-revision>",
+  "lineage_confidence": "PARTIAL",
+  "expected_version": 2
+}
+```
+
+`lineage_confidence` is optional. If omitted, Core derives `EXACT` only when
+the returned bytes have the same SHA-256 and byte size as the exact completed
+export; otherwise the result is `PARTIAL`. A caller may use `PARTIAL`,
+`FLATTENED` or `UNKNOWN` to describe a bounded loss of editor fidelity, but an
+`EXACT` claim with different bytes is rejected. The command requires an
+`Idempotency-Key` and the `expected_version` of the named `EXPORT_SESSION`.
+It accepts no path, URI, provider identifier, raw document or arbitrary format
+as authority.
+
+Before insertion Core verifies, in one project-scoped command boundary:
+
+1. the handoff and export session are the exact pair, immutable, and
+   `COMPLETED`, with a verified output hash/size and canonical manifest hash;
+2. the returned revision is active, managed, materialized, original,
+   `TIMELINE_INTERCHANGE`, and belongs to the same project;
+3. rights and consent for external-edit registration resolve to `ALLOWED`;
+4. the returned bytes are read through the managed CAS object with stable
+   identity/hash/size checks and strict fatal UTF-8 JSON parsing; and
+5. the bounded `CINEFORGE_TIMELINE_INTERCHANGE`/`GENERIC_INTERCHANGE_V1`
+   profile binds to the source project, timeline/revision, approved review,
+   dependency/content hashes and approved media-profile revision.
+
+The parser rejects duplicate or unsafe keys, non-canonical JSON, unknown
+fields, non-finite numbers, absolute/external references, oversized input
+(8 MiB), excessive depth/nodes/keys/strings, malformed rationals, and
+out-of-bound track/clip/marker/artifact arrays. Provider fields, credentials,
+media bytes and arbitrary filesystem/network references are not accepted.
+
+The successful response contains a redacted `externalEdit` projection with
+the immutable source/returned IDs, hashes and byte size, lineage and rights
+states, `REGISTERED` validation state, human-readable `next_step`, a bounded
+validation snapshot and append-only contract diffs. The current implementation
+emits warning diffs for duration, frame/timebase/media-profile and artifact
+identity changes. Diffs remain unresolved evidence until a separate audited
+human decision; they never rewrite canon or imply approval, review, release,
+publish or media rendering. A failed attempt remains in command/audit evidence
+and does not create a successful external-edit row. Replaying the same command
+is idempotent; registering the same immutable project/handoff/asset/document
+identity through another command returns an explicit conflict. `UNKNOWN` is
+never promoted to `PASS`.
+
 # 18. Storage API detail
 
 `storage.summary` separates:

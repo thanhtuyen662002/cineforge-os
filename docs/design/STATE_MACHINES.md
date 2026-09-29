@@ -745,6 +745,46 @@ SHA-256 on every request, and supports only bounded full/range reads. This
 state machine does not render, transcode, mix audio, dispatch providers, sign,
 publish or create a release manifest.
 
+# 24C. Returned external-edit registration
+
+`RegisterExternalEdit` is the bounded successor to a completed local
+timeline-interchange export. It records an editor return against the exact
+handoff manifest and export session; it does not merge or apply timeline edits.
+The durable registration lifecycle vocabulary is:
+
+```text
+RECEIVED | VALIDATING
+  → REGISTERED
+
+RECEIVED | VALIDATING
+  → BLOCKED_SCHEMA | BLOCKED_SCOPE | BLOCKED_MEDIA | BLOCKED_RIGHTS | FAILED
+```
+
+The current V1 command writes a row only for the successful `REGISTERED` path;
+rejected attempts remain auditable command/error evidence and are not inserted
+as fabricated validation rows. The other states are schema vocabulary reserved
+for a future staged/asynchronous validator and must not be presented as
+runtime evidence until that validator exists.
+
+The command requires the same project for the handoff, completed export and
+returned active managed `TIMELINE_INTERCHANGE` asset revision, plus an
+optimistic export-session row version and an idempotency key. It revalidates
+the immutable handoff hash, output hash/size, approved review/dependency and
+media-profile bindings, managed CAS identity, strict canonical JSON profile and
+current `ALLOWED` rights/consent before insertion. `EXACT` lineage is legal
+only when returned bytes equal the completed export bytes by both SHA-256 and
+size; otherwise the caller must use an honest bounded confidence such as
+`PARTIAL`, `FLATTENED` or `UNKNOWN`.
+
+Successful registration appends one `EXTERNAL_EDIT_REGISTERED` event and an
+`external_edit.register` audit record, plus immutable contract-diff evidence.
+Diffs are human-review inputs, not automatic timeline mutations or approval
+signals. The UI must surface lineage, rights, validation state, differences
+and a human-readable `next_step`; it must never claim that the canonical
+timeline changed, that a review was approved, or that release/publish is
+authorized. Duplicate immutable identity is an explicit conflict and stale
+export versions return `STALE_REVISION`.
+
 # 25. Release candidate
 
 The complete lifecycle below remains the target contract. The implemented V1
