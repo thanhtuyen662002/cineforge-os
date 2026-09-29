@@ -991,6 +991,25 @@ visible as boundary affordances but remain unavailable until their separate
 exact release-manifest workflows exist; the readiness view never mutates
 project state.
 
+The Release workspace also contains the V1 metadata-only candidate panel. It
+loads the project-scoped candidate list beside the readiness projection and
+shows exact timeline/profile/review IDs, readiness and rights digests, state,
+row version and the Core-provided next step. The create button is enabled only
+for a connected Core, a readiness result bound to the selected project with
+`READY`, and a bridge that supports the candidate list and command. `FAIL`,
+`UNKNOWN`, missing scope, stale responses and an offline Core keep it disabled
+and explain what the user must resolve. The panel never displays the stored
+raw readiness/subtitle JSON, local paths or provider fields.
+
+Creating a draft uses a key stable for one retryable user intent; a new key is
+issued after a terminal cancellation so the old command cannot be replayed as
+a fresh draft. Cancelling a `DRAFT` always
+uses a clear Vietnamese-first confirmation, sends the displayed row version,
+and updates the row only after Core returns the audited `CANCELLED` result.
+Late responses from an old project or a mismatched candidate project are
+discarded. Render, master, export, signing and publish buttons remain disabled
+with copy that identifies their separate future boundary.
+
 Publish screen always shows:
 - exact release manifest;
 - target platform/account;

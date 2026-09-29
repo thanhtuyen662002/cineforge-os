@@ -208,6 +208,59 @@ describe('local Core adapter', () => {
     }
   })
 
+  it('reads, creates, and cancels release candidate metadata with safe mapping and stale-safe inputs', async () => {
+    const candidate = {
+      id: 'candidate-1', project_id: 'project-1', timeline_revision_id: 'revision-1',
+      media_profile_revision_id: 'profile-1', review_session_id: 'review-1',
+      readiness_digest: 'A'.repeat(64), rights_snapshot_hash: 'B'.repeat(64),
+      state: 'DRAFT', next_step: 'Metadata only.', row_version: 1,
+      readiness_snapshot_schema_version: 1, readiness_snapshot_json: '{"local_path":"C:\\secret"}',
+      provider_uri: 'https://provider.invalid',
+    }
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, init })
+      if (url.endsWith('/release/candidates') && !init?.method) {
+        return new Response(JSON.stringify({ ok: true, result: { items: [candidate], projection_seq: 4, generated_at: '2026-09-29T00:00:00.000Z' } }), { status: 200 })
+      }
+      expect(init?.method).toBe('POST')
+      const headers = init?.headers as Record<string, string>
+      if (url.endsWith('/release/candidates')) {
+        expect(headers['Idempotency-Key']).toBe('candidate-create-1')
+        expect(init?.body).toBe('{}')
+        return new Response(JSON.stringify({ ok: true, result: candidate }), { status: 200 })
+      }
+      expect(url).toContain('/release/candidates/candidate-1/cancel')
+      expect(headers['Idempotency-Key']).toBe('candidate-cancel-1')
+      expect(JSON.parse(String(init?.body))).toEqual({ expected_version: 1 })
+      return new Response(JSON.stringify({ ok: true, result: { ...candidate, state: 'CANCELLED', row_version: 2 } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const listed = await client.getReleaseCandidates?.('project-1')
+      expect(listed?.items[0]).toMatchObject({ id: 'candidate-1', projectId: 'project-1', readinessDigest: 'a'.repeat(64), rightsSnapshotHash: 'b'.repeat(64), state: 'DRAFT', rowVersion: 1 })
+      expect(JSON.stringify(listed)).not.toContain('secret')
+      expect(JSON.stringify(listed)).not.toContain('provider')
+      const created = await client.createReleaseCandidateDraft?.('project-1', 'candidate-create-1')
+      expect(created).toMatchObject({ id: 'candidate-1', projectId: 'project-1', state: 'DRAFT' })
+      const cancelled = await client.cancelReleaseCandidateDraft?.('project-1', 'candidate-1', 1, 'candidate-cancel-1')
+      expect(cancelled).toMatchObject({ id: 'candidate-1', state: 'CANCELLED', rowVersion: 2 })
+      expect(calls).toHaveLength(3)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('fails closed for candidate commands without a connection, scope, or valid row version', async () => {
+    const client = new HttpCoreClient('')
+    await expect(client.getReleaseCandidates?.('project-1')).rejects.toMatchObject({ code: 'CORE_OFFLINE' })
+    await expect(new HttpCoreClient('http://core').getReleaseCandidates?.('')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(new HttpCoreClient('http://core').cancelReleaseCandidateDraft?.('project-1', 'candidate-1', 0, 'cancel')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(new HttpCoreClient('http://core').createReleaseCandidateDraft?.('project-1', ' ')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  })
+
   it('maps first-class workspace records and sends expected row versions for stale-safe updates', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)

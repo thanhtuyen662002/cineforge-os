@@ -703,6 +703,23 @@ conflict.
 
 # 25. Release candidate
 
+The complete lifecycle below remains the target contract. The implemented V1
+metadata slice stops before mastering and therefore exposes only this bounded
+subgraph:
+
+```text
+DRAFT
+→ CANCELLED
+```
+
+Creation is allowed only after an in-transaction `READY` readiness result with
+exact approved source/review references. `CANCELLED` is terminal and requires
+an explicit row-version precondition; stale writes return `STALE_REVISION`.
+The UI must keep render, master, export, signing and publish controls disabled
+because none of those transitions are implemented by this slice. Future
+states below are reserved design contracts and must not be claimed as
+implemented until their own commands, evidence and tests exist.
+
 ```text
 DRAFT
 → PICTURE_LOCKED

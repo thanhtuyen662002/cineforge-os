@@ -52,6 +52,16 @@ const HANDOFF_COMPATIBILITY_STATUSES = new Set(['NATIVE', 'APPROXIMATED', 'UNSUP
 const HANDOFF_TARGET_PROFILE = 'GENERIC_INTERCHANGE';
 const HANDOFF_MANIFEST_SCHEMA_VERSION = 1;
 const HANDOFF_COMPATIBILITY_PROFILE_VERSION = 'HANDOFF_COMPATIBILITY_V1';
+const RELEASE_CANDIDATE_STATES = new Set(['DRAFT', 'CANCELLED']);
+const RELEASE_CANDIDATE_SNAPSHOT_SCHEMA_VERSION = 1;
+const RELEASE_CANDIDATE_EVIDENCE_KEYS = new Set([
+  'asset_revision_id', 'asset_count', 'availability_state', 'availability_evidence_state', 'review_state',
+  'asset_lifecycle_state', 'storage_class', 'location_state', 'rights_status', 'cue_count', 'track_count',
+  'review_count', 'approved_candidate_count', 'clip_count', 'media_profile_revision_id', 'timeline_id',
+  'timeline_revision_id', 'content_hash', 'state', 'width', 'height', 'audio_sample_rate', 'id', 'title',
+  'severity', 'blocking_scope_type', 'stale', 'locale', 'segment_count', 'asset_state', 'review_session_id',
+  'decision', 'count', 'assets', 'cues', 'tracks', 'reviews', 'items', 'projection_error',
+]);
 const TIMELINE_WORKING_SESSION_STATES = new Set(['OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED', 'CLOSED', 'ABANDONED']);
 const TIMELINE_WORKING_ACTIVE_STATES = new Set(['OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED']);
 const TIMELINE_WORKING_EDITABLE_STATES = new Set(['OPEN', 'DIRTY', 'CLEAN']);
@@ -71,6 +81,7 @@ const TIMING_METADATA_MUTATING_COMMANDS = new Set([
   'CreateAudioCueRevision', 'TransitionAudioCueRevision',
   'CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision',
 ]);
+const RELEASE_CANDIDATE_MUTATING_COMMANDS = new Set(['CreateReleaseCandidateDraft', 'CancelReleaseCandidateDraft']);
 const MAX_TIMELINE_WORKING_OPS = 10_000;
 const MAX_TIMELINE_WORKING_BATCH = 32;
 const MAX_TIMELINE_CLIENT_ID = 200;
@@ -945,6 +956,43 @@ function publicHandoffManifest(row, options = {}) {
   delete out.sanitization_report_json;
   if (options.includeManifestJson === true) out.manifest_json = canonicalJson(out.manifest);
   return out;
+}
+
+function safeReleaseCandidateText(value) {
+  if (typeof value !== 'string') return undefined;
+  let safe = value.slice(0, 512).replace(/(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)[^\s"'<>]*/gi, '[redacted]');
+  safe = safe.replace(/(?:^|[\s(])\/(?:[^\/\s]+\/)+[^\/\s]*/g, (match) => match.startsWith('/') ? '[redacted]' : `${match[0]}[redacted]`);
+  return safe;
+}
+
+function publicReleaseCandidate(row) {
+  if (!row) return null;
+  const out = {};
+  for (const field of [
+    'id', 'project_id', 'timeline_revision_id', 'audio_master_asset_revision_id',
+    'media_profile_revision_id', 'review_session_id', 'readiness_digest',
+    'rights_snapshot_hash', 'state', 'next_step', 'readiness_snapshot_schema_version',
+  ]) if (Object.prototype.hasOwnProperty.call(row, field) && row[field] !== undefined) out[field] = row[field];
+  out.state = RELEASE_CANDIDATE_STATES.has(String(out.state ?? '').toUpperCase()) ? String(out.state).toUpperCase() : 'UNKNOWN';
+  out.row_version = Number.isSafeInteger(Number(row.row_version)) && Number(row.row_version) >= 1 ? Number(row.row_version) : 0;
+  if (out.next_step !== undefined) out.next_step = safeReleaseCandidateText(out.next_step) ?? '';
+  if (row.created_at_utc_us !== undefined && row.created_at_utc_us !== null) out.created_at = rfc3339FromUs(row.created_at_utc_us);
+  if (row.updated_at_utc_us !== undefined && row.updated_at_utc_us !== null) out.updated_at = rfc3339FromUs(row.updated_at_utc_us);
+  if (row.cancelled_at_utc_us !== undefined && row.cancelled_at_utc_us !== null) out.cancelled_at = rfc3339FromUs(row.cancelled_at_utc_us);
+  return out;
+}
+
+function safeReleaseCandidateEvidence(value, depth = 0) {
+  if (depth > 5) return undefined;
+  if (Array.isArray(value)) return value.slice(0, 200).map((item) => safeReleaseCandidateEvidence(item, depth + 1)).filter((item) => item !== undefined);
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'string') return safeReleaseCandidateText(value);
+  if (!value || typeof value !== 'object') return undefined;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => RELEASE_CANDIDATE_EVIDENCE_KEYS.has(key))
+    .map(([key, item]) => [key, safeReleaseCandidateEvidence(item, depth + 1)])
+    .filter(([, item]) => item !== undefined));
 }
 
 function publicRightsIdentity(row) {
@@ -2505,6 +2553,21 @@ export class CoreService {
   }
 
   _commandPayloadForStorage(commandType, payload) {
+    if (commandType === 'CreateReleaseCandidateDraft') {
+      // Candidate commands are intentionally metadata-only. Do not persist
+      // arbitrary caller fields (paths, provider URIs or generated content)
+      // in the command journal even though the executor ignores them.
+      const projectId = payload.project_id ?? payload.projectId;
+      return { project_id: typeof projectId === 'string' ? projectId.slice(0, 200) : null };
+    }
+    if (commandType === 'CancelReleaseCandidateDraft') {
+      const projectId = payload.project_id ?? payload.projectId;
+      const candidateId = payload.release_candidate_id ?? payload.releaseCandidateId ?? payload.candidate_id ?? payload.candidateId ?? payload.id;
+      return {
+        project_id: typeof projectId === 'string' ? projectId.slice(0, 200) : null,
+        release_candidate_id: typeof candidateId === 'string' ? candidateId.slice(0, 200) : null,
+      };
+    }
     if (commandType !== 'CreateBackup') return payload;
     const out = { ...payload };
     const destination = out.destination_path ?? out.destinationPath;
@@ -2553,6 +2616,21 @@ export class CoreService {
     );
   }
 
+  _replayCommand(previous, commandType, idempotencyKey, fingerprint) {
+    this._assertIdempotencyBinding(previous, commandType, idempotencyKey, fingerprint);
+    if (previous.status === 'FAILED') {
+      const failure = parseJson(previous.error_details_json, {});
+      throw new CoreError(previous.error_code ?? 'COMMAND_FAILED', failure.category ?? 'INTERNAL', failure.user_message_key ?? 'errors.command_failed', failure.user_message_args ?? {}, {
+        retryable: failure.retryable, needsUser: failure.needs_user, technicalDetails: failure.technical_details,
+      });
+    }
+    const priorResult = parseJson(previous.result_json, null);
+    if (priorResult && typeof priorResult === 'object') {
+      return { ...priorResult, command_id: previous.id, idempotent_replay: true, projection_seq: this._projectionSeq() };
+    }
+    return { ...commandResult(previous), idempotent_replay: true, projection_seq: this._projectionSeq() };
+  }
+
   executeCommand(input = {}) {
     const commandType = requiredString(input.command_type ?? input.commandType, 'command_type', 120);
     const payload = this._commandPayload(input.payload ?? {});
@@ -2564,7 +2642,7 @@ export class CoreService {
     if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 200)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_idempotency_key', {});
     }
-    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType))
+    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType))
       && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0)) {
       throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', {
         command_type: commandType,
@@ -2572,35 +2650,31 @@ export class CoreService {
     }
     const requestFingerprint = idempotencyKey ? idempotencyFingerprint(payload, expectedVersions) : null;
     const previous = this._findIdempotent(commandType, idempotencyKey);
-    if (previous) {
-      this._assertIdempotencyBinding(previous, commandType, idempotencyKey, requestFingerprint);
-      if (previous.status === 'FAILED') {
-        const failure = parseJson(previous.error_details_json, {});
-        throw new CoreError(previous.error_code ?? 'COMMAND_FAILED', failure.category ?? 'INTERNAL', failure.user_message_key ?? 'errors.command_failed', failure.user_message_args ?? {}, {
-          retryable: failure.retryable, needsUser: failure.needs_user, technicalDetails: failure.technical_details,
-        });
-      }
-      const priorResult = parseJson(previous.result_json, null);
-      if (priorResult && typeof priorResult === 'object') {
-        return { ...priorResult, command_id: previous.id, idempotent_replay: true, projection_seq: this._projectionSeq() };
-      }
-      return { ...commandResult(previous), idempotent_replay: true };
-    }
+    if (previous) return this._replayCommand(previous, commandType, idempotencyKey, requestFingerprint);
 
     const commandId = uuidv7();
     const created = nowUtcUs();
     const projectId = this._commandProjectId(commandType, payload);
-    this._transaction(() => {
-      this.db.prepare(`INSERT INTO commands
-        (id, studio_id, project_id, actor_id, command_type, schema_version, scope_type, scope_id,
-         payload_json, expected_versions_json, reversibility, status, idempotency_key,
-         idempotency_fingerprint, created_at_utc_us)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'RECEIVED', ?, ?, ?)`).run(
-        commandId, this.studioId, projectId, this.actorId, commandType,
-        projectId ? 'PROJECT' : 'SYSTEM', projectId, json(this._commandPayloadForStorage(commandType, payload)), json(expectedVersions),
-        this._reversibility(commandType), idempotencyKey, requestFingerprint, created,
-      );
-    });
+    try {
+      this._transaction(() => {
+        this.db.prepare(`INSERT INTO commands
+          (id, studio_id, project_id, actor_id, command_type, schema_version, scope_type, scope_id,
+           payload_json, expected_versions_json, reversibility, status, idempotency_key,
+           idempotency_fingerprint, created_at_utc_us)
+          VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'RECEIVED', ?, ?, ?)`).run(
+          commandId, this.studioId, projectId, this.actorId, commandType,
+          projectId ? 'PROJECT' : 'SYSTEM', projectId, json(this._commandPayloadForStorage(commandType, payload)), json(expectedVersions),
+          this._reversibility(commandType), idempotencyKey, requestFingerprint, created,
+        );
+      });
+    } catch (error) {
+      // Another Core process may have won the idempotency insert between the
+      // lookup above and this transaction. Re-read and replay its exact row so
+      // retries stay typed/idempotent instead of surfacing raw SQLite errors.
+      const raced = this._findIdempotent(commandType, idempotencyKey);
+      if (raced) return this._replayCommand(raced, commandType, idempotencyKey, requestFingerprint);
+      throw error;
+    }
 
     let stagingReservation = null;
     let backupReservation = null;
@@ -2731,6 +2805,15 @@ export class CoreService {
       const reviewSessionId = payload.review_session_id ?? payload.reviewSessionId ?? payload.id;
       if (reviewSessionId) return this.db.prepare('SELECT project_id FROM review_sessions WHERE id = ?').get(reviewSessionId)?.project_id ?? null;
     }
+    if (commandType === 'CreateReleaseCandidateDraft') {
+      if (typeof explicitProjectId === 'string' && explicitProjectId.trim()) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
+      return null;
+    }
+    if (commandType === 'CancelReleaseCandidateDraft') {
+      const candidateId = payload.release_candidate_id ?? payload.releaseCandidateId ?? payload.candidate_id ?? payload.candidateId ?? payload.id;
+      if (typeof candidateId === 'string' && candidateId.trim()) return this.db.prepare('SELECT project_id FROM release_candidates WHERE id = ?').get(candidateId)?.project_id ?? null;
+      return null;
+    }
     if (commandType === 'CreateHandoffManifest') {
       const revisionId = payload.timeline_revision_id ?? payload.timelineRevisionId ?? payload.revision_id ?? payload.revisionId;
       if (revisionId) return this.db.prepare(`SELECT t.project_id FROM timeline_revisions r
@@ -2827,6 +2910,7 @@ export class CoreService {
     if (['CreateCharacter', 'CreateVisualIdentityRevision', 'CreateVoiceIdentityRevision', 'CreatePerformanceBibleRevision', 'TransitionCharacterRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateMediaProfileRevision', 'TransitionMediaProfileRevision', 'CreateTimeline', 'CreateTimelineRevision', 'TransitionTimelineRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['OpenReview', 'SubmitReview'].includes(commandType)) return 'COMPENSATABLE';
+    if (RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
     if (['CreateHandoffManifest', 'BeginTimelineWorkingSession', 'ApplyTimelineEditOp', 'UndoTimelineEditOp', 'RedoTimelineEditOp',
       'AutosaveTimelineWorkingSession', 'CheckpointTimelineWorkingSession', 'CloseTimelineWorkingSession'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateAudioCueRevision', 'TransitionAudioCueRevision', 'CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision'].includes(commandType)) return 'COMPENSATABLE';
@@ -2861,6 +2945,8 @@ export class CoreService {
       case 'TransitionSubtitleTrackRevision': return this._transitionSubtitleTrackRevision(payload, expectedVersions);
       case 'OpenReview': return this._openReview(payload, expectedVersions);
       case 'SubmitReview': return this._submitReview(payload, expectedVersions);
+      case 'CreateReleaseCandidateDraft': return this._createReleaseCandidateDraft(payload, commandId);
+      case 'CancelReleaseCandidateDraft': return this._cancelReleaseCandidateDraft(payload, expectedVersions);
       case 'CreateHandoffManifest': return this._createHandoffManifest(payload, expectedVersions, commandId);
       case 'BeginTimelineWorkingSession': return this._beginTimelineWorkingSession(payload, expectedVersions);
       case 'ApplyTimelineEditOp': return this._applyTimelineEditOp(payload, expectedVersions);
@@ -6444,8 +6530,9 @@ export class CoreService {
        UNION SELECT id FROM shots WHERE project_id = ?
        UNION SELECT id FROM notes WHERE project_id = ?
        UNION SELECT id FROM asset_revisions WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?)
+       UNION SELECT id FROM release_candidates WHERE project_id = ?
        UNION SELECT ?)
-      ORDER BY seq DESC LIMIT 20`).all(projectId, projectId, projectId, projectId, projectId).map((row) => this._publicActivity(row));
+      ORDER BY seq DESC LIMIT 20`).all(projectId, projectId, projectId, projectId, projectId, projectId).map((row) => this._publicActivity(row));
     return { project: publicProject(project), counts: { tasks, shots, notes, assets }, activity, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
@@ -6481,6 +6568,7 @@ export class CoreService {
     if (aggregateType === 'TIMELINE_WORKING_SESSION') return this.db.prepare(`SELECT t.project_id FROM timeline_working_sessions s JOIN timelines t ON t.id = s.timeline_id WHERE s.id = ?`).get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'EXPORT_SESSION') return this.db.prepare('SELECT project_id FROM export_sessions WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'HANDOFF_MANIFEST') return this.db.prepare('SELECT project_id FROM handoff_manifests WHERE id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'RELEASE_CANDIDATE') return this.db.prepare('SELECT project_id FROM release_candidates WHERE id = ?').get(aggregateId)?.project_id ?? null;
     return null;
   }
 
@@ -6802,6 +6890,233 @@ export class CoreService {
     };
   }
 
+  _releaseCandidateRow(id) {
+    const candidateId = requiredString(id, 'release_candidate_id');
+    const row = this.db.prepare('SELECT * FROM release_candidates WHERE id = ?').get(candidateId);
+    if (!row) throw new CoreError('RELEASE_CANDIDATE_NOT_FOUND', 'VALIDATION', 'errors.release_candidate_not_found', { release_candidate_id: candidateId });
+    return row;
+  }
+
+  _releaseCandidateSnapshot(readiness) {
+    const exactSource = readiness?.exact_source && typeof readiness.exact_source === 'object'
+      ? Object.fromEntries(['timeline_id', 'timeline_revision_id', 'timeline_content_hash', 'media_profile_revision_id', 'review_session_id']
+        .map((key) => [key, readiness.exact_source[key] ?? null]))
+      : {};
+    const gates = Array.isArray(readiness?.gates) ? readiness.gates.map((gate) => ({
+      key: String(gate?.key ?? '').toUpperCase(),
+      state: String(gate?.state ?? 'UNKNOWN').toUpperCase(),
+      blocking: gate?.blocking === true,
+      reason: safeReleaseCandidateText(gate?.reason) ?? null,
+      next_step: safeReleaseCandidateText(gate?.next_step) ?? null,
+      evidence: safeReleaseCandidateEvidence(gate?.evidence ?? {}),
+    })).filter((gate) => gate.key && gate.state) : [];
+    return {
+      snapshot_schema_version: RELEASE_CANDIDATE_SNAPSHOT_SCHEMA_VERSION,
+      project_id: readiness.project_id,
+      exact_source: exactSource,
+      policy: { purpose: 'RELEASE', unknown_blocks: true },
+      gates,
+      gate_manifest_hash: String(readiness.gate_manifest_hash ?? '').toLowerCase(),
+    };
+  }
+
+  _releaseCandidateSubtitleManifest(readiness) {
+    const localization = Array.isArray(readiness?.gates) ? readiness.gates.find((gate) => gate?.key === 'LOCALIZATION') : null;
+    const sourceTracks = Array.isArray(localization?.evidence?.tracks) ? localization.evidence.tracks : [];
+    const tracks = sourceTracks.slice(0, 200).map((track) => ({
+      id: typeof track?.id === 'string' ? track.id : null,
+      locale: typeof track?.locale === 'string' ? track.locale.slice(0, 32) : null,
+      state: typeof track?.state === 'string' ? track.state.slice(0, 32).toUpperCase() : 'UNKNOWN',
+      stale: track?.stale === true,
+      segment_count: Number.isSafeInteger(Number(track?.segment_count)) && Number(track.segment_count) >= 0 ? Number(track.segment_count) : 0,
+    })).filter((track) => track.id);
+    return { schema_version: 1, track_count: sourceTracks.length, truncated: sourceTracks.length > tracks.length, tracks };
+  }
+
+  _createReleaseCandidateDraft(payload, commandId) {
+    const projectId = requiredString(payload.project_id ?? payload.projectId, 'project_id');
+    const project = this._project(projectId);
+    this._assertPayloadProjectScope(payload, project.id, 'PROJECT', project.id);
+    this._assertProjectWritable(project);
+    const readiness = this._releaseReadiness(project.id);
+    if (readiness.overall_state !== 'READY') {
+      throw new CoreError('RELEASE_READINESS_BLOCKED', 'CONFLICT', 'errors.release_readiness_blocked', {
+        project_id: project.id,
+        blocking_gate_keys: Array.isArray(readiness.blocking_gate_keys) ? readiness.blocking_gate_keys.slice(0, 8) : [],
+      }, {
+        needsUser: true,
+        technicalDetails: {
+          overall_state: readiness.overall_state,
+          gate_manifest_hash: readiness.gate_manifest_hash,
+          blocking_gate_keys: Array.isArray(readiness.blocking_gate_keys) ? readiness.blocking_gate_keys.slice(0, 8) : [],
+        },
+      });
+    }
+    const exact = readiness.exact_source ?? {};
+    const timelineRevisionId = requiredString(exact.timeline_revision_id, 'timeline_revision_id');
+    const mediaProfileRevisionId = requiredString(exact.media_profile_revision_id, 'media_profile_revision_id');
+    const reviewSessionId = requiredString(exact.review_session_id, 'review_session_id');
+    const revision = this._timelineRevision(timelineRevisionId);
+    if (revision.project_id !== project.id || revision.lifecycle_state !== 'APPROVED' || revision.media_profile_revision_id !== mediaProfileRevisionId) {
+      throw new CoreError('RELEASE_READINESS_BLOCKED', 'CONFLICT', 'errors.release_readiness_blocked', { project_id: project.id }, { needsUser: true });
+    }
+    const profile = this._mediaProfileRevision(mediaProfileRevisionId);
+    if (profile.project_id !== project.id || profile.lifecycle_state !== 'APPROVED') {
+      throw new CoreError('RELEASE_READINESS_BLOCKED', 'CONFLICT', 'errors.release_readiness_blocked', { project_id: project.id }, { needsUser: true });
+    }
+    const review = this._reviewSession(reviewSessionId);
+    if (review.project_id !== project.id || review.subject_revision_id !== timelineRevisionId || review.state !== 'SUBMITTED') {
+      throw new CoreError('RELEASE_READINESS_BLOCKED', 'CONFLICT', 'errors.release_readiness_blocked', { project_id: project.id }, { needsUser: true });
+    }
+    const humanReview = this.db.prepare('SELECT decision FROM human_reviews WHERE review_session_id = ?').get(reviewSessionId);
+    if (humanReview?.decision !== 'APPROVE') {
+      throw new CoreError('RELEASE_READINESS_BLOCKED', 'CONFLICT', 'errors.release_readiness_blocked', { project_id: project.id }, { needsUser: true });
+    }
+    const readinessDigest = String(readiness.gate_manifest_hash ?? '').toLowerCase();
+    if (!SHA256_HEX.test(readinessDigest)) {
+      throw new CoreError('RELEASE_READINESS_BLOCKED', 'CONFLICT', 'errors.release_readiness_blocked', { project_id: project.id }, { needsUser: true });
+    }
+    const duplicate = this.db.prepare(`SELECT * FROM release_candidates
+      WHERE project_id = ? AND timeline_revision_id = ? AND readiness_digest = ? LIMIT 1`)
+      .get(project.id, timelineRevisionId, readinessDigest);
+    if (duplicate) {
+      throw new CoreError('RELEASE_CANDIDATE_ALREADY_EXISTS', 'CONFLICT', 'errors.release_candidate_already_exists', {
+        release_candidate_id: duplicate.id,
+      }, { needsUser: true, technicalDetails: { release_candidate_id: duplicate.id, state: duplicate.state } });
+    }
+    const snapshot = this._releaseCandidateSnapshot(readiness);
+    const rightsGate = Array.isArray(readiness.gates) ? readiness.gates.find((gate) => gate?.key === 'RIGHTS') : null;
+    const rightsSnapshotHash = crypto.createHash('sha256').update(canonicalJson({
+      project_id: project.id,
+      exact_source: snapshot.exact_source,
+      rights: {
+        state: rightsGate?.state ?? 'UNKNOWN',
+        blocking: rightsGate?.blocking !== false,
+        reason: rightsGate?.reason ?? null,
+        evidence: safeReleaseCandidateEvidence(rightsGate?.evidence ?? {}),
+      },
+    }), 'utf8').digest('hex');
+    const subtitleManifest = this._releaseCandidateSubtitleManifest(readiness);
+    const candidateId = uuidv7();
+    const created = nowUtcUs();
+    const nextStep = 'Draft đã lưu metadata exact; mastering, export và publish cần contract riêng.';
+    try {
+      this.db.prepare(`INSERT INTO release_candidates
+        (id, project_id, timeline_revision_id, audio_master_asset_revision_id, subtitle_manifest_json,
+         media_profile_revision_id, review_session_id, readiness_digest, rights_snapshot_hash,
+         readiness_snapshot_json, readiness_snapshot_schema_version, state, next_step, row_version,
+         command_id, created_by_actor_id, created_at_utc_us, updated_at_utc_us)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, 1, ?, ?, ?, ?)`)
+        .run(candidateId, project.id, timelineRevisionId, canonicalJson(subtitleManifest), mediaProfileRevisionId,
+          reviewSessionId, readinessDigest, rightsSnapshotHash, canonicalJson(snapshot), RELEASE_CANDIDATE_SNAPSHOT_SCHEMA_VERSION,
+          nextStep, commandId, this.actorId, created, created);
+    } catch (error) {
+      if (String(error?.message ?? error).includes('release_candidates.project_id')
+        || String(error?.message ?? error).includes('release_candidates_exact_uq')) {
+        const duplicate = this.db.prepare(`SELECT * FROM release_candidates
+          WHERE project_id = ? AND timeline_revision_id = ? AND readiness_digest = ? LIMIT 1`)
+          .get(project.id, timelineRevisionId, readinessDigest);
+        if (duplicate) {
+          throw new CoreError('RELEASE_CANDIDATE_ALREADY_EXISTS', 'CONFLICT', 'errors.release_candidate_already_exists', {
+            release_candidate_id: duplicate.id,
+          }, { needsUser: true, technicalDetails: { release_candidate_id: duplicate.id, state: duplicate.state } });
+        }
+      }
+      throw error;
+    }
+    const row = this._releaseCandidateRow(candidateId);
+    const result = publicReleaseCandidate(row);
+    return {
+      projectId: project.id,
+      result,
+      event: {
+        aggregateType: 'RELEASE_CANDIDATE', aggregateId: candidateId, aggregateVersion: 1,
+        eventType: 'RELEASE_CANDIDATE_DRAFT_CREATED',
+        payload: {
+          release_candidate_id: candidateId, project_id: project.id, state: 'DRAFT',
+          timeline_revision_id: timelineRevisionId, media_profile_revision_id: mediaProfileRevisionId,
+          review_session_id: reviewSessionId, readiness_digest: readinessDigest, rights_snapshot_hash: rightsSnapshotHash,
+        },
+      },
+      audit: {
+        actionType: 'release.candidate.create', targetType: 'RELEASE_CANDIDATE', targetId: candidateId,
+        payload: {
+          project_id: project.id, state: 'DRAFT', timeline_revision_id: timelineRevisionId,
+          media_profile_revision_id: mediaProfileRevisionId, review_session_id: reviewSessionId,
+          readiness_digest: readinessDigest, rights_snapshot_hash: rightsSnapshotHash,
+        },
+      },
+    };
+  }
+
+  _cancelReleaseCandidateDraft(payload, expectedVersions) {
+    const requestedProjectId = requiredString(payload.project_id ?? payload.projectId, 'project_id');
+    const project = this._project(requestedProjectId);
+    const candidateId = requiredString(payload.release_candidate_id ?? payload.releaseCandidateId ?? payload.candidate_id ?? payload.candidateId ?? payload.id, 'release_candidate_id');
+    const current = this._releaseCandidateRow(candidateId);
+    this._assertPayloadProjectScope(payload, current.project_id, 'RELEASE_CANDIDATE', current.id);
+    if (project.id !== current.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'RELEASE_CANDIDATE', entity_id: current.id, project_id: project.id, actual_project_id: current.project_id,
+      }, { needsUser: true });
+    }
+    this._assertProjectWritable(project);
+    this._expectedVersion(expectedVersions, 'RELEASE_CANDIDATE', current.id, current.row_version);
+    if (current.state !== 'DRAFT') {
+      throw new CoreError('RELEASE_CANDIDATE_NOT_CANCELLABLE', 'CONFLICT', 'errors.release_candidate_not_cancellable', {
+        release_candidate_id: current.id, state: current.state,
+      }, { needsUser: true });
+    }
+    const updated = nowUtcUs();
+    const nextVersion = Number(current.row_version) + 1;
+    this.db.prepare(`UPDATE release_candidates SET state = 'CANCELLED', row_version = ?, cancelled_at_utc_us = ?,
+      updated_at_utc_us = ?, next_step = ? WHERE id = ?`).run(
+      nextVersion, updated, updated, 'Draft đã bị huỷ; tạo candidate mới cần readiness digest khác.', current.id,
+    );
+    const row = this._releaseCandidateRow(current.id);
+    const result = publicReleaseCandidate(row);
+    return {
+      projectId: project.id,
+      result,
+      event: {
+        aggregateType: 'RELEASE_CANDIDATE', aggregateId: current.id, aggregateVersion: nextVersion,
+        eventType: 'RELEASE_CANDIDATE_CANCELLED',
+        payload: { release_candidate_id: current.id, project_id: project.id, state: 'CANCELLED', row_version: nextVersion },
+      },
+      audit: {
+        actionType: 'release.candidate.cancel', targetType: 'RELEASE_CANDIDATE', targetId: current.id,
+        payload: { project_id: project.id, state: 'CANCELLED', row_version: nextVersion },
+      },
+    };
+  }
+
+  _releaseCandidateList(params = {}) {
+    const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
+    this._project(projectId);
+    const stateInput = params.state ?? null;
+    const state = stateInput === null || stateInput === '' ? null : String(stateInput).trim().toUpperCase();
+    if (state !== null && !RELEASE_CANDIDATE_STATES.has(state)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_release_candidate_state', { state });
+    }
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = this.db.prepare(`SELECT * FROM release_candidates
+      WHERE project_id = ? AND (? IS NULL OR state = ?)
+      ORDER BY created_at_utc_us DESC, id DESC LIMIT ?`).all(projectId, state, state, limit);
+    return { items: rows.map(publicReleaseCandidate), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _releaseCandidateGet(id, requestedProjectId) {
+    const projectId = requiredString(requestedProjectId, 'project_id');
+    this._project(projectId);
+    const row = this._releaseCandidateRow(id);
+    if (projectId !== row.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'RELEASE_CANDIDATE', entity_id: row.id, project_id: projectId, actual_project_id: row.project_id,
+      }, { needsUser: true });
+    }
+    return { candidate: publicReleaseCandidate(row), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
   _systemHealth() {
     const journalMode = String(this.db.prepare('PRAGMA journal_mode').get().journal_mode ?? '').toUpperCase();
     const synchronousValue = Number(this.db.prepare('PRAGMA synchronous').get().synchronous ?? -1);
@@ -6883,6 +7198,11 @@ export class CoreService {
         return this._workspace(params.project_id ?? params.projectId);
       case 'query.project.health': return this._projectHealth(params.project_id ?? params.projectId);
       case 'query.release.readiness': return this._releaseReadiness(params.project_id ?? params.projectId);
+      case 'query.release.candidate.list': return this._releaseCandidateList(params);
+      case 'query.release.candidate.get': return this._releaseCandidateGet(
+        params.release_candidate_id ?? params.releaseCandidateId ?? params.candidate_id ?? params.candidateId ?? params.id,
+        params.project_id ?? params.projectId,
+      );
       case 'query.project.activity': return this._activity(params.project_id ?? params.projectId, params);
       case 'query.task.list': return this._tasks(params.project_id ?? params.projectId);
       case 'query.shot.list': return this._shots(params.project_id ?? params.projectId);
@@ -7322,9 +7642,10 @@ export class CoreService {
        UNION SELECT id FROM review_sessions WHERE project_id = ?
         UNION SELECT id FROM export_sessions WHERE project_id = ?
         UNION SELECT id FROM project_media_profiles WHERE project_id = ?
+         UNION SELECT id FROM release_candidates WHERE project_id = ?
         ) ORDER BY seq DESC LIMIT ?`).all(
       projectId, projectId, projectId, projectId, projectId,
-      projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit,
+       projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit,
     );
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }

@@ -1027,7 +1027,7 @@ The V1 read-only query is exposed as `GET
 `query.release.readiness`. The projection is scoped to one project and binds
 to an exact source only when there is exactly one `APPROVED` timeline revision;
 it never selects a latest revision implicitly and never creates a release
-candidate. The response contains `overall_state` (`READY`, `BLOCKED`, or
+candidate as a side effect. The response contains `overall_state` (`READY`, `BLOCKED`, or
 `NOT_CHECKED`), `policy.unknown_blocks`, `exact_source`, the ordered eight
 `gates`, `blocking_gate_keys`, `blocking_count`, `unknown_count`, a deterministic
 `gate_manifest_hash`, `next_step`, `projection_seq`, and `generated_at`.
@@ -1041,6 +1041,47 @@ policy. This query is read-only: render, export, release-manifest creation and
 publish are separate workflows and require their own exact-boundary contracts.
 
 Publish API requires immutable release_manifest_id, never “current project”.
+
+## 19.1 Release Candidate Draft metadata slice
+
+The V1 metadata slice adds an explicit, project-scoped boundary after a
+successful `release.readiness` evaluation. It is deliberately smaller than
+the complete release state machine in the later sections of this document:
+
+- `GET /v1/projects/{project_id}/release/candidates` maps to
+  `query.release.candidate.list`;
+- `GET /v1/projects/{project_id}/release/candidates/{candidate_id}` maps to
+  `query.release.candidate.get`;
+- `POST /v1/projects/{project_id}/release/candidates` executes
+  `CreateReleaseCandidateDraft`;
+- `POST /v1/projects/{project_id}/release/candidates/{candidate_id}/cancel`
+  executes `CancelReleaseCandidateDraft`.
+
+Create re-evaluates readiness in the same Core transaction. It succeeds only
+when the current project has exactly one approved, exact timeline revision,
+approved media profile revision, submitted human `APPROVE` review, a resolved
+rights gate (`PASS` or an explicit applicable `NOT_APPLICABLE`) and no
+blocking or unknown gate. The stored row pins the exact
+timeline/profile/review references, the readiness digest, a rights snapshot
+hash, a versioned redacted readiness snapshot and a bounded subtitle manifest.
+It never creates audio/master bytes, renders, exports, signs or publishes.
+The audio-master reference and any future release-manifest reference remain
+`NULL` until a separate contract exists.
+
+The only implemented states are `DRAFT` and `CANCELLED`. A draft can be
+cancelled once, with an explicit confirmation in the UI, an audited command,
+and an `expected_versions.RELEASE_CANDIDATE` row-version fence. Cancellation
+is terminal and is not an undo operation. Both mutating commands require an
+`Idempotency-Key`; replaying the same key returns the original result while
+reusing it with a different payload is a typed conflict.
+
+List/get and HTTP responses are safe projections. They expose stable IDs,
+exact hashes, state, row version and next step, but never expose the internal
+readiness snapshot JSON, subtitle JSON, local paths, provider URIs,
+credentials, connector fields or generated payloads. Cross-project reads and
+commands fail closed with a scope conflict. `UNKNOWN` is never promoted to
+`PASS`, and a missing or malformed public state maps to `UNKNOWN` in an
+adapter rather than to a terminal success.
 
 # 20. Connector host interface
 
