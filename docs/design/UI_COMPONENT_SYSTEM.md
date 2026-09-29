@@ -2833,3 +2833,25 @@ User can see:
 - safe choices.
 
 Do not show a generic Retry button until the effect state allows it.
+
+# UI-LIBRARY-MEDIA-PREVIEW. Project-scoped local media preview
+
+Each Library asset row may expose a small `Xem thử` action when Core reports a
+project, exact revision and `ALLOWED` rights. The action acquires a short-lived
+capability and renders only a safe image/audio/video MIME through the same
+loopback origin. The UI never receives or constructs a local filesystem path.
+
+Visible states remain honest:
+
+- `Đang cấp quyền…` while Core resolves the capability;
+- `Bị chặn bởi quyền/consent` for `UNKNOWN`, restricted, expired or revoked
+  rights;
+- `Asset chưa sẵn sàng để xem` for missing, corrupt, external or unverified
+  availability;
+- `Capability hết hạn hoặc bytes đã thay đổi` when a stream is stale and must
+  be reacquired.
+
+Preview does not imply content approval, readiness promotion, rendering,
+waveform generation, export or publish. The browser uses no-store media URLs,
+`Referrer-Policy: no-referrer`, and cannot request arbitrary paths or unsafe
+HTML/JavaScript/SVG content.

@@ -1,5 +1,6 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 function statusFor(response) {
   if (response?.ok === undefined) return 200;
@@ -8,14 +9,17 @@ function statusFor(response) {
   if (code === 'NOT_FOUND') return 404;
   if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'AUDIO_CUE_NOT_FOUND', 'AUDIO_CUE_REVISION_NOT_FOUND', 'SUBTITLE_TRACK_NOT_FOUND', 'SUBTITLE_TRACK_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND'].includes(code)) return 404;
   if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'REVIEW_NOT_SUPPORTED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'AUDIO_CUE_STALE', 'AUDIO_CUE_REVIEW_REQUIRED', 'SUBTITLE_TRACK_STALE', 'SUBTITLE_TRACK_REVIEW_REQUIRED', 'TIMING_DEPENDENCY_HASH_REQUIRED', 'TIMING_DEPENDENCY_HASH_MISMATCH', 'AUDIO_ASSET_REQUIRED', 'TIMING_OUT_OF_BOUNDS', 'SUBTITLE_SEGMENT_OVERLAP', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
-  if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED'].includes(code)) return 400;
+  if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED', 'PREVIEW_MIME_UNSUPPORTED', 'PREVIEW_PURPOSE_UNSUPPORTED'].includes(code)) return 415;
+  if (['PREVIEW_TOKEN_INVALID', 'PREVIEW_TOKEN_EXPIRED', 'PREVIEW_TOKEN_SCOPE', 'PREVIEW_SESSION_REQUIRED'].includes(code)) return 401;
+  if (['PREVIEW_RANGE_INVALID', 'PREVIEW_RANGE_NOT_SATISFIABLE', 'PREVIEW_RANGE_TOO_LARGE'].includes(code)) return 416;
+  if (['PREVIEW_RANGE_REQUIRED', 'PREVIEW_NOT_READY', 'PREVIEW_EXTERNAL_REFERENCE', 'PREVIEW_RIGHTS_BLOCKED', 'PREVIEW_CONTENT_CHANGED', 'PREVIEW_PROJECT_SCOPE', 'PREVIEW_PATH_ESCAPE'].includes(code)) return 409;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
   if (response.error?.category === 'INTERNAL') return 500;
   return 400;
 }
 
-function send(response, body, status = 200) {
+function send(response, body, status = 200, extraHeaders = {}) {
   const payload = JSON.stringify(body);
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -25,8 +29,9 @@ function send(response, body, status = 200) {
     // wildcard keeps the development Vite origin and the packaged same-origin
     // proxy on the same stable API contract.
     'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'content-type, authorization, idempotency-key',
-    'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS',
+    'access-control-allow-headers': 'content-type, authorization, idempotency-key, range, if-range, x-cineforge-preview, x-cineforge-session, x-request-id',
+    'access-control-allow-methods': 'GET,HEAD,POST,PATCH,OPTIONS',
+    ...extraHeaders,
   });
   response.end(payload);
 }
@@ -1246,6 +1251,104 @@ function noteCommandPayload(projectId, body, defaultType = 'PROJECT', defaultId 
   return { ...body, project_id: projectId, entity_type: entityType, entity_id: entityId };
 }
 
+function previewErrorBody(error) {
+  const code = typeof error?.code === 'string' ? error.code : 'PREVIEW_FAILED';
+  return errorBody(code, typeof error?.messageKey === 'string' ? error.messageKey : 'errors.preview_failed', {}, {
+    category: typeof error?.category === 'string' ? error.category : 'CONFLICT',
+    needsUser: error?.needsUser === undefined ? true : Boolean(error.needsUser),
+    retryable: Boolean(error?.retryable),
+  });
+}
+
+function previewHeaders(opened) {
+  const headers = {
+    'content-type': opened.mimeType,
+    'content-length': String(opened.length),
+    'cache-control': 'no-store, private',
+    'accept-ranges': 'bytes',
+    'etag': opened.etag,
+    'content-disposition': 'inline',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+    'access-control-allow-origin': '*',
+  };
+  if (opened.contentRange) headers['content-range'] = opened.contentRange;
+  return headers;
+}
+
+async function handleMediaPreview(core, request, response, url, parts) {
+  const projectId = parts[2];
+  const revisionId = parts[4];
+  const purpose = url.searchParams.get('purpose') ?? 'LIBRARY_PREVIEW';
+  const sessionId = request.headers['x-cineforge-session'] ?? null;
+  const token = request.headers['x-cineforge-preview'] ?? url.searchParams.get('token') ?? null;
+  if (!token) {
+    if (request.method !== 'GET') {
+      const result = errorBody('METHOD_NOT_ALLOWED', 'errors.method_not_allowed');
+      send(response, result, 405);
+      return;
+    }
+    const resolved = query(core, request, 'query.media.resolve_preview', {
+      project_id: projectId,
+      asset_revision_id: revisionId,
+      purpose,
+      session_id: sessionId,
+    });
+    if (!resolved.ok) {
+      send(response, resolved, statusFor(resolved));
+      return;
+    }
+    const value = resolved.result && typeof resolved.result === 'object' ? { ...resolved.result } : {};
+    const capability = typeof value.token === 'string' ? value.token : null;
+    delete value.token;
+    if (capability) {
+      const params = new URLSearchParams({ token: capability, purpose: String(value.purpose ?? purpose) });
+      value.preview_url = `/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(revisionId)}/preview?${params.toString()}`;
+    }
+    send(response, { ...resolved, result: value }, 200);
+    return;
+  }
+
+  let opened;
+  try {
+    opened = core.openMediaPreview({
+      project_id: projectId,
+      asset_revision_id: revisionId,
+      purpose,
+      token,
+      session_id: sessionId ?? undefined,
+      range: request.headers.range ?? undefined,
+    });
+  } catch (error) {
+    const failed = previewErrorBody(error);
+    const failedStatus = statusFor(failed);
+    const byteSize = Number(error?.messageArgs?.byte_size);
+    const extraHeaders = failedStatus === 416 && Number.isSafeInteger(byteSize) && byteSize >= 0
+      ? { 'content-range': `bytes */${byteSize}` }
+      : {};
+    send(response, failed, failedStatus, extraHeaders);
+    return;
+  }
+  response.writeHead(opened.status, previewHeaders(opened));
+  if (request.method === 'HEAD' || opened.length === 0) {
+    response.end();
+    return;
+  }
+  const stream = fs.createReadStream(opened.filePath, { start: opened.start, end: opened.end });
+  let finished = false;
+  const abort = () => {
+    if (!finished) stream.destroy();
+  };
+  request.once('aborted', abort);
+  response.once('close', abort);
+  stream.once('error', () => {
+    finished = true;
+    if (!response.writableEnded) response.destroy();
+  });
+  stream.once('close', () => { finished = true; });
+  stream.pipe(response);
+}
+
 export function createCoreHttpServer(core, options = {}) {
   const token = options.token ?? process.env.CINEFORGE_CORE_TOKEN ?? null;
   const host = options.host ?? '127.0.0.1';
@@ -1273,6 +1376,11 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && url.pathname === '/v1/dashboard') {
         const dashboard = query(core, request, 'query.home', {});
         result = dashboard.ok ? mapDashboard(dashboard.result) : dashboard;
+      } else if ((request.method === 'GET' || request.method === 'HEAD')
+        && parts[0] === 'v1' && parts[1] === 'projects' && parts[2]
+        && parts[3] === 'assets' && parts[4] && parts[5] === 'preview' && parts.length === 6) {
+        await handleMediaPreview(core, request, response, url, parts);
+        return;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'assets' && parts.length === 2) {
         const assets = query(core, request, 'query.library.assets', {
           limit: url.searchParams.get('limit') ?? 100,

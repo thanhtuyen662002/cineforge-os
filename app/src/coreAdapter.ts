@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -23,6 +23,7 @@ export interface CoreBridge {
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
   getCharacters?(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]>
@@ -270,6 +271,7 @@ function persistLocalWorkspace(projectId: string, value: LocalWorkspaceState) {
  */
 export class HttpCoreClient implements CoreClient {
   private readonly timelineWorkingClientInstances = new Map<string, string>()
+  private readonly previewSessionId = globalThis.crypto?.randomUUID?.() ?? `preview-${Math.random().toString(36).slice(2)}-${Date.now()}`
 
   constructor(private readonly baseUrl = import.meta.env.VITE_CORE_BASE_URL ?? globalThis.window?.__CINEFORGE_CORE_BASE_URL__ ?? '') {}
 
@@ -675,6 +677,30 @@ export class HttpCoreClient implements CoreClient {
     const payload = await readCorePayload(response, 'assets')
     const result = asRecord(payload)
     return arrayValue(result.assets).map(mapAssetRecord)
+  }
+
+  async resolveMediaPreview(projectId: string, revisionId: string, purpose = 'LIBRARY_PREVIEW', signal?: AbortSignal): Promise<MediaPreviewResolution> {
+    if (!this.baseUrl) throw new CoreClientError('Media preview requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const query = new URLSearchParams({ purpose, session_id: this.previewSessionId })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(revisionId)}/preview?${query.toString()}`, {
+      signal,
+      headers: { Accept: 'application/json', 'X-CineForge-Session': this.previewSessionId },
+    })
+    const source = asRecord(await readCorePayload(response, 'media preview'))
+    const rawUrl = stringValue(source.preview_url ?? source.previewUrl)
+    if (!rawUrl) throw new CoreClientError('Core did not return a media preview capability.', { code: 'PREVIEW_CAPABILITY_MISSING', category: 'INTERNAL', needsUser: false })
+    return {
+      projectId: stringValue(source.project_id ?? source.projectId) ?? projectId,
+      revisionId: stringValue(source.asset_revision_id ?? source.assetRevisionId) ?? revisionId,
+      purpose: stringValue(source.purpose) ?? purpose,
+      url: rawUrl.startsWith('http://') || rawUrl.startsWith('https://') ? rawUrl : `${this.baseUrl}${rawUrl}`,
+      mimeType: stringValue(source.mime_type ?? source.mimeType) ?? 'application/octet-stream',
+      byteSize: numberValue(source.byte_size ?? source.byteSize, 0),
+      contentHash: stringValue(source.content_hash ?? source.contentHash),
+      expiresAt: stringValue(source.expires_at ?? source.expiresAt),
+      readinessState: stringValue(source.readiness_state ?? source.readinessState),
+      rightsStatus: stringValue(source.rights_status ?? source.rightsStatus),
+    }
   }
 
   async getMediaProfile(projectId: string, signal?: AbortSignal): Promise<MediaProfileWorkspace> {

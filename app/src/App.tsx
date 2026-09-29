@@ -806,6 +806,46 @@ type IntakeFile = {
   stageError?: string
 }
 
+function AssetPreview({ asset, locale, client }: { asset: AssetSummary; locale: Locale; client: CoreClient }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const canResolve = Boolean(client.resolveMediaPreview && asset.projectId && asset.revisionId && asset.rights?.status === 'ALLOWED')
+  const resolve = async () => {
+    if (!client.resolveMediaPreview || !asset.projectId || !asset.revisionId || loading) return
+    setLoading(true)
+    setError(null)
+    setFailed(false)
+    try {
+      const resolved = await client.resolveMediaPreview(asset.projectId, asset.revisionId, 'LIBRARY_PREVIEW')
+      setUrl(resolved.url)
+    } catch (cause) {
+      const code = cause instanceof CoreClientError ? cause.code : ''
+      setError(code === 'PREVIEW_RIGHTS_BLOCKED' ? (locale === 'vi' ? 'Bị chặn bởi quyền/consent.' : 'Blocked by rights or consent.') : code === 'PREVIEW_NOT_READY' ? (locale === 'vi' ? 'Asset chưa sẵn sàng để xem.' : 'Asset is not ready for preview.') : (locale === 'vi' ? 'Không cấp được capability xem thử.' : 'Could not acquire a preview capability.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+  const mime = String(asset.latestRevision && typeof asset.latestRevision === 'object' ? (asset.latestRevision as Record<string, unknown>).provenance && typeof (asset.latestRevision as Record<string, unknown>).provenance === 'object' ? ((asset.latestRevision as Record<string, unknown>).provenance as Record<string, unknown>).source_metadata && typeof ((asset.latestRevision as Record<string, unknown>).provenance as Record<string, unknown>).source_metadata === 'object' ? (((asset.latestRevision as Record<string, unknown>).provenance as Record<string, unknown>).source_metadata as Record<string, unknown>).detected_mime : '' : '' : '').toLowerCase().split(';', 1)[0]
+  const mediaKind = mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : mime.startsWith('video/') ? 'video' : 'other'
+  return <div className="asset-preview">
+    {url && !failed ? <div className="asset-preview-surface">
+      {mediaKind === 'image' ? <img src={url} alt={asset.name} referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : mediaKind === 'audio' ? <audio controls preload="metadata" src={url} onError={() => setFailed(true)} /> : mediaKind === 'video' ? <video controls preload="metadata" src={url} onError={() => setFailed(true)} /> : <span>{locale === 'vi' ? 'Định dạng chỉ hỗ trợ metadata.' : 'Metadata-only format.'}</span>}
+    </div> : <button type="button" className="subtle-button tiny asset-preview-button" disabled={!canResolve || loading} onClick={() => void resolve()}>{loading ? (locale === 'vi' ? 'Đang cấp quyền…' : 'Authorizing…') : (locale === 'vi' ? 'Xem thử' : 'Preview')}</button>}
+    {!canResolve && <small className="asset-preview-hint">{locale === 'vi' ? 'Cần project, revision và quyền ALLOWED.' : 'Project, revision and ALLOWED rights are required.'}</small>}
+    {error && <small className="asset-preview-hint warning-text">{error}</small>}
+    {failed && <small className="asset-preview-hint warning-text">{locale === 'vi' ? 'Capability hết hạn hoặc bytes đã thay đổi; hãy cấp lại.' : 'Capability expired or bytes changed; acquire it again.'}</small>}
+  </div>
+}
+
+function AssetRecord({ asset, projectName, locale, client }: { asset: AssetSummary; projectName: string; locale: Locale; client: CoreClient }) {
+  const readinessLabel = asset.readinessState === 'READY' ? (locale === 'vi' ? 'Đã kiểm tra' : 'Verified') : asset.readinessState === 'REVIEW_REQUIRED' ? (locale === 'vi' ? 'Cần review' : 'Review required') : (locale === 'vi' ? 'Chờ kiểm tra' : 'Readiness unknown')
+  const rightsStatus = asset.rights?.status ?? 'UNKNOWN'
+  const rightsLabel = rightsStatus === 'ALLOWED' ? (locale === 'vi' ? 'Quyền đã cho phép' : 'Rights allowed') : rightsStatus === 'RESTRICTED' ? (locale === 'vi' ? 'Quyền bị giới hạn' : 'Rights restricted') : rightsStatus === 'REVOKED' ? (locale === 'vi' ? 'Quyền đã thu hồi' : 'Rights revoked') : rightsStatus === 'EXPIRED' ? (locale === 'vi' ? 'Quyền hết hạn' : 'Rights expired') : (locale === 'vi' ? 'Quyền chưa xác minh' : 'Rights unknown')
+  return <div className="library-record asset-record" key={asset.id}><span className="record-state done"><FileIcon size={14} /></span><span className="library-record-main"><strong>{asset.name}</strong><small>{projectName} · {asset.assetType} · {formatBytes(asset.byteSize)} · {asset.contentHash?.slice(0, 12) ?? 'hash—'}</small></span><span className={`item-state ${asset.readinessState === 'READY' ? 'ready' : 'attention'}`} title={asset.availability === 'AVAILABLE' ? (locale === 'vi' ? 'Object đã lưu; readiness vẫn cần bằng chứng verifier.' : 'Object is stored; readiness still requires verifier evidence.') : asset.availability}>{readinessLabel}</span><span className={`item-state ${rightsStatus === 'ALLOWED' ? 'ready' : 'attention'}`} title={asset.rights?.blockers?.map((blocker) => String(blocker.code ?? '')).filter(Boolean).join(', ') || rightsLabel}>{rightsLabel}</span><AssetPreview asset={asset} locale={locale} client={client} /></div>
+}
+
 function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; onOpenProject: (project: ProjectSummary) => void }) {
   const [stagedFiles, setStagedFiles] = useState<IntakeFile[]>([])
   const [isDragging, setIsDragging] = useState(false)
@@ -919,7 +959,7 @@ function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: Da
       </section>
       <section className="library-records-card">
         <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon amber"><Database size={16} /></span><div><h2>{locale === 'vi' ? 'Asset đã nhập' : 'Imported assets'}</h2><p>{locale === 'vi' ? 'Bản ghi canonical từ Core, không đọc trực tiếp SQLite.' : 'Canonical Core records; the UI never reads SQLite directly.'}</p></div></div><div className="card-heading-actions"><button type="button" className="subtle-button tiny" onClick={() => void loadAssets()}><RefreshCw size={13} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip">{assets.length}</span></div></div>
-        {assetsLoading ? <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…'}</div> : assetsError ? <div className="inline-state warning"><AlertCircle size={14} />{assetsError}</div> : assets.length === 0 ? <EmptyState icon={Database} title={locale === 'vi' ? 'Chưa có asset' : 'No imported assets'} detail={locale === 'vi' ? 'Dán đường dẫn local và gửi command ImportAsset để bắt đầu.' : 'Paste a local path and send ImportAsset command to begin.'} /> : <div className="library-record-list">{assets.map((asset) => { const project = snapshot.projects.find((candidate) => candidate.id === asset.projectId); const readinessLabel = asset.readinessState === 'READY' ? (locale === 'vi' ? 'Đã kiểm tra' : 'Verified') : asset.readinessState === 'REVIEW_REQUIRED' ? (locale === 'vi' ? 'Cần review' : 'Review required') : (locale === 'vi' ? 'Chờ kiểm tra' : 'Readiness unknown'); const rightsStatus = asset.rights?.status ?? 'UNKNOWN'; const rightsLabel = rightsStatus === 'ALLOWED' ? (locale === 'vi' ? 'Quyền đã cho phép' : 'Rights allowed') : rightsStatus === 'RESTRICTED' ? (locale === 'vi' ? 'Quyền bị giới hạn' : 'Rights restricted') : rightsStatus === 'REVOKED' ? (locale === 'vi' ? 'Quyền đã thu hồi' : 'Rights revoked') : rightsStatus === 'EXPIRED' ? (locale === 'vi' ? 'Quyền hết hạn' : 'Rights expired') : (locale === 'vi' ? 'Quyền chưa xác minh' : 'Rights unknown'); return <div className="library-record asset-record" key={asset.id}><span className="record-state done"><FileIcon size={14} /></span><span className="library-record-main"><strong>{asset.name}</strong><small>{project?.name ?? (locale === 'vi' ? 'Studio-wide' : 'Studio-wide')} · {asset.assetType} · {formatBytes(asset.byteSize)} · {asset.contentHash?.slice(0, 12) ?? 'hash—'}</small></span><span className={`item-state ${asset.readinessState === 'READY' ? 'ready' : 'attention'}`} title={asset.availability === 'AVAILABLE' ? (locale === 'vi' ? 'Object đã lưu; readiness vẫn cần bằng chứng verifier.' : 'Object is stored; readiness still requires verifier evidence.') : asset.availability}>{readinessLabel}</span><span className={`item-state ${rightsStatus === 'ALLOWED' ? 'ready' : 'attention'}`} title={asset.rights?.blockers?.map((blocker) => String(blocker.code ?? '')).filter(Boolean).join(', ') || rightsLabel}>{rightsLabel}</span></div> })}</div>}
+        {assetsLoading ? <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…'}</div> : assetsError ? <div className="inline-state warning"><AlertCircle size={14} />{assetsError}</div> : assets.length === 0 ? <EmptyState icon={Database} title={locale === 'vi' ? 'Chưa có asset' : 'No imported assets'} detail={locale === 'vi' ? 'Dán đường dẫn local và gửi command ImportAsset để bắt đầu.' : 'Paste a local path and send ImportAsset command to begin.'} /> : <div className="library-record-list">{assets.map((asset) => <AssetRecord key={asset.id} asset={asset} projectName={snapshot.projects.find((candidate) => candidate.id === asset.projectId)?.name ?? (locale === 'vi' ? 'Studio-wide' : 'Studio-wide')} locale={locale} client={client} />)}</div>}
       </section>
       <section className="library-records-card library-production-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ListChecks size={16} /></span><div><h2>{locale === 'vi' ? 'Mốc production' : 'Production records'}</h2><p>{locale === 'vi' ? 'Các mốc công việc đã được Core lưu trong project.' : 'Production milestones already saved by Core.'}</p></div></div><span className="count-chip">{records.length}</span></div>{records.length === 0 ? <EmptyState icon={ListChecks} title={locale === 'vi' ? 'Chưa có mốc' : 'No records yet'} detail={locale === 'vi' ? 'Tạo project rồi thêm production item để thấy dữ liệu ở đây.' : 'Create a project and add a production item to see data here.'} /> : <div className="library-record-list">{records.map(({ project, item }) => <button className="library-record" key={`${project.id}-${item.id}`} onClick={() => onOpenProject(project)}><span className={`record-state ${item.state}`}><CircleDot size={14} /></span><span className="library-record-main"><strong>{item.title}</strong><small>{project.name} · {item.detail}</small></span><span className={`item-state ${item.state}`}>{productionItemLabel(item.state, locale)}</span><ArrowRight size={14} /></button>)}</div>}</section>
     </div>

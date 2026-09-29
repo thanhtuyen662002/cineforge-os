@@ -272,6 +272,28 @@ Rules:
 - original access may require authority/policy;
 - browser/web worker receives staged copies, not arbitrary local paths.
 
+### V1 local preview implementation boundary
+
+The implemented V1 inspection path is:
+
+`GET /v1/projects/{project_id}/assets/{asset_revision_id}/preview?purpose=LIBRARY_PREVIEW&session_id=...`
+
+The request must carry the bootstrap-owned `X-CineForge-Session`. Core checks
+the exact project and revision, active asset lifecycle, verified availability
+evidence, managed CAS location, current `SOURCE_USE` right and consent, safe
+image/audio/video MIME, and a fresh SHA-256 content identity. The response is
+an opaque, memory-only capability URL with a short expiry. The capability binds
+the revision, project, purpose, session, nonce and Core process epoch; a Core
+restart invalidates every outstanding capability.
+
+The capability URL supports `HEAD` and one bounded `Range: bytes=start-end`
+request (`206` or `416`). The bootstrap proxies it with
+`ResponseHeadersRead`/stream copy, never `ReadAsByteArrayAsync`, and injects a
+separate loopback Core bearer. No response contains a local path, `file://`
+URI, base64 bytes, HTML/JavaScript/SVG, or provider-specific storage fields.
+Preview is an inspection aid and does not imply human approval, export,
+render, waveform generation, or publish authority.
+
 # 8. File/folder picker boundary
 
 OS path selection is performed by trusted Desktop/Core boundary.
