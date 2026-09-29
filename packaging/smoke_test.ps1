@@ -335,6 +335,12 @@ try {
             Invoke-RestMethod -Uri $workingOpsUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-stale'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ operations = @(@{ op_type = 'ADD_MARKER'; payload = @{ id = 'packaged-marker-stale'; time = @{ num = 2; den = 1 }; marker_type = 'NOTE'; label = 'stale'; payload = @{} } }); client_instance_id = 'packaging-smoke-client'; expected_version = 1 } | ConvertTo-Json -Depth 20) -TimeoutSec 5 | Out-Null
         } catch { if ($null -ne $_.Exception.Response) { $workingStaleStatus = [int]$_.Exception.Response.StatusCode } }
         if ($workingStaleStatus -ne 409) { throw "Stale working-session edit was not rejected with HTTP 409 (actual: $workingStaleStatus)." }
+        $workingUndo = Invoke-RestMethod -Uri "$workingSessionUri/undo" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-undo'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        $workingSession = $workingUndo.result.session
+        if ([string]$workingSession.state -ne 'CLEAN' -or $null -eq $workingUndo.result.undoneOperation -or [int]$workingUndo.result.undoneOperation.opSeq -ne 1) { throw 'Working-session undo did not restore the exact clean base projection.' }
+        $workingRedo = Invoke-RestMethod -Uri "$workingSessionUri/redo" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-redo'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json) -TimeoutSec 5
+        $workingSession = $workingRedo.result.session
+        if ([string]$workingSession.state -ne 'DIRTY' -or $null -eq $workingRedo.result.redoneOperation -or [int]$workingRedo.result.redoneOperation.opSeq -ne 1) { throw 'Working-session redo did not restore the exact edited draft projection.' }
         $workingAutosave = Invoke-RestMethod -Uri "$workingSessionUri/autosave" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-autosave'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json) -TimeoutSec 5
         $workingSession = $workingAutosave.result.session
         if ([string]$workingSession.state -ne 'CLEAN' -or [string]$workingSession.autosavedHash -ne [string]$workingSession.draftHash) { throw 'Working-session autosave did not durably acknowledge the exact draft hash.' }
@@ -348,7 +354,8 @@ try {
         $workingClosed = Invoke-RestMethod -Uri "$workingSessionUri/close" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-working-abandon'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{ disposition = 'ABANDON'; client_instance_id = 'packaging-smoke-client'; expected_version = [int]$workingSession.rowVersion } | ConvertTo-Json) -TimeoutSec 5
         if ([string]$workingClosed.result.session.state -ne 'ABANDONED') { throw 'Working-session ABANDON close did not preserve a terminal durable draft.' }
         $workingDetail = Invoke-RestMethod -Uri $workingSessionUri -TimeoutSec 5
-        if ([string]$workingDetail.result.session.state -ne 'ABANDONED' -or @($workingDetail.result.session.historyActions | Where-Object { $_.actionType -eq 'UNDO' -or $_.actionType -eq 'REDO' }).Count -ne 0) { throw 'Working-session detail did not preserve the terminal audit projection.' }
+        $workingHistoryActions = @($workingDetail.result.session.historyActions)
+        if ([string]$workingDetail.result.session.state -ne 'ABANDONED' -or @($workingHistoryActions | Where-Object { $_.actionType -eq 'UNDO' }).Count -lt 1 -or @($workingHistoryActions | Where-Object { $_.actionType -eq 'REDO' }).Count -lt 1) { throw 'Working-session detail did not preserve the terminal audit projection.' }
 
         # Handoff is a metadata-only, immutable boundary. It must bind the
         # exact approved revision/review/snapshot, remain conservative for an
