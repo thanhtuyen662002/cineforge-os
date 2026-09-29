@@ -1338,7 +1338,7 @@ export function initializeDatabase(db) {
       output_manifest_id TEXT,
       output_asset_revision_id TEXT REFERENCES asset_revisions(id),
       output_content_hash TEXT CHECK (output_content_hash IS NULL OR (length(output_content_hash) = 64 AND output_content_hash NOT GLOB '*[^0-9a-fA-F]*')),
-      output_byte_size INTEGER CHECK (output_byte_size IS NULL OR output_byte_size >= 0),
+      output_byte_size INTEGER CHECK (output_byte_size IS NULL OR (typeof(output_byte_size) = 'integer' AND output_byte_size >= 0 AND output_byte_size <= 9007199254740991)),
       validation_snapshot_json TEXT NOT NULL DEFAULT '{}',
       command_id TEXT NOT NULL REFERENCES commands(id),
       review_session_id TEXT NOT NULL REFERENCES review_sessions(id),
@@ -1423,7 +1423,8 @@ export function initializeDatabase(db) {
       BEGIN SELECT RAISE(ABORT, 'invalid export output content hash'); END;
     CREATE TRIGGER IF NOT EXISTS export_sessions_output_size_guard
       BEFORE INSERT ON export_sessions
-      WHEN NEW.output_byte_size IS NOT NULL AND NEW.output_byte_size < 0
+      WHEN NEW.output_byte_size IS NOT NULL
+        AND (typeof(NEW.output_byte_size) <> 'integer' OR NEW.output_byte_size < 0 OR NEW.output_byte_size > 9007199254740991)
       BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
     CREATE TRIGGER IF NOT EXISTS export_sessions_output_asset_guard
       BEFORE INSERT ON export_sessions
@@ -1949,7 +1950,8 @@ export function initializeDatabase(db) {
     FROM export_sessions
     WHERE (output_content_hash IS NOT NULL
       AND (length(output_content_hash) <> 64 OR output_content_hash GLOB '*[^0-9a-fA-F]*'))
-       OR (output_byte_size IS NOT NULL AND output_byte_size < 0)
+       OR (output_byte_size IS NOT NULL
+         AND (typeof(output_byte_size) <> 'integer' OR output_byte_size < 0 OR output_byte_size > 9007199254740991))
        OR (output_asset_revision_id IS NOT NULL
          AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = export_sessions.output_asset_revision_id))
     LIMIT 1`).get();
@@ -2007,11 +2009,13 @@ export function initializeDatabase(db) {
       BEGIN SELECT RAISE(ABORT, 'invalid export output content hash'); END;
     DROP TRIGGER IF EXISTS export_sessions_output_size_guard;
     CREATE TRIGGER export_sessions_output_size_guard BEFORE INSERT ON export_sessions
-      WHEN NEW.output_byte_size IS NOT NULL AND NEW.output_byte_size < 0
+      WHEN NEW.output_byte_size IS NOT NULL
+        AND (typeof(NEW.output_byte_size) <> 'integer' OR NEW.output_byte_size < 0 OR NEW.output_byte_size > 9007199254740991)
       BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
     DROP TRIGGER IF EXISTS export_sessions_output_size_update_guard;
     CREATE TRIGGER export_sessions_output_size_update_guard BEFORE UPDATE ON export_sessions
-      WHEN NEW.output_byte_size IS NOT NULL AND NEW.output_byte_size < 0
+      WHEN NEW.output_byte_size IS NOT NULL
+        AND (typeof(NEW.output_byte_size) <> 'integer' OR NEW.output_byte_size < 0 OR NEW.output_byte_size > 9007199254740991)
       BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
     DROP TRIGGER IF EXISTS export_sessions_output_asset_guard;
     CREATE TRIGGER export_sessions_output_asset_guard BEFORE INSERT ON export_sessions

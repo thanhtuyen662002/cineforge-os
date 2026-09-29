@@ -132,6 +132,14 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
       () => core.db.prepare(`UPDATE export_sessions SET output_content_hash = ? WHERE id = ?`).run('bad', fixture.session.id),
       /invalid export output content hash/,
     );
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET output_byte_size = ? WHERE id = ?`).run(1.5, fixture.session.id),
+      /invalid export output byte size/,
+    );
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET output_byte_size = ? WHERE id = ?`).run('abc', fixture.session.id),
+      /invalid export output byte size/,
+    );
     const built = execute(core, 'BuildTimelineInterchangeExport', buildPayload, expected, 'interchange-build');
     assert.equal(built.ok, true, JSON.stringify(built));
     assert.equal(built.result.export_session.state, 'COMPLETED');
