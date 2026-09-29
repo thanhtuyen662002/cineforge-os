@@ -987,9 +987,17 @@ function publicHandoffManifest(row, options = {}) {
 
 function safeReleaseCandidateText(value) {
   if (typeof value !== 'string') return undefined;
-  let safe = value.slice(0, 512).replace(/(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)[^\s"'<>]*/gi, '[redacted]');
-  safe = safe.replace(/(?:^|[\s(])\/(?:[^\/\s]+\/)+[^\/\s]*/g, (match) => match.startsWith('/') ? '[redacted]' : `${match[0]}[redacted]`);
-  return safe;
+  const bounded = value.slice(0, 512);
+  // Generated labels and human-readable next steps can contain a local path
+  // with spaces.  Token-level regexes stop at the first space and leak the
+  // remainder (for example `C:\\Users\\Jane Doe\\secret.mov`).  Release
+  // projections are metadata only, so conservatively redact the entire bounded
+  // value whenever a path/URI signature is present; this is fail-closed and
+  // avoids trying to infer where an untrusted path ends.
+  const hasWindowsOrUriPath = /(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)/i.test(bounded);
+  const hasAbsolutePosixPath = /(?:^|\s)\/[^<>"'\r\n]*\//.test(bounded);
+  if (hasWindowsOrUriPath || hasAbsolutePosixPath) return '[redacted]';
+  return bounded;
 }
 
 function publicReleaseCandidate(row) {

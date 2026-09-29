@@ -72,8 +72,9 @@ function createApprovedHandoff(core, code = 'interchange-film') {
         { timeline_in: { num: 0, den: 1 }, timeline_out: { num: 12, den: 1 } },
         { timeline_in: { num: 12, den: 1 }, timeline_out: { num: 24, den: 1 } },
       ],
+      name: 'C:\\Users\\John Doe\\secret.mov',
     }],
-    markers: [{ time: { num: 12, den: 1 }, marker_type: 'NOTE', label: 'Middle' }],
+    markers: [{ time: { num: 12, den: 1 }, marker_type: 'NOTE', label: '/Users/John Doe/secret.mov' }],
   }, { TIMELINE: 1 }, `${code}-checkpoint`);
   assert.equal(checkpoint.ok, true, JSON.stringify(checkpoint));
   const revisionId = checkpoint.result.revision.id;
@@ -127,6 +128,10 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
       dependency_snapshot_hash: fixture.session.dependency_snapshot_hash,
     };
     const expected = { EXPORT_SESSION: fixture.session.row_version };
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET output_content_hash = ? WHERE id = ?`).run('bad', fixture.session.id),
+      /invalid export output content hash/,
+    );
     const built = execute(core, 'BuildTimelineInterchangeExport', buildPayload, expected, 'interchange-build');
     assert.equal(built.ok, true, JSON.stringify(built));
     assert.equal(built.result.export_session.state, 'COMPLETED');
@@ -147,8 +152,17 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
     assert.equal(document.manifest_type, 'CINEFORGE_TIMELINE_INTERCHANGE');
     assert.equal(document.source.timeline_revision_id, fixture.revisionId);
     assert.equal(document.source.tracks[0].clips.length, 2);
-    assert.equal(document.source.markers[0].label, 'Middle');
+    assert.equal(document.source.tracks[0].name, '[redacted]');
+    assert.equal(document.source.markers[0].label, '[redacted]');
     assert.equal(crypto.createHash('sha256').update(bytes, 'utf8').digest('hex'), built.result.output_content_hash);
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET output_content_hash = ? WHERE id = ?`).run('f'.repeat(64), fixture.session.id),
+      /completed export session is immutable/,
+    );
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET validation_snapshot_json = ? WHERE id = ?`).run('{}', fixture.session.id),
+      /verified export output binding is immutable|completed export session is immutable/,
+    );
 
     const replay = execute(core, 'BuildTimelineInterchangeExport', buildPayload, expected, 'interchange-build');
     assert.equal(replay.ok, true, JSON.stringify(replay));
@@ -301,6 +315,22 @@ test('records a conservative retryable export failure state with bounded evidenc
     }, { EXPORT_SESSION: blocked.row_version }, 'interchange-failure-retry');
     assert.equal(retry.ok, true, JSON.stringify(retry));
     assert.equal(retry.result.export_session.state, 'COMPLETED');
+  } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('does not allow a verified export session to regress through direct SQL', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  try {
+    const fixture = createApprovedHandoff(core, 'interchange-terminal-guard');
+    core.db.prepare(`UPDATE export_sessions SET state = 'VERIFIED' WHERE id = ?`).run(fixture.session.id);
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET state = 'FAILED' WHERE id = ?`).run(fixture.session.id),
+      /verified export session cannot regress/,
+    );
   } finally {
     core.close();
     fs.rmSync(directory, { recursive: true, force: true });

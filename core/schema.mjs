@@ -1400,6 +1400,36 @@ export function initializeDatabase(db) {
         OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
         OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
       BEGIN SELECT RAISE(ABORT, 'export_session identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_output_no_update
+      BEFORE UPDATE ON export_sessions
+      WHEN OLD.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_asset_revision_id IS NOT OLD.output_asset_revision_id
+          OR NEW.output_content_hash IS NOT OLD.output_content_hash
+          OR NEW.output_byte_size IS NOT OLD.output_byte_size
+          OR NEW.validation_snapshot_json IS NOT OLD.validation_snapshot_json)
+      BEGIN SELECT RAISE(ABORT, 'verified export output binding is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_completed_no_update
+      BEFORE UPDATE ON export_sessions
+      WHEN OLD.state = 'COMPLETED'
+      BEGIN SELECT RAISE(ABORT, 'completed export session is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_no_resurrection
+      BEFORE UPDATE ON export_sessions
+      WHEN OLD.state = 'VERIFIED' AND NEW.state NOT IN ('VERIFIED', 'COMPLETED')
+      BEGIN SELECT RAISE(ABORT, 'verified export session cannot regress'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_output_hash_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.output_content_hash IS NOT NULL
+        AND (length(NEW.output_content_hash) <> 64 OR NEW.output_content_hash GLOB '*[^0-9a-fA-F]*')
+      BEGIN SELECT RAISE(ABORT, 'invalid export output content hash'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_output_size_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.output_byte_size IS NOT NULL AND NEW.output_byte_size < 0
+      BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_output_asset_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.output_asset_revision_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = NEW.output_asset_revision_id)
+      BEGIN SELECT RAISE(ABORT, 'missing export output asset revision'); END;
     CREATE TRIGGER IF NOT EXISTS handoff_manifests_no_update
       BEFORE UPDATE ON handoff_manifests
       BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
@@ -1912,6 +1942,20 @@ export function initializeDatabase(db) {
   for (const [column, definition] of exportOutputAdditions) {
     if (!exportOutputColumns.has(column)) db.exec(`ALTER TABLE export_sessions ADD COLUMN ${column} ${definition}`);
   }
+  // SQLite cannot add a foreign key or CHECK constraint with ALTER TABLE.  Validate
+  // legacy rows before installing equivalent write guards so an upgraded image
+  // never silently accepts malformed output evidence.
+  const invalidExportOutput = db.prepare(`SELECT id, output_asset_revision_id, output_content_hash, output_byte_size
+    FROM export_sessions
+    WHERE (output_content_hash IS NOT NULL
+      AND (length(output_content_hash) <> 64 OR output_content_hash GLOB '*[^0-9a-fA-F]*'))
+       OR (output_byte_size IS NOT NULL AND output_byte_size < 0)
+       OR (output_asset_revision_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = export_sessions.output_asset_revision_id))
+    LIMIT 1`).get();
+  if (invalidExportOutput) {
+    throw new Error(`export_sessions output evidence is invalid for ${invalidExportOutput.id}`);
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS export_sessions_output_asset_idx
       ON export_sessions(output_asset_revision_id);
@@ -1935,6 +1979,50 @@ export function initializeDatabase(db) {
         OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
         OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
       BEGIN SELECT RAISE(ABORT, 'export_session identity is immutable'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_output_no_update;
+    CREATE TRIGGER export_sessions_verified_output_no_update BEFORE UPDATE ON export_sessions
+      WHEN OLD.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_asset_revision_id IS NOT OLD.output_asset_revision_id
+          OR NEW.output_content_hash IS NOT OLD.output_content_hash
+          OR NEW.output_byte_size IS NOT OLD.output_byte_size
+          OR NEW.validation_snapshot_json IS NOT OLD.validation_snapshot_json)
+      BEGIN SELECT RAISE(ABORT, 'verified export output binding is immutable'); END;
+    DROP TRIGGER IF EXISTS export_sessions_completed_no_update;
+    CREATE TRIGGER export_sessions_completed_no_update BEFORE UPDATE ON export_sessions
+      WHEN OLD.state = 'COMPLETED'
+      BEGIN SELECT RAISE(ABORT, 'completed export session is immutable'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_no_resurrection;
+    CREATE TRIGGER export_sessions_verified_no_resurrection BEFORE UPDATE ON export_sessions
+      WHEN OLD.state = 'VERIFIED' AND NEW.state NOT IN ('VERIFIED', 'COMPLETED')
+      BEGIN SELECT RAISE(ABORT, 'verified export session cannot regress'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_hash_guard;
+    CREATE TRIGGER export_sessions_output_hash_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.output_content_hash IS NOT NULL
+        AND (length(NEW.output_content_hash) <> 64 OR NEW.output_content_hash GLOB '*[^0-9a-fA-F]*')
+      BEGIN SELECT RAISE(ABORT, 'invalid export output content hash'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_hash_update_guard;
+    CREATE TRIGGER export_sessions_output_hash_update_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.output_content_hash IS NOT NULL
+        AND (length(NEW.output_content_hash) <> 64 OR NEW.output_content_hash GLOB '*[^0-9a-fA-F]*')
+      BEGIN SELECT RAISE(ABORT, 'invalid export output content hash'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_size_guard;
+    CREATE TRIGGER export_sessions_output_size_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.output_byte_size IS NOT NULL AND NEW.output_byte_size < 0
+      BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_size_update_guard;
+    CREATE TRIGGER export_sessions_output_size_update_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.output_byte_size IS NOT NULL AND NEW.output_byte_size < 0
+      BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_asset_guard;
+    CREATE TRIGGER export_sessions_output_asset_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.output_asset_revision_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = NEW.output_asset_revision_id)
+      BEGIN SELECT RAISE(ABORT, 'missing export output asset revision'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_asset_update_guard;
+    CREATE TRIGGER export_sessions_output_asset_update_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.output_asset_revision_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = NEW.output_asset_revision_id)
+      BEGIN SELECT RAISE(ABORT, 'missing export output asset revision'); END;
   `);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so
