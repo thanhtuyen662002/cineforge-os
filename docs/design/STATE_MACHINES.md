@@ -1082,13 +1082,13 @@ idempotent Core commands. Each requires the exact project/timeline scope,
 `timing_dependency_revision_id`, the matching immutable
 `timing_dependency_content_hash`, expected parent versions and bounded
 rational timing. Subtitle creation validates the complete segment batch before
-committing it. A non-`SILENCE` audio cue and an optional subtitle font must pass
-materialization and effective-rights checks; `UNKNOWN`, unverified, missing or
-rights-ineligible evidence fails closed. Generated/recorded/provider output is
-not accepted by this state machine.
+committing it. A non-`SILENCE` audio cue must pass materialization and
+effective-rights checks; `UNKNOWN`, unverified, missing or rights-ineligible
+evidence fails closed. Generated/recorded/provider output is not accepted by
+this state machine.
 
 `TransitionAudioCueRevision` and `TransitionSubtitleTrackRevision` revalidate
-the exact timeline/hash, duration/overlap rules, dependency snapshot,
+the exact timeline/hash, duration/overlap rules, timing/asset snapshots,
 materialization and rights immediately before every transition. `APPROVED`
 requires an explicit human approval action and immutable evidence when the
 active review subject supports it. If that review subject is unavailable, Core
@@ -1096,7 +1096,7 @@ returns a typed `REVIEW_NOT_SUPPORTED`/`needs_user` result and keeps the prior
 state; a selected row, autosave or successful read never implies approval.
 
 The dependency graph records a `TIMING` edge to the pinned timeline revision,
-plus `RIGHTS`/`PROVENANCE` edges for selected media/font revisions and a
+plus a `RIGHTS`/`PROVENANCE` edge for any selected audio revision and a
 localization-source edge for subtitle text. A newer checkpoint, a changed
 timeline hash, asset materialization loss, rights revocation/expiry or source
 change opens `staleness_records` and projects `STALE` with a human-readable

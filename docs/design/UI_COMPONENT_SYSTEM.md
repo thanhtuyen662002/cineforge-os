@@ -744,9 +744,9 @@ into a general editor. The panel must show:
 
 The forms accept typed rational frame/sample values and bounded UTF-8 text.
 They never accept provider IDs, filesystem paths, arbitrary JSON, `latest` or
-raw audio/subtitle bytes. A non-`SILENCE` cue and an optional subtitle font
-remain blocked until Core reports materialized, verified and rights-allowed
-evidence; `UNKNOWN` is shown as blocked, never as ready. The panel renders
+raw audio/subtitle bytes. A non-`SILENCE` cue remains blocked until Core
+reports materialized, verified and rights-allowed evidence; `UNKNOWN` is shown
+as blocked, never as ready. The panel renders
 friendly locale time while retaining exact rational values in requests.
 
 The panel has loading, empty, offline, validation, stale,

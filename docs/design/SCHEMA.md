@@ -1202,8 +1202,7 @@ cue Core requires materialization `AVAILABLE` with verified evidence and an
 effective `ALLOWED` rights result for the requested timeline-audio purpose;
 `UNKNOWN`, `RESTRICTED`, `REVOKED`, `EXPIRED`, missing or unverified evidence
 fails closed. `SILENCE` may omit the selected asset but still participates in
-timing dependency checks. An optional subtitle font asset follows the same
-exact project, materialization and rights checks. The canonical
+timing dependency checks. The canonical
 `timing_dependency_hash` captures the timeline hash and timing dependency
 evidence; audio also stores an `asset_snapshot_hash` for the selected asset's
 rights/materialization evidence. The snapshots are evidence, not permission

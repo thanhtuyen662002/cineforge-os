@@ -372,7 +372,7 @@ audio/subtitle timing baseline. It delivers:
   one exact timeline revision ID and content hash;
 - project/timeline-scoped `SubtitleTrack` identities with immutable, bounded
   rational timing segments pinned to that same exact timeline revision/hash;
-- fail-closed materialization and rights checks for selected audio/font asset
+- fail-closed materialization and rights checks for selected audio asset
   revisions, with `UNKNOWN` remaining blocked;
 - dependency edges and derived `STALE` projections when the pinned timeline,
   selected asset, localization source or rights/materialization evidence

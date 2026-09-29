@@ -1343,12 +1343,13 @@ timeline-audio purpose. The command rejects a missing/mismatched timeline
 hash, cross-project parent, unsupported type, invalid or overflowed rational,
 non-positive interval, out-of-bounds interval, unbounded text/payload or
 `latest`/provider/path field before writing a row. Core captures a canonical
-dependency/rights/materialization snapshot hash in the revision.
+`timing_dependency_hash` and, when an asset is selected, an
+`asset_snapshot_hash` for the rights/materialization evidence.
 
 `CreateSubtitleTrackRevision` requires the same exact timeline ID/hash pair,
-locale, optional exact materialized/rights-allowed font revision and a bounded
-array of segments. Each segment carries positive rational `start`/`end`,
-untrusted UTF-8 text and optional exact dialogue-line revision. Segments must
+locale and a bounded array of segments. Each segment carries positive rational
+`start`/`end`, untrusted UTF-8 text and optional exact dialogue-line revision.
+Segments must
 fit the pinned timeline duration, remain ordered and non-overlapping under the
 active subtitle policy, and stay within Core's count, text-length and payload
 limits. The complete batch is atomic; a malformed segment cannot leave a
@@ -1396,9 +1397,9 @@ Mutation paths must bind the body `timeline_id` and exact revision/hash to the
 project and route scope; a route/body mismatch is a typed conflict. Public
 responses include stable IDs, enum states, rational values, timeline hash,
 dependency hash, redacted stale reasons and `needs_user`/`next_step`. They may
-include exact asset-revision IDs, digests and readiness/rights outcomes, but
-never filesystem paths, provider fields, secrets, raw payloads or waveform and
-audio bytes.
+include exact selected-audio asset-revision IDs, digests and readiness/rights
+outcomes, but never filesystem paths, provider fields, secrets, raw payloads or
+waveform and audio bytes.
 
 Malformed or unsupported input maps to `400 VALIDATION`; unknown or
 cross-project IDs map to `404`; stale timeline pins, row versions, idempotency
@@ -1409,7 +1410,7 @@ failure.
 
 Reads project a timing revision as `STALE` when the pinned timeline revision or
 content hash is no longer the current exact head for that timeline, or when a
-selected asset, font, rights record or localization source has an open hard
+selected asset, rights record or localization source has an open hard
 dependency invalidation. The projection preserves the immutable draft and
 offers creation of a new revision against an explicitly named current
 timeline; it never silently retimes or deletes data. This slice has no
