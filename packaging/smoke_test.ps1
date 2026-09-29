@@ -239,10 +239,11 @@ try {
             expected_version = [int]$timelineRecord.rowVersion
             media_profile_revision_id = [string]$approvedProfile.id
             duration = @{ num = 24; den = 1 }
-            tracks = @(@{ track_type = 'VIDEO'; order_index = 0; name = 'Picture'; clips = @(
-                @{ timeline_in = @{ num = 0; den = 1 }; timeline_out = @{ num = 12; den = 1 } }
-                @{ timeline_in = @{ num = 12; den = 1 }; timeline_out = @{ num = 24; den = 1 } }
-            ) })
+            # Keep this metadata/review fixture clip-free. Working-session
+            # checkpointing requires every existing clip to carry an exact
+            # materialized asset pin; INSERT_CLIP coverage is exercised by
+            # Core tests and a separate asset-intake smoke below.
+            tracks = @(@{ track_type = 'VIDEO'; order_index = 0; name = 'Picture'; clips = @() })
             markers = @(@{ time = @{ num = 6; den = 1 }; marker_type = 'NOTE'; label = 'Review gate' })
         } | ConvertTo-Json -Depth 15) -TimeoutSec 5
         $checkpointResult = $checkpointEnvelope.result
