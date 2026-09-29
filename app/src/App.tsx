@@ -2556,8 +2556,14 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     return () => controller.abort()
   }, [client, locale, projectId, timelineId])
 
+  const selectedWorkspaceId = selectedWorkspace?.exportSession?.id ?? null
+
   useEffect(() => {
     if (!selectedHandoffId || !projectId || !client.getHandoff) { setSelectedWorkspace(null); return }
+    // A successful create already returns the immutable workspace. Keep that
+    // evidence visible while the list projection catches up instead of
+    // clearing it and making a slow detail read look like a failed command.
+    if (selectedWorkspaceId === selectedHandoffId) { setDetailLoading(false); return }
     const controller = new AbortController()
     setDetailLoading(true); setActionError(null)
     void client.getHandoff(projectId, selectedHandoffId, controller.signal).then((next) => {
@@ -2566,7 +2572,7 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
       if (!controller.signal.aborted) { setSelectedWorkspace(null); setActionError(workspaceErrorMessage(cause, locale)) }
     }).finally(() => { if (!controller.signal.aborted) setDetailLoading(false) })
     return () => controller.abort()
-  }, [client, locale, projectId, selectedHandoffId])
+  }, [client, locale, projectId, selectedHandoffId, selectedWorkspaceId])
 
   const create = async (event: FormEvent) => {
     event.preventDefault()
