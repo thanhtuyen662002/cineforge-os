@@ -814,25 +814,37 @@ type IntakeFile = {
   stageError?: string
 }
 
-function AssetPreview({ asset, locale, client }: { asset: AssetSummary; locale: Locale; client: CoreClient }) {
+function AssetPreview({ asset, locale, client, purpose = 'LIBRARY_PREVIEW' }: { asset: AssetSummary; locale: Locale; client: CoreClient; purpose?: string }) {
   const [url, setUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const requestGeneration = useRef(0)
+  const previewIdentity = `${asset.projectId ?? ''}:${asset.revisionId ?? ''}:${purpose}`
   const canResolve = Boolean(client.resolveMediaPreview && asset.projectId && asset.revisionId && asset.rights?.status === 'ALLOWED')
+  useEffect(() => {
+    requestGeneration.current += 1
+    setUrl(null)
+    setLoading(false)
+    setError(null)
+    setFailed(false)
+  }, [previewIdentity])
   const resolve = async () => {
     if (!client.resolveMediaPreview || !asset.projectId || !asset.revisionId || loading) return
+    const generation = requestGeneration.current
     setLoading(true)
     setError(null)
     setFailed(false)
     try {
-      const resolved = await client.resolveMediaPreview(asset.projectId, asset.revisionId, 'LIBRARY_PREVIEW')
+      const resolved = await client.resolveMediaPreview(asset.projectId, asset.revisionId, purpose)
+      if (generation !== requestGeneration.current) return
       setUrl(resolved.url)
     } catch (cause) {
+      if (generation !== requestGeneration.current) return
       const code = cause instanceof CoreClientError ? cause.code : ''
       setError(code === 'PREVIEW_RIGHTS_BLOCKED' ? (locale === 'vi' ? 'Bị chặn bởi quyền/consent.' : 'Blocked by rights or consent.') : code === 'PREVIEW_NOT_READY' ? (locale === 'vi' ? 'Asset chưa sẵn sàng để xem.' : 'Asset is not ready for preview.') : (locale === 'vi' ? 'Không cấp được capability xem thử.' : 'Could not acquire a preview capability.'))
     } finally {
-      setLoading(false)
+      if (generation === requestGeneration.current) setLoading(false)
     }
   }
   const mime = String(asset.latestRevision && typeof asset.latestRevision === 'object' ? (asset.latestRevision as Record<string, unknown>).provenance && typeof (asset.latestRevision as Record<string, unknown>).provenance === 'object' ? ((asset.latestRevision as Record<string, unknown>).provenance as Record<string, unknown>).source_metadata && typeof ((asset.latestRevision as Record<string, unknown>).provenance as Record<string, unknown>).source_metadata === 'object' ? (((asset.latestRevision as Record<string, unknown>).provenance as Record<string, unknown>).source_metadata as Record<string, unknown>).detected_mime : '' : '' : '').toLowerCase().split(';', 1)[0]
@@ -1354,6 +1366,9 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
   const workingSession = workingWorkspace?.session ?? null
   const workingTracks = workingSession?.draft.tracks ?? []
   const workingClips = workingTracks.flatMap((track) => track.clips.map((clip) => ({ track, clip })))
+  const selectedWorkingClip = workingClips.find(({ clip }) => clip.id === clipTargetId)?.clip ?? null
+  const previewAssetRevisionId = insertAssetRevisionId || selectedWorkingClip?.assetRevisionId || ''
+  const previewAsset = assets.find((asset) => asset.revisionId === previewAssetRevisionId) ?? null
   const workingEditable = Boolean(workingSession && !['AUTOSAVING', 'CHECKPOINTING', 'CONFLICT', 'RECOVERY_REQUIRED', 'CLOSED', 'ABANDONED'].includes(workingSession.state))
 
   useEffect(() => {
@@ -1850,6 +1865,8 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
                   <button type="button" className="subtle-button tiny danger-button" onClick={() => void applyDeleteClip()} disabled={!connected || mutating !== null || !workingEditable || workingClips.length === 0}>{locale === 'vi' ? 'Xoá clip' : 'Delete clip'}</button>
                 </div>
                 <form className="workspace-form working-insert-form" onSubmit={applyInsertClip}><div className="form-grid two"><label>{locale === 'vi' ? 'Track ID' : 'Track ID'}<select value={insertTrackId} onChange={(event) => setInsertTrackId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable}><option value="">{locale === 'vi' ? 'Chọn track' : 'Choose a track'}</option>{workingTracks.map((track) => <option value={track.id ?? ''} key={track.id ?? track.orderIndex}>{track.name} · {track.id}</option>)}</select></label><label>{locale === 'vi' ? 'Asset cho clip' : 'Clip asset'}<select aria-label={locale === 'vi' ? 'Asset cho clip' : 'Clip asset'} value={insertAssetRevisionId} onChange={(event) => setInsertAssetRevisionId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable || assetsLoading || assets.length === 0}><option value="">{assetsLoading ? (locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…') : assets.length === 0 ? (locale === 'vi' ? 'Chưa có asset project' : 'No project assets') : (locale === 'vi' ? 'Chọn asset đã verify' : 'Choose a verified asset')}</option>{assets.map((asset) => <option value={asset.revisionId ?? ''} key={asset.id} disabled={!timelineAssetIsSelectable(asset, projectId)}>{timelineAssetOptionLabel(asset, projectId, locale)}</option>)}</select></label><label>{locale === 'vi' ? 'Clip ID (tuỳ chọn)' : 'Clip ID (optional)'}<input value={insertClipId} onChange={(event) => setInsertClipId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable} /></label></div><div className="form-grid four"><label>Timeline in num<input value={insertTimelineInNum} onChange={(event) => setInsertTimelineInNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline in den<input value={insertTimelineInDen} onChange={(event) => setInsertTimelineInDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline out num<input value={insertTimelineOutNum} onChange={(event) => setInsertTimelineOutNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline out den<input value={insertTimelineOutDen} onChange={(event) => setInsertTimelineOutDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><div className="form-grid four"><label>Source in num<input value={insertSourceInNum} onChange={(event) => setInsertSourceInNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source in den<input value={insertSourceInDen} onChange={(event) => setInsertSourceInDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source out num<input value={insertSourceOutNum} onChange={(event) => setInsertSourceOutNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source out den<input value={insertSourceOutDen} onChange={(event) => setInsertSourceOutDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><button type="submit" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingEditable || workingTracks.length === 0 || !insertAssetRevisionId.trim()}>{locale === 'vi' ? 'Chèn clip' : 'Insert clip'}</button></form>
+                 {previewAsset && <div className="timeline-asset-preview" key={`${projectId}:${selectedTimelineId ?? ''}:${workingSession?.id ?? ''}:${clipTargetId}:${insertAssetRevisionId}:${previewAsset.revisionId ?? ''}`}><div className="working-tool-heading"><strong>{locale === 'vi' ? 'Xem thử asset đang chọn' : 'Preview selected asset'}</strong><span>{previewAsset.name} · {previewAsset.revisionId?.slice(0, 16) ?? '—'}</span></div>{timelineAssetIsSelectable(previewAsset, projectId) ? <AssetPreview asset={previewAsset} locale={locale} client={client} purpose="TIMELINE_PREVIEW" /> : <p className="readonly-note warning-text"><AlertCircle size={14} />{timelineAssetBlocker(previewAsset, projectId, locale)}</p>}</div>}
+                 {!previewAsset && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chọn một asset exact để xem thử trước khi chèn clip.' : 'Choose an exact asset to preview it before inserting a clip.'}</p>}
                 {assetsError && <p className="readonly-note warning-text"><AlertCircle size={14} />{assetsError}</p>}
                 {assets.length > 0 && assets.every((asset) => !timelineAssetIsSelectable(asset, projectId)) && <p className="readonly-note warning-text"><Info size={14} />{locale === 'vi' ? 'Chưa có asset đủ điều kiện. Mỗi dòng bị khoá sẽ nêu lý do; hãy hoàn tất materialization và rights/consent trước.' : 'No asset is eligible yet. Locked options explain the reason; finish materialization and rights/consent first.'}</p>}
                 <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chỉ gửi exact asset revision đã verify; Core vẫn kiểm tra lại project, readiness và rights trước khi ghi draft.' : 'Only an exact verified asset revision is submitted; Core rechecks project scope, readiness, and rights before writing the draft.'}</p>

@@ -121,7 +121,7 @@ describe('TimelineView', () => {
     expect(await screen.findByText('Main cut')).toBeTruthy()
     await waitFor(() => expect(core.getAssets).toHaveBeenCalledWith(project.id, expect.any(AbortSignal)))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open editing session' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open editing session' }))
     const assetPicker = await screen.findByLabelText('Clip asset')
     expect((within(assetPicker).getByRole('option', { name: /Rights\/consent/ }) as HTMLOptionElement).disabled).toBe(true)
     expect((within(assetPicker).getByRole('option', { name: /Different project/ }) as HTMLOptionElement).disabled).toBe(true)
@@ -167,7 +167,7 @@ describe('TimelineView', () => {
     })
     render(<TimelineView snapshot={multiProjectSnapshot} locale="en" client={core} onToast={vi.fn()} />)
     expect(await screen.findByText('Main cut')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Open editing session' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open editing session' }))
     const firstPicker = await screen.findByLabelText('Clip asset')
     fireEvent.change(firstPicker, { target: { value: eligibleAsset.revisionId } })
     expect((firstPicker as HTMLSelectElement).value).toBe(eligibleAsset.revisionId)
@@ -179,5 +179,32 @@ describe('TimelineView', () => {
     const secondPicker = await screen.findByLabelText('Clip asset')
     expect((secondPicker as HTMLSelectElement).value).toBe('')
     expect((secondPicker as HTMLSelectElement).disabled).toBe(true)
+  })
+
+  it('requests a purpose-bound preview for the exact selected revision and clears it when the revision changes', async () => {
+    const secondAsset: AssetSummary = { ...eligibleAsset, id: 'asset-eligible-2', name: 'Verified alternate', revisionId: 'asset-revision-eligible-2' }
+    const resolveMediaPreview = vi.fn(async (projectId: string, revisionId: string, purpose?: string) => ({
+      projectId,
+      revisionId,
+      purpose: purpose ?? 'UNKNOWN',
+      url: `https://preview.invalid/${revisionId}`,
+      mimeType: 'video/mp4',
+      byteSize: 100,
+    }))
+    const core = client({
+      getAssets: vi.fn(async () => [eligibleAsset, secondAsset, rightsBlockedAsset]),
+      beginTimelineWorkingSession: vi.fn(async () => workingWorkspace),
+      resolveMediaPreview,
+    })
+    render(<TimelineView snapshot={snapshot} locale="en" client={core} onToast={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open editing session' }))
+    const assetPicker = await screen.findByLabelText('Clip asset')
+    fireEvent.change(assetPicker, { target: { value: eligibleAsset.revisionId } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
+    await waitFor(() => expect(resolveMediaPreview).toHaveBeenCalledWith(project.id, eligibleAsset.revisionId, 'TIMELINE_PREVIEW'))
+
+    fireEvent.change(assetPicker, { target: { value: secondAsset.revisionId } })
+    expect(await screen.findByRole('button', { name: 'Preview' })).toBeTruthy()
+    expect(resolveMediaPreview).toHaveBeenCalledTimes(1)
   })
 })
