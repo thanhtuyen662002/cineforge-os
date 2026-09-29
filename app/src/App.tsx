@@ -41,12 +41,16 @@ import {
   Sparkles,
   Sun,
   UploadCloud,
+  Undo2,
+  Redo2,
+  Save,
+  XCircle,
   UserRound,
   X,
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -1203,6 +1207,40 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
   const [timelines, setTimelines] = useState<TimelineSummary[]>([])
   const [selectedTimelineId, setSelectedTimelineId] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<TimelineWorkspace | null>(null)
+  const [workingWorkspace, setWorkingWorkspace] = useState<TimelineWorkingWorkspace | null>(null)
+  const [workingLoading, setWorkingLoading] = useState(false)
+  const [workingError, setWorkingError] = useState<string | null>(null)
+  const [markerNum, setMarkerNum] = useState('0')
+  const [markerDen, setMarkerDen] = useState('1')
+  const [markerLabel, setMarkerLabel] = useState('Beat')
+  const [clipTargetId, setClipTargetId] = useState('')
+  const [clipMoveNum, setClipMoveNum] = useState('0')
+  const [clipMoveDen, setClipMoveDen] = useState('1')
+  const [clipTrimEdge, setClipTrimEdge] = useState<'IN' | 'OUT'>('OUT')
+  const [clipTrimNum, setClipTrimNum] = useState('1')
+  const [clipTrimDen, setClipTrimDen] = useState('1')
+  const [insertTrackId, setInsertTrackId] = useState('')
+  const [insertAssetRevisionId, setInsertAssetRevisionId] = useState('')
+  const [insertClipId, setInsertClipId] = useState('')
+  const [insertTimelineInNum, setInsertTimelineInNum] = useState('0')
+  const [insertTimelineInDen, setInsertTimelineInDen] = useState('1')
+  const [insertTimelineOutNum, setInsertTimelineOutNum] = useState('1')
+  const [insertTimelineOutDen, setInsertTimelineOutDen] = useState('1')
+  const [insertSourceInNum, setInsertSourceInNum] = useState('0')
+  const [insertSourceInDen, setInsertSourceInDen] = useState('1')
+  const [insertSourceOutNum, setInsertSourceOutNum] = useState('1')
+  const [insertSourceOutDen, setInsertSourceOutDen] = useState('1')
+  const [clientInstanceId] = useState(() => {
+    try {
+      const existing = localStorage.getItem('cineforge-timeline-client-instance')
+      if (existing) return existing
+      const next = crypto.randomUUID()
+      localStorage.setItem('cineforge-timeline-client-instance', next)
+      return next
+    } catch {
+      return `browser-${Math.random().toString(36).slice(2)}`
+    }
+  })
   const [loading, setLoading] = useState(false)
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1229,6 +1267,10 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
   const project = snapshot.projects.find((candidate) => candidate.id === projectId)
   const approvedProfile = mediaProfile?.approvedRevision ?? workspace?.mediaProfile?.approvedRevision ?? null
   const selectedTimeline = timelines.find((timeline) => timeline.id === selectedTimelineId) ?? null
+  const workingSession = workingWorkspace?.session ?? null
+  const workingTracks = workingSession?.draft.tracks ?? []
+  const workingClips = workingTracks.flatMap((track) => track.clips.map((clip) => ({ track, clip })))
+  const workingEditable = Boolean(workingSession && !['AUTOSAVING', 'CHECKPOINTING', 'CONFLICT', 'RECOVERY_REQUIRED', 'CLOSED', 'ABANDONED'].includes(workingSession.state))
 
   useEffect(() => {
     if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
@@ -1283,6 +1325,8 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
     setTimelines([])
     setSelectedTimelineId(null)
     setWorkspace(null)
+    setWorkingWorkspace(null)
+    setWorkingError(null)
     setActionError(null)
     setNeedsUser(false)
     void loadProjectData(controller.signal)
@@ -1320,6 +1364,56 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
     void loadWorkspace(selectedTimelineId, controller.signal)
     return () => controller.abort()
   }, [loadWorkspace, projectId, selectedTimelineId])
+
+  const workingSessionStorageKey = projectId && selectedTimelineId ? `cineforge-working-session:${projectId}:${selectedTimelineId}` : null
+
+  const loadWorkingSession = useCallback(async (timelineId: string, signal?: AbortSignal) => {
+    if (!projectId || !client.getTimelineWorkingSession || !workingSessionStorageKey) {
+      setWorkingWorkspace(null)
+      setWorkingError(null)
+      return
+    }
+    let sessionId: string | null = null
+    try { sessionId = localStorage.getItem(workingSessionStorageKey) } catch { sessionId = null }
+    if (!sessionId) {
+      setWorkingWorkspace(null)
+      setWorkingError(null)
+      return
+    }
+    setWorkingLoading(true)
+    setWorkingError(null)
+    try {
+      const next = await client.getTimelineWorkingSession(projectId, timelineId, sessionId, signal)
+      if (!signal?.aborted) {
+        if (['CLOSED', 'ABANDONED'].includes(next.session?.state ?? '')) {
+          try { localStorage.removeItem(workingSessionStorageKey) } catch { /* optional recovery hint */ }
+          setWorkingWorkspace(null)
+        } else setWorkingWorkspace(next)
+      }
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      // A terminal session can remain in Core for audit, but a deleted or
+      // unknown local pointer must not block starting a fresh session.
+      if (cause instanceof CoreClientError && cause.code === 'TIMELINE_WORKING_SESSION_NOT_FOUND') {
+        try { localStorage.removeItem(workingSessionStorageKey) } catch { /* storage may be unavailable */ }
+        setWorkingWorkspace(null)
+        setWorkingError(null)
+      } else setWorkingError(workspaceErrorMessage(cause, locale))
+    } finally {
+      if (!signal?.aborted) setWorkingLoading(false)
+    }
+  }, [client, locale, projectId, workingSessionStorageKey])
+
+  useEffect(() => {
+    if (!selectedTimelineId || !projectId) {
+      setWorkingWorkspace(null)
+      setWorkingError(null)
+      return
+    }
+    const controller = new AbortController()
+    void loadWorkingSession(selectedTimelineId, controller.signal)
+    return () => controller.abort()
+  }, [loadWorkingSession, projectId, selectedTimelineId])
 
   const updateProfileDraft = (key: keyof TimelineProfileDraft) => (event: ChangeEvent<HTMLInputElement>) => {
     setProfileDraft((current) => ({ ...current, [key]: event.target.value }))
@@ -1480,6 +1574,138 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
     }
   }
 
+  const rememberWorkingWorkspace = (next: TimelineWorkingWorkspace) => {
+    if (['CLOSED', 'ABANDONED'].includes(next.session?.state ?? '')) {
+      setWorkingWorkspace(null)
+      if (workingSessionStorageKey) { try { localStorage.removeItem(workingSessionStorageKey) } catch { /* optional recovery hint */ } }
+      return
+    }
+    setWorkingWorkspace(next)
+    const nextId = next.session?.id
+    if (workingSessionStorageKey && nextId) {
+      try { localStorage.setItem(workingSessionStorageKey, nextId) } catch { /* local storage is an optional recovery hint */ }
+    }
+  }
+
+  const beginWorkingSession = async () => {
+    const begin = client.beginTimelineWorkingSession
+    const base = currentRevision
+    if (!begin || !projectId || !selectedTimelineId || !workspace || !base?.id || !base.editHash || mutating) return
+    setMutating('timeline-working-begin')
+    setWorkingError(null); setActionError(null); setNeedsUser(false)
+    try {
+      const next = await begin(projectId, selectedTimelineId, {
+        baseRevisionId: base.id,
+        baseRevisionRowVersion: base.rowVersion,
+        baseContentHash: base.editHash,
+        clientInstanceId,
+        expectedTimelineVersion: workspace.timeline.rowVersion,
+      }, `timeline-working-begin:${selectedTimelineId}:${base.id}:${workspace.timeline.rowVersion}:${clientInstanceId}`)
+      rememberWorkingWorkspace(next)
+      onToast(locale === 'vi' ? 'Đã mở phiên chỉnh sửa timeline trên revision cụ thể.' : 'Opened a timeline editing session on the exact revision.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setWorkingError(workspaceErrorMessage(cause, locale))
+    } finally { setMutating(null) }
+  }
+
+  const applyWorkingOperation = async (operation: Record<string, unknown>, successVi: string, successEn: string) => {
+    const apply = client.applyTimelineEditOps
+    const session = workingWorkspace?.session
+    if (!apply || !projectId || !selectedTimelineId || !session?.id || !workingEditable || mutating) return
+    setMutating('timeline-working-apply'); setWorkingError(null); setActionError(null); setNeedsUser(false)
+    try {
+      const next = await apply(projectId, selectedTimelineId, session.id, [operation], session.rowVersion, `timeline-working-op:${session.id}:${session.rowVersion}:${JSON.stringify(operation)}`)
+      rememberWorkingWorkspace(next)
+      onToast(locale === 'vi' ? successVi : successEn)
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setWorkingError(workspaceErrorMessage(cause, locale))
+    } finally { setMutating(null) }
+  }
+
+  const applyMarker = async (event: FormEvent) => {
+    event.preventDefault()
+    const session = workingWorkspace?.session
+    if (!session?.id || !workingEditable) return
+    const time = checkedRational(markerNum, markerDen, true)
+    if (!time || !markerLabel.trim()) {
+      setWorkingError(locale === 'vi' ? 'Marker cần thời gian rational hợp lệ và nhãn.' : 'A marker needs a valid rational time and label.')
+      return
+    }
+    const operation = { op_type: 'ADD_MARKER', payload: { id: `marker-${session.nextOpSeq}`, time, marker_type: 'NOTE', label: markerLabel.trim(), payload: {} } }
+    await applyWorkingOperation(operation, 'Đã thêm marker vào bản nháp.', 'Marker added to the working draft.')
+  }
+
+  const applyMoveClip = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!clipTargetId.trim()) { setWorkingError(locale === 'vi' ? 'Chọn clip cần di chuyển.' : 'Choose a clip to move.'); return }
+    const timelineIn = checkedRational(clipMoveNum, clipMoveDen, true)
+    if (!timelineIn) { setWorkingError(locale === 'vi' ? 'Vị trí mới phải là rational hợp lệ.' : 'The new position must be a valid rational.'); return }
+    await applyWorkingOperation({ op_type: 'MOVE_CLIP', payload: { clip_id: clipTargetId, timeline_in: timelineIn } }, 'Đã di chuyển clip trong bản nháp.', 'Clip moved in the working draft.')
+  }
+
+  const applyTrimClip = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!clipTargetId.trim()) { setWorkingError(locale === 'vi' ? 'Chọn clip cần trim.' : 'Choose a clip to trim.'); return }
+    const value = checkedRational(clipTrimNum, clipTrimDen, clipTrimEdge === 'IN')
+    if (!value) { setWorkingError(locale === 'vi' ? 'Mốc trim phải là rational hợp lệ.' : 'The trim point must be a valid rational.'); return }
+    const operation = clipTrimEdge === 'IN'
+      ? { op_type: 'TRIM_CLIP', payload: { clip_id: clipTargetId, edge: 'IN', timeline_in: value } }
+      : { op_type: 'TRIM_CLIP', payload: { clip_id: clipTargetId, edge: 'OUT', timeline_out: value } }
+    await applyWorkingOperation(operation, 'Đã trim clip trong bản nháp.', 'Clip trimmed in the working draft.')
+  }
+
+  const applyDeleteClip = async () => {
+    if (!clipTargetId.trim() || !workingEditable) { setWorkingError(locale === 'vi' ? 'Chọn clip cần xoá.' : 'Choose a clip to delete.'); return }
+    if (!window.confirm(locale === 'vi' ? 'Xoá clip khỏi bản nháp? Thao tác này sẽ được ghi vào history.' : 'Delete this clip from the draft? The action will remain in history.')) return
+    await applyWorkingOperation({ op_type: 'DELETE_CLIP', payload: { clip_id: clipTargetId } }, 'Đã xoá clip khỏi bản nháp.', 'Clip deleted from the working draft.')
+  }
+
+  const applyInsertClip = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!insertTrackId.trim() || !insertAssetRevisionId.trim()) {
+      setWorkingError(locale === 'vi' ? 'Insert clip cần track ID và asset revision ID cụ thể.' : 'Insert clip needs an exact track ID and asset revision ID.')
+      return
+    }
+    const timelineIn = checkedRational(insertTimelineInNum, insertTimelineInDen, true)
+    const timelineOut = checkedRational(insertTimelineOutNum, insertTimelineOutDen, false)
+    const sourceIn = checkedRational(insertSourceInNum, insertSourceInDen, true)
+    const sourceOut = checkedRational(insertSourceOutNum, insertSourceOutDen, false)
+    if (!timelineIn || !timelineOut || !sourceIn || !sourceOut) {
+      setWorkingError(locale === 'vi' ? 'Insert clip cần các khoảng thời gian rational hợp lệ.' : 'Insert clip needs valid rational timing intervals.')
+      return
+    }
+    const generatedId = insertClipId.trim() || `clip-${workingSession?.nextOpSeq ?? Date.now()}`
+    const operation = { op_type: 'INSERT_CLIP', payload: { track_id: insertTrackId.trim(), clip: { id: generatedId, asset_revision_id: insertAssetRevisionId.trim(), source_in: sourceIn, source_out: sourceOut, timeline_in: timelineIn, timeline_out: timelineOut, speed: { num: 1, den: 1 } } } }
+    await applyWorkingOperation(operation, 'Đã chèn clip vào bản nháp.', 'Clip inserted into the working draft.')
+  }
+
+  const runWorkingCommand = async (kind: 'undo' | 'redo' | 'autosave' | 'checkpoint' | 'close', disposition?: 'SAVE' | 'ABANDON') => {
+    const session = workingWorkspace?.session
+    if (!projectId || !selectedTimelineId || !session?.id || mutating) return
+    const action = kind === 'undo' ? client.undoTimelineEditOp : kind === 'redo' ? client.redoTimelineEditOp : kind === 'autosave' ? client.autosaveTimelineWorkingSession : kind === 'checkpoint' ? client.checkpointTimelineWorkingSession : client.closeTimelineWorkingSession
+    if (!action) return
+    setMutating(`timeline-working-${kind}`); setWorkingError(null); setActionError(null); setNeedsUser(false)
+    try {
+      let next: TimelineWorkingWorkspace
+      if (kind === 'checkpoint') {
+        next = await client.checkpointTimelineWorkingSession!(projectId, selectedTimelineId, session.id, session.rowVersion, workspace?.timeline.rowVersion ?? 0, `timeline-working-checkpoint:${session.id}:${session.rowVersion}:${workspace?.timeline.rowVersion ?? 0}`)
+        if (next.timeline) setTimelines((current) => current.map((item) => item.id === next.timeline?.id ? next.timeline! : item))
+        if (selectedTimelineId) await loadWorkspace(selectedTimelineId)
+      } else if (kind === 'close') {
+        next = await client.closeTimelineWorkingSession!(projectId, selectedTimelineId, session.id, disposition ?? 'ABANDON', session.rowVersion, `timeline-working-close:${session.id}:${session.rowVersion}:${disposition ?? 'ABANDON'}`)
+      } else if (kind === 'undo') next = await client.undoTimelineEditOp!(projectId, selectedTimelineId, session.id, session.rowVersion, `timeline-working-undo:${session.id}:${session.rowVersion}`)
+      else if (kind === 'redo') next = await client.redoTimelineEditOp!(projectId, selectedTimelineId, session.id, session.rowVersion, `timeline-working-redo:${session.id}:${session.rowVersion}`)
+      else next = await client.autosaveTimelineWorkingSession!(projectId, selectedTimelineId, session.id, session.rowVersion, `timeline-working-autosave:${session.id}:${session.rowVersion}`)
+      rememberWorkingWorkspace(next)
+      onToast(locale === 'vi' ? (kind === 'autosave' ? 'Đã autosave bản nháp bền vững.' : kind === 'checkpoint' ? 'Đã tạo checkpoint immutable từ phiên chỉnh sửa.' : kind === 'close' ? 'Đã đóng phiên chỉnh sửa.' : `Đã ${kind === 'undo' ? 'undo' : 'redo'} thao tác.`) : (kind === 'autosave' ? 'Draft autosaved durably.' : kind === 'checkpoint' ? 'Immutable checkpoint created from the working session.' : kind === 'close' ? 'Editing session closed.' : `${kind === 'undo' ? 'Undo' : 'Redo'} completed.`))
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setWorkingError(workspaceErrorMessage(cause, locale))
+    } finally { setMutating(null) }
+  }
+
   const currentRevision = workspace?.currentRevision
   const revisions = workspace?.revisions ?? []
   const profileRevisions = mediaProfile?.revisions ?? []
@@ -1501,6 +1727,28 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
           <div className="timeline-metrics"><div><span>{locale === 'vi' ? 'Revision' : 'Revision'}</span><strong>{currentRevision?.id ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Duration' : 'Duration'}</span><strong>{rationalLabel(currentRevision?.duration)}</strong></div><div><span>{locale === 'vi' ? 'Tracks' : 'Tracks'}</span><strong>{currentRevision?.tracks.length ?? 0}</strong></div><div><span>{locale === 'vi' ? 'Readiness' : 'Readiness'}</span><strong>{currentRevision?.readinessState ?? 'UNKNOWN'}</strong></div></div>
           {workspace.needsYou.length > 0 && <div className="inline-state warning"><UserRound size={14} /><span>{locale === 'vi' ? `Core cần bạn xử lý ${workspace.needsYou.length} mục.` : `Core needs you to resolve ${workspace.needsYou.length} item${workspace.needsYou.length === 1 ? '' : 's'}.`}</span></div>}
           <div className="timeline-revision-list">{revisions.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có checkpoint.' : 'No checkpoints yet.'} /> : revisions.map((revision) => { const nextState = timelineRevisionTransition(revision.state); return <div className="timeline-revision-row" key={revision.id}><div><strong>{revision.id ?? 'revision'}</strong><small>{timelineStateLabel(revision.state, locale)} · {rationalLabel(revision.duration)} · {revision.tracks.length} {locale === 'vi' ? 'track' : 'tracks'} · v{revision.rowVersion}</small></div>{nextState && <button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || (nextState === 'APPROVED' && !client.openReview)} onClick={() => void transitionRevision(revision, nextState)}>{mutating === `timeline-transition:${revision.id}` ? <RefreshCw size={12} className="spin" /> : nextState === 'APPROVED' ? <CheckCircle2 size={12} /> : <ArrowRight size={12} />}{nextState === 'APPROVED' ? (locale === 'vi' ? 'Mở review' : 'Open review') : timelineStateLabel(nextState, locale)}</button>}</div> })}</div>
+          <div className="timeline-working-panel">
+            <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon blue"><Command size={16} /></span><div><h3>{locale === 'vi' ? 'Phiên chỉnh sửa bản nháp' : 'Working draft session'}</h3><p>{locale === 'vi' ? 'Mỗi thao tác pin revision, client và version cụ thể; autosave không approve canon.' : 'Every edit pins an exact revision, client and version; autosave never approves canon.'}</p></div></div>{workingWorkspace?.session && <span className={`health-pill ${workingWorkspace.session.state === 'CLEAN' ? 'healthy' : 'warning'}`}><span />{workingWorkspace.session.state}</span>}</div>
+            {workingLoading ? <LoadingState label={locale === 'vi' ? 'Đang khôi phục phiên chỉnh sửa…' : 'Restoring the editing session…'} /> : workingError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{workingError}</span><button type="button" className="subtle-button tiny" onClick={() => selectedTimelineId && void loadWorkingSession(selectedTimelineId)}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : !workingWorkspace?.session ? <div className="working-session-empty"><p>{locale === 'vi' ? 'Chưa có phiên đang mở. Core sẽ bắt đầu từ revision hiện tại đang được chọn.' : 'No editing session is open. Core will start from the selected current revision.'}</p><button type="button" className="primary-button small" disabled={!connected || !currentRevision?.id || !currentRevision.editHash || mutating !== null || !client.beginTimelineWorkingSession} onClick={() => void beginWorkingSession()}>{mutating === 'timeline-working-begin' ? <RefreshCw size={14} className="spin" /> : <Command size={14} />}{locale === 'vi' ? 'Mở phiên chỉnh sửa' : 'Open editing session'}</button>{currentRevision && !currentRevision.editHash && <small className="warning-text">{locale === 'vi' ? 'Revision chưa có content hash để pin an toàn.' : 'This revision has no content hash for a safe exact pin.'}</small>}</div> : <>
+              <div className="timeline-metrics working-session-metrics"><div><span>{locale === 'vi' ? 'Base revision' : 'Base revision'}</span><strong title={workingWorkspace.session.baseContentHash}>{workingWorkspace.session.baseRevisionId ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Trạng thái' : 'State'}</span><strong>{workingWorkspace.session.state}</strong></div><div><span>{locale === 'vi' ? 'Thao tác' : 'Operations'}</span><strong>{workingWorkspace.session.lastAcknowledgedOpSeq}</strong></div><div><span>{locale === 'vi' ? 'Bản nháp' : 'Draft'}</span><strong>{workingWorkspace.session.draftHash?.slice(0, 12) ?? '—'}</strong></div></div>
+              {workingWorkspace.session.nextStep && <p className="readonly-note"><Info size={14} />{workingWorkspace.session.nextStep}</p>}
+              <form className="workspace-form working-marker-form" onSubmit={applyMarker}><div className="form-grid three"><label>{locale === 'vi' ? 'Marker num' : 'Marker num'}<input value={markerNum} onChange={(event) => setMarkerNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>{locale === 'vi' ? 'Marker den' : 'Marker den'}<input value={markerDen} onChange={(event) => setMarkerDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>{locale === 'vi' ? 'Nhãn marker' : 'Marker label'}<input value={markerLabel} onChange={(event) => setMarkerLabel(event.target.value)} maxLength={300} disabled={!connected || mutating !== null || !workingEditable} /></label></div><button type="submit" className="subtle-button tiny" disabled={!connected || mutating !== null || !client.applyTimelineEditOps || !workingEditable}>{mutating === 'timeline-working-apply' ? <RefreshCw size={12} className="spin" /> : <Plus size={12} />}{locale === 'vi' ? 'Thêm marker vào draft' : 'Add marker to draft'}</button></form>
+              <div className="working-clip-tools">
+                <div className="working-tool-heading"><strong>{locale === 'vi' ? 'Clip operations' : 'Clip operations'}</strong><span>{locale === 'vi' ? 'Mọi thay đổi vẫn là draft và có thể undo.' : 'Every change remains a draft and can be undone.'}</span></div>
+                <label>{locale === 'vi' ? 'Clip hiện tại' : 'Target clip'}<select value={clipTargetId} onChange={(event) => setClipTargetId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable}><option value="">{locale === 'vi' ? 'Chọn clip' : 'Choose a clip'}</option>{workingClips.map(({ track, clip }) => <option value={clip.id ?? ''} key={`${track.id ?? track.orderIndex}-${clip.id}`}>{track.name} · {clip.id}</option>)}</select></label>
+                <div className="working-clip-operation-grid">
+                  <form className="workspace-form" onSubmit={applyMoveClip}><div className="form-grid two"><label>{locale === 'vi' ? 'Move num' : 'Move num'}<input value={clipMoveNum} onChange={(event) => setClipMoveNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>{locale === 'vi' ? 'Move den' : 'Move den'}<input value={clipMoveDen} onChange={(event) => setClipMoveDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><button type="submit" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingEditable || workingClips.length === 0}>{locale === 'vi' ? 'Di chuyển' : 'Move'}</button></form>
+                  <form className="workspace-form" onSubmit={applyTrimClip}><div className="form-grid three"><label>{locale === 'vi' ? 'Cạnh' : 'Edge'}<select value={clipTrimEdge} onChange={(event) => setClipTrimEdge(event.target.value as 'IN' | 'OUT')} disabled={!connected || mutating !== null || !workingEditable}><option value="IN">IN</option><option value="OUT">OUT</option></select></label><label>{locale === 'vi' ? 'Trim num' : 'Trim num'}<input value={clipTrimNum} onChange={(event) => setClipTrimNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>{locale === 'vi' ? 'Trim den' : 'Trim den'}<input value={clipTrimDen} onChange={(event) => setClipTrimDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><button type="submit" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingEditable || workingClips.length === 0}>{locale === 'vi' ? 'Trim' : 'Trim'}</button></form>
+                  <button type="button" className="subtle-button tiny danger-button" onClick={() => void applyDeleteClip()} disabled={!connected || mutating !== null || !workingEditable || workingClips.length === 0}>{locale === 'vi' ? 'Xoá clip' : 'Delete clip'}</button>
+                </div>
+                <form className="workspace-form working-insert-form" onSubmit={applyInsertClip}><div className="form-grid two"><label>{locale === 'vi' ? 'Track ID' : 'Track ID'}<select value={insertTrackId} onChange={(event) => setInsertTrackId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable}><option value="">{locale === 'vi' ? 'Chọn track' : 'Choose a track'}</option>{workingTracks.map((track) => <option value={track.id ?? ''} key={track.id ?? track.orderIndex}>{track.name} · {track.id}</option>)}</select></label><label>{locale === 'vi' ? 'Asset revision ID' : 'Asset revision ID'}<input value={insertAssetRevisionId} onChange={(event) => setInsertAssetRevisionId(event.target.value)} placeholder="exact-id" disabled={!connected || mutating !== null || !workingEditable} /></label><label>{locale === 'vi' ? 'Clip ID (tuỳ chọn)' : 'Clip ID (optional)'}<input value={insertClipId} onChange={(event) => setInsertClipId(event.target.value)} disabled={!connected || mutating !== null || !workingEditable} /></label></div><div className="form-grid four"><label>Timeline in num<input value={insertTimelineInNum} onChange={(event) => setInsertTimelineInNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline in den<input value={insertTimelineInDen} onChange={(event) => setInsertTimelineInDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline out num<input value={insertTimelineOutNum} onChange={(event) => setInsertTimelineOutNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Timeline out den<input value={insertTimelineOutDen} onChange={(event) => setInsertTimelineOutDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><div className="form-grid four"><label>Source in num<input value={insertSourceInNum} onChange={(event) => setInsertSourceInNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source in den<input value={insertSourceInDen} onChange={(event) => setInsertSourceInDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source out num<input value={insertSourceOutNum} onChange={(event) => setInsertSourceOutNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label><label>Source out den<input value={insertSourceOutDen} onChange={(event) => setInsertSourceOutDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !workingEditable} /></label></div><button type="submit" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingEditable || workingTracks.length === 0 || !insertAssetRevisionId.trim()}>{locale === 'vi' ? 'Chèn clip' : 'Insert clip'}</button></form>
+                <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Asset revision phải là ID cụ thể đã materialize và có rights/readiness phù hợp; Core sẽ từ chối UNKNOWN hoặc cross-project.' : 'The asset revision must be an exact materialized ID with valid rights/readiness; Core rejects UNKNOWN and cross-project references.'}</p>
+              </div>
+              <div className="working-draft-records"><strong>{locale === 'vi' ? 'Draft hiện tại' : 'Current draft'}</strong>{workingTracks.map((track) => <div className="working-draft-row" key={track.id ?? track.orderIndex}><span>{track.name}</span><small>{track.clips.length} {locale === 'vi' ? 'clip' : 'clips'}</small></div>)}<div className="working-draft-row"><span>{locale === 'vi' ? 'Markers' : 'Markers'}</span><small>{workingSession?.draft.markers.length ?? 0}</small></div></div>
+              <div className="working-session-actions"><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || workingWorkspace.session.historyCursorSeq < 1 || !client.undoTimelineEditOp || !workingEditable} onClick={() => void runWorkingCommand('undo')}><Undo2 size={13} />Undo</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingWorkspace.session.operations.some((operation) => operation.opSeq === workingWorkspace.session!.historyCursorSeq + 1 && operation.historyState === 'UNDONE') || !client.redoTimelineEditOp || !workingEditable} onClick={() => void runWorkingCommand('redo')}><Redo2 size={13} />Redo</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !client.autosaveTimelineWorkingSession || !workingEditable} onClick={() => void runWorkingCommand('autosave')}><Save size={13} />Autosave</button><button type="button" className="primary-button small" disabled={!connected || mutating !== null || !client.checkpointTimelineWorkingSession || workingWorkspace.session.draftHash !== workingWorkspace.session.autosavedHash || ['CLOSED', 'ABANDONED', 'CONFLICT', 'RECOVERY_REQUIRED'].includes(workingWorkspace.session.state)} onClick={() => void runWorkingCommand('checkpoint')}><CheckCircle2 size={13} />{locale === 'vi' ? 'Tạo checkpoint' : 'Create checkpoint'}</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !client.closeTimelineWorkingSession || workingWorkspace.session.state !== 'CLEAN' || workingWorkspace.session.draftHash !== workingWorkspace.session.autosavedHash} onClick={() => void runWorkingCommand('close', 'SAVE')}><XCircle size={13} />{locale === 'vi' ? 'Đóng sạch' : 'Close cleanly'}</button><button type="button" className="subtle-button tiny danger-button" disabled={!connected || mutating !== null || !client.closeTimelineWorkingSession || ['CLOSED', 'ABANDONED'].includes(workingWorkspace.session.state)} onClick={() => { if (window.confirm(locale === 'vi' ? 'Giữ draft và đóng phiên? Bạn sẽ cần mở phiên mới để tiếp tục.' : 'Keep the draft and close this session? You will need a new session to continue.')) void runWorkingCommand('close', 'ABANDON') }}><XCircle size={13} />{locale === 'vi' ? 'Đóng, giữ draft' : 'Abandon with draft'}</button></div>
+              <p className="readonly-note"><Info size={14} />{locale === 'vi' ? `${workingWorkspace.session.draft.markers.length} marker · ${workingWorkspace.session.operations.length} operation · history action ${workingWorkspace.session.historyActions.length}.` : `${workingWorkspace.session.draft.markers.length} markers · ${workingWorkspace.session.operations.length} operations · ${workingWorkspace.session.historyActions.length} history actions.`}</p>
+            </>}
+          </div>
           {currentRevision && <div className="timeline-track-list">{currentRevision.tracks.map((track) => <div className="timeline-track-row" key={track.id ?? `${track.trackType}-${track.orderIndex}`}><span><strong>{track.name}</strong><small>{track.trackType} · {track.clips.length} {locale === 'vi' ? 'clip' : 'clips'}</small></span><span className="record-code">{track.enabled ? 'ON' : 'OFF'}</span></div>)}</div>}
           <form className="workspace-form timeline-checkpoint-form" onSubmit={createRevision}>
             <div className="form-grid two"><label>{locale === 'vi' ? 'Duration num' : 'Duration num'}<input value={durationNum} onChange={(event) => setDurationNum(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label><label>{locale === 'vi' ? 'Duration den' : 'Duration den'}<input value={durationDen} onChange={(event) => setDurationDen(event.target.value)} inputMode="numeric" disabled={!connected || mutating !== null || !approvedProfile} /></label></div>

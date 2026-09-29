@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -638,6 +638,107 @@ export function initializeDatabase(db) {
       ON timeline_markers(timeline_revision_id, position_num, position_den, id);
 
     /*
+     * V1 local timeline editing. A working session is mutable draft state
+     * pinned to one exact immutable checkpoint. Edit operations retain their
+     * before/after snapshots so undo/redo can be causal and deterministic
+     * without rewriting canonical revisions. The unique active-session index
+     * below keeps this bounded slice single-actor and avoids silent LWW.
+     */
+    CREATE TABLE IF NOT EXISTS timeline_working_sessions (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timelines(id),
+      base_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      base_revision_row_version INTEGER NOT NULL CHECK (base_revision_row_version >= 1),
+      base_content_hash TEXT NOT NULL CHECK (length(base_content_hash) = 64),
+      actor_id TEXT NOT NULL REFERENCES actors(id),
+      client_instance_id TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'EXCLUSIVE'
+        CHECK (mode IN ('EXCLUSIVE', 'BRANCH_REQUIRED')),
+      state TEXT NOT NULL DEFAULT 'OPEN'
+        CHECK (state IN ('OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED', 'CLOSED', 'ABANDONED')),
+      draft_payload_json TEXT NOT NULL DEFAULT '{}',
+      draft_hash TEXT NOT NULL CHECK (length(draft_hash) = 64),
+      autosaved_hash TEXT NOT NULL CHECK (length(autosaved_hash) = 64),
+      last_acknowledged_op_seq INTEGER NOT NULL DEFAULT 0 CHECK (last_acknowledged_op_seq >= 0),
+      history_cursor_seq INTEGER NOT NULL DEFAULT 0 CHECK (history_cursor_seq >= 0),
+      next_op_seq INTEGER NOT NULL DEFAULT 1 CHECK (next_op_seq >= 1),
+      last_checkpoint_revision_id TEXT REFERENCES timeline_revisions(id),
+      next_step TEXT,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      last_autosave_at_utc_us INTEGER,
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      closed_at_utc_us INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS timeline_working_sessions_timeline_idx
+      ON timeline_working_sessions(timeline_id, state, updated_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS timeline_working_sessions_project_idx
+      ON timeline_working_sessions(id, timeline_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS timeline_working_sessions_active_uq
+      ON timeline_working_sessions(timeline_id, actor_id)
+      WHERE state IN ('OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED');
+
+    CREATE TABLE IF NOT EXISTS timeline_edit_ops (
+      id TEXT PRIMARY KEY,
+      working_session_id TEXT NOT NULL REFERENCES timeline_working_sessions(id),
+      op_seq INTEGER NOT NULL CHECK (op_seq >= 1),
+      op_type TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      before_payload_json TEXT NOT NULL DEFAULT '{}',
+      after_payload_json TEXT NOT NULL DEFAULT '{}',
+      result_hash TEXT NOT NULL CHECK (length(result_hash) = 64),
+      history_state TEXT NOT NULL DEFAULT 'ACTIVE'
+        CHECK (history_state IN ('ACTIVE', 'UNDONE', 'DISCARDED')),
+      actor_id TEXT NOT NULL REFERENCES actors(id),
+      client_op_id TEXT,
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(working_session_id, op_seq)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS timeline_edit_ops_client_uq
+      ON timeline_edit_ops(working_session_id, client_op_id)
+      WHERE client_op_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS timeline_edit_ops_session_idx
+      ON timeline_edit_ops(working_session_id, op_seq ASC);
+
+    /* Undo/redo/discard relations are append-only facts.  The operation row
+     * keeps its immutable before/after payload; this separate ledger records
+     * every history transition without deleting or rewriting causality. */
+    CREATE TABLE IF NOT EXISTS timeline_edit_actions (
+      id TEXT PRIMARY KEY,
+      working_session_id TEXT NOT NULL REFERENCES timeline_working_sessions(id),
+      action_seq INTEGER NOT NULL CHECK (action_seq >= 1),
+      action_type TEXT NOT NULL CHECK (action_type IN ('UNDO', 'REDO', 'DISCARD_REDO_BRANCH')),
+      target_op_seq INTEGER,
+      target_op_id TEXT REFERENCES timeline_edit_ops(id),
+      before_hash TEXT NOT NULL CHECK (length(before_hash) = 64),
+      after_hash TEXT NOT NULL CHECK (length(after_hash) = 64),
+      actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(working_session_id, action_seq)
+    );
+    CREATE INDEX IF NOT EXISTS timeline_edit_actions_session_idx
+      ON timeline_edit_actions(working_session_id, action_seq ASC);
+
+    /* Compatibility shape for future non-timeline working copies. The V1
+     * editor uses timeline_working_sessions as its durable draft source. */
+    CREATE TABLE IF NOT EXISTS working_copies (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      base_revision_id TEXT,
+      owner_actor_id TEXT NOT NULL REFERENCES actors(id),
+      schema_version INTEGER NOT NULL DEFAULT 1,
+      draft_payload_json TEXT NOT NULL DEFAULT '{}',
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      autosaved_at_utc_us INTEGER,
+      expires_at_utc_us INTEGER,
+      UNIQUE(entity_type, entity_id, owner_actor_id)
+    );
+    CREATE INDEX IF NOT EXISTS working_copies_project_idx
+      ON working_copies(project_id, entity_type, entity_id);
+
+    /*
      * Review evidence is a separate immutable aggregate.  A session pins one
      * exact subject/dependency snapshot; the submitted human decision is an
      * append-only fact and can never be rewritten to make a stale approval
@@ -745,6 +846,42 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS timeline_markers_no_delete
       BEFORE DELETE ON timeline_markers
       BEGIN SELECT RAISE(ABORT, 'timeline_markers are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_working_sessions_no_delete
+      BEFORE DELETE ON timeline_working_sessions
+      BEGIN SELECT RAISE(ABORT, 'timeline_working_sessions are retained for recovery'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_working_sessions_identity_no_update
+      BEFORE UPDATE ON timeline_working_sessions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.timeline_id IS NOT OLD.timeline_id
+        OR NEW.actor_id IS NOT OLD.actor_id
+        OR NEW.client_instance_id IS NOT OLD.client_instance_id
+        OR NEW.mode IS NOT OLD.mode
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'timeline_working_session identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_edit_ops_no_update_identity
+      BEFORE UPDATE ON timeline_edit_ops
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.working_session_id IS NOT OLD.working_session_id
+        OR NEW.op_seq IS NOT OLD.op_seq
+        OR NEW.op_type IS NOT OLD.op_type
+        OR NEW.payload_json IS NOT OLD.payload_json
+        OR NEW.before_payload_json IS NOT OLD.before_payload_json
+        OR NEW.after_payload_json IS NOT OLD.after_payload_json
+        OR NEW.result_hash IS NOT OLD.result_hash
+         OR NEW.history_state IS NOT OLD.history_state
+        OR NEW.actor_id IS NOT OLD.actor_id
+        OR NEW.client_op_id IS NOT OLD.client_op_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'timeline_edit_op content is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_edit_ops_no_delete
+      BEFORE DELETE ON timeline_edit_ops
+      BEGIN SELECT RAISE(ABORT, 'timeline_edit_ops are retained for causal history'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_edit_actions_no_update
+      BEFORE UPDATE ON timeline_edit_actions
+      BEGIN SELECT RAISE(ABORT, 'timeline_edit_actions are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS timeline_edit_actions_no_delete
+      BEFORE DELETE ON timeline_edit_actions
+      BEGIN SELECT RAISE(ABORT, 'timeline_edit_actions are append-only'); END;
     CREATE TRIGGER IF NOT EXISTS review_sessions_no_delete
       BEFORE DELETE ON review_sessions
       BEGIN SELECT RAISE(ABORT, 'review_sessions are append-only'); END;
@@ -1395,6 +1532,85 @@ export function initializeDatabase(db) {
     DROP TRIGGER IF EXISTS handoff_manifests_no_delete;
     CREATE TRIGGER handoff_manifests_no_delete BEFORE DELETE ON handoff_manifests
       BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
+  `);
+
+  // v13 local timeline working-session baseline. Additive guards keep a
+  // partially upgraded development database resumable while the identity
+  // triggers remain authoritative for exact base/session fencing.
+  const workingSessionColumns = new Set(db.prepare('PRAGMA table_info(timeline_working_sessions)').all().map((row) => String(row.name)));
+  const workingSessionAdditions = [
+    ['base_revision_row_version', 'INTEGER NOT NULL DEFAULT 1'],
+    ['base_content_hash', "TEXT NOT NULL DEFAULT ''"],
+    ['client_instance_id', "TEXT NOT NULL DEFAULT 'legacy-client'"],
+    ['mode', "TEXT NOT NULL DEFAULT 'EXCLUSIVE'"],
+    ['draft_payload_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['draft_hash', "TEXT NOT NULL DEFAULT ''"],
+    ['autosaved_hash', "TEXT NOT NULL DEFAULT ''"],
+    ['last_acknowledged_op_seq', 'INTEGER NOT NULL DEFAULT 0'],
+    ['history_cursor_seq', 'INTEGER NOT NULL DEFAULT 0'],
+    ['next_op_seq', 'INTEGER NOT NULL DEFAULT 1'],
+    ['last_checkpoint_revision_id', 'TEXT'],
+    ['next_step', 'TEXT'],
+    ['row_version', 'INTEGER NOT NULL DEFAULT 1'],
+    ['last_autosave_at_utc_us', 'INTEGER'],
+    ['updated_at_utc_us', 'INTEGER NOT NULL DEFAULT 0'],
+    ['closed_at_utc_us', 'INTEGER'],
+  ];
+  for (const [column, definition] of workingSessionAdditions) {
+    if (!workingSessionColumns.has(column)) db.exec(`ALTER TABLE timeline_working_sessions ADD COLUMN ${column} ${definition}`);
+  }
+  const editOpColumns = new Set(db.prepare('PRAGMA table_info(timeline_edit_ops)').all().map((row) => String(row.name)));
+  const editOpAdditions = [
+    ['before_payload_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['after_payload_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['result_hash', "TEXT NOT NULL DEFAULT ''"],
+    ['history_state', "TEXT NOT NULL DEFAULT 'ACTIVE'"],
+    ['client_op_id', 'TEXT'],
+  ];
+  for (const [column, definition] of editOpAdditions) {
+    if (!editOpColumns.has(column)) db.exec(`ALTER TABLE timeline_edit_ops ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS timeline_working_sessions_timeline_idx
+      ON timeline_working_sessions(timeline_id, state, updated_at_utc_us DESC, id DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS timeline_working_sessions_active_uq
+      ON timeline_working_sessions(timeline_id, actor_id)
+      WHERE state IN ('OPEN', 'DIRTY', 'AUTOSAVING', 'CHECKPOINTING', 'CLEAN', 'CONFLICT', 'RECOVERY_REQUIRED');
+    CREATE UNIQUE INDEX IF NOT EXISTS timeline_edit_ops_client_uq
+      ON timeline_edit_ops(working_session_id, client_op_id)
+      WHERE client_op_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS timeline_edit_ops_session_idx
+      ON timeline_edit_ops(working_session_id, op_seq ASC);
+    DROP TRIGGER IF EXISTS timeline_working_sessions_no_delete;
+    CREATE TRIGGER timeline_working_sessions_no_delete BEFORE DELETE ON timeline_working_sessions
+      BEGIN SELECT RAISE(ABORT, 'timeline_working_sessions are retained for recovery'); END;
+    DROP TRIGGER IF EXISTS timeline_working_sessions_identity_no_update;
+    CREATE TRIGGER timeline_working_sessions_identity_no_update BEFORE UPDATE ON timeline_working_sessions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.timeline_id IS NOT OLD.timeline_id
+        OR NEW.actor_id IS NOT OLD.actor_id
+        OR NEW.client_instance_id IS NOT OLD.client_instance_id
+        OR NEW.mode IS NOT OLD.mode
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'timeline_working_session identity is immutable'); END;
+    DROP TRIGGER IF EXISTS timeline_edit_ops_no_update_identity;
+    CREATE TRIGGER timeline_edit_ops_no_update_identity BEFORE UPDATE ON timeline_edit_ops
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.working_session_id IS NOT OLD.working_session_id
+        OR NEW.op_seq IS NOT OLD.op_seq
+        OR NEW.op_type IS NOT OLD.op_type
+        OR NEW.payload_json IS NOT OLD.payload_json
+        OR NEW.before_payload_json IS NOT OLD.before_payload_json
+        OR NEW.after_payload_json IS NOT OLD.after_payload_json
+        OR NEW.result_hash IS NOT OLD.result_hash
+         OR NEW.history_state IS NOT OLD.history_state
+        OR NEW.actor_id IS NOT OLD.actor_id
+        OR NEW.client_op_id IS NOT OLD.client_op_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'timeline_edit_op content is immutable'); END;
+    DROP TRIGGER IF EXISTS timeline_edit_ops_no_delete;
+    CREATE TRIGGER timeline_edit_ops_no_delete BEFORE DELETE ON timeline_edit_ops
+      BEGIN SELECT RAISE(ABORT, 'timeline_edit_ops are retained for causal history'); END;
   `);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so

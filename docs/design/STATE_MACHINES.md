@@ -568,19 +568,20 @@ separate state axes:
 OPEN
   └─ accepted edit ───────────────→ DIRTY
 DIRTY
-  ├─ Autosave commit ─────────────→ AUTOSAVING ── success ──→ DIRTY
+  ├─ Autosave commit ─────────────→ AUTOSAVING ── success ──→ CLEAN
   ├─ Checkpoint request ──────────→ CHECKPOINTING ─ commit ─→ CLEAN
   └─ explicit ABANDON close ───────────────────────────────→ ABANDONED
 CLEAN
   └─ explicit close ───────────────────────────────────────→ CLOSED
 ```
 
-Any mutable state may enter `CONFLICT` when the exact base revision, base row
-version or session row version no longer matches. An interrupted autosave or
-checkpoint enters `RECOVERY_REQUIRED` until Core reconciles the durable
-operation acknowledgement and the working snapshot. These states never fall
-back to last-write-wins. A stale/suspended client cannot autosave over a newer
-session or canonical revision.
+An operation with a stale exact base revision, base row version or session row
+version returns `CONFLICT` and leaves the durable session unchanged. An
+interrupted autosave or checkpoint enters `RECOVERY_REQUIRED` until Core
+reconciles the durable operation acknowledgement and working snapshot. These
+states never fall back to last-write-wins. A stale/suspended client cannot
+autosave over a newer session or canonical revision; the bound
+`client_instance_id` must also match on every mutation.
 
 `ApplyTimelineEditOp` appends one typed operation or a bounded all-or-nothing
 batch and advances the session version atomically. `UndoTimelineEditOp` appends
@@ -591,8 +592,10 @@ rewinds unrelated project state. A new edit after undo invalidates the redo
 branch. External publication, upload, charge and provider effects are outside
 this state machine and are never reported as reversible.
 
-`AutosaveTimelineWorkingSession` may move `DIRTY → AUTOSAVING → DIRTY` only
-after a durable Core commit. It does not change `TimelineCheckpoint` lifecycle
+`AutosaveTimelineWorkingSession` may move `DIRTY → AUTOSAVING → CLEAN` only
+after a durable Core commit. `CLEAN` means the draft equals the last durable
+autosave; it does not mean that the draft is an approved canonical revision.
+It does not change `TimelineCheckpoint` lifecycle
 or review/approval state. `CheckpointTimelineWorkingSession` may move
 `DIRTY → CHECKPOINTING → CLEAN` only when all accepted operations are
 acknowledged, the exact base/version is still current, and profile, asset

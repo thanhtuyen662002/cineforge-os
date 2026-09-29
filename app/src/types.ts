@@ -203,6 +203,7 @@ export interface TimelineMarker {
   time: RationalValue
   markerType: string
   label: string
+  payload?: Record<string, unknown>
 }
 
 export interface TimelineClip {
@@ -260,6 +261,90 @@ export interface TimelineWorkspace {
   revisions: TimelineRevision[]
   currentRevision: TimelineRevision | null
   needsYou: unknown[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export type TimelineWorkingSessionState = 'OPEN' | 'DIRTY' | 'AUTOSAVING' | 'CHECKPOINTING' | 'CLEAN' | 'CONFLICT' | 'RECOVERY_REQUIRED' | 'CLOSED' | 'ABANDONED' | string
+
+export interface TimelineWorkingOperation {
+  id?: string
+  opSeq: number
+  opType: string
+  historyState: 'ACTIVE' | 'UNDONE' | 'DISCARDED' | string
+  resultHash?: string
+  actorId?: string
+  createdAt?: string
+}
+
+export interface TimelineWorkingHistoryAction {
+  id?: string
+  actionSeq: number
+  actionType: 'UNDO' | 'REDO' | 'DISCARD_REDO_BRANCH' | string
+  targetOpSeq?: number | null
+  targetOpId?: string | null
+  beforeHash?: string
+  afterHash?: string
+  actorId?: string
+  createdAt?: string
+}
+
+export interface TimelineWorkingDraft {
+  schemaVersion: number
+  mediaProfileRevisionId?: string
+  duration: RationalValue
+  tracks: TimelineTrack[]
+  markers: TimelineMarker[]
+}
+
+export interface TimelineWorkingSession {
+  id?: string
+  timelineId?: string
+  baseRevisionId?: string
+  baseRevisionRowVersion: number
+  baseContentHash?: string
+  actorId?: string
+  clientInstanceId?: string
+  mode: string
+  state: TimelineWorkingSessionState
+  draftHash?: string
+  autosavedHash?: string
+  draft: TimelineWorkingDraft
+  lastAcknowledgedOpSeq: number
+  historyCursorSeq: number
+  nextOpSeq: number
+  lastCheckpointRevisionId?: string | null
+  nextStep?: string | null
+  rowVersion: number
+  lastAutosaveAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  closedAt?: string | null
+  operations: TimelineWorkingOperation[]
+  historyActions: TimelineWorkingHistoryAction[]
+}
+
+export interface TimelineWorkingWorkspace {
+  timeline: TimelineSummary | null
+  session: TimelineWorkingSession | null
+  checkpointRevision?: TimelineRevision | null
+  checkpointRevisionId?: string | null
+  acceptedOperations?: TimelineWorkingOperation[]
+  timelineRowVersion?: number
+  impactSummary?: unknown
+  undoneOperation?: Pick<TimelineWorkingOperation, 'id' | 'opSeq' | 'opType'> | null
+  redoneOperation?: Pick<TimelineWorkingOperation, 'id' | 'opSeq' | 'opType'> | null
+  projectionSeq?: number
+  generatedAt?: string
+  idempotentReplay?: boolean
+}
+
+export interface TimelineWorkingHistory {
+  timeline: TimelineSummary | null
+  workingSessionId?: string
+  operations: TimelineWorkingOperation[]
+  historyActions: TimelineWorkingHistoryAction[]
+  cursor: { afterOpSeq: number; hasMore: boolean }
   projectionSeq?: number
   generatedAt?: string
 }
@@ -588,6 +673,15 @@ export interface CoreClient {
   transitionMediaProfileRevision?(projectId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string): Promise<MediaProfileWorkspace>
   getTimelines?(projectId: string, signal?: AbortSignal): Promise<TimelineSummary[]>
   getTimelineWorkspace?(projectId: string, timelineId: string, signal?: AbortSignal): Promise<TimelineWorkspace>
+  getTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, signal?: AbortSignal): Promise<TimelineWorkingWorkspace>
+  getTimelineWorkingHistory?(projectId: string, timelineId: string, sessionId: string, afterOpSeq?: number, limit?: number, signal?: AbortSignal): Promise<TimelineWorkingHistory>
+  beginTimelineWorkingSession?(projectId: string, timelineId: string, input: { baseRevisionId: string; baseRevisionRowVersion: number; baseContentHash: string; clientInstanceId: string; expectedTimelineVersion: number }, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  applyTimelineEditOps?(projectId: string, timelineId: string, sessionId: string, operations: Array<Record<string, unknown>>, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  undoTimelineEditOp?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  redoTimelineEditOp?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  autosaveTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  checkpointTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, expectedTimelineVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
+  closeTimelineWorkingSession?(projectId: string, timelineId: string, sessionId: string, disposition: 'SAVE' | 'ABANDON', expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
   createTimeline?(projectId: string, input: TimelineInput, idempotencyKey?: string): Promise<TimelineSummary>
   createTimelineRevision?(projectId: string, timelineId: string, input: TimelineSnapshotInput, expectedVersion: number, idempotencyKey?: string): Promise<TimelineWorkspace>
   transitionTimelineRevision?(projectId: string, timelineId: string, revisionId: string, nextState: string, expectedVersion: number, idempotencyKey?: string, reviewSessionId?: string, dependencySnapshotHash?: string): Promise<TimelineWorkspace>

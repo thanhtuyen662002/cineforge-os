@@ -6,8 +6,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED'].includes(code)) return 400;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
@@ -455,7 +455,7 @@ function mapMediaProfileWorkspace(result) {
   };
 }
 
-function mapTimelineMarker(source) {
+function mapTimelineMarker(source, includePayload = false) {
   const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
   const time = safeRational(value.time ?? value.position) ?? safeRational({ num: value.time_num ?? value.timeNum, den: value.time_den ?? value.timeDen });
   return {
@@ -463,6 +463,7 @@ function mapTimelineMarker(source) {
     time: time ?? { num: 0, den: 1 },
     markerType: readString(value, 'marker_type', 'markerType', 'type') ?? 'NOTE',
     label: readString(value, 'label', 'name') ?? '',
+    ...(includePayload ? { payload: value.payload && typeof value.payload === 'object' && !Array.isArray(value.payload) ? value.payload : {} } : {}),
   };
 }
 
@@ -580,6 +581,149 @@ function mapTimelineWorkspace(result) {
     projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
     generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
   };
+}
+
+function mapTimelineWorkingDraft(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const tracks = Array.isArray(value.tracks ?? value.timeline_tracks ?? value.timelineTracks)
+    ? (value.tracks ?? value.timeline_tracks ?? value.timelineTracks).map(mapTimelineTrack) : [];
+  const markers = Array.isArray(value.markers ?? value.timeline_markers ?? value.timelineMarkers)
+    ? (value.markers ?? value.timeline_markers ?? value.timelineMarkers).map((marker) => mapTimelineMarker(marker, true)) : [];
+  const duration = safeRational(value.duration) ?? safeRational({ num: value.duration_num ?? value.durationNum, den: value.duration_den ?? value.durationDen });
+  return {
+    schemaVersion: Number(value.schema_version ?? value.schemaVersion ?? 1),
+    mediaProfileRevisionId: readString(value, 'media_profile_revision_id', 'mediaProfileRevisionId'),
+    duration: duration ?? { num: 0, den: 1 },
+    tracks,
+    markers,
+  };
+}
+
+function mapTimelineWorkingSession(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const operations = Array.isArray(value.operations) ? value.operations.map((operation) => ({
+    id: readString(operation, 'id'),
+    opSeq: Number(operation.op_seq ?? operation.opSeq ?? 0),
+    opType: readString(operation, 'op_type', 'opType') ?? 'UNKNOWN',
+    historyState: readString(operation, 'history_state', 'historyState') ?? 'ACTIVE',
+    resultHash: readString(operation, 'result_hash', 'resultHash'),
+    actorId: readString(operation, 'actor_id', 'actorId'),
+    createdAt: readString(operation, 'created_at', 'createdAt'),
+  })) : [];
+  const historyActions = Array.isArray(value.history_actions ?? value.historyActions) ? (value.history_actions ?? value.historyActions).map((action) => ({
+    id: readString(action, 'id'),
+    actionSeq: Number(action.action_seq ?? action.actionSeq ?? 0),
+    actionType: readString(action, 'action_type', 'actionType') ?? 'UNKNOWN',
+    targetOpSeq: action.target_op_seq ?? action.targetOpSeq ?? null,
+    targetOpId: readString(action, 'target_op_id', 'targetOpId'),
+    beforeHash: readString(action, 'before_hash', 'beforeHash'),
+    afterHash: readString(action, 'after_hash', 'afterHash'),
+    actorId: readString(action, 'actor_id', 'actorId'),
+    createdAt: readString(action, 'created_at', 'createdAt'),
+  })) : [];
+  return {
+    id: readString(value, 'id', 'working_session_id', 'workingSessionId'),
+    timelineId: readString(value, 'timeline_id', 'timelineId'),
+    baseRevisionId: readString(value, 'base_revision_id', 'baseRevisionId'),
+    baseRevisionRowVersion: Number(value.base_revision_row_version ?? value.baseRevisionRowVersion ?? 0),
+    baseContentHash: readString(value, 'base_content_hash', 'baseContentHash'),
+    actorId: readString(value, 'actor_id', 'actorId'),
+    clientInstanceId: readString(value, 'client_instance_id', 'clientInstanceId'),
+    mode: readString(value, 'mode') ?? 'EXCLUSIVE',
+    state: readString(value, 'state') ?? 'UNKNOWN',
+    draftHash: readString(value, 'draft_hash', 'draftHash'),
+    autosavedHash: readString(value, 'autosaved_hash', 'autosavedHash'),
+    draft: mapTimelineWorkingDraft(value.draft),
+    lastAcknowledgedOpSeq: Number(value.last_acknowledged_op_seq ?? value.lastAcknowledgedOpSeq ?? 0),
+    historyCursorSeq: Number(value.history_cursor_seq ?? value.historyCursorSeq ?? 0),
+    nextOpSeq: Number(value.next_op_seq ?? value.nextOpSeq ?? 1),
+    lastCheckpointRevisionId: readString(value, 'last_checkpoint_revision_id', 'lastCheckpointRevisionId'),
+    nextStep: readString(value, 'next_step', 'nextStep'),
+    rowVersion: Number(value.row_version ?? value.rowVersion ?? 1),
+    lastAutosaveAt: readString(value, 'last_autosave_at', 'lastAutosaveAt'),
+    createdAt: readString(value, 'created_at', 'createdAt'),
+    updatedAt: readString(value, 'updated_at', 'updatedAt'),
+    closedAt: readString(value, 'closed_at', 'closedAt'),
+    operations,
+    historyActions,
+  };
+}
+
+function mapTimelineWorkingWorkspace(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const mapOperationRef = (operation) => {
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)) return null;
+    return {
+      id: readString(operation, 'id'),
+      opSeq: Number(operation.op_seq ?? operation.opSeq ?? 0),
+      opType: readString(operation, 'op_type', 'opType') ?? 'UNKNOWN',
+    };
+  };
+  return {
+    timeline: value.timeline ? mapTimeline(value.timeline) : null,
+    session: value.session ? mapTimelineWorkingSession(value.session) : null,
+    checkpointRevision: value.checkpoint_revision || value.checkpointRevision ? mapTimelineRevision(value.checkpoint_revision ?? value.checkpointRevision) : null,
+    checkpointRevisionId: readString(value, 'checkpoint_revision_id', 'checkpointRevisionId'),
+    acceptedOperations: Array.isArray(value.accepted_operations ?? value.acceptedOperations) ? (value.accepted_operations ?? value.acceptedOperations).map((operation) => ({
+      id: readString(operation, 'id'),
+      opSeq: Number(operation.op_seq ?? operation.opSeq ?? 0),
+      opType: readString(operation, 'op_type', 'opType'),
+      resultHash: readString(operation, 'result_hash', 'resultHash'),
+      clientOpId: readString(operation, 'client_op_id', 'clientOpId'),
+    })) : [],
+    timelineRowVersion: Number(value.timeline_row_version ?? value.timelineRowVersion ?? 0),
+    impactSummary: value.impact_summary ?? value.impactSummary ?? null,
+    undoneOperation: mapOperationRef(value.undone_operation ?? value.undoneOperation),
+    redoneOperation: mapOperationRef(value.redone_operation ?? value.redoneOperation),
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
+function mapTimelineWorkingHistory(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const mapOperation = (operation) => ({
+    id: readString(operation, 'id'),
+    opSeq: Number(operation.op_seq ?? operation.opSeq ?? 0),
+    opType: readString(operation, 'op_type', 'opType') ?? 'UNKNOWN',
+    historyState: readString(operation, 'history_state', 'historyState') ?? 'ACTIVE',
+    resultHash: readString(operation, 'result_hash', 'resultHash'),
+    actorId: readString(operation, 'actor_id', 'actorId'),
+    createdAt: readString(operation, 'created_at', 'createdAt'),
+  });
+  const mapAction = (action) => ({
+    id: readString(action, 'id'),
+    actionSeq: Number(action.action_seq ?? action.actionSeq ?? 0),
+    actionType: readString(action, 'action_type', 'actionType') ?? 'UNKNOWN',
+    targetOpSeq: action.target_op_seq ?? action.targetOpSeq ?? null,
+    targetOpId: readString(action, 'target_op_id', 'targetOpId'),
+    beforeHash: readString(action, 'before_hash', 'beforeHash'),
+    afterHash: readString(action, 'after_hash', 'afterHash'),
+    actorId: readString(action, 'actor_id', 'actorId'),
+    createdAt: readString(action, 'created_at', 'createdAt'),
+  });
+  return {
+    timeline: value.timeline ? mapTimeline(value.timeline) : null,
+    workingSessionId: readString(value, 'working_session_id', 'workingSessionId'),
+    operations: Array.isArray(value.operations) ? value.operations.map(mapOperation) : [],
+    historyActions: Array.isArray(value.history_actions ?? value.historyActions) ? (value.history_actions ?? value.historyActions).map(mapAction) : [],
+    cursor: value.cursor && typeof value.cursor === 'object' ? {
+      afterOpSeq: Number(value.cursor.after_op_seq ?? value.cursor.afterOpSeq ?? 0),
+      hasMore: Boolean(value.cursor.has_more ?? value.cursor.hasMore),
+    } : { afterOpSeq: 0, hasMore: false },
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
+// Preserve the command gate's replay evidence while redacting the nested
+// working-session projection.  Idempotency is part of the public command
+// contract; dropping it at the presentation boundary makes a successful
+// retry indistinguishable from a second mutation to packaged clients.
+function mapTimelineWorkingCommandResult(result) {
+  const mapped = mapTimelineWorkingWorkspace(result);
+  if (result && typeof result === 'object' && result.idempotent_replay === true) mapped.idempotent_replay = true;
+  return mapped;
 }
 
 function mapHumanReview(source) {
@@ -1061,6 +1205,45 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'workspace' && parts.length === 6) {
         const workspace = query(core, request, 'query.timeline.workspace', { project_id: parts[2], timeline_id: parts[4] });
         result = workspace.ok ? { ...workspace, result: mapTimelineWorkspace(workspace.result) } : workspace;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'working-sessions' && parts.length === 6) {
+        const listed = query(core, request, 'query.timeline.working_session.list', {
+          project_id: parts[2], timeline_id: parts[4], include_closed: url.searchParams.get('include_closed') === 'true',
+        });
+        result = listed.ok ? { ...listed, result: { ...listed.result, sessions: (listed.result.sessions ?? []).map(mapTimelineWorkingSession) } } : listed;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'working-sessions' && parts[6] && parts.length === 7) {
+        const found = query(core, request, 'query.timeline.working_session', {
+          project_id: parts[2], timeline_id: parts[4], working_session_id: parts[6],
+        });
+        result = found.ok ? { ...found, result: mapTimelineWorkingWorkspace(found.result) } : found;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'working-sessions' && parts[6] && parts[7] === 'history' && parts.length === 8) {
+        const history = query(core, request, 'query.timeline.edit_history', {
+          project_id: parts[2], timeline_id: parts[4], working_session_id: parts[6],
+          after_op_seq: url.searchParams.get('after_op_seq') ?? 0, limit: url.searchParams.get('limit') ?? 100,
+        });
+        result = history.ok ? { ...history, result: mapTimelineWorkingHistory(history.result) } : history;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'working-sessions' && parts.length === 6) {
+        const opened = command(core, request, 'BeginTimelineWorkingSession', {
+          ...body, project_id: parts[2], timeline_id: parts[4],
+        }, expectedVersions(body, 'TIMELINE', body.expected_timeline_version ?? body.expectedTimelineVersion), commandKey(request, body));
+        result = opened.ok ? { ...opened, result: mapTimelineWorkingCommandResult(opened.result) } : opened;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'working-sessions' && parts[6] && parts[7] === 'ops' && parts.length === 8) {
+        const applied = command(core, request, 'ApplyTimelineEditOp', {
+          ...body, project_id: parts[2], timeline_id: parts[4], working_session_id: parts[6],
+        }, expectedVersions(body, 'WORKING_SESSION'), commandKey(request, body));
+        result = applied.ok ? { ...applied, result: mapTimelineWorkingCommandResult(applied.result) } : applied;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'working-sessions' && parts[6] && ['undo', 'redo', 'autosave', 'checkpoint', 'close'].includes(parts[7]) && parts.length === 8) {
+        const commandType = {
+          undo: 'UndoTimelineEditOp', redo: 'RedoTimelineEditOp', autosave: 'AutosaveTimelineWorkingSession',
+          checkpoint: 'CheckpointTimelineWorkingSession', close: 'CloseTimelineWorkingSession',
+        }[parts[7]];
+        const expected = expectedVersions(body, 'WORKING_SESSION');
+        if (parts[7] === 'checkpoint' && !(body.expected_versions ?? body.expectedVersions) && (body.expected_timeline_version ?? body.expectedTimelineVersion) !== undefined) {
+          expected.TIMELINE = body.expected_timeline_version ?? body.expectedTimelineVersion;
+        }
+        const changed = command(core, request, commandType, {
+          ...body, project_id: parts[2], timeline_id: parts[4], working_session_id: parts[6],
+        }, expected, commandKey(request, body));
+        result = changed.ok ? { ...changed, result: mapTimelineWorkingCommandResult(changed.result) } : changed;
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'revisions' && parts.length === 6) {
         // Older desktop clients wrapped the immutable snapshot under
         // `snapshot`; flatten it at the HTTP boundary so Core always receives

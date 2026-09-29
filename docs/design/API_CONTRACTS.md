@@ -703,6 +703,11 @@ the original result; the same key with a different payload, base revision or
 expected version returns `IDEMPOTENCY_KEY_REUSE_CONFLICT` and writes no second
 command, event or operation.
 
+After `BeginTimelineWorkingSession`, every session mutation also carries the
+same `client_instance_id` that was bound to the session. A missing or different
+client identity is rejected before the working snapshot is evaluated; a client
+cannot borrow another local client's session merely by knowing its ID.
+
 `BeginTimelineWorkingSession` requires an explicit `project_id`, `timeline_id`,
 `base_revision_id`, `base_content_hash` (equal to that revision's exact
 `content_hash`), `expected_timeline_version` and `client_instance_id`. The
@@ -723,9 +728,9 @@ the following semantic contract:
 |---|---|---|
 | `INSERT_CLIP` | exact `asset_revision_id`, VIDEO track/order, source and timeline rational intervals, positive constant speed | asset is materialized, available, same project and rights-allowed; no overlap or out-of-bounds interval |
 | `MOVE_CLIP` | exact clip ID and new timeline interval | clip belongs to this working snapshot; ordering and overlap rules hold |
-| `TRIM_CLIP` | exact clip ID and checked source/timeline bounds | intervals remain ordered and non-empty; source bounds remain within the pinned asset |
+| `TRIM_CLIP` | exact clip ID and checked source/timeline bounds | intervals remain ordered and non-empty and remain pinned to the exact asset revision; asset-duration bounds are deferred until authoritative media-duration metadata is available |
 | `DELETE_CLIP` | exact clip ID | only the working snapshot is changed; immutable revisions are untouched |
-| `ADD_MARKER` | rational position, typed marker kind/label/payload | position is in the timeline bounds and payload contains no unknown keys |
+| `ADD_MARKER` | rational position, typed marker kind/label/payload | position is in the timeline bounds and the structured payload stays within Core's bounded object limits |
 
 The five-operation allowlist is closed. `SPLIT_CLIP`, `RETIME_CLIP`, audio,
 captions, transitions, links, transforms,
@@ -733,8 +738,10 @@ effects, nested sequences, provider fields, paths, floats, NaN/Infinity,
 zero/negative denominators, overflowed rationals, cross-project IDs and
 unknown payload keys fail typed validation before mutation. Core assigns a
 monotonic `op_seq`; the request's `client_op_id` is unique within the session.
-The operation, its canonical payload hash, base revision/version and actor
-are committed atomically with the session row. The response includes the
+The operation's canonical payload JSON, base revision/version binding and
+actor are committed atomically with the session row; the command ledger keeps
+the request fingerprint used for idempotent replay and reuse-conflict checks.
+The response includes the
 accepted sequence, working content hash, session state, dependency-impact
 summary, `needs_user` and `next_step`.
 
@@ -750,17 +757,21 @@ remain visible in history.
 and acknowledgement sequence only. It must not create, approve, supersede or
 mutate a canonical timeline revision, review, release or handoff. The response
 is successful only after the Core transaction commits and includes the server
-autosave timestamp and durable op sequence. A stale base/session version enters
-`CONFLICT` or `RECOVERY_REQUIRED`; autosave cannot overwrite newer state.
+ autosave timestamp and durable op sequence. A stale base/session version
+ returns a typed `409 CONFLICT` and leaves the durable session unchanged; an
+ interrupted autosave/checkpoint is instead promoted to `RECOVERY_REQUIRED` on
+ the next Core start. Autosave cannot overwrite newer state.
 
 `CheckpointTimelineWorkingSession` requires a cleanly acknowledged operation
 prefix, the exact expected session/base version and no unresolved conflict. It
 replays the deterministic working snapshot, then revalidates the exact media
 profile, materialized asset revisions, rational bounds and current rights
-before invoking the existing `CreateTimelineRevision` semantics. Success
-creates one immutable `DRAFT_CHECKPOINT`, leaves all earlier revisions
-untouched and re-bases the still-open session to that exact checkpoint in
-`CLEAN`. It never promotes, approves, exports or publishes the checkpoint.
+before invoking the existing `CreateTimelineRevision` semantics. Core also
+fences the session's captured base revision row version and content hash before
+the write. Success creates one immutable `DRAFT_CHECKPOINT`, leaves all
+earlier revisions untouched and re-bases the still-open session to that exact
+checkpoint (including its new base row version/hash) in `CLEAN`. It never
+promotes, approves, exports or publishes the checkpoint.
 
 `CloseTimelineWorkingSession` is explicit. A `CLEAN` session may close and
 becomes `CLOSED`; a dirty session must either checkpoint first or send an
@@ -778,7 +789,8 @@ The project-scoped HTTP adapter maps these commands to:
 - `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/redo`;
 - `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/autosave`;
 - `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/checkpoint`; and
-- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/close`.
+- `POST /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/close`; and
+- `GET /v1/projects/{project_id}/timelines/{timeline_id}/working-sessions/{session_id}/history?after_op_seq=&limit=`.
 
 Malformed or unsupported payloads map to `400 VALIDATION`; unknown or
 cross-project IDs map to `404`; stale base/session versions, a second active

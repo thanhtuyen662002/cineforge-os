@@ -1057,37 +1057,48 @@ timeline-revision model and it does not make a working copy canonical.
 - `timeline_id` FK, which must resolve to a `scope_type=PROJECT` timeline;
 - `base_revision_id` FK to one exact immutable timeline revision;
 - `base_content_hash` (the exact base revision `content_hash`) and
-  `base_row_version`, captured at begin time;
+  `base_revision_row_version`, captured at begin time and advanced only by an
+  explicit successful checkpoint rebase;
 - `actor_id` FK and `client_instance_id`, both part of the session identity;
 - `mode`, which is `EXCLUSIVE` for this local slice (shared and branch modes
   remain future compatibility values);
-- `state`, `row_version`, `last_accepted_op_seq`, and
+- `state`, `row_version`, `history_cursor_seq`, `next_op_seq`, and
   `last_acknowledged_op_seq`;
 - `last_autosave_at_utc_us`, `created_at_utc_us`, and `updated_at_utc_us`.
 
 Only one non-terminal session may be open for a given `(timeline_id,
 actor_id)` in this slice. A second begin request returns a typed conflict;
-Core never silently steals or merges the existing session. Session identity,
-the immutable base revision, and the actor/client binding cannot be changed in
-place. A closed or abandoned session cannot accept another operation.
+Core never silently steals or merges the existing session. Timeline, actor,
+client and mode identity cannot be changed in place. A successful checkpoint
+explicitly rebases the still-open session to that newly created immutable
+checkpoint and records the exact new base hash/version. A closed or abandoned
+session cannot accept another operation.
 
-`timeline_edit_ops` is an append-only operation ledger. In addition to the
-compatibility fields above, an executable implementation records:
+`timeline_edit_ops` is an append-only operation ledger. The executable
+implementation records the immutable operation identity, typed
+`payload_json`, exact before/after canonical snapshots, result content hash,
+`client_op_id`, actor and server creation time. `(working_session_id,
+op_seq)` and `(working_session_id, client_op_id)` are unique. An accepted
+operation is never deleted or rewritten to make history appear different.
+Command idempotency is recorded by the Core command ledger; an equivalent
+retry returns the original result and a changed payload/version is rejected.
 
-- `client_op_id` and a session-scoped `idempotency_key`;
-- the assigned monotonically increasing `op_seq` and the last server
-  acknowledgement sequence;
-- `base_revision_id`/`base_row_version` observed when the operation was
-  accepted;
-- the typed `op_type`, canonical `payload_json`, and `payload_hash`;
-- `related_op_seq` plus a relation kind for causal `UNDO` and `REDO` records;
-- actor/client identity and server creation time.
+`timeline_edit_actions` is a separate append-only causal relation ledger. It
+records `UNDO`, `REDO` and `DISCARD_REDO_BRANCH` action sequence, target
+operation, before/after draft hashes, actor and creation time. The operation
+content row remains immutable while its public `history_state` is derived from
+the latest action relation and current session cursor. No history is silently
+deleted or compacted.
 
-`(working_session_id, op_seq)`, `(working_session_id, client_op_id)` and
-`(working_session_id, idempotency_key)` are unique. An accepted operation is
-never updated or deleted to make history appear different. Replaying an
-equivalent idempotent request returns the original operation/result; reusing a
-key with a different canonical payload or base version is a conflict.
+## timeline_edit_actions
+- id PK
+- working_session_id FK
+- action_seq
+- action_type (`UNDO`, `REDO`, `DISCARD_REDO_BRANCH`)
+- target operation sequence/ID
+- before/after draft hashes
+- actor and creation timestamp
+UNIQUE(working_session_id, action_seq)
 
 The Issue #27 operation allowlist is exactly:
 
