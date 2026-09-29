@@ -1099,15 +1099,16 @@ active review subject supports it. If that review subject is unavailable, Core
 returns a typed `REVIEW_NOT_SUPPORTED`/`needs_user` result and keeps the prior
 state; a selected row, autosave or successful read never implies approval.
 
-The dependency graph records a `TIMING` edge to the pinned timeline revision,
-plus a `RIGHTS`/`PROVENANCE` edge for any selected audio revision and a
-localization-source edge for subtitle text. A newer checkpoint, a changed
-timeline hash, asset materialization loss, rights revocation/expiry or source
-change opens `staleness_records` and projects `STALE` with a human-readable
-reason and `next_step`. A stale revision cannot transition to `APPROVED` or be
-silently retimed; recovery creates a new revision against an explicitly named
-current timeline revision/hash and repeats all gates. Historical text, timing,
-approval and stale evidence remain queryable.
+The v14 bounded slice stores the exact `TIMING` pin and an audio asset evidence
+snapshot. A newer checkpoint, a changed timeline hash, asset materialization
+loss, or rights revocation/expiry is evaluated at read/transition time and
+projects `STALE` with a human-readable reason and `next_step`. Generic
+`dependencies`/`staleness_records` graph materialization and
+localization-source edges are reserved for a later slice; this state machine
+does not pretend those tables exist. A stale revision cannot transition to
+`APPROVED` or be silently retimed; recovery creates a new revision against an
+explicitly named current timeline revision/hash and repeats all gates.
+Historical text, timing and stale evidence remain queryable.
 
 The transition commands are reversible only as new compensating metadata
 actions; no media bytes or external side effect exists in this slice. The

@@ -1292,25 +1292,25 @@ Original creative text remains addressable alongside localization.
 
 Issue #29 opens a bounded metadata layer after the canonical timeline,
 review/approval and VIDEO-only working-session slices. It does not add audio or
-caption operations to `ApplyTimelineEditOp`, and the generic production
-commands above must not be advertised as executable until their separate
-runtime evidence exists. The contract is anchored to task hash
+caption operations to `ApplyTimelineEditOp`. The bounded command subset below
+is executable in the v14 runtime; the broader production catalog above remains
+non-executable until each command has its own contract and evidence. The
+contract is anchored to task hash
 `sha256:8fffc235bd75016a309e832f98920c6cf076bc4ec8ae5f0bc375cfc36c55b32b`.
 
 ### Commands
 
 The executable command subset is:
 
-- `CreateAudioCue` — create a project-owned cue identity with one of
-  `DIALOGUE`, `ADR`, `NONVERBAL`, `FOLEY`, `SFX`, `AMBIENCE`, `ROOM_TONE`,
-  `MUSIC` or intentional `SILENCE` types;
-- `CreateAudioCueRevision` — create one immutable draft timing revision;
+- `CreateAudioCueRevision` — create a project-owned cue identity when no
+  `audio_cue_id` is supplied, or one immutable draft timing revision for an
+  existing cue;
 - `TransitionAudioCueRevision` — make an explicit candidate/selected
   transition after revalidation; `APPROVED` remains reserved for a supported
   audio-cue review subject;
-- `CreateSubtitleTrack` — create a project/timeline-owned track identity;
-- `CreateSubtitleTrackRevision` — create one immutable draft with a bounded
-  segment batch; and
+- `CreateSubtitleTrackRevision` — create a project/timeline-owned track when no
+  `subtitle_track_id` is supplied, or one immutable draft with a bounded
+  segment batch for an existing track; and
 - `TransitionSubtitleTrackRevision` — make an explicit timed/reviewed
   transition after revalidation; `APPROVED` remains reserved for a supported
   subtitle review subject.
@@ -1350,12 +1350,13 @@ non-positive interval, out-of-bounds interval, unbounded text/payload or
 
 `CreateSubtitleTrackRevision` requires the same exact timeline ID/hash pair,
 locale and a bounded array of segments. Each segment carries positive rational
-`start`/`end`, untrusted UTF-8 text and optional exact dialogue-line revision.
-Segments must
-fit the pinned timeline duration, remain ordered and non-overlapping under the
-active subtitle policy, and stay within Core's count, text-length and payload
-limits. The complete batch is atomic; a malformed segment cannot leave a
-partial track revision.
+`start`/`end` and untrusted UTF-8 text.
+Segments must fit the pinned timeline duration, remain ordered and
+non-overlapping under the active subtitle policy, and stay within Core's count,
+text-length and payload limits. The complete batch is atomic; a malformed
+segment cannot leave a partial track revision. The bounded v14 command does not
+accept a provider/path field or an optional dialogue-line foreign key; source
+line integration belongs to a later localization slice.
 
 Both transition commands require the current expected revision row version and
 the same exact timeline ID/hash. They re-evaluate timing, project ownership,

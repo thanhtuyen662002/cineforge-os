@@ -18,9 +18,11 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
-> Executable Core schema: version 13 (the Issue #27 working-session tables are
-> included). Issue #29 defines the next additive migration as schema version
-> 14; this design update does not claim that migration is implemented.
+> Executable Core schema: version 14 (the Issue #27 working-session tables and
+> the bounded Issue #29 timing metadata tables are included). The generic
+> dependency/staleness graph remains a broader design contract; the Issue #29
+> slice computes its stale projection from immutable pins and current gate
+> evidence instead of materializing that graph.
 > This document describes canonical data. Search indexes, embeddings, thumbnails, previews and caches are derived data.
 
 # 1. Physical conventions
@@ -1162,8 +1164,9 @@ Issue #29 opens only a project-scoped timing metadata layer. It is a separate
 Core aggregate from the VIDEO-only `timeline_working_sessions` operation
 allowlist. The contract is anchored to the exact Issue #29 task contract
 (`sha256:8fffc235bd75016a309e832f98920c6cf076bc4ec8ae5f0bc375cfc36c55b32b`).
-This section is the design boundary; it does not claim that the schema or
-runtime is implemented.
+This section is the design boundary for the v14 bounded implementation. It
+does not expand the slice into the generic dependency graph, playback, render,
+or localization-package lifecycle.
 
 ### Exact timeline binding
 
@@ -1178,9 +1181,10 @@ Core resolves neither field through `latest`. It verifies that the revision is
 owned by the requested project/timeline, that the supplied hash equals the
 stored immutable revision hash, and that the parent aggregate has the same
 project scope. A revision row with a missing or mismatched pair is not a valid
-Issue #29 timing revision. `subtitle_tracks` derives its project ownership from
-the localization package and its explicit `timeline_id`; the command must
-reject a cross-project or cross-timeline chain rather than trusting either
+Issue #29 timing revision. `subtitle_tracks` is directly owned by the project
+and timeline in this bounded metadata slice. A future localization-package
+integration may add a source-package edge, but the command rejects a
+cross-project or cross-timeline chain rather than trusting either
 client-supplied parent.
 
 The revision stores exact positive rational frame/sample intervals. Audio cue
@@ -1210,28 +1214,33 @@ to bypass a later re-evaluation.
 
 ### Derived staleness and retention
 
-Each timing revision creates a `TIMING` dependency edge to its pinned timeline
-revision and `RIGHTS`/`PROVENANCE` edges for selected assets and evidence. A
-newer checkpoint on the same timeline, a changed timeline content hash, a
-rights revocation/expiry, a materialization loss, or a changed localization
-source opens a `staleness_records` row and projects the derived timing revision
-as `STALE`. The immutable revision and its text/timing evidence remain
-readable; Core never silently retimes, rewrites, deletes or rebinds it. Recovery
-means creating a new revision against a newly named timeline revision/hash and
-re-running all gates. A stale row cannot be transitioned to `APPROVED`.
+Each timing revision stores the exact timeline pin and, for audio, an immutable
+asset evidence snapshot. In v14 Core computes the stale projection at read and
+transition time: a newer checkpoint or changed timeline hash, rights
+revocation/expiry, or materialization loss projects `STALE` with a typed reason
+and `next_step`. The generic `dependencies` and `staleness_records` tables are
+reserved for a later graph-materialization slice; their absence here is
+intentional and does not weaken the fail-closed gate. The immutable revision
+and its text/timing evidence remain readable; Core never silently retimes,
+rewrites, deletes or rebinds it. Recovery means creating a new revision against
+a newly named timeline revision/hash and re-running all gates. A stale row
+cannot be transitioned to `APPROVED`.
 
 ### Additive migration and compatibility
 
-The implementation target is the next additive schema migration (version 14
-after the current executable version 13). It may add the timing/hash fields,
+The implementation target is additive schema migration version 14. It adds the
+timing/hash fields,
 the `subtitle_track_segments` table/binding, the dependency indexes and
 any append-only events required by the command contract. It must not rewrite
 approved revisions or infer a timeline pin for legacy rows. Existing audio or
 subtitle rows with null timing pins remain compatibility data and must project
 `UNPINNED`/`UNKNOWN` for this slice; they cannot be used as an approved Issue
-#29 timing revision until a new exact revision is created. Migration code must
-be idempotent, record its digest in `schema_migrations`, and preserve the
-independent Core API, domain schema/event and connector-host version contracts.
+#29 timing revision until a new exact revision is created. The v14 initializer
+is idempotent and records the applied schema version/time in
+`schema_migrations`; source/build manifests bind the executable to its exact
+revision. A future migration-ledger expansion may add per-migration digest
+columns without changing this timing contract. The independent Core API,
+domain schema/event and connector-host version contracts remain separate.
 
 Recommended indexes are:
 
@@ -1241,11 +1250,12 @@ Recommended indexes are:
   timing_dependency_content_hash)`; and
 - `subtitle_track_segments(subtitle_track_revision_id, segment_index)`.
 
-The migration and Core tests must prove exact project/timeline scope,
+The migration and Core tests for this bounded slice cover exact project/timeline scope,
 rational/overlap/bounds limits, unknown-rights/materialization rejection,
-stale projection after a new checkpoint, immutable approved revisions, safe
-idempotent replay and restart persistence. This maturity remains `SPECIFIED`
-until runtime evidence exists; prose is not implementation proof.
+stale projection after a new checkpoint, immutable revisions, safe idempotent
+replay and restart persistence. Review/approval for audio and subtitle timing
+remains explicitly unsupported in v14 and returns `REVIEW_NOT_SUPPORTED`;
+prose is not proof of broader controls outside this slice.
 
 # 12. Production workflow, generation and jobs
 

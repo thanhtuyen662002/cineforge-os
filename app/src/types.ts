@@ -381,8 +381,15 @@ export interface AudioCueRevision {
   intentText: string
   selectedAssetRevisionId?: string | null
   assetSnapshotHash?: string | null
+  assetGate?: {
+    state: 'READY' | 'BLOCKED' | 'UNKNOWN' | 'NOT_APPLICABLE' | string
+    rightsStatus?: string | null
+    materializationState?: string | null
+    reason?: string | null
+  } | null
   rowVersion: number
   stale: boolean
+  staleReason?: string | null
   nextStep?: string | null
   createdAt?: string
 }
@@ -434,6 +441,7 @@ export interface SubtitleTrackRevision {
   segments: SubtitleSegment[]
   rowVersion: number
   stale: boolean
+  staleReason?: string | null
   nextStep?: string | null
   createdAt?: string
 }
@@ -451,6 +459,27 @@ export interface SubtitleTiming {
   generatedAt?: string
 }
 
+export interface TimelineTimingImpactItem {
+  audioCueId?: string
+  audioCueRevisionId?: string
+  subtitleTrackId?: string
+  subtitleTrackRevisionId?: string
+  timelineRevisionId?: string
+  state: TimelineTimingLifecycleState
+  stale: boolean
+  nextStep?: string | null
+}
+
+export interface TimelineTimingImpact {
+  timeline: TimelineSummary | null
+  pinnedTimelineRevisionId?: string | null
+  audioCues: TimelineTimingImpactItem[]
+  subtitleTracks: TimelineTimingImpactItem[]
+  counts: { audioCues: number; subtitleTracks: number; staleAudioCues: number; staleSubtitleTracks: number; staleTotal: number }
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface AudioCueRevisionInput {
   timelineRevisionId: string
   timelineContentHash: string
@@ -462,6 +491,11 @@ export interface AudioCueRevisionInput {
   selectedAssetRevisionId?: string | null
   audioCueId?: string
   expectedCueVersion?: number
+}
+
+export interface TimingDependencyInput {
+  timelineRevisionId: string
+  timelineContentHash: string
 }
 
 export interface SubtitleSegmentInput {
@@ -811,10 +845,11 @@ export interface CoreClient {
   getTimelineWorkingHistory?(projectId: string, timelineId: string, sessionId: string, afterOpSeq?: number, limit?: number, signal?: AbortSignal): Promise<TimelineWorkingHistory>
   getTimelineAudioTiming?(projectId: string, timelineId: string, timelineRevisionId: string, signal?: AbortSignal): Promise<AudioCueTiming>
   getTimelineSubtitleTiming?(projectId: string, timelineId: string, timelineRevisionId: string, signal?: AbortSignal): Promise<SubtitleTiming>
+  getTimelineTimingImpact?(projectId: string, timelineId: string, timelineRevisionId: string, signal?: AbortSignal): Promise<TimelineTimingImpact>
   createAudioCueRevision?(projectId: string, timelineId: string, input: AudioCueRevisionInput, idempotencyKey?: string): Promise<{ audioCue: AudioCueSummary | null; revision: AudioCueRevision | null }>
-  transitionAudioCueRevision?(projectId: string, timelineId: string, audioCueId: string, revisionId: string, nextState: TimelineTimingLifecycleState, expectedVersion: number, idempotencyKey?: string): Promise<{ audioCue: AudioCueSummary | null; revision: AudioCueRevision | null }>
+  transitionAudioCueRevision?(projectId: string, timelineId: string, audioCueId: string, revisionId: string, nextState: TimelineTimingLifecycleState, expectedVersion: number, timing: TimingDependencyInput, idempotencyKey?: string): Promise<{ audioCue: AudioCueSummary | null; revision: AudioCueRevision | null }>
   createSubtitleTrackRevision?(projectId: string, timelineId: string, input: SubtitleTrackRevisionInput, idempotencyKey?: string): Promise<{ subtitleTrack: SubtitleTrackSummary | null; revision: SubtitleTrackRevision | null }>
-  transitionSubtitleTrackRevision?(projectId: string, timelineId: string, subtitleTrackId: string, revisionId: string, nextState: TimelineTimingLifecycleState, expectedVersion: number, idempotencyKey?: string): Promise<{ subtitleTrack: SubtitleTrackSummary | null; revision: SubtitleTrackRevision | null }>
+  transitionSubtitleTrackRevision?(projectId: string, timelineId: string, subtitleTrackId: string, revisionId: string, nextState: TimelineTimingLifecycleState, expectedVersion: number, timing: TimingDependencyInput, idempotencyKey?: string): Promise<{ subtitleTrack: SubtitleTrackSummary | null; revision: SubtitleTrackRevision | null }>
   beginTimelineWorkingSession?(projectId: string, timelineId: string, input: { baseRevisionId: string; baseRevisionRowVersion: number; baseContentHash: string; clientInstanceId: string; expectedTimelineVersion: number }, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
   applyTimelineEditOps?(projectId: string, timelineId: string, sessionId: string, operations: Array<Record<string, unknown>>, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>
   undoTimelineEditOp?(projectId: string, timelineId: string, sessionId: string, expectedSessionVersion: number, idempotencyKey?: string): Promise<TimelineWorkingWorkspace>

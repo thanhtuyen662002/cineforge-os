@@ -6,8 +6,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'RIGHTS_IDENTITY_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'AUDIO_CUE_NOT_FOUND', 'AUDIO_CUE_REVISION_NOT_FOUND', 'SUBTITLE_TRACK_NOT_FOUND', 'SUBTITLE_TRACK_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'REVIEW_NOT_SUPPORTED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'AUDIO_CUE_STALE', 'AUDIO_CUE_REVIEW_REQUIRED', 'SUBTITLE_TRACK_STALE', 'SUBTITLE_TRACK_REVIEW_REQUIRED', 'TIMING_DEPENDENCY_HASH_REQUIRED', 'TIMING_DEPENDENCY_HASH_MISMATCH', 'AUDIO_ASSET_REQUIRED', 'TIMING_OUT_OF_BOUNDS', 'SUBTITLE_SEGMENT_OVERLAP', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED'].includes(code)) return 400;
   if (response.error?.category === 'CONFLICT') return 409;
   if (response.error?.category === 'AUTH_REQUIRED') return 401;
@@ -544,6 +544,188 @@ function mapTimelineList(result) {
     timelines: Array.isArray(rows) ? rows.map(mapTimeline) : [],
     generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
     projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+  };
+}
+
+function mapAudioCue(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  return {
+    id: readString(value, 'id', 'audio_cue_id', 'audioCueId'),
+    projectId: readString(value, 'project_id', 'projectId'),
+    timelineId: readString(value, 'timeline_id', 'timelineId'),
+    cueType: readString(value, 'cue_type', 'cueType') ?? 'UNKNOWN',
+    title: readString(value, 'title') ?? 'Audio cue',
+    rowVersion: Number(value.row_version ?? value.rowVersion ?? 1),
+    createdAt: readString(value, 'created_at', 'createdAt'),
+    updatedAt: readString(value, 'updated_at', 'updatedAt'),
+  };
+}
+
+function mapAudioCueRevision(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const rational = (candidate, numKey, denKey) => candidate && typeof candidate === 'object'
+    ? { num: Number(candidate.num ?? candidate.numerator ?? 0), den: Number(candidate.den ?? candidate.denominator ?? 1) }
+    : { num: Number(value[numKey] ?? 0), den: Number(value[denKey] ?? 1) };
+  return {
+    id: readString(value, 'id', 'audio_cue_revision_id', 'audioCueRevisionId'),
+    audioCueId: readString(value, 'audio_cue_id', 'audioCueId'),
+    revisionNumber: Number(value.revision_number ?? value.revisionNumber ?? 0),
+    state: readString(value, 'lifecycle_state', 'lifecycleState', 'state') ?? 'UNKNOWN',
+    timelineRevisionId: readString(value, 'timing_dependency_revision_id', 'timingDependencyRevisionId', 'timeline_revision_id', 'timelineRevisionId'),
+    timelineContentHash: readString(value, 'timing_dependency_content_hash', 'timingDependencyContentHash', 'timeline_content_hash', 'timelineContentHash'),
+    timingDependencyRevisionId: readString(value, 'timing_dependency_revision_id', 'timingDependencyRevisionId', 'timeline_revision_id', 'timelineRevisionId'),
+    timingDependencyContentHash: readString(value, 'timing_dependency_content_hash', 'timingDependencyContentHash', 'timeline_content_hash', 'timelineContentHash'),
+    timingDependencyHash: readString(value, 'timing_dependency_hash', 'timingDependencyHash'),
+    start: rational(value.start, 'start_num', 'start_den'),
+    end: rational(value.end, 'end_num', 'end_den'),
+    intentText: readString(value, 'intent_text', 'intentText') ?? '',
+    selectedAssetRevisionId: readString(value, 'selected_asset_revision_id', 'selectedAssetRevisionId'),
+    assetSnapshotHash: readString(value, 'asset_snapshot_hash', 'assetSnapshotHash'),
+    assetGate: value.asset_gate || value.assetGate ? (() => {
+      const gate = value.asset_gate ?? value.assetGate;
+      return {
+        state: readString(gate, 'state') ?? 'UNKNOWN',
+        rightsStatus: readString(gate, 'rights_status', 'rightsStatus'),
+        materializationState: readString(gate, 'materialization_state', 'materializationState'),
+        reason: readString(gate, 'reason'),
+      };
+    })() : null,
+    rowVersion: Number(value.row_version ?? value.rowVersion ?? 1),
+    stale: Boolean(value.stale),
+    staleReason: readString(value, 'stale_reason', 'staleReason'),
+    nextStep: readString(value, 'next_step', 'nextStep'),
+    createdAt: readString(value, 'created_at', 'createdAt'),
+  };
+}
+
+function mapSubtitleTrack(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  return {
+    id: readString(value, 'id', 'subtitle_track_id', 'subtitleTrackId'),
+    projectId: readString(value, 'project_id', 'projectId'),
+    timelineId: readString(value, 'timeline_id', 'timelineId'),
+    locale: readString(value, 'locale') ?? 'UNKNOWN',
+    title: readString(value, 'title') ?? 'Subtitle track',
+    rowVersion: Number(value.row_version ?? value.rowVersion ?? 1),
+    createdAt: readString(value, 'created_at', 'createdAt'),
+    updatedAt: readString(value, 'updated_at', 'updatedAt'),
+  };
+}
+
+function mapSubtitleTrackRevision(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const segments = Array.isArray(value.segments) ? value.segments.map((segment) => {
+    const item = segment && typeof segment === 'object' && !Array.isArray(segment) ? segment : {};
+    const rational = (candidate, numKey, denKey) => candidate && typeof candidate === 'object'
+      ? { num: Number(candidate.num ?? candidate.numerator ?? 0), den: Number(candidate.den ?? candidate.denominator ?? 1) }
+      : { num: Number(item[numKey] ?? 0), den: Number(item[denKey] ?? 1) };
+    return {
+      id: readString(item, 'id'),
+      segmentIndex: Number(item.segment_index ?? item.segmentIndex ?? 0),
+      start: rational(item.start, 'start_num', 'start_den'),
+      end: rational(item.end, 'end_num', 'end_den'),
+      locale: readString(item, 'locale') ?? 'UNKNOWN',
+      text: readString(item, 'text') ?? '',
+    };
+  }) : [];
+  return {
+    id: readString(value, 'id', 'subtitle_track_revision_id', 'subtitleTrackRevisionId'),
+    subtitleTrackId: readString(value, 'subtitle_track_id', 'subtitleTrackId'),
+    revisionNumber: Number(value.revision_number ?? value.revisionNumber ?? 0),
+    state: readString(value, 'lifecycle_state', 'lifecycleState', 'state') ?? 'UNKNOWN',
+    timelineRevisionId: readString(value, 'timing_dependency_revision_id', 'timingDependencyRevisionId', 'timeline_revision_id', 'timelineRevisionId'),
+    timelineContentHash: readString(value, 'timing_dependency_content_hash', 'timingDependencyContentHash', 'timeline_content_hash', 'timelineContentHash'),
+    timingDependencyRevisionId: readString(value, 'timing_dependency_revision_id', 'timingDependencyRevisionId', 'timeline_revision_id', 'timelineRevisionId'),
+    timingDependencyContentHash: readString(value, 'timing_dependency_content_hash', 'timingDependencyContentHash', 'timeline_content_hash', 'timelineContentHash'),
+    timingDependencyHash: readString(value, 'timing_dependency_hash', 'timingDependencyHash'),
+    formatProfile: readString(value, 'format_profile', 'formatProfile') ?? 'TEXT',
+    segments,
+    rowVersion: Number(value.row_version ?? value.rowVersion ?? 1),
+    stale: Boolean(value.stale),
+    staleReason: readString(value, 'stale_reason', 'staleReason'),
+    nextStep: readString(value, 'next_step', 'nextStep'),
+    createdAt: readString(value, 'created_at', 'createdAt'),
+  };
+}
+
+function mapAudioCueResult(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const mapped = {
+    audioCue: value.audio_cue || value.audioCue ? mapAudioCue(value.audio_cue ?? value.audioCue) : null,
+    revision: value.revision ? mapAudioCueRevision(value.revision) : null,
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+  if (value.idempotent_replay === true) mapped.idempotent_replay = true;
+  return mapped;
+}
+
+function mapSubtitleTrackResult(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const mapped = {
+    subtitleTrack: value.subtitle_track || value.subtitleTrack ? mapSubtitleTrack(value.subtitle_track ?? value.subtitleTrack) : null,
+    revision: value.revision ? mapSubtitleTrackRevision(value.revision) : null,
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+  if (value.idempotent_replay === true) mapped.idempotent_replay = true;
+  return mapped;
+}
+
+function mapAudioTiming(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  return {
+    timeline: value.timeline ? mapTimeline(value.timeline) : null,
+    timelineRevision: value.timeline_revision || value.timelineRevision ? mapTimelineRevision(value.timeline_revision ?? value.timelineRevision) : null,
+    cues: Array.isArray(value.cues) ? value.cues.map((item) => ({
+      audioCue: mapAudioCue(item.audio_cue ?? item.audioCue),
+      revision: mapAudioCueRevision(item.revision),
+    })) : [],
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
+function mapSubtitleTiming(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  return {
+    timeline: value.timeline ? mapTimeline(value.timeline) : null,
+    timelineRevision: value.timeline_revision || value.timelineRevision ? mapTimelineRevision(value.timeline_revision ?? value.timelineRevision) : null,
+    tracks: Array.isArray(value.tracks) ? value.tracks.map((item) => ({
+      subtitleTrack: mapSubtitleTrack(item.subtitle_track ?? item.subtitleTrack),
+      revision: mapSubtitleTrackRevision(item.revision),
+    })) : [],
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
+function mapTimingImpact(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const mapImpact = (item) => ({
+    audioCueId: readString(item, 'audio_cue_id', 'audioCueId'),
+    audioCueRevisionId: readString(item, 'audio_cue_revision_id', 'audioCueRevisionId'),
+    subtitleTrackId: readString(item, 'subtitle_track_id', 'subtitleTrackId'),
+    subtitleTrackRevisionId: readString(item, 'subtitle_track_revision_id', 'subtitleTrackRevisionId'),
+    timelineRevisionId: readString(item, 'timeline_revision_id', 'timelineRevisionId'),
+    state: readString(item, 'lifecycle_state', 'lifecycleState', 'state') ?? 'UNKNOWN',
+    stale: Boolean(item?.stale),
+    nextStep: readString(item, 'next_step', 'nextStep'),
+  });
+  return {
+    timeline: value.timeline ? mapTimeline(value.timeline) : null,
+    pinnedTimelineRevisionId: readString(value, 'pinned_timeline_revision_id', 'pinnedTimelineRevisionId'),
+    audioCues: Array.isArray(value.audio_cues) ? value.audio_cues.map(mapImpact) : [],
+    subtitleTracks: Array.isArray(value.subtitle_tracks) ? value.subtitle_tracks.map(mapImpact) : [],
+    counts: value.counts && typeof value.counts === 'object' ? {
+      audioCues: Number(value.counts.audio_cues ?? value.counts.audioCues ?? 0),
+      subtitleTracks: Number(value.counts.subtitle_tracks ?? value.counts.subtitleTracks ?? 0),
+      staleAudioCues: Number(value.counts.stale_audio_cues ?? value.counts.staleAudioCues ?? 0),
+      staleSubtitleTracks: Number(value.counts.stale_subtitle_tracks ?? value.counts.staleSubtitleTracks ?? 0),
+      staleTotal: Number(value.counts.stale_total ?? value.counts.staleTotal ?? 0),
+    } : { audioCues: 0, subtitleTracks: 0, staleAudioCues: 0, staleSubtitleTracks: 0, staleTotal: 0 },
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
   };
 }
 
@@ -1205,6 +1387,33 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'workspace' && parts.length === 6) {
         const workspace = query(core, request, 'query.timeline.workspace', { project_id: parts[2], timeline_id: parts[4] });
         result = workspace.ok ? { ...workspace, result: mapTimelineWorkspace(workspace.result) } : workspace;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'revisions' && parts[6] && parts[7] === 'audio-cues' && parts.length === 8) {
+        const timing = query(core, request, 'query.audio.timing', { project_id: parts[2], timeline_id: parts[4], timeline_revision_id: parts[6] });
+        result = timing.ok ? { ...timing, result: mapAudioTiming(timing.result) } : timing;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'revisions' && parts[6] && parts[7] === 'subtitle-tracks' && parts.length === 8) {
+        const timing = query(core, request, 'query.localization.subtitle_timing', { project_id: parts[2], timeline_id: parts[4], timeline_revision_id: parts[6], locale: url.searchParams.get('locale') ?? undefined });
+        result = timing.ok ? { ...timing, result: mapSubtitleTiming(timing.result) } : timing;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'revisions' && parts[6] && parts[7] === 'timing-impact' && parts.length === 8) {
+        const impact = query(core, request, 'query.timeline.timing_impact', { project_id: parts[2], timeline_id: parts[4], timeline_revision_id: parts[6] });
+        result = impact.ok ? { ...impact, result: mapTimingImpact(impact.result) } : impact;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'audio-cues' && parts.length === 4) {
+        const created = command(core, request, 'CreateAudioCueRevision', { ...body, project_id: parts[2] }, expectedVersions(body, 'AUDIO_CUE'), commandKey(request, body));
+        result = created.ok ? { ...created, result: mapAudioCueResult(created.result) } : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'audio-cues' && parts[4] && parts[5] === 'revisions' && parts.length === 6) {
+        const created = command(core, request, 'CreateAudioCueRevision', { ...body, project_id: parts[2], audio_cue_id: parts[4] }, expectedVersions(body, 'AUDIO_CUE'), commandKey(request, body));
+        result = created.ok ? { ...created, result: mapAudioCueResult(created.result) } : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'audio-cues' && parts[4] && parts[5] === 'revisions' && parts[6] && parts[7] === 'transition' && parts.length === 8) {
+        const transitioned = command(core, request, 'TransitionAudioCueRevision', { ...body, project_id: parts[2], audio_cue_id: parts[4], audio_cue_revision_id: parts[6] }, expectedVersions(body, 'AUDIO_CUE_REVISION'), commandKey(request, body));
+        result = transitioned.ok ? { ...transitioned, result: mapAudioCueResult(transitioned.result) } : transitioned;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'subtitle-tracks' && parts.length === 4) {
+        const created = command(core, request, 'CreateSubtitleTrackRevision', { ...body, project_id: parts[2] }, expectedVersions(body, 'SUBTITLE_TRACK'), commandKey(request, body));
+        result = created.ok ? { ...created, result: mapSubtitleTrackResult(created.result) } : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'subtitle-tracks' && parts[4] && parts[5] === 'revisions' && parts.length === 6) {
+        const created = command(core, request, 'CreateSubtitleTrackRevision', { ...body, project_id: parts[2], subtitle_track_id: parts[4] }, expectedVersions(body, 'SUBTITLE_TRACK'), commandKey(request, body));
+        result = created.ok ? { ...created, result: mapSubtitleTrackResult(created.result) } : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'subtitle-tracks' && parts[4] && parts[5] === 'revisions' && parts[6] && parts[7] === 'transition' && parts.length === 8) {
+        const transitioned = command(core, request, 'TransitionSubtitleTrackRevision', { ...body, project_id: parts[2], subtitle_track_id: parts[4], subtitle_track_revision_id: parts[6] }, expectedVersions(body, 'SUBTITLE_TRACK_REVISION'), commandKey(request, body));
+        result = transitioned.ok ? { ...transitioned, result: mapSubtitleTrackResult(transitioned.result) } : transitioned;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'timelines' && parts[4] && parts[5] === 'working-sessions' && parts.length === 6) {
         const listed = query(core, request, 'query.timeline.working_session.list', {
           project_id: parts[2], timeline_id: parts[4], include_closed: url.searchParams.get('include_closed') === 'true',

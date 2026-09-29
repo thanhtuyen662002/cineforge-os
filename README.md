@@ -46,6 +46,12 @@ The shipped flow is real and persisted:
 5. The project, tasks, planning shots, notes, activity, and imported assets are
    read back from SQLite/object storage, with command, event, and
    audit records retained by Core.
+6. Open a timeline to add project-scoped audio cues and subtitle timing
+   metadata. Each cue/track pins an exact timeline revision and SHA-256 content
+   hash; rational intervals, same-locale overlap, idempotency, rights and
+   materialization gates are enforced by Core. A newer checkpoint projects old
+   timing as STALE with a next step. This slice records metadata only and does
+   not play, render, generate or approve media automatically.
 
 The UI defaults to Vietnamese and includes an English toggle, dark/light theme,
 responsive navigation, search, loading/error/needs-user states, Activity,
