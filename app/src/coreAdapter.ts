@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -31,6 +31,10 @@ export interface CoreBridge {
   getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
   reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
   getReleaseReadiness?(projectId: string, signal?: AbortSignal): Promise<ReleaseReadiness>
+  getReleaseCandidates?(projectId: string, signal?: AbortSignal): Promise<ReleaseCandidateList>
+  getReleaseCandidate?(projectId: string, candidateId: string, signal?: AbortSignal): Promise<ReleaseCandidate>
+  createReleaseCandidateDraft?(projectId: string, idempotencyKey?: string): Promise<ReleaseCandidate>
+  cancelReleaseCandidateDraft?(projectId: string, candidateId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReleaseCandidate>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
@@ -762,6 +766,41 @@ export class HttpCoreClient implements CoreClient {
     if (!projectId.trim()) throw new CoreClientError('A project id is required to read release readiness.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/readiness`, { signal, headers: { Accept: 'application/json' } })
     return mapReleaseReadinessRecord(await readCorePayload(response, 'release readiness'))
+  }
+
+  async getReleaseCandidates(projectId: string, signal?: AbortSignal): Promise<ReleaseCandidateList> {
+    if (!this.baseUrl) throw new CoreClientError('Release candidates require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim()) throw new CoreClientError('A project id is required to read release candidates.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/candidates`, { signal, headers: { Accept: 'application/json' } })
+    return mapReleaseCandidateListRecord(await readCorePayload(response, 'release candidates'))
+  }
+
+  async getReleaseCandidate(projectId: string, candidateId: string, signal?: AbortSignal): Promise<ReleaseCandidate> {
+    if (!this.baseUrl) throw new CoreClientError('Release candidate requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !candidateId.trim()) throw new CoreClientError('A project and candidate id are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/candidates/${encodeURIComponent(candidateId)}`, { signal, headers: { Accept: 'application/json' } })
+    return mapReleaseCandidateWorkspaceRecord(await readCorePayload(response, 'release candidate'))
+  }
+
+  async createReleaseCandidateDraft(projectId: string, idempotencyKey: string = crypto.randomUUID()): Promise<ReleaseCandidate> {
+    if (!this.baseUrl) throw new CoreClientError('Release candidate creation requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim()) throw new CoreClientError('A project id is required to create a release candidate.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    if (!idempotencyKey.trim()) throw new CoreClientError('An idempotency key is required to create a release candidate.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/candidates`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: '{}',
+    })
+    return mapReleaseCandidateRecord(await readCorePayload(response, 'release candidate creation'))
+  }
+
+  async cancelReleaseCandidateDraft(projectId: string, candidateId: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<ReleaseCandidate> {
+    if (!this.baseUrl) throw new CoreClientError('Release candidate cancellation requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !candidateId.trim()) throw new CoreClientError('A project and candidate id are required to cancel a release candidate.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new CoreClientError('A valid candidate row version is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    if (!idempotencyKey.trim()) throw new CoreClientError('An idempotency key is required to cancel a release candidate.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/candidates/${encodeURIComponent(candidateId)}/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ expected_version: expectedVersion }),
+    })
+    return mapReleaseCandidateRecord(await readCorePayload(response, 'release candidate cancellation'))
   }
 
   async resolveMediaPreview(projectId: string, revisionId: string, purpose = 'LIBRARY_PREVIEW', signal?: AbortSignal): Promise<MediaPreviewResolution> {
@@ -1749,11 +1788,69 @@ function mapReleaseReadinessRecord(value: unknown): ReleaseReadiness {
     blockingGateKeys: blockingGateKeys.length > 0 ? blockingGateKeys : gates.filter((item) => item.blocking).map((item) => item.key),
     blockingCount: integerValue(source.blocking_count ?? source.blockingCount, 0, 0, 1000),
     unknownCount: integerValue(source.unknown_count ?? source.unknownCount, 0, 0, 1000),
-    gateManifestHash: stringValue(source.gate_manifest_hash ?? source.gateManifestHash),
+    gateManifestHash: (() => {
+      const hash = stringValue(source.gate_manifest_hash ?? source.gateManifestHash)
+      return hash && /^[a-f0-9]{64}$/i.test(hash) ? hash.toLowerCase() : undefined
+    })(),
     nextStep: stringValue(source.next_step ?? source.nextStep),
     projectionSeq: integerValue(source.projection_seq ?? source.projectionSeq, 0, 0, Number.MAX_SAFE_INTEGER),
     generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }
+}
+
+const RELEASE_CANDIDATE_STATES = new Set(['DRAFT', 'CANCELLED'])
+const RELEASE_CANDIDATE_HASH = /^[a-f0-9]{64}$/i
+
+function safeReleaseCandidateText(value: unknown): string | undefined {
+  const text = stringValue(value)
+  if (!text) return undefined
+  let safe = text.slice(0, 512).replace(/(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)[^\s"'<>]*/gi, '[redacted]')
+  safe = safe.replace(/(?:^|[\s(])\/(?:[^\/\s]+\/)+[^\/\s]*/g, (match) => match.startsWith('/') ? '[redacted]' : `${match[0]}[redacted]`)
+  return safe
+}
+
+function mapReleaseCandidateRecord(value: unknown): ReleaseCandidate {
+  const source = asRecord(value)
+  const candidateSource = asRecord(source.candidate ?? source.release_candidate ?? source.releaseCandidate ?? source.result ?? source)
+  const rawState = String(candidateSource.state ?? 'UNKNOWN').trim().toUpperCase()
+  const rawVersion = Number(candidateSource.row_version ?? candidateSource.rowVersion)
+  const hash = (key: string, camel: string) => {
+    const candidate = stringValue(candidateSource[key] ?? candidateSource[camel])
+    return candidate && RELEASE_CANDIDATE_HASH.test(candidate) ? candidate.toLowerCase() : undefined
+  }
+  return {
+    id: stringValue(candidateSource.id ?? candidateSource.release_candidate_id ?? candidateSource.releaseCandidateId),
+    projectId: stringValue(candidateSource.project_id ?? candidateSource.projectId),
+    timelineRevisionId: stringValue(candidateSource.timeline_revision_id ?? candidateSource.timelineRevisionId),
+    audioMasterAssetRevisionId: stringValue(candidateSource.audio_master_asset_revision_id ?? candidateSource.audioMasterAssetRevisionId),
+    mediaProfileRevisionId: stringValue(candidateSource.media_profile_revision_id ?? candidateSource.mediaProfileRevisionId),
+    reviewSessionId: stringValue(candidateSource.review_session_id ?? candidateSource.reviewSessionId),
+    readinessDigest: hash('readiness_digest', 'readinessDigest'),
+    rightsSnapshotHash: hash('rights_snapshot_hash', 'rightsSnapshotHash'),
+    state: (RELEASE_CANDIDATE_STATES.has(rawState) ? rawState : 'UNKNOWN') as ReleaseCandidate['state'],
+    nextStep: safeReleaseCandidateText(candidateSource.next_step ?? candidateSource.nextStep),
+    rowVersion: Number.isSafeInteger(rawVersion) && rawVersion >= 1 ? rawVersion : 0,
+    snapshotSchemaVersion: integerValue(candidateSource.readiness_snapshot_schema_version ?? candidateSource.readinessSnapshotSchemaVersion, 1, 1, 100),
+    createdAt: stringValue(candidateSource.created_at ?? candidateSource.createdAt),
+    updatedAt: stringValue(candidateSource.updated_at ?? candidateSource.updatedAt),
+    cancelledAt: stringValue(candidateSource.cancelled_at ?? candidateSource.cancelledAt),
+    idempotentReplay: candidateSource.idempotent_replay === true || candidateSource.idempotentReplay === true,
+  }
+}
+
+function mapReleaseCandidateListRecord(value: unknown): ReleaseCandidateList {
+  const source = asRecord(value)
+  const rows = Array.isArray(value) ? value : arrayValue(source.items ?? source.candidates ?? source.result)
+  return {
+    items: rows.map((item) => mapReleaseCandidateRecord(item)),
+    projectionSeq: integerValue(source.projection_seq ?? source.projectionSeq, 0, 0, Number.MAX_SAFE_INTEGER),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapReleaseCandidateWorkspaceRecord(value: unknown): ReleaseCandidate {
+  const source = asRecord(value)
+  return mapReleaseCandidateRecord(source.candidate ?? source.release_candidate ?? source.releaseCandidate ?? source.result ?? source)
 }
 
 function mapCharacterRights(value: unknown): RightsSummary | null {

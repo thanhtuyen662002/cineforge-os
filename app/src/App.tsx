@@ -51,7 +51,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'release' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -599,6 +599,10 @@ function workspaceErrorMessage(cause: unknown, locale: Locale) {
     HANDOFF_NOT_FOUND: { vi: 'Manifest bàn giao không còn tồn tại trong Core.', en: 'The handoff manifest no longer exists in Core.' },
     HANDOFF_REVISION_NOT_APPROVED: { vi: 'Chỉ timeline revision đã approve mới được bàn giao.', en: 'Only an approved timeline revision can be handed off.' },
     HANDOFF_SNAPSHOT_REQUIRED: { vi: 'Cần đúng dependency snapshot hash của review đã approve.', en: 'The exact dependency snapshot hash from the approved review is required.' },
+    RELEASE_READINESS_BLOCKED: { vi: 'Readiness chưa READY; xử lý mọi gate FAIL/UNKNOWN rồi tải lại trước khi tạo candidate.', en: 'Readiness is not READY; resolve every FAIL/UNKNOWN gate and refresh before creating a candidate.' },
+    RELEASE_CANDIDATE_ALREADY_EXISTS: { vi: 'Candidate đã tồn tại cho exact source và readiness digest này; hãy dùng bản đang có.', en: 'A candidate already exists for this exact source and readiness digest; use the existing draft.' },
+    RELEASE_CANDIDATE_NOT_FOUND: { vi: 'Release candidate không còn tồn tại trong Core.', en: 'The release candidate no longer exists in Core.' },
+    RELEASE_CANDIDATE_NOT_CANCELLABLE: { vi: 'Candidate đã ở trạng thái terminal và không thể huỷ thêm.', en: 'This candidate is terminal and cannot be cancelled again.' },
     HANDOFF_MEDIA_PROFILE_NOT_APPROVED: { vi: 'Media Profile của timeline chưa được approve.', en: 'The timeline media profile is not approved.' },
     STORAGE_PRESSURE: { vi: 'Dung lượng trống không đủ cho backup này; hãy giải phóng dung lượng rồi thử lại.', en: 'There is not enough free storage for this backup; free space and try again.' },
     STORAGE_CAPACITY_UNKNOWN: { vi: 'Core chưa xác minh được dung lượng trống. Không thể tạo backup an toàn.', en: 'Core could not verify free storage. A safe backup cannot be created.' },
@@ -2494,6 +2498,12 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const [needsUser, setNeedsUser] = useState(false)
   const [mutating, setMutating] = useState(false)
   const loadGenerationRef = useRef(0)
+  const projectEpochRef = useRef(0)
+  const projectIdRef = useRef(projectId)
+  if (projectIdRef.current !== projectId) {
+    projectIdRef.current = projectId
+    projectEpochRef.current += 1
+  }
 
   const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true)
   const project = snapshot.projects.find((candidate) => candidate.id === projectId) ?? null
@@ -2504,6 +2514,10 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     : null
   const dependencySnapshotHash = approvalReview?.dependencySnapshotHash ?? approvalReview?.humanReview?.dependencySnapshotHash ?? ''
   const canCreate = Boolean(connected && client.createHandoffManifest && projectId && approvedRevision?.id && approvalReview?.id && dependencySnapshotHash && approvedRevision.rowVersion > 0 && targetEditor.trim() && targetVersion.trim() && !mutating)
+  // Do not expose a clickable-looking mutation control while exact
+  // timeline/review evidence is still loading. Offline and unsupported
+  // bridges still render the disabled control with an explanation.
+  const createControlReady = !connected || !client.getTimelineWorkspace || timelineWorkspace !== null
 
   useEffect(() => {
     if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
@@ -2581,6 +2595,14 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const create = async (event: FormEvent) => {
     event.preventDefault()
     if (!client.createHandoffManifest || !canCreate || !approvedRevision?.id || !approvalReview?.id) return
+    // Invalidate any initial/list projection still in flight. A stale list
+    // response must not clear the workspace returned by this successful
+    // command after the user has already selected it.
+    // Invalidate an older list projection, but keep the command response
+    // authoritative if a same-project refresh races with this mutation.
+    // Only a project boundary change may discard the response.
+    ++loadGenerationRef.current
+    const createProjectEpoch = projectEpochRef.current
     setMutating(true); setActionError(null); setNeedsUser(false)
     const cleanEditor = targetEditor.trim().toUpperCase()
     const cleanVersion = targetVersion.trim()
@@ -2595,19 +2617,25 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
         targetProfile: 'GENERIC_INTERCHANGE',
         expectedVersion: approvedRevision.rowVersion,
       }, idempotencyKey)
-      await loadProject()
-      // A list projection can lag a successful command. Keep the returned immutable
-      // workspace visible until the next Core refresh reconciles it.
-      // Set the identity before the workspace so the detail effect never
-      // observes a workspace with no selected handoff and clears fresh
-      // evidence during React's async update boundary.
-      if (next.exportSession?.id) setSelectedHandoffId(next.exportSession.id)
+      if (createProjectEpoch !== projectEpochRef.current || projectIdRef.current !== projectId) return
+      // The command response is the authoritative immutable workspace. Update
+      // the list and detail from it immediately; a separate list refresh can
+      // lag and must not clear the just-created evidence between these state
+      // updates. The user can still refresh later to reconcile other changes.
+      if (next.exportSession?.id && next.handoffManifest) {
+        const createdItem: HandoffListItem = { exportSession: next.exportSession, handoffManifest: next.handoffManifest }
+        setHandoffs((current) => [createdItem, ...current.filter((item) => item.exportSession.id !== next.exportSession?.id)])
+        setSelectedHandoffId(next.exportSession.id)
+      }
       setSelectedWorkspace(next)
       onToast(locale === 'vi' ? 'Đã tạo manifest bàn giao bất biến từ bằng chứng đã approve.' : 'Created an immutable handoff manifest from approved evidence.')
     } catch (cause) {
       setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
       setActionError(workspaceErrorMessage(cause, locale))
-    } finally { setMutating(false) }
+    } finally {
+      if (createProjectEpoch === projectEpochRef.current) setLoading(false)
+      setMutating(false)
+    }
   }
 
   const compatibility = selectedWorkspace?.handoffManifest?.compatibility ?? selectedWorkspace?.compatibilityReport
@@ -2635,7 +2663,7 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     {actionError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{actionError}</span>{needsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện hoặc xung đột rồi thử lại.' : 'Core needs you to resolve the condition or conflict before retrying.'}</small>}</div>}
     {!project ? <EmptyState icon={PackageOpen} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi bàn giao timeline.' : 'Create a project before handing off a timeline.'} /> : loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc handoff từ Core…' : 'Reading handoffs from Core…'} /> : <div className="handoff-grid">
       <section className="workspace-panel handoff-list-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><PackageOpen size={16} /></span><div><h2>{locale === 'vi' ? 'Manifest đã tạo' : 'Created manifests'}</h2><p>{locale === 'vi' ? 'Mỗi manifest pin exact revision và bằng chứng review.' : 'Each manifest pins an exact revision and review evidence.'}</p></div></div><span className="count-chip">{handoffs.length}</span></div>{handoffs.length === 0 ? <EmptyState icon={PackageOpen} title={locale === 'vi' ? 'Chưa có manifest' : 'No manifests yet'} detail={locale === 'vi' ? 'Chọn timeline đã approve ở bên phải để tạo manifest.' : 'Choose an approved timeline on the right to create a manifest.'} /> : <div className="workspace-record-list">{handoffs.map((item) => <button type="button" className={`timeline-row ${item.exportSession.id === selectedHandoffId ? 'active' : ''}`} key={item.exportSession.id} onClick={() => setSelectedHandoffId(item.exportSession.id ?? null)}><span className="timeline-row-icon"><PackageOpen size={15} /></span><span className="workspace-record-main"><strong>{item.handoffManifest.targetEditor ?? item.exportSession.targetEditor ?? 'UNKNOWN_EDITOR'}</strong><small>{item.handoffManifest.manifestHash?.slice(0, 16) ?? '—'} · {item.exportSession.timelineRevisionId ?? '—'}</small></span><span className="record-code">{item.exportSession.state}</span><ArrowRight size={14} /></button>)}</div>}
-        <div className="handoff-create-panel"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tạo handoff mới' : 'Create a handoff'}</h3><p>{locale === 'vi' ? 'Chỉ khả dụng khi evidence hiện tại đã approve.' : 'Available only when current evidence is approved.'}</p></div></div><form className="workspace-form" onSubmit={create}><label>{locale === 'vi' ? 'Timeline' : 'Timeline'}<select value={timelineId ?? ''} onChange={(event) => setTimelineId(event.target.value || null)} disabled={mutating}><option value="">{locale === 'vi' ? 'Chọn timeline' : 'Choose timeline'}</option>{timelines.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>{approvedRevision ? <div className="handoff-evidence"><span><strong>{locale === 'vi' ? 'Revision đã approve' : 'Approved revision'}</strong><code>{approvedRevision.id}</code></span><span><strong>{locale === 'vi' ? 'Review APPROVE' : 'APPROVE review'}</strong><code>{approvalReview?.id ?? (locale === 'vi' ? 'Thiếu' : 'Missing')}</code></span><span><strong>Dependency snapshot</strong><code>{dependencySnapshotHash || 'MISSING'}</code></span></div> : <div className="inline-state warning"><Info size={14} />{locale === 'vi' ? 'Timeline này chưa có revision APPROVED.' : 'This timeline has no APPROVED revision.'}</div>}<div className="form-grid two"><label>{locale === 'vi' ? 'Editor đích' : 'Target editor'}<input value={targetEditor} onChange={(event) => setTargetEditor(event.target.value)} placeholder="GENERIC" disabled={mutating} /></label><label>{locale === 'vi' ? 'Phiên bản' : 'Version'}<input value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)} placeholder="1" disabled={mutating} /></label></div><button className="primary-button small" type="submit" disabled={!canCreate}>{mutating ? <RefreshCw size={14} className="spin" /> : <PackageOpen size={14} />}{locale === 'vi' ? 'Tạo manifest' : 'Create manifest'}</button></form></div>
+        <div className="handoff-create-panel"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tạo handoff mới' : 'Create a handoff'}</h3><p>{locale === 'vi' ? 'Chỉ khả dụng khi evidence hiện tại đã approve.' : 'Available only when current evidence is approved.'}</p></div></div><form className="workspace-form" onSubmit={create}><label>{locale === 'vi' ? 'Timeline' : 'Timeline'}<select value={timelineId ?? ''} onChange={(event) => setTimelineId(event.target.value || null)} disabled={mutating}><option value="">{locale === 'vi' ? 'Chọn timeline' : 'Choose timeline'}</option>{timelines.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>{approvedRevision ? <div className="handoff-evidence"><span><strong>{locale === 'vi' ? 'Revision đã approve' : 'Approved revision'}</strong><code>{approvedRevision.id}</code></span><span><strong>{locale === 'vi' ? 'Review APPROVE' : 'APPROVE review'}</strong><code>{approvalReview?.id ?? (locale === 'vi' ? 'Thiếu' : 'Missing')}</code></span><span><strong>Dependency snapshot</strong><code>{dependencySnapshotHash || 'MISSING'}</code></span></div> : <div className="inline-state warning"><Info size={14} />{locale === 'vi' ? 'Timeline này chưa có revision APPROVED.' : 'This timeline has no APPROVED revision.'}</div>}<div className="form-grid two"><label>{locale === 'vi' ? 'Editor đích' : 'Target editor'}<input value={targetEditor} onChange={(event) => setTargetEditor(event.target.value)} placeholder="GENERIC" disabled={mutating} /></label><label>{locale === 'vi' ? 'Phiên bản' : 'Version'}<input value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)} placeholder="1" disabled={mutating} /></label></div>{createControlReady ? <button className="primary-button small" type="submit" disabled={!canCreate}>{mutating ? <RefreshCw size={14} className="spin" /> : <PackageOpen size={14} />}{locale === 'vi' ? 'Tạo manifest' : 'Create manifest'}</button> : <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Đang đọc exact revision và review từ Core…' : 'Reading exact revision and review evidence from Core…'}</p>}</form></div>
       </section>
       <section className="workspace-panel handoff-detail-card">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc manifest…' : 'Reading manifest…'} /> : !session ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một manifest' : 'Select a manifest'} detail={locale === 'vi' ? 'Chi tiết chain-of-custody và compatibility sẽ hiển thị ở đây.' : 'Chain-of-custody and compatibility details will appear here.'} /> : <>
          <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon green"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Handoff workspace' : 'Handoff workspace'}</h2><p>{session.timelineRevisionId ?? '—'} · v{session.rowVersion}</p></div></div><div className="handoff-detail-actions"><button type="button" className="subtle-button tiny" onClick={download} disabled={!manifest?.manifestHash || detailLoading}><Download size={13} />{locale === 'vi' ? 'Tải manifest JSON' : 'Download manifest JSON'}</button><span className="state-label">{session.state}</span></div></div>
@@ -2764,19 +2792,149 @@ function releaseGateFor(readiness: ReleaseReadiness, key: string): ReleaseGate {
   return readiness.gates.find((gate) => gate.key === key) ?? { key, state: 'UNKNOWN', blocking: true, reason: 'GATE_EVIDENCE_MISSING', nextStep: 'Refresh Core readiness before continuing.', evidence: {} }
 }
 
+function releaseCandidateStateLabel(state: ReleaseCandidate['state'], locale: Locale): string {
+  if (state === 'DRAFT') return locale === 'vi' ? 'Bản nháp' : 'Draft'
+  if (state === 'CANCELLED') return locale === 'vi' ? 'Đã huỷ' : 'Cancelled'
+  return locale === 'vi' ? 'Không xác định' : 'Unknown'
+}
+
+function releaseCandidateStateClass(state: ReleaseCandidate['state']): string {
+  if (state === 'DRAFT') return 'unknown'
+  if (state === 'CANCELLED') return 'na'
+  return 'fail'
+}
+
+const RELEASE_CANDIDATE_HASH = /^[a-f0-9]{64}$/i
+
+function safeReleaseCandidateText(value: unknown, maxLength = 512): string | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined
+  let safe = value.slice(0, maxLength).replace(/(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)[^\s"'<>]*/gi, '[redacted]')
+  safe = safe.replace(/(?:^|[\s(])\/(?:[^\/\s]+\/)+[^\/\s]*/g, (match) => match.startsWith('/') ? '[redacted]' : `${match[0]}[redacted]`)
+  return safe
+}
+
+function safeReleaseCandidateId(value: unknown): string | undefined {
+  return safeReleaseCandidateText(value, 160)
+}
+
+function normalizeReleaseCandidate(value: unknown): ReleaseCandidate | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const source = value as Record<string, unknown>
+  const rawState = typeof source.state === 'string' ? source.state.toUpperCase() : 'UNKNOWN'
+  const rawVersion = Number(source.rowVersion ?? source.row_version)
+  const rawSnapshotVersion = Number(source.snapshotSchemaVersion ?? source.readiness_snapshot_schema_version)
+  const hash = (camel: string, snake: string) => {
+    const candidate = safeReleaseCandidateText(source[camel] ?? source[snake], 64)
+    return candidate && RELEASE_CANDIDATE_HASH.test(candidate) ? candidate.toLowerCase() : undefined
+  }
+  return {
+    id: safeReleaseCandidateId(source.id ?? source.releaseCandidateId ?? source.release_candidate_id),
+    projectId: safeReleaseCandidateId(source.projectId ?? source.project_id),
+    timelineRevisionId: safeReleaseCandidateId(source.timelineRevisionId ?? source.timeline_revision_id),
+    audioMasterAssetRevisionId: safeReleaseCandidateId(source.audioMasterAssetRevisionId ?? source.audio_master_asset_revision_id),
+    mediaProfileRevisionId: safeReleaseCandidateId(source.mediaProfileRevisionId ?? source.media_profile_revision_id),
+    reviewSessionId: safeReleaseCandidateId(source.reviewSessionId ?? source.review_session_id),
+    readinessDigest: hash('readinessDigest', 'readiness_digest'),
+    rightsSnapshotHash: hash('rightsSnapshotHash', 'rights_snapshot_hash'),
+    state: rawState === 'DRAFT' || rawState === 'CANCELLED' ? rawState : 'UNKNOWN',
+    nextStep: safeReleaseCandidateText(source.nextStep ?? source.next_step),
+    rowVersion: Number.isSafeInteger(rawVersion) && rawVersion >= 1 ? rawVersion : 0,
+    snapshotSchemaVersion: Number.isSafeInteger(rawSnapshotVersion) && rawSnapshotVersion >= 1 && rawSnapshotVersion <= 100 ? rawSnapshotVersion : 0,
+    createdAt: safeReleaseCandidateText(source.createdAt ?? source.created_at, 80),
+    updatedAt: safeReleaseCandidateText(source.updatedAt ?? source.updated_at, 80),
+    cancelledAt: safeReleaseCandidateText(source.cancelledAt ?? source.cancelled_at, 80),
+    idempotentReplay: source.idempotentReplay === true || source.idempotent_replay === true,
+  }
+}
+
+function releaseCandidateFingerprint(readiness: ReleaseReadiness, projectId: string): string {
+  const sourceEntries = Object.entries(readiness.exactSource ?? {})
+    .filter(([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    .sort(([left], [right]) => left.localeCompare(right))
+  return JSON.stringify([projectId, readiness.gateManifestHash ?? 'unknown', sourceEntries])
+}
+
+function releaseCandidateKey(readiness: ReleaseReadiness, projectId: string, intentNonce = 'intent'): string {
+  // The Core idempotency key is bounded to 200 characters. Keep the exact
+  // source material in the deterministic input, then append a compact hash so
+  // two different pinned sources cannot become the same truncated prefix.
+  const sourceEntries = Object.entries(readiness.exactSource ?? {})
+    .filter(([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    .sort(([left], [right]) => left.localeCompare(right))
+  const source = JSON.stringify(sourceEntries)
+  const material = `${projectId}|${readiness.gateManifestHash ?? 'unknown'}|${source}|${intentNonce}`
+  let hashA = 2166136261
+  let hashB = 2654435761
+  for (let index = 0; index < material.length; index += 1) {
+    const code = material.charCodeAt(index)
+    hashA = Math.imul(hashA ^ code, 16777619)
+    hashB = Math.imul(hashB ^ code, 2246822519)
+  }
+  const compactHash = `${(hashA >>> 0).toString(16).padStart(8, '0')}${(hashB >>> 0).toString(16).padStart(8, '0')}`
+  // Header values must remain valid HTTP tokens even when an untrusted bridge
+  // response supplies a malformed project id or readiness hash. The original
+  // values still participate in the compact digest above, so this cannot make
+  // distinct source pins collide through prefix sanitization alone.
+  const safeProjectId = projectId.replace(/[^A-Za-z0-9._~-]/g, '_').slice(0, 64) || 'unknown'
+  const safeManifestHash = /^[a-f0-9]{64}$/i.test(readiness.gateManifestHash ?? '') ? (readiness.gateManifestHash ?? '').toLowerCase() : 'unknown'
+  const safeNonce = intentNonce.replace(/[^A-Za-z0-9._~-]/g, '_').slice(0, 32) || 'intent'
+  const readable = `release-candidate-create:${safeProjectId}:${safeManifestHash}:${compactHash}:${safeNonce}`
+  return readable.length <= 200 ? readable : `release-candidate-create:${compactHash}:${safeManifestHash}:${safeNonce}`
+}
+
 export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient }) {
   const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
   const [readiness, setReadiness] = useState<ReleaseReadiness | null>(null)
+  const [candidates, setCandidates] = useState<ReleaseCandidate[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [candidateError, setCandidateError] = useState<string | null>(null)
+  const [mutating, setMutating] = useState<string | null>(null)
   const generationRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
+  const candidateIntentSequenceRef = useRef(0)
+  const candidateIntentKeysRef = useRef(new Map<string, { key: string; projectId: string; readinessDigest: string }>())
   const project = snapshot.projects.find((candidate) => candidate.id === projectId)
   const connected = Boolean(snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true))
   const supported = typeof client.getReleaseReadiness === 'function'
+  const candidateListSupported = typeof client.getReleaseCandidates === 'function'
+  const candidateCreateSupported = typeof client.createReleaseCandidateDraft === 'function'
+  const candidateCancelSupported = typeof client.cancelReleaseCandidateDraft === 'function'
+
+  const candidateIntent = (currentReadiness: ReleaseReadiness, currentProjectId: string) => {
+    const fingerprint = releaseCandidateFingerprint(currentReadiness, currentProjectId)
+    const existing = candidateIntentKeysRef.current.get(fingerprint)
+    if (existing) return { fingerprint, key: existing.key }
+    candidateIntentSequenceRef.current += 1
+    const nonce = `${Date.now().toString(36)}-${candidateIntentSequenceRef.current.toString(36)}`
+    const key = releaseCandidateKey(currentReadiness, currentProjectId, nonce)
+    candidateIntentKeysRef.current.set(fingerprint, {
+      key,
+      projectId: currentProjectId,
+      readinessDigest: currentReadiness.gateManifestHash ?? '',
+    })
+    return { fingerprint, key }
+  }
+
+  const clearCandidateIntents = (currentProjectId: string, readinessDigest?: string) => {
+    for (const [fingerprint, value] of candidateIntentKeysRef.current) {
+      if (value.projectId === currentProjectId && (!readinessDigest || value.readinessDigest === readinessDigest)) {
+        candidateIntentKeysRef.current.delete(fingerprint)
+      }
+    }
+  }
 
   useEffect(() => {
-    if (!snapshot.projects.some((candidate) => candidate.id === projectId)) setProjectId(snapshot.projects[0]?.id ?? '')
+    if (!snapshot.projects.some((candidate) => candidate.id === projectId)) {
+      generationRef.current += 1
+      abortRef.current?.abort()
+      setReadiness(null)
+      setCandidates([])
+      setError(null)
+      setCandidateError(null)
+      setMutating(null)
+      setProjectId(snapshot.projects[0]?.id ?? '')
+    }
   }, [projectId, snapshot.projects])
 
   const load = useCallback(async () => {
@@ -2785,11 +2943,17 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     const controller = new AbortController()
     abortRef.current = controller
     setReadiness(null)
+    setCandidates([])
     setError(null)
+    setCandidateError(null)
+    // A project change or manual refresh invalidates any in-flight mutation as
+    // well as its read models. Otherwise a stale promise could leave the new
+    // project permanently disabled after its generation has moved on.
+    setMutating(null)
     setLoading(false)
     if (!projectId) return
     if (!connected) {
-      setError(locale === 'vi' ? 'Core đang offline. Readiness cần dữ liệu canonical mới nhất; không dùng snapshot cũ để kết luận.' : 'Core is offline. Readiness requires current canonical data; an old snapshot cannot be used as a conclusion.')
+      setError(locale === 'vi' ? 'Core đang offline. Readiness và candidate cần dữ liệu canonical mới nhất; không dùng snapshot cũ để kết luận.' : 'Core is offline. Readiness and candidates require current canonical data; an old snapshot cannot be used as a conclusion.')
       return
     }
     if (!supported) {
@@ -2797,24 +2961,139 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
       return
     }
     setLoading(true)
+    const candidateRequest = candidateListSupported
+      ? client.getReleaseCandidates!(projectId, controller.signal).then((value) => ({ value, error: null as unknown })).catch((cause: unknown) => ({ value: null, error: cause }))
+      : Promise.resolve({ value: null, error: null as unknown })
     try {
-      const next = await client.getReleaseReadiness!(projectId, controller.signal)
-      if (generation === generationRef.current && !controller.signal.aborted) setReadiness(next)
+      const [next, candidateResult] = await Promise.all([client.getReleaseReadiness!(projectId, controller.signal), candidateRequest])
+      if (generation !== generationRef.current || controller.signal.aborted) return
+      if (next.projectId !== projectId) {
+        setError(locale === 'vi' ? 'Core trả về readiness không thuộc project đang chọn; không thể kết luận an toàn.' : 'Core returned readiness for a different project; no safe conclusion can be shown.')
+        return
+      }
+      setReadiness(next)
+      if (candidateResult.error) setCandidateError(workspaceErrorMessage(candidateResult.error, locale))
+      else if (candidateResult.value) {
+        const items = candidateResult.value.items
+        if (!Array.isArray(items)) {
+          setCandidateError(locale === 'vi' ? 'Core trả về danh sách candidate không hợp lệ; không hiển thị dữ liệu chưa xác minh.' : 'Core returned an invalid candidate list; unverified data is hidden.')
+        } else {
+          const scoped = items.map(normalizeReleaseCandidate).filter((candidate): candidate is ReleaseCandidate => Boolean(candidate && candidate.projectId === projectId))
+          for (const candidate of scoped) {
+            if (candidate.state === 'CANCELLED' && candidate.readinessDigest) clearCandidateIntents(projectId, candidate.readinessDigest)
+          }
+          setCandidates(scoped)
+        }
+      }
     } catch (cause) {
       if (controller.signal.aborted || (cause instanceof DOMException && cause.name === 'AbortError')) return
-      if (generation === generationRef.current) setError(cause instanceof Error ? cause.message : (locale === 'vi' ? 'Không đọc được readiness từ Core.' : 'Could not read readiness from Core.'))
+      if (generation === generationRef.current) setError(workspaceErrorMessage(cause, locale))
     } finally {
       if (generation === generationRef.current && !controller.signal.aborted) setLoading(false)
     }
-  }, [client, connected, locale, projectId, supported])
+  }, [candidateListSupported, client, connected, locale, projectId, supported])
 
   useEffect(() => {
     void load()
     return () => abortRef.current?.abort()
   }, [load])
 
+  const switchProject = (nextProjectId: string) => {
+    if (nextProjectId === projectId) return
+    generationRef.current += 1
+    abortRef.current?.abort()
+    setProjectId(nextProjectId)
+    // Clear the old projection in the same event as the selection change. The
+    // next effect will load the new project; until then no old readiness or
+    // candidate can be mistaken for evidence belonging to it.
+    setReadiness(null)
+    setCandidates([])
+    setError(null)
+    setCandidateError(null)
+    setMutating(null)
+    setLoading(false)
+  }
+
+  const createCandidate = useCallback(async () => {
+    if (!connected || !project || !readiness || readiness.projectId !== projectId || readiness.overallState !== 'READY' || !projectId || !candidateListSupported || !candidateCreateSupported || !client.createReleaseCandidateDraft || mutating) return
+    const generation = generationRef.current
+    const intent = candidateIntent(readiness, projectId)
+    setMutating('create')
+    setCandidateError(null)
+    try {
+      const created = await client.createReleaseCandidateDraft(projectId, intent.key)
+      if (generation === generationRef.current && created) {
+        const normalized = normalizeReleaseCandidate(created)
+        const valid = Boolean(normalized && normalized.projectId === projectId
+          && normalized.id && normalized.state === 'DRAFT'
+          && Number.isSafeInteger(normalized.rowVersion) && normalized.rowVersion >= 1)
+        if (valid && normalized) setCandidates((current) => [normalized, ...current.filter((item) => item.id !== normalized.id)])
+        else setCandidateError(normalized?.projectId !== projectId
+          ? (locale === 'vi' ? 'Core trả về candidate không thuộc project đang chọn; candidate bị ẩn để giữ isolation.' : 'Core returned a candidate for a different project; it was hidden to preserve isolation.')
+          : (locale === 'vi' ? 'Core trả về candidate thiếu identity hoặc state hợp lệ; bản ghi bị ẩn.' : 'Core returned a candidate without a valid identity or state; it was hidden.'))
+      }
+    } catch (cause) {
+      if (generation === generationRef.current) setCandidateError(workspaceErrorMessage(cause, locale))
+    } finally {
+      if (generation === generationRef.current) setMutating(null)
+    }
+  }, [candidateCreateSupported, candidateIntent, candidateListSupported, client, connected, locale, mutating, project, projectId, readiness])
+
+  const cancelCandidate = useCallback(async (candidate: ReleaseCandidate) => {
+    if (!connected || !project || !candidateCancelSupported || !candidate.id || candidate.projectId !== projectId || candidate.state !== 'DRAFT' || !projectId || !client.cancelReleaseCandidateDraft || !Number.isSafeInteger(candidate.rowVersion) || candidate.rowVersion < 1 || mutating) return
+    const confirmed = window.confirm(locale === 'vi' ? 'Huỷ release candidate bản nháp này? Thao tác sẽ được ghi audit và không thể hoàn tác.' : 'Cancel this release candidate draft? The action is audited and cannot be undone.')
+    if (!confirmed) return
+    const generation = generationRef.current
+    setMutating(`cancel:${candidate.id}`)
+    setCandidateError(null)
+    try {
+      const submittedVersion = candidate.rowVersion
+      const cancelled = await client.cancelReleaseCandidateDraft(projectId, candidate.id, submittedVersion, `release-candidate-cancel:${candidate.id}:v${submittedVersion}`)
+      if (generation === generationRef.current) {
+        const normalized = normalizeReleaseCandidate(cancelled)
+        if (!normalized || normalized.id !== candidate.id || normalized.projectId !== projectId || normalized.state !== 'CANCELLED' || !Number.isSafeInteger(normalized.rowVersion) || normalized.rowVersion <= submittedVersion) {
+          setCandidateError(locale === 'vi' ? 'Core trả về kết quả huỷ không hợp lệ; bản ghi hiện tại được giữ nguyên.' : 'Core returned an invalid cancellation result; the current row was kept unchanged.')
+        } else {
+          clearCandidateIntents(projectId, candidate.readinessDigest)
+          setCandidates((current) => current.map((item) => item.id === candidate.id ? normalized : item))
+        }
+      }
+    } catch (cause) {
+      if (generation === generationRef.current) setCandidateError(workspaceErrorMessage(cause, locale))
+    } finally {
+      if (generation === generationRef.current) setMutating(null)
+    }
+  }, [candidateCancelSupported, clearCandidateIntents, client, connected, locale, mutating, project, projectId])
+
   const overallState = readiness?.overallState ?? 'NOT_CHECKED'
-  return <div className="page release-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'SẴN SÀNG PHÁT HÀNH' : 'RELEASE READINESS'}</p><h1>{locale === 'vi' ? 'Kiểm tra readiness' : 'Release readiness'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Projection chỉ đọc từ Core để kiểm tra đúng revision và bằng chứng hiện tại trước khi tạo release candidate.' : 'A read-only Core projection that checks exact revisions and current evidence before a release candidate is created.'}</p></div><button className="subtle-button" onClick={() => void load()} disabled={loading || !projectId}><RefreshCw size={15} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div><div className="release-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="release-project-select" value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label={locale === 'vi' ? 'Project readiness' : 'Readiness project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className="state-label"><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>{error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{loading && <LoadingState label={locale === 'vi' ? 'Đang kiểm tra tám gate từ Core…' : 'Checking eight gates from Core…'} />}{!loading && !error && !readiness && !project && <EmptyState icon={ShieldCheck} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi kiểm tra readiness.' : 'Create a project before checking readiness.'} />}{readiness && <><section className="release-overview-card"><div><p className="eyebrow">{locale === 'vi' ? 'KẾT LUẬN HIỆN TẠI' : 'CURRENT CONCLUSION'}</p><div className="release-overview-heading"><span className={`release-status ${releaseStateClass(overallState)}`}><span />{releaseStateLabel(overallState, locale)}</span><strong>{readiness.projectTitle ?? project?.name ?? projectId}</strong></div><p>{readiness.nextStep ?? (locale === 'vi' ? 'Refresh sau khi xử lý blocker.' : 'Refresh after resolving the blocker.')}</p></div><div className="release-overview-facts"><div><span>{locale === 'vi' ? 'Gate chặn' : 'Blocking gates'}</span><strong>{readiness.blockingCount}</strong></div><div><span>UNKNOWN</span><strong>{readiness.unknownCount}</strong></div><div><span>Manifest hash</span><strong title={readiness.gateManifestHash}>{readiness.gateManifestHash?.slice(0, 12) ?? '—'}</strong></div></div></section><div className="release-gate-list">{RELEASE_GATE_ORDER.map((key) => { const gate = releaseGateFor(readiness, key); const facts = releaseEvidenceFacts(gate, locale); return <section className={`release-gate-card ${releaseStateClass(gate.state)}`} key={key}><div className="release-gate-heading"><div><p className="eyebrow">{key}</p><h2>{releaseGateLabel(key, locale)}</h2></div><span className={`release-status ${releaseStateClass(gate.state)}`}><span />{releaseStateLabel(gate.state, locale)}</span></div>{gate.reason && <p className="release-gate-reason">{gate.reason}</p>}{facts.length > 0 && <div className="release-evidence-facts">{facts.map((fact) => <span key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong title={fact.value}>{fact.value}</strong></span>)}</div>}{gate.nextStep && <p className="release-next-step"><Info size={13} />{gate.nextStep}</p>}</section> })}</div><section className="release-boundary-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Boundary tiếp theo' : 'Next boundary'}</h2><p>{locale === 'vi' ? 'Readiness không tự tạo master và không công bố nội dung.' : 'Readiness never creates a master or publishes content.'}</p></div></div></div><div className="release-boundary-actions"><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Export master — chưa mở' : 'Export master — unavailable'}</button><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Publish — cần release manifest' : 'Publish — requires release manifest'}</button></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Export và Publish là boundary riêng, cần contract và confirmation riêng. Không có thao tác state-changing nào trong workspace này.' : 'Export and Publish are separate boundaries with separate contracts and confirmation. This workspace has no state-changing action.'}</p></section></>}</div>
+  const cancelledForCurrentReadiness = Boolean(readiness?.gateManifestHash && candidates.some((candidate) => candidate.projectId === projectId && candidate.readinessDigest === readiness.gateManifestHash && candidate.state === 'CANCELLED'))
+  const canCreate = Boolean(connected && project && readiness?.projectId === projectId && readiness?.overallState === 'READY' && candidateListSupported && candidateCreateSupported && !cancelledForCurrentReadiness && !mutating)
+  const candidateBlocker = !connected
+    ? (locale === 'vi' ? 'Core offline; candidate chỉ dùng dữ liệu canonical hiện tại.' : 'Core is offline; candidates require current canonical data.')
+    : !project
+      ? (locale === 'vi' ? 'Project hiện tại không còn trong workspace.' : 'The selected project is no longer in this workspace.')
+      : !candidateListSupported
+        ? (locale === 'vi' ? 'Bridge chưa hỗ trợ danh sách candidate.' : 'This bridge does not expose the candidate list.')
+        : !candidateCreateSupported
+          ? (locale === 'vi' ? 'Bridge chưa hỗ trợ tạo candidate.' : 'This bridge does not expose candidate creation.')
+          : cancelledForCurrentReadiness
+            ? (locale === 'vi' ? 'Exact readiness này đã có candidate bị huỷ; cần source/revision mới trước khi tạo lại.' : 'This exact readiness already has a cancelled candidate; create a new source/revision before trying again.')
+            : readiness && readiness.overallState !== 'READY'
+              ? (locale === 'vi' ? 'Chỉ tạo candidate khi readiness là READY. FAIL và UNKNOWN đều chặn.' : 'A candidate can be created only when readiness is READY. FAIL and UNKNOWN both block it.')
+              : null
+  return <div className="page release-page">
+    <div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'SẴN SÀNG PHÁT HÀNH' : 'RELEASE READINESS'}</p><h1>{locale === 'vi' ? 'Kiểm tra readiness' : 'Release readiness'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Core kiểm tra đúng revision trước khi lưu một candidate metadata-only. Master, export và publish là boundary riêng.' : 'Core checks exact revisions before saving a metadata-only candidate. Mastering, export and publish are separate boundaries.'}</p></div><button className="subtle-button" onClick={() => void load()} disabled={loading || !projectId}><RefreshCw size={15} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>
+    <div className="release-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="release-project-select" value={projectId} onChange={(event) => switchProject(event.target.value)} aria-label={locale === 'vi' ? 'Project readiness' : 'Readiness project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className="state-label"><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>
+    {error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}
+    {loading && <LoadingState label={locale === 'vi' ? 'Đang kiểm tra tám gate và candidate từ Core…' : 'Checking eight gates and candidates from Core…'} />}
+    {!loading && !error && !readiness && !project && <EmptyState icon={ShieldCheck} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi kiểm tra readiness.' : 'Create a project before checking readiness.'} />}
+    {readiness && <>
+      <section className="release-overview-card"><div><p className="eyebrow">{locale === 'vi' ? 'KẾT LUẬN HIỆN TẠI' : 'CURRENT CONCLUSION'}</p><div className="release-overview-heading"><span className={`release-status ${releaseStateClass(overallState)}`}><span />{releaseStateLabel(overallState, locale)}</span><strong>{readiness.projectTitle ?? project?.name ?? projectId}</strong></div><p>{readiness.nextStep ?? (locale === 'vi' ? 'Refresh sau khi xử lý blocker.' : 'Refresh after resolving the blocker.')}</p></div><div className="release-overview-facts"><div><span>{locale === 'vi' ? 'Gate chặn' : 'Blocking gates'}</span><strong>{readiness.blockingCount}</strong></div><div><span>UNKNOWN</span><strong>{readiness.unknownCount}</strong></div><div><span>Manifest hash</span><strong title={readiness.gateManifestHash}>{readiness.gateManifestHash?.slice(0, 12) ?? '—'}</strong></div></div></section>
+      <section className="release-candidates-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><PackageOpen size={16} /></span><div><h2>{locale === 'vi' ? 'Metadata release candidate' : 'Release candidate metadata'}</h2><p>{locale === 'vi' ? 'Bản nháp giữ exact refs và digest; chưa có master bytes hoặc thao tác publish.' : 'Drafts keep exact refs and digests; no master bytes or publish action exists here.'}</p></div></div><button type="button" className="primary-button small" onClick={() => void createCandidate()} disabled={!canCreate} title={candidateBlocker ?? undefined}>{mutating === 'create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Tạo candidate' : 'Create candidate'}</button></div>{candidateBlocker && <p className="readonly-note"><Info size={14} />{candidateBlocker}</p>}{!connected && <p className="readonly-note"><CloudOff size={14} />{locale === 'vi' ? 'Core offline; tạo và huỷ candidate bị khoá.' : 'Core is offline; candidate creation and cancellation are disabled.'}</p>}{!candidateListSupported && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ danh sách release candidate.' : 'This bridge does not expose the release candidate list yet.'}</p>}{candidateError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateError}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Tải lại' : 'Retry'}</button></div>}{candidateListSupported && candidates.length === 0 && <div className="empty-inline"><PackageOpen size={16} /><span>{locale === 'vi' ? 'Chưa có candidate metadata.' : 'No release candidate metadata yet.'}</span></div>}{candidateListSupported && candidates.length > 0 && <div className="release-candidate-list">{candidates.map((candidate) => <article className="release-candidate-row" key={candidate.id ?? `${candidate.timelineRevisionId}-${candidate.readinessDigest}`}><div className="release-candidate-main"><div className="release-candidate-heading"><strong>{candidate.id ?? (locale === 'vi' ? 'Candidate không tên' : 'Unnamed candidate')}</strong><span className={`release-status ${releaseCandidateStateClass(candidate.state)}`}><span />{releaseCandidateStateLabel(candidate.state, locale)}</span></div><small>{locale === 'vi' ? 'Timeline revision' : 'Timeline revision'}: {candidate.timelineRevisionId ?? '—'} · v{candidate.rowVersion}</small><div className="release-candidate-facts"><span>{locale === 'vi' ? 'Media profile' : 'Media profile'}: {candidate.mediaProfileRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'QC review' : 'QC review'}: {candidate.reviewSessionId ?? '—'}</span><span>{locale === 'vi' ? 'Readiness digest' : 'Readiness digest'}: {candidate.readinessDigest?.slice(0, 12) ?? '—'}</span><span>{locale === 'vi' ? 'Rights hash' : 'Rights hash'}: {candidate.rightsSnapshotHash?.slice(0, 12) ?? '—'}</span></div><p className="release-next-step">{candidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; chưa có master.' : 'Metadata-only; no master exists.')}</p></div>{candidate.state === 'DRAFT' && candidate.id && candidate.projectId === projectId && Number.isSafeInteger(candidate.rowVersion) && candidate.rowVersion >= 1 && <button type="button" className="subtle-button tiny" onClick={() => void cancelCandidate(candidate)} disabled={!connected || !candidateCancelSupported || mutating !== null}>{mutating === `cancel:${candidate.id}` ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}{locale === 'vi' ? 'Huỷ draft' : 'Cancel draft'}</button>}</article>)}</div>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Candidate là metadata immutable có cancel audit. Render, export, sign và publish chưa được bật.' : 'A candidate is immutable metadata with an audited cancel transition. Render, export, signing and publish are not enabled.'}</p></section>
+      <div className="release-gate-list">{RELEASE_GATE_ORDER.map((key) => { const gate = releaseGateFor(readiness, key); const facts = releaseEvidenceFacts(gate, locale); return <section className={`release-gate-card ${releaseStateClass(gate.state)}`} key={key}><div className="release-gate-heading"><div><p className="eyebrow">{key}</p><h2>{releaseGateLabel(key, locale)}</h2></div><span className={`release-status ${releaseStateClass(gate.state)}`}><span />{releaseStateLabel(gate.state, locale)}</span></div>{gate.reason && <p className="release-gate-reason">{gate.reason}</p>}{facts.length > 0 && <div className="release-evidence-facts">{facts.map((fact) => <span key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong title={fact.value}>{fact.value}</strong></span>)}</div>}{gate.nextStep && <p className="release-next-step"><Info size={13} />{gate.nextStep}</p>}</section> })}</div>
+      <section className="release-boundary-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Boundary tiếp theo' : 'Next boundary'}</h2><p>{locale === 'vi' ? 'Readiness và candidate không tự tạo master, export hay công bố nội dung.' : 'Readiness and candidates never create a master, export bytes or publish content.'}</p></div></div></div><div className="release-boundary-actions"><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Export master — chưa mở' : 'Export master — unavailable'}</button><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Publish — cần release manifest' : 'Publish — requires release manifest'}</button></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Export và Publish là boundary riêng, cần contract và confirmation riêng.' : 'Export and Publish are separate boundaries with separate contracts and confirmation.'}</p></section>
+    </>}
+  </div>
 }
 
 export function SettingsView({ snapshot, locale, client, theme, onThemeChange, onLocaleChange, onRefresh, refreshLabel, onToast }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; theme: Theme; onThemeChange: (theme: Theme) => void; onLocaleChange: (locale: Locale) => void; onRefresh: () => void; refreshLabel: string; onToast: (message: string) => void }) {

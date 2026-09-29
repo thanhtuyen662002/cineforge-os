@@ -953,6 +953,35 @@ export interface ReleaseReadiness {
   generatedAt?: string
 }
 
+export type ReleaseCandidateState = 'DRAFT' | 'CANCELLED' | 'UNKNOWN'
+
+/** Metadata-only release candidate identity.  Master bytes and raw evidence
+ * snapshots stay in Core and are intentionally absent from this UI type. */
+export interface ReleaseCandidate {
+  id?: string
+  projectId?: string
+  timelineRevisionId?: string
+  audioMasterAssetRevisionId?: string
+  mediaProfileRevisionId?: string
+  reviewSessionId?: string
+  readinessDigest?: string
+  rightsSnapshotHash?: string
+  state: ReleaseCandidateState
+  nextStep?: string
+  rowVersion: number
+  snapshotSchemaVersion: number
+  createdAt?: string
+  updatedAt?: string
+  cancelledAt?: string
+  idempotentReplay?: boolean
+}
+
+export interface ReleaseCandidateList {
+  items: ReleaseCandidate[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
@@ -978,6 +1007,10 @@ export interface CoreClient {
   getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
   reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
   getReleaseReadiness?(projectId: string, signal?: AbortSignal): Promise<ReleaseReadiness>
+  getReleaseCandidates?(projectId: string, signal?: AbortSignal): Promise<ReleaseCandidateList>
+  getReleaseCandidate?(projectId: string, candidateId: string, signal?: AbortSignal): Promise<ReleaseCandidate>
+  createReleaseCandidateDraft?(projectId: string, idempotencyKey?: string): Promise<ReleaseCandidate>
+  cancelReleaseCandidateDraft?(projectId: string, candidateId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReleaseCandidate>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>

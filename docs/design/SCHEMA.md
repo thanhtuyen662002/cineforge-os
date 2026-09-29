@@ -18,12 +18,20 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
-> Executable Core schema: version 14 (the Issue #27 working-session tables and
-> the bounded Issue #29 timing metadata tables are included). The generic
+> Executable Core schema: version 15 (the Issue #27 working-session tables, the
+> bounded Issue #29 timing metadata tables and the metadata-only Issue #49
+> release-candidate draft table are included). The generic
 > dependency/staleness graph remains a broader design contract; the Issue #29
 > slice computes its stale projection from immutable pins and current gate
 > evidence instead of materializing that graph.
 > This document describes canonical data. Search indexes, embeddings, thumbnails, previews and caches are derived data.
+
+The v15 upgrade is additive. It creates `release_candidates` plus its
+project/state, exact-revision and command indexes, and recreates the identity,
+terminal-state and no-delete guards on every open. Existing canonical rows are
+not rewritten; a partially created release-candidate table that is missing
+required identity columns fails closed rather than being guessed into a new
+shape.
 
 # 1. Physical conventions
 
@@ -1228,7 +1236,7 @@ cannot be transitioned to `APPROVED`.
 
 ### Additive migration and compatibility
 
-The implementation target is additive schema migration version 14. It adds the
+The Issue #29 implementation target was additive schema migration version 14. It adds the
 timing/hash fields,
 the `subtitle_track_segments` table/binding, the dependency indexes and
 any append-only events required by the command contract. It must not rewrite
@@ -1477,7 +1485,8 @@ same subject is rejected by the command boundary.
 
 ## human_reviews
 - id PK
-- review_session_id FK
+- review_session_id FK (required for Core-created candidates; nullable is
+  retained only for compatibility with a pre-v15 partially-created local row)
 - decision: APPROVE | REJECT | REPAIR | ABSTAIN
 - notes
 - reason_codes_json
@@ -1724,12 +1733,31 @@ sanitization data and redact storage locations and internal database details.
 - id PK
 - project_id FK
 - timeline_revision_id FK
-- audio_master_asset_revision_id
-- subtitle_manifest_json
+- audio_master_asset_revision_id nullable in the metadata-only V1 slice
+- subtitle_manifest_json (bounded, versioned localization summary)
 - media_profile_revision_id FK
+- review_session_id FK
+- readiness_digest SHA-256
 - rights_snapshot_hash
-- state
-- row_version
+- readiness_snapshot_json (Core-internal, redacted, versioned)
+- readiness_snapshot_schema_version
+- state CHECK (`DRAFT` | `CANCELLED`)
+- next_step
+- row_version positive integer
+- command_id FK
+- created_by_actor_id
+- created_at_utc_us
+- updated_at_utc_us
+- cancelled_at_utc_us nullable
+
+The V1 uniqueness boundary is `(project_id, timeline_revision_id,
+readiness_digest)`, so the same exact source and readiness conclusion cannot
+create two drafts. Identity columns and stored snapshots are immutable after
+insert; only the state, cancellation timestamp, row version, `next_step` and
+update timestamp can change through the Core cancel command. A no-delete
+trigger retains candidates for audit. Public projections omit both JSON
+columns and every path/provider/credential field. Release candidate rows are
+included in project activity through their `RELEASE_CANDIDATE` domain events.
 
 ## release_manifests
 Immutable.

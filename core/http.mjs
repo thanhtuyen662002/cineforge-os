@@ -7,8 +7,8 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'AUDIO_CUE_NOT_FOUND', 'AUDIO_CUE_REVISION_NOT_FOUND', 'SUBTITLE_TRACK_NOT_FOUND', 'SUBTITLE_TRACK_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'REVIEW_NOT_SUPPORTED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'AUDIO_CUE_STALE', 'AUDIO_CUE_REVIEW_REQUIRED', 'SUBTITLE_TRACK_STALE', 'SUBTITLE_TRACK_REVIEW_REQUIRED', 'TIMING_DEPENDENCY_HASH_REQUIRED', 'TIMING_DEPENDENCY_HASH_MISMATCH', 'AUDIO_ASSET_REQUIRED', 'TIMING_OUT_OF_BOUNDS', 'SUBTITLE_SEGMENT_OVERLAP', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE'].includes(code)) return 409;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'AUDIO_CUE_NOT_FOUND', 'AUDIO_CUE_REVISION_NOT_FOUND', 'SUBTITLE_TRACK_NOT_FOUND', 'SUBTITLE_TRACK_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND', 'RELEASE_CANDIDATE_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'REVIEW_NOT_SUPPORTED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'AUDIO_CUE_STALE', 'AUDIO_CUE_REVIEW_REQUIRED', 'SUBTITLE_TRACK_STALE', 'SUBTITLE_TRACK_REVIEW_REQUIRED', 'TIMING_DEPENDENCY_HASH_REQUIRED', 'TIMING_DEPENDENCY_HASH_MISMATCH', 'AUDIO_ASSET_REQUIRED', 'TIMING_OUT_OF_BOUNDS', 'SUBTITLE_SEGMENT_OVERLAP', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE', 'RELEASE_READINESS_BLOCKED', 'RELEASE_CANDIDATE_ALREADY_EXISTS', 'RELEASE_CANDIDATE_NOT_CANCELLABLE', 'INVALID_RELEASE_CANDIDATE_STATE'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED', 'PREVIEW_MIME_UNSUPPORTED', 'PREVIEW_PURPOSE_UNSUPPORTED'].includes(code)) return 415;
   if (['PREVIEW_TOKEN_INVALID', 'PREVIEW_TOKEN_EXPIRED', 'PREVIEW_TOKEN_SCOPE', 'PREVIEW_SESSION_REQUIRED'].includes(code)) return 401;
   if (['PREVIEW_RANGE_INVALID', 'PREVIEW_RANGE_NOT_SATISFIABLE', 'PREVIEW_RANGE_TOO_LARGE'].includes(code)) return 416;
@@ -1182,16 +1182,24 @@ const RELEASE_EVIDENCE_KEYS = new Set([
   'decision', 'count',
 ]);
 
-function safeReleaseEvidence(value) {
-  if (Array.isArray(value)) return value.slice(0, 200).map(safeReleaseEvidence);
+function safeReleaseText(value) {
+  if (typeof value !== 'string') return null;
+  let safe = value.slice(0, 512).replace(/(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)[^\s"'<>]*/gi, '[redacted]');
+  safe = safe.replace(/(?:^|[\s(])\/(?:[^\/\s]+\/)+[^\/\s]*/g, (match) => match.startsWith('/') ? '[redacted]' : `${match[0]}[redacted]`);
+  return safe;
+}
+
+function safeReleaseEvidence(value, depth = 0) {
+  if (depth > 5) return undefined;
+  if (Array.isArray(value)) return value.slice(0, 200).map((item) => safeReleaseEvidence(item, depth + 1)).filter((item) => item !== undefined);
   if (!value || typeof value !== 'object') {
-    if (typeof value === 'string') return value.slice(0, 512);
+    if (typeof value === 'string') return safeReleaseText(value);
     if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value;
     return undefined;
   }
   return Object.fromEntries(Object.entries(value)
     .filter(([key]) => RELEASE_EVIDENCE_KEYS.has(key))
-    .map(([key, item]) => [key, safeReleaseEvidence(item)])
+    .map(([key, item]) => [key, safeReleaseEvidence(item, depth + 1)])
     .filter(([, item]) => item !== undefined));
 }
 
@@ -1228,6 +1236,54 @@ function mapReleaseReadiness(result) {
     unknownCount: safeReleaseNumber(value.unknown_count ?? value.unknownCount, 0),
     gateManifestHash: readString(value, 'gate_manifest_hash', 'gateManifestHash'),
     nextStep: readString(value, 'next_step', 'nextStep'),
+    projectionSeq: safeReleaseNumber(value.projection_seq ?? value.projectionSeq, 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
+const RELEASE_CANDIDATE_STATES = new Set(['DRAFT', 'CANCELLED']);
+const RELEASE_CANDIDATE_HASH = /^[a-f0-9]{64}$/i;
+
+function mapReleaseCandidate(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const rawState = String(value.state ?? 'UNKNOWN').toUpperCase();
+  const rawRowVersion = Number(value.row_version ?? value.rowVersion);
+  const candidate = {
+    id: readString(value, 'id', 'release_candidate_id', 'releaseCandidateId'),
+    projectId: readString(value, 'project_id', 'projectId'),
+    timelineRevisionId: readString(value, 'timeline_revision_id', 'timelineRevisionId'),
+    audioMasterAssetRevisionId: readString(value, 'audio_master_asset_revision_id', 'audioMasterAssetRevisionId'),
+    mediaProfileRevisionId: readString(value, 'media_profile_revision_id', 'mediaProfileRevisionId'),
+    reviewSessionId: readString(value, 'review_session_id', 'reviewSessionId'),
+    readinessDigest: (() => { const hash = readString(value, 'readiness_digest', 'readinessDigest'); return hash && RELEASE_CANDIDATE_HASH.test(hash) ? hash.toLowerCase() : null })(),
+    rightsSnapshotHash: (() => { const hash = readString(value, 'rights_snapshot_hash', 'rightsSnapshotHash'); return hash && RELEASE_CANDIDATE_HASH.test(hash) ? hash.toLowerCase() : null })(),
+    state: RELEASE_CANDIDATE_STATES.has(rawState) ? rawState : 'UNKNOWN',
+    nextStep: safeReleaseText(readString(value, 'next_step', 'nextStep')),
+    rowVersion: Number.isSafeInteger(rawRowVersion) && rawRowVersion >= 1 ? rawRowVersion : 0,
+    snapshotSchemaVersion: Number.isSafeInteger(Number(value.readiness_snapshot_schema_version ?? value.readinessSnapshotSchemaVersion)) ? Number(value.readiness_snapshot_schema_version ?? value.readinessSnapshotSchemaVersion) : 1,
+    createdAt: readString(value, 'created_at', 'createdAt'),
+    updatedAt: readString(value, 'updated_at', 'updatedAt'),
+    cancelledAt: readString(value, 'cancelled_at', 'cancelledAt'),
+    idempotentReplay: value.idempotent_replay === true || value.idempotentReplay === true,
+  };
+  return candidate;
+}
+
+function mapReleaseCandidateList(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const rows = Array.isArray(result) ? result : value.items ?? value.candidates ?? [];
+  return {
+    items: Array.isArray(rows) ? rows.map(mapReleaseCandidate) : [],
+    projectionSeq: safeReleaseNumber(value.projection_seq ?? value.projectionSeq, 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
+function mapReleaseCandidateWorkspace(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const candidateValue = value.candidate ?? value.release_candidate ?? value.releaseCandidate ?? value;
+  return {
+    candidate: candidateValue ? mapReleaseCandidate(candidateValue) : null,
     projectionSeq: safeReleaseNumber(value.projection_seq ?? value.projectionSeq, 0),
     generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
   };
@@ -1692,6 +1748,22 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'release' && parts[4] === 'readiness' && parts.length === 5) {
         const readiness = query(core, request, 'query.release.readiness', { project_id: parts[2] });
         result = readiness.ok ? { ...readiness, result: mapReleaseReadiness(readiness.result) } : readiness;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'release' && parts[4] === 'candidates' && parts.length === 5) {
+        const listed = query(core, request, 'query.release.candidate.list', {
+          project_id: parts[2], state: url.searchParams.get('state') ?? undefined, limit: url.searchParams.get('limit') ?? 100,
+        });
+        result = listed.ok ? { ...listed, result: mapReleaseCandidateList(listed.result) } : listed;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'release' && parts[4] === 'candidates' && parts[5] && parts.length === 6) {
+        const found = query(core, request, 'query.release.candidate.get', { project_id: parts[2], release_candidate_id: parts[5] });
+        result = found.ok ? { ...found, result: mapReleaseCandidateWorkspace(found.result) } : found;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'release' && parts[4] === 'candidates' && parts.length === 5) {
+        const created = command(core, request, 'CreateReleaseCandidateDraft', { ...body, project_id: parts[2] }, {}, commandKey(request, body));
+        result = created.ok ? { ...created, result: mapReleaseCandidate({ ...created.result, idempotent_replay: created.idempotent_replay === true }) } : created;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'release' && parts[4] === 'candidates' && parts[5] && parts[6] === 'cancel' && parts.length === 7) {
+        const cancelled = command(core, request, 'CancelReleaseCandidateDraft', {
+          ...body, project_id: parts[2], release_candidate_id: parts[5],
+        }, expectedVersions(body, 'RELEASE_CANDIDATE'), commandKey(request, body));
+        result = cancelled.ok ? { ...cancelled, result: mapReleaseCandidate({ ...cancelled.result, idempotent_replay: cancelled.idempotent_replay === true }) } : cancelled;
 
       // First-class project task routes.  The legacy production-items route
       // below remains a compact UI projection; these routes expose the

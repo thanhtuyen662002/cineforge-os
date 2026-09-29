@@ -1,7 +1,7 @@
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -1402,6 +1402,65 @@ export function initializeDatabase(db) {
       BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
   `);
 
+  // v15 metadata-only release-candidate drafts.  A candidate binds the exact
+  // approved timeline/profile/review and a redacted readiness snapshot.  It
+  // contains no master bytes, path, provider reference, or publish intent.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS release_candidates (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      audio_master_asset_revision_id TEXT REFERENCES asset_revisions(id),
+      subtitle_manifest_json TEXT NOT NULL DEFAULT '{}',
+      media_profile_revision_id TEXT NOT NULL REFERENCES project_media_profile_revisions(id),
+      review_session_id TEXT REFERENCES review_sessions(id),
+      readiness_digest TEXT NOT NULL CHECK (length(readiness_digest) = 64 AND readiness_digest NOT GLOB '*[^0-9a-fA-F]*'),
+      rights_snapshot_hash TEXT NOT NULL CHECK (length(rights_snapshot_hash) = 64 AND rights_snapshot_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      readiness_snapshot_json TEXT NOT NULL DEFAULT '{}',
+      readiness_snapshot_schema_version INTEGER NOT NULL DEFAULT 1 CHECK (readiness_snapshot_schema_version >= 1),
+      state TEXT NOT NULL CHECK (state IN ('DRAFT', 'CANCELLED')),
+      next_step TEXT NOT NULL DEFAULT '',
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      command_id TEXT NOT NULL REFERENCES commands(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      cancelled_at_utc_us INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS release_candidates_project_state_idx
+      ON release_candidates(project_id, state, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS release_candidates_revision_idx
+      ON release_candidates(timeline_revision_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS release_candidates_command_idx
+      ON release_candidates(command_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS release_candidates_exact_uq
+      ON release_candidates(project_id, timeline_revision_id, readiness_digest);
+    CREATE TRIGGER IF NOT EXISTS release_candidates_no_delete
+      BEFORE DELETE ON release_candidates
+      BEGIN SELECT RAISE(ABORT, 'release_candidates are retained for audit'); END;
+    CREATE TRIGGER IF NOT EXISTS release_candidates_identity_no_update
+      BEFORE UPDATE ON release_candidates
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.audio_master_asset_revision_id IS NOT OLD.audio_master_asset_revision_id
+        OR NEW.subtitle_manifest_json IS NOT OLD.subtitle_manifest_json
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.review_session_id IS NOT OLD.review_session_id
+        OR NEW.readiness_digest IS NOT OLD.readiness_digest
+        OR NEW.rights_snapshot_hash IS NOT OLD.rights_snapshot_hash
+        OR NEW.readiness_snapshot_json IS NOT OLD.readiness_snapshot_json
+        OR NEW.readiness_snapshot_schema_version IS NOT OLD.readiness_snapshot_schema_version
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'release_candidate identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS release_candidates_terminal_no_update
+      BEFORE UPDATE ON release_candidates
+      WHEN OLD.state = 'CANCELLED' AND NEW.state <> 'CANCELLED'
+      BEGIN SELECT RAISE(ABORT, 'cancelled release_candidates are terminal'); END;
+  `);
+
   // v7 backup metadata is created after the command/audit tables so its
   // command references are valid even on a fresh database.  The artifact
   // bytes and object copies live outside SQLite; these rows bind the immutable
@@ -1690,6 +1749,67 @@ export function initializeDatabase(db) {
     DROP TRIGGER IF EXISTS handoff_manifests_no_delete;
     CREATE TRIGGER handoff_manifests_no_delete BEFORE DELETE ON handoff_manifests
       BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
+  `);
+
+  // v15 release-candidate upgrades are additive and deliberately recreate the
+  // identity guard on every open.  This keeps a pre-v15/partially-created
+  // local database fail-closed even if its original trigger was incomplete.
+  const releaseCandidateColumns = new Set(db.prepare('PRAGMA table_info(release_candidates)').all().map((row) => String(row.name)));
+  const requiredReleaseCandidateColumns = ['id', 'project_id', 'timeline_revision_id', 'state', 'next_step', 'command_id', 'created_by_actor_id', 'created_at_utc_us'];
+  const missingReleaseCandidateColumns = requiredReleaseCandidateColumns.filter((column) => !releaseCandidateColumns.has(column));
+  if (missingReleaseCandidateColumns.length > 0) {
+    throw new Error(`release_candidates schema is incomplete; missing required columns: ${missingReleaseCandidateColumns.join(', ')}`);
+  }
+  const releaseCandidateAdditions = [
+    ['audio_master_asset_revision_id', 'TEXT'],
+    ['subtitle_manifest_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['media_profile_revision_id', "TEXT NOT NULL DEFAULT ''"],
+    ['review_session_id', 'TEXT'],
+    ['readiness_digest', "TEXT NOT NULL DEFAULT ''"],
+    ['rights_snapshot_hash', "TEXT NOT NULL DEFAULT ''"],
+    ['readiness_snapshot_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['readiness_snapshot_schema_version', 'INTEGER NOT NULL DEFAULT 1'],
+    ['next_step', "TEXT NOT NULL DEFAULT ''"],
+    ['row_version', 'INTEGER NOT NULL DEFAULT 1'],
+    ['updated_at_utc_us', 'INTEGER NOT NULL DEFAULT 0'],
+    ['cancelled_at_utc_us', 'INTEGER'],
+  ];
+  for (const [column, definition] of releaseCandidateAdditions) {
+    if (!releaseCandidateColumns.has(column)) db.exec(`ALTER TABLE release_candidates ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS release_candidates_project_state_idx
+      ON release_candidates(project_id, state, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS release_candidates_revision_idx
+      ON release_candidates(timeline_revision_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS release_candidates_command_idx
+      ON release_candidates(command_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS release_candidates_exact_uq
+      ON release_candidates(project_id, timeline_revision_id, readiness_digest);
+    DROP TRIGGER IF EXISTS release_candidates_no_delete;
+    CREATE TRIGGER release_candidates_no_delete BEFORE DELETE ON release_candidates
+      BEGIN SELECT RAISE(ABORT, 'release_candidates are retained for audit'); END;
+    DROP TRIGGER IF EXISTS release_candidates_identity_no_update;
+    CREATE TRIGGER release_candidates_identity_no_update BEFORE UPDATE ON release_candidates
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.audio_master_asset_revision_id IS NOT OLD.audio_master_asset_revision_id
+        OR NEW.subtitle_manifest_json IS NOT OLD.subtitle_manifest_json
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.review_session_id IS NOT OLD.review_session_id
+        OR NEW.readiness_digest IS NOT OLD.readiness_digest
+        OR NEW.rights_snapshot_hash IS NOT OLD.rights_snapshot_hash
+        OR NEW.readiness_snapshot_json IS NOT OLD.readiness_snapshot_json
+        OR NEW.readiness_snapshot_schema_version IS NOT OLD.readiness_snapshot_schema_version
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'release_candidate identity is immutable'); END;
+    DROP TRIGGER IF EXISTS release_candidates_terminal_no_update;
+    CREATE TRIGGER release_candidates_terminal_no_update BEFORE UPDATE ON release_candidates
+      WHEN OLD.state = 'CANCELLED' AND NEW.state <> 'CANCELLED'
+      BEGIN SELECT RAISE(ABORT, 'cancelled release_candidates are terminal'); END;
   `);
 
   // v13 local timeline working-session baseline. Additive guards keep a
