@@ -4068,6 +4068,47 @@ export class CoreService {
     };
   }
 
+  // Revisions created before the working-session schema marker was added used
+  // the original stable time-only ordering for equal-time clips and markers.
+  // Their immutable content hash must remain usable after the canonical V1
+  // ordering became stricter. SQLite rowid preserves the insertion order that
+  // the old normalizer received, so reconstruct that legacy byte shape only as
+  // a compatibility check; all new drafts continue to use the deterministic
+  // schema-versioned hash above.
+  _timelineWorkingLegacyHashFromRevision(revision) {
+    const trackRows = this.db.prepare('SELECT * FROM timeline_tracks WHERE timeline_revision_id = ? ORDER BY order_index ASC, rowid ASC').all(revision.id);
+    const tracks = trackRows.map((track) => {
+      const clips = this.db.prepare('SELECT * FROM timeline_clip_instances WHERE track_id = ? ORDER BY rowid ASC').all(track.id).map((clip) => ({
+        asset_revision_id: clip.asset_revision_id ?? null,
+        source_in: clip.source_in_num === null || clip.source_in_num === undefined ? null : { num: Number(clip.source_in_num), den: Number(clip.source_in_den) },
+        source_out: clip.source_out_num === null || clip.source_out_num === undefined ? null : { num: Number(clip.source_out_num), den: Number(clip.source_out_den) },
+        timeline_in: { num: Number(clip.timeline_in_num), den: Number(clip.timeline_in_den) },
+        timeline_out: { num: Number(clip.timeline_out_num), den: Number(clip.timeline_out_den) },
+        speed: { num: Number(clip.speed_num), den: Number(clip.speed_den) },
+      })).sort((left, right) => rationalCompare(left.timeline_in, right.timeline_in));
+      return {
+        track_type: track.track_type,
+        order_index: Number(track.order_index),
+        name: track.name,
+        enabled: Boolean(Number(track.enabled)),
+        clips,
+      };
+    }).sort((left, right) => left.order_index - right.order_index);
+    const markers = this.db.prepare('SELECT * FROM timeline_markers WHERE timeline_revision_id = ? ORDER BY rowid ASC').all(revision.id).map((marker) => ({
+      time: { num: Number(marker.position_num), den: Number(marker.position_den) },
+      markerType: marker.marker_type,
+      label: marker.label,
+      payload: parseJson(marker.payload_json, {}),
+    })).sort((left, right) => rationalCompare(left.time, right.time));
+    const content = {
+      media_profile_revision_id: revision.media_profile_revision_id,
+      duration: { num: Number(revision.duration_num), den: Number(revision.duration_den) },
+      tracks,
+      markers,
+    };
+    return crypto.createHash('sha256').update(canonicalJson(content), 'utf8').digest('hex');
+  }
+
   _timelineWorkingCanonicalContent(draft, { includeSchemaVersion = true } = {}) {
     const content = {
       media_profile_revision_id: draft.media_profile_revision_id,
@@ -4103,8 +4144,23 @@ export class CoreService {
 
   _timelineWorkingMatchesBase(session, draftHash, draft) {
     const baseHash = String(session.base_content_hash).toLowerCase();
-    return draftHash.toLowerCase() === baseHash
-      || this._timelineWorkingHash(draft, { includeSchemaVersion: false }).toLowerCase() === baseHash;
+    if (draftHash.toLowerCase() === baseHash
+      || this._timelineWorkingHash(draft, { includeSchemaVersion: false }).toLowerCase() === baseHash) return true;
+    // A legacy revision may differ only in equal-time insertion order. Once
+    // the session has normalized that snapshot, compare against the current
+    // canonical reconstruction as well as the immutable legacy hash.
+    try {
+      const revision = this._timelineRevision(session.base_revision_id);
+      if (this._timelineWorkingLegacyHashFromRevision(revision).toLowerCase() === baseHash) {
+        const normalizedBase = this._timelineWorkingNormalizeDraft(this._timelineWorkingDraftFromRevision(revision), revision.project_id, null).draft;
+        return this._timelineWorkingHash(normalizedBase).toLowerCase() === draftHash.toLowerCase()
+          || this._timelineWorkingHash(normalizedBase, { includeSchemaVersion: false }).toLowerCase() === draftHash.toLowerCase();
+      }
+    } catch {
+      // Preserve the ordinary hash-only decision if the compatibility read is
+      // unavailable during recovery or a partially migrated database.
+    }
+    return false;
   }
 
   _timelineWorkingNormalizeDraft(rawDraft, projectId, expectedProfileId = null, { checkAssets = false } = {}) {
@@ -4331,8 +4387,10 @@ export class CoreService {
     if (active) throw new CoreError('TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'CONFLICT', 'errors.timeline_working_session_already_open', { working_session_id: active.id }, { needsUser: true, technicalDetails: { working_session_id: active.id } });
     const normalized = this._timelineWorkingNormalizeDraft(this._timelineWorkingDraftFromRevision(baseRevision), project.id, baseRevision.media_profile_revision_id);
     const legacyContentHash = this._timelineWorkingHash(normalized.draft, { includeSchemaVersion: false });
+    const legacyRevisionHash = this._timelineWorkingLegacyHashFromRevision(baseRevision);
     if (normalized.contentHash.toLowerCase() !== String(baseRevision.content_hash).toLowerCase()
-      && legacyContentHash.toLowerCase() !== String(baseRevision.content_hash).toLowerCase()) {
+      && legacyContentHash.toLowerCase() !== String(baseRevision.content_hash).toLowerCase()
+      && legacyRevisionHash.toLowerCase() !== String(baseRevision.content_hash).toLowerCase()) {
       throw new CoreError('TIMELINE_WORKING_BASE_HASH_MISMATCH', 'CONFLICT', 'errors.timeline_working_base_hash_mismatch', { base_revision_id: baseRevision.id }, { needsUser: true });
     }
     const sessionId = uuidv7();
