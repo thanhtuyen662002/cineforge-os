@@ -1,7 +1,8 @@
+import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
-import { idempotencyFingerprint } from './canonical.mjs';
+import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -1336,6 +1337,10 @@ export function initializeDatabase(db) {
       target_version TEXT NOT NULL CHECK (length(target_version) BETWEEN 1 AND 120),
       state TEXT NOT NULL CHECK (state IN ('PLANNED', 'PREFLIGHT', 'BUILDING', 'VALIDATING', 'VERIFIED', 'COMPLETED', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED', 'CANCELLED')),
       output_manifest_id TEXT,
+      output_asset_revision_id TEXT REFERENCES asset_revisions(id),
+      output_content_hash TEXT CHECK (output_content_hash IS NULL OR (typeof(output_content_hash) = 'text' AND length(output_content_hash) = 64 AND output_content_hash NOT GLOB '*[^0-9a-fA-F]*')),
+      output_byte_size INTEGER CHECK (output_byte_size IS NULL OR (typeof(output_byte_size) = 'integer' AND output_byte_size >= 0 AND output_byte_size <= 9007199254740991)),
+      validation_snapshot_json TEXT NOT NULL DEFAULT '{}' CHECK (typeof(validation_snapshot_json) = 'text'),
       command_id TEXT NOT NULL REFERENCES commands(id),
       review_session_id TEXT NOT NULL REFERENCES review_sessions(id),
       dependency_snapshot_hash TEXT NOT NULL CHECK (length(dependency_snapshot_hash) = 64),
@@ -1361,8 +1366,8 @@ export function initializeDatabase(db) {
       target_editor TEXT NOT NULL CHECK (length(target_editor) BETWEEN 1 AND 120),
       target_version TEXT NOT NULL CHECK (length(target_version) BETWEEN 1 AND 120),
       compatibility_profile_version TEXT NOT NULL CHECK (length(compatibility_profile_version) BETWEEN 1 AND 120),
-      manifest_hash TEXT NOT NULL UNIQUE CHECK (length(manifest_hash) = 64),
-      manifest_json TEXT NOT NULL,
+      manifest_hash TEXT NOT NULL UNIQUE CHECK (typeof(manifest_hash) = 'text' AND length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      manifest_json TEXT NOT NULL CHECK (typeof(manifest_json) = 'text'),
       artifact_allowlist_json TEXT NOT NULL DEFAULT '[]',
       compatibility_report_json TEXT NOT NULL DEFAULT '{}',
       sanitization_report_json TEXT NOT NULL DEFAULT '{}',
@@ -1394,6 +1399,144 @@ export function initializeDatabase(db) {
         OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
         OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
       BEGIN SELECT RAISE(ABORT, 'export_session identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_output_no_update
+      BEFORE UPDATE ON export_sessions
+      WHEN OLD.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_asset_revision_id IS NOT OLD.output_asset_revision_id
+          OR NEW.output_content_hash IS NOT OLD.output_content_hash
+          OR NEW.output_byte_size IS NOT OLD.output_byte_size
+          OR NEW.validation_snapshot_json IS NOT OLD.validation_snapshot_json)
+      BEGIN SELECT RAISE(ABORT, 'verified export output binding is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_completed_no_update
+      BEFORE UPDATE ON export_sessions
+      WHEN OLD.state = 'COMPLETED'
+      BEGIN SELECT RAISE(ABORT, 'completed export session is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_no_resurrection
+      BEFORE UPDATE ON export_sessions
+      WHEN OLD.state = 'VERIFIED' AND NEW.state NOT IN ('VERIFIED', 'COMPLETED')
+      BEGIN SELECT RAISE(ABORT, 'verified export session cannot regress'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_state_transition_guard
+      BEFORE UPDATE ON export_sessions
+      WHEN NEW.state <> OLD.state
+        AND NOT (
+          (OLD.state = 'PLANNED' AND NEW.state IN ('PREFLIGHT', 'CANCELLED'))
+          OR (OLD.state = 'PREFLIGHT' AND NEW.state IN ('BUILDING', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED', 'CANCELLED'))
+          OR (OLD.state = 'BUILDING' AND NEW.state IN ('VALIDATING', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED'))
+          OR (OLD.state = 'VALIDATING' AND NEW.state IN ('VERIFIED', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED'))
+          OR (OLD.state = 'VERIFIED' AND NEW.state = 'COMPLETED')
+          OR (OLD.state IN ('BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED') AND NEW.state IN ('BUILDING', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED', 'CANCELLED'))
+        )
+      BEGIN SELECT RAISE(ABORT, 'invalid export session state transition'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_output_hash_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.output_content_hash IS NOT NULL
+        AND (typeof(NEW.output_content_hash) <> 'text' OR length(NEW.output_content_hash) <> 64 OR NEW.output_content_hash GLOB '*[^0-9a-fA-F]*')
+      BEGIN SELECT RAISE(ABORT, 'invalid export output content hash'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_output_size_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.output_byte_size IS NOT NULL
+        AND (typeof(NEW.output_byte_size) <> 'integer' OR NEW.output_byte_size < 0 OR NEW.output_byte_size > 9007199254740991)
+      BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_output_asset_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.output_asset_revision_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = NEW.output_asset_revision_id)
+      BEGIN SELECT RAISE(ABORT, 'missing export output asset revision'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_binding_insert_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND NOT EXISTS (
+            SELECT 1
+            FROM asset_revisions r
+            JOIN assets a ON a.id = r.asset_id
+            JOIN storage_objects o ON o.id = r.storage_object_id
+            WHERE r.id = NEW.output_asset_revision_id
+              AND a.project_id = NEW.project_id
+              AND a.asset_type = 'TIMELINE_INTERCHANGE'
+              AND a.lifecycle_state = 'ACTIVE'
+              AND a.origin_type = 'SYSTEM'
+              AND r.semantic_role = 'TIMELINE_INTERCHANGE'
+              AND r.rebuildability = 'REBUILDABLE'
+              AND r.availability_state = 'AVAILABLE'
+              AND r.availability_evidence_state = 'VERIFIED'
+              AND o.hash_algorithm = 'SHA-256'
+              AND o.storage_class = 'LOCAL_MANAGED'
+              AND lower(o.content_hash) = lower(NEW.output_content_hash)
+              AND o.byte_size = NEW.output_byte_size
+          )
+      BEGIN SELECT RAISE(ABORT, 'invalid export output binding'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_binding_guard
+      BEFORE UPDATE ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND NOT EXISTS (
+            SELECT 1
+            FROM asset_revisions r
+            JOIN assets a ON a.id = r.asset_id
+            JOIN storage_objects o ON o.id = r.storage_object_id
+            WHERE r.id = NEW.output_asset_revision_id
+              AND a.project_id = NEW.project_id
+              AND a.asset_type = 'TIMELINE_INTERCHANGE'
+              AND a.lifecycle_state = 'ACTIVE'
+              AND a.origin_type = 'SYSTEM'
+              AND r.semantic_role = 'TIMELINE_INTERCHANGE'
+              AND r.rebuildability = 'REBUILDABLE'
+              AND r.availability_state = 'AVAILABLE'
+              AND r.availability_evidence_state = 'VERIFIED'
+              AND o.hash_algorithm = 'SHA-256'
+              AND o.storage_class = 'LOCAL_MANAGED'
+              AND lower(o.content_hash) = lower(NEW.output_content_hash)
+              AND o.byte_size = NEW.output_byte_size
+          )
+      BEGIN SELECT RAISE(ABORT, 'invalid export output binding'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_manifest_binding_insert_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.output_manifest_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM handoff_manifests h
+          WHERE h.id = NEW.output_manifest_id AND h.export_session_id = NEW.id AND h.project_id = NEW.project_id)
+      BEGIN SELECT RAISE(ABORT, 'invalid export manifest binding'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_manifest_binding_update_guard
+      BEFORE UPDATE ON export_sessions
+      WHEN (OLD.output_manifest_id IS NOT NULL AND NEW.output_manifest_id IS NOT OLD.output_manifest_id)
+        OR (NEW.output_manifest_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM handoff_manifests h
+            WHERE h.id = NEW.output_manifest_id AND h.export_session_id = NEW.id AND h.project_id = NEW.project_id))
+      BEGIN SELECT RAISE(ABORT, 'invalid export manifest binding'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_snapshot_guard
+      BEFORE INSERT ON export_sessions
+      WHEN typeof(NEW.validation_snapshot_json) <> 'text'
+      BEGIN SELECT RAISE(ABORT, 'invalid export validation snapshot'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_output_presence_insert_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_asset_revision_id IS NULL OR NEW.output_content_hash IS NULL OR NEW.output_byte_size IS NULL)
+      BEGIN SELECT RAISE(ABORT, 'verified export requires output binding'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_output_presence_guard
+      BEFORE UPDATE ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_asset_revision_id IS NULL OR NEW.output_content_hash IS NULL OR NEW.output_byte_size IS NULL)
+      BEGIN SELECT RAISE(ABORT, 'verified export requires output binding'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_manifest_presence_insert_guard
+      BEFORE INSERT ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_manifest_id IS NULL OR NOT EXISTS (SELECT 1 FROM handoff_manifests h
+          WHERE h.id = NEW.output_manifest_id AND h.export_session_id = NEW.id AND h.project_id = NEW.project_id))
+      BEGIN SELECT RAISE(ABORT, 'verified export requires manifest binding'); END;
+    CREATE TRIGGER IF NOT EXISTS export_sessions_verified_manifest_presence_guard
+      BEFORE UPDATE ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_manifest_id IS NULL OR NOT EXISTS (SELECT 1 FROM handoff_manifests h
+          WHERE h.id = NEW.output_manifest_id AND h.export_session_id = NEW.id AND h.project_id = NEW.project_id))
+      BEGIN SELECT RAISE(ABORT, 'verified export requires manifest binding'); END;
+    CREATE TRIGGER IF NOT EXISTS handoff_manifests_hash_insert_guard
+      BEFORE INSERT ON handoff_manifests
+      WHEN typeof(NEW.manifest_hash) <> 'text'
+        OR length(NEW.manifest_hash) <> 64
+        OR NEW.manifest_hash GLOB '*[^0-9a-fA-F]*'
+      BEGIN SELECT RAISE(ABORT, 'invalid handoff manifest hash'); END;
+    CREATE TRIGGER IF NOT EXISTS handoff_manifests_json_insert_guard
+      BEFORE INSERT ON handoff_manifests
+      WHEN typeof(NEW.manifest_json) <> 'text'
+      BEGIN SELECT RAISE(ABORT, 'invalid handoff manifest json'); END;
     CREATE TRIGGER IF NOT EXISTS handoff_manifests_no_update
       BEFORE UPDATE ON handoff_manifests
       BEGIN SELECT RAISE(ABORT, 'handoff_manifests are append-only'); END;
@@ -1889,6 +2032,267 @@ export function initializeDatabase(db) {
     DROP TRIGGER IF EXISTS timeline_edit_ops_no_delete;
     CREATE TRIGGER timeline_edit_ops_no_delete BEFORE DELETE ON timeline_edit_ops
       BEGIN SELECT RAISE(ABORT, 'timeline_edit_ops are retained for causal history'); END;
+  `);
+
+  // v16 verified local timeline-interchange export evidence.  The handoff
+  // manifest reference remains immutable input metadata; generated bytes are
+  // bound through a distinct output asset revision and verified digest/size.
+  // All additions are nullable/defaulted so a partially upgraded local image
+  // can resume without rewriting prior handoff or canonical asset identity.
+  const exportOutputColumns = new Set(db.prepare('PRAGMA table_info(export_sessions)').all().map((row) => String(row.name)));
+  const exportOutputAdditions = [
+    ['output_asset_revision_id', 'TEXT'],
+    ['output_content_hash', 'TEXT'],
+    ['output_byte_size', 'INTEGER'],
+    ['validation_snapshot_json', "TEXT NOT NULL DEFAULT '{}'"],
+  ];
+  for (const [column, definition] of exportOutputAdditions) {
+    if (!exportOutputColumns.has(column)) db.exec(`ALTER TABLE export_sessions ADD COLUMN ${column} ${definition}`);
+  }
+  // SQLite cannot add a foreign key or CHECK constraint with ALTER TABLE.  Validate
+  // legacy rows before installing equivalent write guards so an upgraded image
+  // never silently accepts malformed output evidence.
+  const invalidHandoffManifest = db.prepare(`SELECT id, manifest_hash, manifest_json
+    FROM handoff_manifests`).all().find((row) => {
+    if (typeof row.manifest_hash !== 'string' || !/^[a-f0-9]{64}$/i.test(row.manifest_hash)
+      || typeof row.manifest_json !== 'string') return true;
+    try {
+      const parsed = JSON.parse(row.manifest_json);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return true;
+      const digest = crypto.createHash('sha256').update(canonicalJson(parsed), 'utf8').digest('hex');
+      return digest !== String(row.manifest_hash).toLowerCase();
+    } catch {
+      return true;
+    }
+  });
+  if (invalidHandoffManifest) {
+    throw new Error(`handoff_manifests manifest evidence is invalid for ${invalidHandoffManifest.id}`);
+  }
+
+  const invalidExportOutput = db.prepare(`SELECT id
+    FROM export_sessions
+    WHERE (output_content_hash IS NOT NULL
+      AND (typeof(output_content_hash) <> 'text' OR length(output_content_hash) <> 64 OR output_content_hash GLOB '*[^0-9a-fA-F]*'))
+       OR (output_byte_size IS NOT NULL
+         AND (typeof(output_byte_size) <> 'integer' OR output_byte_size < 0 OR output_byte_size > 9007199254740991))
+       OR (output_asset_revision_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = export_sessions.output_asset_revision_id))
+       OR (output_manifest_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM handoff_manifests h
+           WHERE h.id = export_sessions.output_manifest_id
+             AND h.export_session_id = export_sessions.id
+             AND h.project_id = export_sessions.project_id))
+       OR typeof(validation_snapshot_json) <> 'text'
+       OR (state IN ('VERIFIED', 'COMPLETED')
+         AND (output_asset_revision_id IS NULL OR output_content_hash IS NULL OR output_byte_size IS NULL
+           OR output_manifest_id IS NULL
+           OR NOT EXISTS (SELECT 1 FROM handoff_manifests h
+             WHERE h.id = export_sessions.output_manifest_id
+               AND h.export_session_id = export_sessions.id
+               AND h.project_id = export_sessions.project_id)
+           OR NOT EXISTS (
+             SELECT 1
+             FROM asset_revisions r
+             JOIN assets a ON a.id = r.asset_id
+             JOIN storage_objects o ON o.id = r.storage_object_id
+             WHERE r.id = export_sessions.output_asset_revision_id
+               AND a.project_id = export_sessions.project_id
+               AND a.asset_type = 'TIMELINE_INTERCHANGE'
+               AND a.lifecycle_state = 'ACTIVE'
+               AND a.origin_type = 'SYSTEM'
+               AND r.semantic_role = 'TIMELINE_INTERCHANGE'
+               AND r.rebuildability = 'REBUILDABLE'
+               AND r.availability_state = 'AVAILABLE'
+               AND r.availability_evidence_state = 'VERIFIED'
+               AND o.hash_algorithm = 'SHA-256'
+               AND o.storage_class = 'LOCAL_MANAGED'
+               AND lower(o.content_hash) = lower(export_sessions.output_content_hash)
+               AND o.byte_size = export_sessions.output_byte_size
+           )))
+    LIMIT 1`).get();
+  if (invalidExportOutput) {
+    throw new Error(`export_sessions output evidence is invalid for ${invalidExportOutput.id}`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS export_sessions_output_asset_idx
+      ON export_sessions(output_asset_revision_id);
+    DROP TRIGGER IF EXISTS export_sessions_no_delete;
+    CREATE TRIGGER export_sessions_no_delete BEFORE DELETE ON export_sessions
+      BEGIN SELECT RAISE(ABORT, 'export_sessions are append-only'); END;
+    DROP TRIGGER IF EXISTS export_sessions_identity_no_update;
+    CREATE TRIGGER export_sessions_identity_no_update BEFORE UPDATE ON export_sessions
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.deliverable_type IS NOT OLD.deliverable_type
+        OR NEW.target_profile IS NOT OLD.target_profile
+        OR NEW.target_editor IS NOT OLD.target_editor
+        OR NEW.target_version IS NOT OLD.target_version
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.review_session_id IS NOT OLD.review_session_id
+        OR NEW.dependency_snapshot_hash IS NOT OLD.dependency_snapshot_hash
+        OR NEW.subject_content_hash IS NOT OLD.subject_content_hash
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'export_session identity is immutable'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_output_no_update;
+    CREATE TRIGGER export_sessions_verified_output_no_update BEFORE UPDATE ON export_sessions
+      WHEN OLD.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_asset_revision_id IS NOT OLD.output_asset_revision_id
+          OR NEW.output_content_hash IS NOT OLD.output_content_hash
+          OR NEW.output_byte_size IS NOT OLD.output_byte_size
+          OR NEW.validation_snapshot_json IS NOT OLD.validation_snapshot_json)
+      BEGIN SELECT RAISE(ABORT, 'verified export output binding is immutable'); END;
+    DROP TRIGGER IF EXISTS export_sessions_completed_no_update;
+    CREATE TRIGGER export_sessions_completed_no_update BEFORE UPDATE ON export_sessions
+      WHEN OLD.state = 'COMPLETED'
+      BEGIN SELECT RAISE(ABORT, 'completed export session is immutable'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_no_resurrection;
+    CREATE TRIGGER export_sessions_verified_no_resurrection BEFORE UPDATE ON export_sessions
+      WHEN OLD.state = 'VERIFIED' AND NEW.state NOT IN ('VERIFIED', 'COMPLETED')
+      BEGIN SELECT RAISE(ABORT, 'verified export session cannot regress'); END;
+    DROP TRIGGER IF EXISTS export_sessions_state_transition_guard;
+    CREATE TRIGGER export_sessions_state_transition_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.state <> OLD.state
+        AND NOT (
+          (OLD.state = 'PLANNED' AND NEW.state IN ('PREFLIGHT', 'CANCELLED'))
+          OR (OLD.state = 'PREFLIGHT' AND NEW.state IN ('BUILDING', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED', 'CANCELLED'))
+          OR (OLD.state = 'BUILDING' AND NEW.state IN ('VALIDATING', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED'))
+          OR (OLD.state = 'VALIDATING' AND NEW.state IN ('VERIFIED', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED'))
+          OR (OLD.state = 'VERIFIED' AND NEW.state = 'COMPLETED')
+          OR (OLD.state IN ('BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED') AND NEW.state IN ('BUILDING', 'BLOCKED_RIGHTS', 'BLOCKED_MEDIA', 'FAILED', 'CANCELLED'))
+        )
+      BEGIN SELECT RAISE(ABORT, 'invalid export session state transition'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_hash_guard;
+    CREATE TRIGGER export_sessions_output_hash_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.output_content_hash IS NOT NULL
+        AND (typeof(NEW.output_content_hash) <> 'text' OR length(NEW.output_content_hash) <> 64 OR NEW.output_content_hash GLOB '*[^0-9a-fA-F]*')
+      BEGIN SELECT RAISE(ABORT, 'invalid export output content hash'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_hash_update_guard;
+    CREATE TRIGGER export_sessions_output_hash_update_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.output_content_hash IS NOT NULL
+        AND (typeof(NEW.output_content_hash) <> 'text' OR length(NEW.output_content_hash) <> 64 OR NEW.output_content_hash GLOB '*[^0-9a-fA-F]*')
+      BEGIN SELECT RAISE(ABORT, 'invalid export output content hash'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_size_guard;
+    CREATE TRIGGER export_sessions_output_size_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.output_byte_size IS NOT NULL
+        AND (typeof(NEW.output_byte_size) <> 'integer' OR NEW.output_byte_size < 0 OR NEW.output_byte_size > 9007199254740991)
+      BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_size_update_guard;
+    CREATE TRIGGER export_sessions_output_size_update_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.output_byte_size IS NOT NULL
+        AND (typeof(NEW.output_byte_size) <> 'integer' OR NEW.output_byte_size < 0 OR NEW.output_byte_size > 9007199254740991)
+      BEGIN SELECT RAISE(ABORT, 'invalid export output byte size'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_asset_guard;
+    CREATE TRIGGER export_sessions_output_asset_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.output_asset_revision_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = NEW.output_asset_revision_id)
+      BEGIN SELECT RAISE(ABORT, 'missing export output asset revision'); END;
+    DROP TRIGGER IF EXISTS export_sessions_output_asset_update_guard;
+    CREATE TRIGGER export_sessions_output_asset_update_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.output_asset_revision_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM asset_revisions WHERE id = NEW.output_asset_revision_id)
+      BEGIN SELECT RAISE(ABORT, 'missing export output asset revision'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_binding_insert_guard;
+    CREATE TRIGGER export_sessions_verified_binding_insert_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND NOT EXISTS (
+            SELECT 1
+            FROM asset_revisions r
+            JOIN assets a ON a.id = r.asset_id
+            JOIN storage_objects o ON o.id = r.storage_object_id
+            WHERE r.id = NEW.output_asset_revision_id
+              AND a.project_id = NEW.project_id
+              AND a.asset_type = 'TIMELINE_INTERCHANGE'
+              AND a.lifecycle_state = 'ACTIVE'
+              AND a.origin_type = 'SYSTEM'
+              AND r.semantic_role = 'TIMELINE_INTERCHANGE'
+              AND r.rebuildability = 'REBUILDABLE'
+              AND r.availability_state = 'AVAILABLE'
+              AND r.availability_evidence_state = 'VERIFIED'
+              AND o.hash_algorithm = 'SHA-256'
+              AND o.storage_class = 'LOCAL_MANAGED'
+              AND lower(o.content_hash) = lower(NEW.output_content_hash)
+              AND o.byte_size = NEW.output_byte_size
+          )
+      BEGIN SELECT RAISE(ABORT, 'invalid export output binding'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_binding_guard;
+    CREATE TRIGGER export_sessions_verified_binding_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND NOT EXISTS (
+            SELECT 1
+            FROM asset_revisions r
+            JOIN assets a ON a.id = r.asset_id
+            JOIN storage_objects o ON o.id = r.storage_object_id
+            WHERE r.id = NEW.output_asset_revision_id
+              AND a.project_id = NEW.project_id
+              AND a.asset_type = 'TIMELINE_INTERCHANGE'
+              AND a.lifecycle_state = 'ACTIVE'
+              AND a.origin_type = 'SYSTEM'
+              AND r.semantic_role = 'TIMELINE_INTERCHANGE'
+              AND r.rebuildability = 'REBUILDABLE'
+              AND r.availability_state = 'AVAILABLE'
+              AND r.availability_evidence_state = 'VERIFIED'
+              AND o.hash_algorithm = 'SHA-256'
+              AND o.storage_class = 'LOCAL_MANAGED'
+              AND lower(o.content_hash) = lower(NEW.output_content_hash)
+              AND o.byte_size = NEW.output_byte_size
+          )
+      BEGIN SELECT RAISE(ABORT, 'invalid export output binding'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_output_presence_insert_guard;
+    CREATE TRIGGER export_sessions_verified_output_presence_insert_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_asset_revision_id IS NULL OR NEW.output_content_hash IS NULL OR NEW.output_byte_size IS NULL)
+      BEGIN SELECT RAISE(ABORT, 'verified export requires output binding'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_output_presence_guard;
+    CREATE TRIGGER export_sessions_verified_output_presence_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_asset_revision_id IS NULL OR NEW.output_content_hash IS NULL OR NEW.output_byte_size IS NULL)
+      BEGIN SELECT RAISE(ABORT, 'verified export requires output binding'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_manifest_presence_insert_guard;
+    CREATE TRIGGER export_sessions_verified_manifest_presence_insert_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_manifest_id IS NULL OR NOT EXISTS (SELECT 1 FROM handoff_manifests h
+          WHERE h.id = NEW.output_manifest_id AND h.export_session_id = NEW.id AND h.project_id = NEW.project_id))
+      BEGIN SELECT RAISE(ABORT, 'verified export requires manifest binding'); END;
+    DROP TRIGGER IF EXISTS export_sessions_verified_manifest_presence_guard;
+    CREATE TRIGGER export_sessions_verified_manifest_presence_guard BEFORE UPDATE ON export_sessions
+      WHEN NEW.state IN ('VERIFIED', 'COMPLETED')
+        AND (NEW.output_manifest_id IS NULL OR NOT EXISTS (SELECT 1 FROM handoff_manifests h
+          WHERE h.id = NEW.output_manifest_id AND h.export_session_id = NEW.id AND h.project_id = NEW.project_id))
+      BEGIN SELECT RAISE(ABORT, 'verified export requires manifest binding'); END;
+    DROP TRIGGER IF EXISTS export_sessions_manifest_binding_insert_guard;
+    CREATE TRIGGER export_sessions_manifest_binding_insert_guard BEFORE INSERT ON export_sessions
+      WHEN NEW.output_manifest_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM handoff_manifests h
+          WHERE h.id = NEW.output_manifest_id AND h.export_session_id = NEW.id AND h.project_id = NEW.project_id)
+      BEGIN SELECT RAISE(ABORT, 'invalid export manifest binding'); END;
+    DROP TRIGGER IF EXISTS export_sessions_manifest_binding_update_guard;
+    CREATE TRIGGER export_sessions_manifest_binding_update_guard BEFORE UPDATE ON export_sessions
+      WHEN (OLD.output_manifest_id IS NOT NULL AND NEW.output_manifest_id IS NOT OLD.output_manifest_id)
+        OR (NEW.output_manifest_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM handoff_manifests h
+            WHERE h.id = NEW.output_manifest_id AND h.export_session_id = NEW.id AND h.project_id = NEW.project_id))
+      BEGIN SELECT RAISE(ABORT, 'invalid export manifest binding'); END;
+    DROP TRIGGER IF EXISTS export_sessions_snapshot_guard;
+    CREATE TRIGGER export_sessions_snapshot_guard BEFORE INSERT ON export_sessions
+      WHEN typeof(NEW.validation_snapshot_json) <> 'text'
+      BEGIN SELECT RAISE(ABORT, 'invalid export validation snapshot'); END;
+    DROP TRIGGER IF EXISTS export_sessions_snapshot_update_guard;
+    CREATE TRIGGER export_sessions_snapshot_update_guard BEFORE UPDATE ON export_sessions
+      WHEN typeof(NEW.validation_snapshot_json) <> 'text'
+      BEGIN SELECT RAISE(ABORT, 'invalid export validation snapshot'); END;
+    DROP TRIGGER IF EXISTS handoff_manifests_hash_insert_guard;
+    CREATE TRIGGER handoff_manifests_hash_insert_guard BEFORE INSERT ON handoff_manifests
+      WHEN typeof(NEW.manifest_hash) <> 'text'
+        OR length(NEW.manifest_hash) <> 64
+        OR NEW.manifest_hash GLOB '*[^0-9a-fA-F]*'
+      BEGIN SELECT RAISE(ABORT, 'invalid handoff manifest hash'); END;
+    DROP TRIGGER IF EXISTS handoff_manifests_json_insert_guard;
+    CREATE TRIGGER handoff_manifests_json_insert_guard BEFORE INSERT ON handoff_manifests
+      WHEN typeof(NEW.manifest_json) <> 'text'
+      BEGIN SELECT RAISE(ABORT, 'invalid handoff manifest json'); END;
   `);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so

@@ -626,6 +626,18 @@ export interface HandoffSession {
   targetVersion?: string
   state: HandoffSessionState
   outputManifestId?: string
+  outputAssetRevisionId?: string
+  outputContentHash?: string
+  outputByteSize?: number
+  validationSnapshot?: {
+    schemaVersion?: number
+    exportProfile?: string
+    artifactCount?: number
+    clipCount?: number
+    documentHash?: string
+    verifiedAt?: string
+    errorCode?: string
+  }
   commandId?: string
   reviewSessionId?: string
   dependencySnapshotHash?: string
@@ -651,6 +663,17 @@ export interface HandoffWorkspace {
 export interface HandoffListItem {
   exportSession: HandoffSession
   handoffManifest: HandoffManifest
+}
+
+export interface TimelineInterchangeDownload {
+  projectId?: string
+  exportSessionId?: string
+  downloadUrl?: string
+  expiresAt?: string
+  mimeType?: string
+  byteSize: number
+  contentHash?: string
+  maxRangeBytes?: number
 }
 
 export interface TimelineInput {
@@ -1051,4 +1074,6 @@ export interface CoreClient {
   getHandoffs?(projectId: string, state?: string, signal?: AbortSignal): Promise<HandoffListItem[]>
   getHandoff?(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace>
   createHandoffManifest?(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey?: string): Promise<HandoffWorkspace>
+  buildTimelineInterchangeExport?(projectId: string, exportSessionId: string, dependencySnapshotHash: string, expectedVersion: number, idempotencyKey?: string): Promise<HandoffWorkspace>
+  resolveTimelineInterchangeDownload?(projectId: string, exportSessionId: string, signal?: AbortSignal): Promise<TimelineInterchangeDownload>
 }

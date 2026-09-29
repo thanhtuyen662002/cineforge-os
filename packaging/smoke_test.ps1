@@ -529,6 +529,41 @@ try {
         $handoffJson = $handoffDetail | ConvertTo-Json -Depth 30
         if ($handoffJson.Contains($dataRoot) -or $handoffJson -match '(?i)"(provider_path|storage_uri|local_path|credentials|prompt_payload|media_bytes)"\s*:') { throw 'Packaged handoff response leaked paths, credentials, prompts, or media bytes.' }
 
+        # Build the bounded local timeline-interchange artifact. This is a
+        # deterministic JSON/CAS evidence boundary, not a render, technical
+        # master, release or publish operation.
+        $exportUri = "http://127.0.0.1:{0}/v1/projects/{1}/exports/{2}" -f $webPort, [Uri]::EscapeDataString([string]$project.id), [Uri]::EscapeDataString([string]$handoffSession.id)
+        $buildHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-interchange-build'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $buildBody = @{ dependency_snapshot_hash = [string]$handoffSession.dependencySnapshotHash; expected_version = [int]$handoffSession.rowVersion } | ConvertTo-Json -Depth 10
+        $buildEnvelope = Invoke-RestMethod -Uri "$exportUri/build" -Method Post -Headers $buildHeaders -ContentType 'application/json' -Body $buildBody -TimeoutSec 10
+        $buildResult = $buildEnvelope.result
+        $builtSession = Get-OptionalProperty $buildResult 'exportSession'
+        if ($null -eq $builtSession) { $builtSession = Get-OptionalProperty $buildResult 'export_session' }
+        $builtHash = Get-OptionalProperty $buildResult 'outputContentHash'
+        if ($null -eq $builtHash) { $builtHash = Get-OptionalProperty $buildResult 'output_content_hash' }
+        $builtSize = Get-OptionalProperty $buildResult 'outputByteSize'
+        if ($null -eq $builtSize) { $builtSize = Get-OptionalProperty $buildResult 'output_byte_size' }
+        $builtAssetRevision = Get-OptionalProperty $buildResult 'assetRevisionId'
+        if ($null -eq $builtAssetRevision) { $builtAssetRevision = Get-OptionalProperty $buildResult 'asset_revision_id' }
+        if ($null -eq $builtSession -or [string]$builtSession.state -ne 'COMPLETED' -or [string]$builtSession.outputAssetRevisionId -ne [string]$builtAssetRevision) { throw 'Packaged interchange build did not reach COMPLETED with an output asset revision.' }
+        if ([string]$builtHash -notmatch '^[0-9a-fA-F]{64}$' -or [int64]$builtSize -le 0) { throw 'Packaged interchange build returned invalid digest/size evidence.' }
+        $buildReplay = Invoke-RestMethod -Uri "$exportUri/build" -Method Post -Headers $buildHeaders -ContentType 'application/json' -Body $buildBody -TimeoutSec 10
+        $buildReplaySession = Get-OptionalProperty $buildReplay.result 'exportSession'
+        if ($null -eq $buildReplaySession) { $buildReplaySession = Get-OptionalProperty $buildReplay.result 'export_session' }
+        if ([string]$buildReplaySession.id -ne [string]$builtSession.id -or [string]$buildReplaySession.state -ne 'COMPLETED') { throw 'Packaged interchange retry did not replay the completed session.' }
+        $exportList = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/projects/{1}/exports" -f $webPort, [Uri]::EscapeDataString([string]$project.id)) -TimeoutSec 5
+        if (@($exportList.result.items | Where-Object { $_.id -eq $handoffSession.id -and $_.state -eq 'COMPLETED' -and $_.outputContentHash -eq $builtHash }).Count -ne 1) { throw 'Packaged export list did not expose the verified interchange binding.' }
+        $downloadHeaders = @{ 'x-cineforge-session' = 'packaging-interchange-ui'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $downloadCapability = Invoke-RestMethod -Uri "$exportUri/download" -Headers $downloadHeaders -TimeoutSec 5
+        $downloadUrl = [string](Get-OptionalProperty $downloadCapability.result 'download_url')
+        if ([string]::IsNullOrWhiteSpace($downloadUrl) -or $downloadCapability.result.PSObject.Properties.Name -contains 'token') { throw 'Packaged interchange download capability leaked a token or omitted the bounded URL.' }
+        $downloadFile = Join-Path $dataRoot 'packaged-interchange.json'
+        Invoke-WebRequest -Uri ("http://127.0.0.1:{0}{1}" -f $webPort, $downloadUrl) -Headers $downloadHeaders -OutFile $downloadFile -TimeoutSec 10
+        $downloadHash = (Get-FileHash -LiteralPath $downloadFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($downloadHash -ne ([string]$builtHash).ToLowerInvariant() -or (Get-Item -LiteralPath $downloadFile).Length -ne [int64]$builtSize) { throw 'Packaged interchange download failed the exact hash/size check.' }
+        $downloadDocument = Get-Content -LiteralPath $downloadFile -Raw | ConvertFrom-Json
+        if ([string]$downloadDocument.manifest_type -ne 'CINEFORGE_TIMELINE_INTERCHANGE' -or [int]$downloadDocument.manifest_schema_version -ne 1) { throw 'Packaged interchange JSON did not return the canonical document schema.' }
+
         # Exercise the user-facing asset path through the packaged bootstrap.
         # The source is deliberately created inside the temporary data root so
         # this test also proves that COPY materializes bytes into the managed

@@ -1,0 +1,17 @@
+{
+  "event": "claim-intent-i51-a1-20260929",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 51,
+  "agent_instance_id": "cineforge-WORK-timeline-interchange-export",
+  "slot_id": "WORK-timeline-interchange-export",
+  "run_id": "WORK-timeline-interchange-export-20260929-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:a6d3cbd95f06f9d47ebe0e8ba9e41e645c1d25de9aab069fdbc71c67448e2caa",
+  "base_ref": "agent/i48-a1-release-candidate",
+  "base_sha": "4a0a16409153e982999c582dff6f90742a4dac1d",
+  "context_base_sha": "4a0a16409153e982999c582dff6f90742a4dac1d",
+  "requested_state": "CLAIMED",
+  "contract_revision": "TASK_CONTRACT_REVISION_V1"
+}

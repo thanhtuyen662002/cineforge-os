@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -75,6 +75,8 @@ export interface CoreBridge {
   getHandoffs?(projectId: string, state?: string, signal?: AbortSignal): Promise<HandoffListItem[]>
   getHandoff?(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace>
   createHandoffManifest?(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey?: string): Promise<HandoffWorkspace>
+  buildTimelineInterchangeExport?(projectId: string, exportSessionId: string, dependencySnapshotHash: string, expectedVersion: number, idempotencyKey?: string): Promise<HandoffWorkspace>
+  resolveTimelineInterchangeDownload?(projectId: string, exportSessionId: string, signal?: AbortSignal): Promise<TimelineInterchangeDownload>
 }
 
 const LOCAL_SNAPSHOT_KEY = 'cineforge-dashboard-v1'
@@ -1162,6 +1164,42 @@ export class HttpCoreClient implements CoreClient {
       }),
     })
     return mapHandoffWorkspaceRecord(await readCorePayload(response, 'handoff creation'))
+  }
+
+  async buildTimelineInterchangeExport(projectId: string, exportSessionId: string, dependencySnapshotHash: string, expectedVersion: number, idempotencyKey: string = crypto.randomUUID()): Promise<HandoffWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Building the timeline interchange requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!exportSessionId.trim() || !/^[0-9a-f]{64}$/i.test(dependencySnapshotHash) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new CoreClientError('The exact export session, dependency snapshot, and current export version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    }
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/exports/${encodeURIComponent(exportSessionId)}/build`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ dependency_snapshot_hash: dependencySnapshotHash, expected_version: expectedVersion }),
+    })
+    return mapHandoffWorkspaceRecord(await readCorePayload(response, 'timeline interchange export'))
+  }
+
+  async resolveTimelineInterchangeDownload(projectId: string, exportSessionId: string, signal?: AbortSignal): Promise<TimelineInterchangeDownload> {
+    if (!this.baseUrl) throw new CoreClientError('Downloading a timeline interchange requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!exportSessionId.trim()) throw new CoreClientError('An export session id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/exports/${encodeURIComponent(exportSessionId)}/download`, {
+      signal,
+      headers: { Accept: 'application/json', 'x-cineforge-session': this.previewSessionId },
+    })
+    const value = asRecord(await readCorePayload(response, 'timeline interchange download'))
+    const downloadUrl = stringValue(value.download_url ?? value.downloadUrl)
+    if (!downloadUrl) throw new CoreClientError('Core did not return a bounded download capability.', { code: 'INVALID_RESPONSE', category: 'INTERNAL', needsUser: true })
+    const absoluteDownloadUrl = /^https?:\/\//i.test(downloadUrl) ? downloadUrl : `${this.baseUrl.replace(/\/$/, '')}/${downloadUrl.replace(/^\//, '')}`
+    return {
+      projectId: stringValue(value.project_id ?? value.projectId) ?? projectId,
+      exportSessionId: stringValue(value.export_session_id ?? value.exportSessionId) ?? exportSessionId,
+      downloadUrl: absoluteDownloadUrl,
+      expiresAt: stringValue(value.expires_at ?? value.expiresAt),
+      mimeType: stringValue(value.mime_type ?? value.mimeType),
+      byteSize: numberValue(value.byte_size ?? value.byteSize, 0),
+      contentHash: stringValue(value.content_hash ?? value.contentHash),
+      maxRangeBytes: numberValue(value.max_range_bytes ?? value.maxRangeBytes, 0),
+    }
   }
 
   async getCharacters(projectId?: string, signal?: AbortSignal): Promise<CharacterSummary[]> {
@@ -2552,6 +2590,7 @@ function mapHandoffManifestRecord(value: unknown) {
 
 function mapHandoffSessionRecord(value: unknown) {
   const source = asRecord(value)
+  const validation = asRecord(source.validation_snapshot ?? source.validationSnapshot)
   return {
     id: stringValue(source.id ?? source.export_session_id ?? source.exportSessionId),
     projectId: stringValue(source.project_id ?? source.projectId),
@@ -2562,6 +2601,18 @@ function mapHandoffSessionRecord(value: unknown) {
     targetVersion: stringValue(source.target_version ?? source.targetVersion),
     state: stringValue(source.state) ?? 'UNKNOWN',
     outputManifestId: stringValue(source.output_manifest_id ?? source.outputManifestId),
+    outputAssetRevisionId: stringValue(source.output_asset_revision_id ?? source.outputAssetRevisionId),
+    outputContentHash: stringValue(source.output_content_hash ?? source.outputContentHash),
+    outputByteSize: numberValue(source.output_byte_size ?? source.outputByteSize, 0),
+    validationSnapshot: Object.keys(validation).length > 0 ? {
+      schemaVersion: numberValue(validation.schema_version ?? validation.schemaVersion, 0),
+      exportProfile: stringValue(validation.export_profile ?? validation.exportProfile),
+      artifactCount: numberValue(validation.artifact_count ?? validation.artifactCount, 0),
+      clipCount: numberValue(validation.clip_count ?? validation.clipCount, 0),
+      documentHash: stringValue(validation.document_hash ?? validation.documentHash),
+      verifiedAt: stringValue(validation.verified_at ?? validation.verifiedAt),
+      errorCode: stringValue(validation.error_code ?? validation.errorCode),
+    } : undefined,
     commandId: stringValue(source.command_id ?? source.commandId),
     reviewSessionId: stringValue(source.review_session_id ?? source.reviewSessionId),
     dependencySnapshotHash: stringValue(source.dependency_snapshot_hash ?? source.dependencySnapshotHash),

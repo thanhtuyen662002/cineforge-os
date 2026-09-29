@@ -646,19 +646,29 @@ submit and approve controls are disabled; the recovery text tells the user to
 open a new review for the current checkpoint. vi-VN is the default locale and
 en-US is the secondary locale.
 
-## Issue #25 Handoff workspace
+## Issue #25 Handoff workspace and verified interchange build
 
-The Handoff workspace is a project-scoped metadata preflight, not an editor or
-export monitor. It contains:
+The Handoff workspace is a project-scoped preflight plus the bounded local
+timeline-interchange build surface. It is not a technical-master, release or
+external-editor monitor. It contains:
 
 - project, approved timeline revision and target editor/version selectors;
 - the exact submitted review ID, dependency snapshot hash, timeline content
   hash and media-profile revision used by the preflight;
-- the immutable `PREFLIGHT` session and manifest hash after Core confirms it;
+- the immutable `PREFLIGHT` session and manifest hash after Core confirms it,
+  followed by `BUILDING → VALIDATING → VERIFIED → COMPLETED` only when Core
+  returns evidence for the local JSON artifact;
 - an explicit artifact allowlist showing only pinned asset-revision IDs,
   SHA-256 digests and safe metadata;
 - an explicit `Tải manifest JSON` action that downloads a local UTF-8 evidence
   copy made only from this redacted projection, with a fixed safe filename;
+- a `Build interchange` action enabled only for an exact `PREFLIGHT`, retryable
+  `BLOCKED_*` or `FAILED` session with its current row version and dependency
+  snapshot; the action reports Core's durable state and `next_step` rather than
+  inventing percentage progress;
+- after `COMPLETED`, the bound asset revision, SHA-256 and byte size plus a
+  `Tải interchange đã verify` action backed by a short-lived, session-scoped
+  capability and bounded range download;
 - a feature-level compatibility/loss report using `Giữ nguyên`, `Chuyển gần
   đúng`, `Không hỗ trợ` and `Chưa xác định` for `NATIVE`, `APPROXIMATED`,
   `UNSUPPORTED` and `UNKNOWN`;
@@ -667,7 +677,7 @@ export monitor. It contains:
 - durable `loading`, `empty`, `offline`, `validation`, `needs_user`, `stale`,
   `blocked` and successful preflight states with a human-readable `next_step`.
 
-The primary action is `CreateHandoffManifest` and is enabled only when Core
+The primary preflight action is `CreateHandoffManifest` and is enabled only when Core
 reports an exact approved revision, submitted `APPROVE` review, matching
 caller-supplied dependency hash, approved profile, materialized assets and
 allowed rights. The UI never guesses readiness from cached rows and never
@@ -677,12 +687,13 @@ resolve the blocker. Repeating an idempotency key shows the same manifest
 rather than a second session.
 
 The manifest download is metadata evidence only: it contains no media bytes and
-does not mutate Core state or mark the handoff exported. The workspace
-deliberately has no play/pause, render, transcode, audio or subtitle controls,
-destination path picker, provider dispatch, percentage progress or
-editable-project promise. `PREFLIGHT` is not `BUILDING`,
-`VERIFIED` or `COMPLETED`; later media export, external-editor round-trip,
-release and publish each require their own state and approval contract.
+does not mutate Core state or mark the handoff exported. The interchange build
+stores only a deterministic JSON allowlist in the local CAS; it does not
+render, transcode, mix audio, dispatch a provider, sign, publish or create a
+release manifest. The workspace deliberately has no play/pause, destination
+path picker, percentage progress or editable-project promise. A completed
+interchange remains separate from technical-master, release and publish
+approval boundaries.
 
 ## Issue #27 bounded Working Session workspace
 

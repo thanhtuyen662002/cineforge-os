@@ -960,6 +960,15 @@ removed value is listed in the sanitization report with the policy version.
 Public projections return the parsed safe fields and never expose `storage_uri`
 or raw local paths.
 
+For a database upgraded from a build predating the public-safe hash contract,
+the immutable stored `manifest_hash` may refer to a legacy raw manifest that
+cannot be returned safely. In that compatibility case the projection keeps the
+original `manifest_hash` for audit, sets `manifest_hash_verified` to `false`,
+returns a separately computed `public_manifest_hash` for the redacted
+projection, and includes `manifest_compatibility.state = LEGACY_UNVERIFIED`
+with a recreate-handoff next step. New manifests always set
+`manifest_hash_verified = true` and have matching hashes.
+
 Compatibility is a feature-level report with statuses `NATIVE`,
 `APPROXIMATED`, `UNSUPPORTED` or `UNKNOWN`, plus a conservative editable claim.
 An unknown or unverified target editor/version cannot inherit an editable-project
@@ -979,6 +988,59 @@ versions, current/stale status, exact source hashes, allowlist, compatibility,
 sanitization and `next_step`. They do not enumerate unrelated database rows or
 filesystem contents. A missing project-scoped handoff is `404`; stale data is
 visible for audit and clearly marked rather than silently refreshed to `latest`.
+
+## 17B. Verified local timeline-interchange export
+
+The bounded next step after a `PREFLIGHT` handoff is a local metadata artifact,
+not a technical master or release. The project-scoped routes are:
+
+- `GET /v1/projects/{project_id}/exports?state=&limit=`
+- `GET /v1/projects/{project_id}/exports/{export_session_id}`
+- `POST /v1/projects/{project_id}/exports/{export_session_id}/build`
+- `GET|HEAD /v1/projects/{project_id}/exports/{export_session_id}/download`
+
+The build body names the exact evidence and optimistic fence:
+
+```json
+{
+  "dependency_snapshot_hash": "64-lowercase-hex-sha256",
+  "expected_version": 2
+}
+```
+
+`BuildTimelineInterchangeExport` requires an idempotency key. Core rechecks the
+project scope, `APPROVED` timeline revision, submitted `APPROVE` review, exact
+dependency/content/profile hashes, current rights and materialization before
+any bytes are generated. It serializes a bounded canonical UTF-8 JSON
+allowlist, writes a private staging object with `O_EXCL`/`0600`, fsyncs and
+re-reads it, verifies SHA-256 and byte size, then materializes the same digest
+into the local CAS. Only after those checks does Core register a `SYSTEM`,
+`REBUILDABLE`, `TIMELINE_INTERCHANGE` asset revision and bind
+`output_asset_revision_id`, `output_content_hash` and `output_byte_size` to the
+append-only export session. The response reaches `COMPLETED` only after the
+binding transaction succeeds; the handoff manifest remains immutable.
+
+The generated document contains exact project/timeline/revision/review/profile
+fingerprints, rational track/clip/marker timing and the pinned asset allowlist.
+Paths, usernames, endpoints, credentials, prompts, diagnostics, provider
+fields and media bytes are excluded by an explicit sanitization allowlist. The
+slice does not render, transcode, mix audio, invoke a provider, sign, publish,
+or create a release manifest. Those are separate capability and approval
+boundaries.
+
+Failures persist bounded evidence in `validation_snapshot_json` and move the
+session to `BLOCKED_RIGHTS`, `BLOCKED_MEDIA` or `FAILED` with a human-readable
+`next_step`; the failed command remains auditable. A retry must use the current
+export-session row version and a new idempotency key. `UNKNOWN` is never
+promoted to `PASS`, and a completed session is immutable (`EXPORT_ALREADY_COMPLETED`).
+
+The download route never serves an arbitrary path. A session-bound, short-lived
+opaque capability is issued only for a `COMPLETED` session whose output asset,
+CAS location, nlink/reparse posture, size and digest still match the binding.
+The capability is scoped to project/export/session, uses `no-store`, supports
+bounded `Range`/`HEAD`, rejects unsatisfiable or oversized ranges and rechecks
+the digest on every read. The capability response strips the raw token from
+the JSON projection and returns a relative/adapter-resolved `download_url`.
 
 # 18. Storage API detail
 

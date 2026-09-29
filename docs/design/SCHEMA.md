@@ -18,15 +18,18 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
-> Executable Core schema: version 15 (the Issue #27 working-session tables, the
+> Executable Core schema: version 16 (the Issue #27 working-session tables, the
 > bounded Issue #29 timing metadata tables and the metadata-only Issue #49
-> release-candidate draft table are included). The generic
+> release-candidate draft table plus the verified local timeline-interchange
+> output binding are included). The generic
 > dependency/staleness graph remains a broader design contract; the Issue #29
 > slice computes its stale projection from immutable pins and current gate
 > evidence instead of materializing that graph.
 > This document describes canonical data. Search indexes, embeddings, thumbnails, previews and caches are derived data.
 
-The v15 upgrade is additive. It creates `release_candidates` plus its
+The v16 upgrade is additive. It creates the verified export-output columns and
+index while preserving the immutable handoff identity; the preceding v15
+upgrade created `release_candidates` plus its
 project/state, exact-revision and command indexes, and recreates the identity,
 terminal-state and no-delete guards on every open. Existing canonical rows are
 not rewritten; a partially created release-candidate table that is missing
@@ -1636,6 +1639,12 @@ Legal identity scope distinct from content hash.
 - state
 - output_manifest_id nullable handoff_manifests.id reference (bound by the
   Core transaction; no circular SQLite FK)
+- output_asset_revision_id nullable `asset_revisions.id` reference for the
+  verified local timeline-interchange artifact
+- output_content_hash nullable SHA-256 of the generated canonical UTF-8 JSON
+- output_byte_size nullable byte size of that exact generated JSON
+- validation_snapshot_json bounded validation/error evidence for the latest
+  build attempt; raw generated output is never stored in the projection
 - command_id FK
 - review_session_id FK
 - dependency_snapshot_hash (SHA-256, exact submitted review snapshot)
@@ -1652,11 +1661,14 @@ For the Issue #25 executable baseline, `deliverable_type` is the bounded
 `TIMELINE_INTERCHANGE` value and the session is project-scoped. `state` starts
 at `PLANNED` in the command plan and is durably recorded as `PREFLIGHT` when a
 manifest is created. The later `BUILDING`, `VALIDATING`, `VERIFIED` and
-`COMPLETED` stages belong to the real export slice; they must not be inferred
-from a preflight row. `BLOCKED_RIGHTS`, `BLOCKED_MEDIA`, `FAILED` and
-`CANCELLED` are explicit exits. The session keeps the exact review and
-dependency hashes so a handoff can never be re-resolved from a latest/current
-pointer.
+`COMPLETED` stages belong to the verified local timeline-interchange slice;
+they must not be inferred from a preflight row. `BLOCKED_RIGHTS`,
+`BLOCKED_MEDIA`, `FAILED` and `CANCELLED` are explicit exits. A successful
+build binds one immutable, `SYSTEM`/`REBUILDABLE` `TIMELINE_INTERCHANGE`
+asset revision to the session only after staged bytes are fsynced, re-read,
+hashed and registered in the local CAS. The session keeps the exact review
+and dependency hashes so a handoff can never be re-resolved from a
+latest/current pointer.
 
 ## handoff_manifests
 - id PK
@@ -1719,6 +1731,12 @@ The project index covers `(project_id, state, created_at_utc_us)` and the
 manifest index covers `(project_id, created_at_utc_us)` and
 `manifest_hash`. Public projections return parsed allowlist, compatibility and
 sanitization data and redact storage locations and internal database details.
+Rows created before the public-safe sanitization/hash contract remain
+append-only and are never rewritten in place. Their projection keeps the
+immutable stored `manifest_hash` for audit, sets `manifest_hash_verified` to
+`false`, exposes a separate `public_manifest_hash` for the safe redacted
+projection, and marks `manifest_compatibility.state` as `LEGACY_UNVERIFIED`
+until a new handoff manifest is created from current exact evidence.
 
 ## external_edits
 - id PK

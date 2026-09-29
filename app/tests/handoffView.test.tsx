@@ -27,6 +27,16 @@ const result: HandoffWorkspace = {
   sanitizationReport: { policy: 'HANDOFF_SANITIZATION_V1', recorded: true, removedFields: ['local_paths', 'credentials'], nextStep: 'Keep metadata only' }, nextStep: 'Review compatibility', projectionSeq: 1,
 }
 
+const completedResult: HandoffWorkspace = {
+  ...result,
+  exportSession: {
+    ...result.exportSession!, state: 'COMPLETED', rowVersion: 6,
+    outputAssetRevisionId: 'interchange-revision-1', outputContentHash: 'd'.repeat(64), outputByteSize: 512,
+    validationSnapshot: { schemaVersion: 1, exportProfile: 'GENERIC_INTERCHANGE_V1', artifactCount: 0, clipCount: 0, documentHash: 'd'.repeat(64), verifiedAt: '2026-09-30T00:00:00.000Z' },
+    nextStep: 'Interchange JSON đã sẵn sàng tải xuống',
+  },
+}
+
 function client(overrides: Partial<CoreClient> = {}): CoreClient {
   return {
     getDashboard: vi.fn(async () => snapshot), acknowledgeDecision: vi.fn(async () => undefined), createProject: vi.fn(async () => project), addProductionItem: vi.fn(async () => ({ id: 'item', title: 'item', detail: '', state: 'todo' as const })),
@@ -57,6 +67,18 @@ describe('HandoffView', () => {
     render(<HandoffView snapshot={{ ...snapshot, system: { ...snapshot.system, connected: false, offline: true } }} locale="en" client={core} onToast={vi.fn()} />)
     expect(await screen.findByText(/Core is offline/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create manifest' })).toHaveProperty('disabled', true)
+  })
+
+  it('keeps verified interchange build disabled while Core is offline even when the bridge exposes the command', async () => {
+    const core = client({
+      isLive: () => false,
+      getHandoffs: vi.fn(async () => [{ exportSession: result.exportSession!, handoffManifest: result.handoffManifest! }]),
+      buildTimelineInterchangeExport: vi.fn(async () => result),
+    })
+    render(<HandoffView snapshot={{ ...snapshot, system: { ...snapshot.system, connected: false, offline: true } }} locale="vi" client={core} onToast={vi.fn()} />)
+    expect(await screen.findByText(/Core đang offline/)).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Tạo interchange đã verify' })).toHaveProperty('disabled', true)
+    expect(core.buildTimelineInterchangeExport).not.toHaveBeenCalled()
   })
 
   it('downloads a safe metadata evidence copy and never serializes unknown unsafe fields', async () => {
@@ -102,5 +124,40 @@ describe('HandoffView', () => {
       if (originalBlobDescriptor) Object.defineProperty(globalThis, 'Blob', originalBlobDescriptor)
       else delete (globalThis as { Blob?: unknown }).Blob
     }
+  })
+
+  it('keeps verified interchange build behind exact detail evidence and exposes the completed download action', async () => {
+    const core = client({
+      getHandoffs: vi.fn(async () => [{ exportSession: result.exportSession!, handoffManifest: result.handoffManifest! }]),
+      buildTimelineInterchangeExport: vi.fn(async () => completedResult),
+      resolveTimelineInterchangeDownload: vi.fn(async () => ({ projectId: project.id, exportSessionId: 'session-1', downloadUrl: 'http://core/v1/projects/project-1/exports/session-1/download?token=opaque', byteSize: 512, contentHash: 'd'.repeat(64) })),
+    })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    try {
+      render(<HandoffView snapshot={snapshot} locale="vi" client={core} onToast={vi.fn()} />)
+      const buildButton = await screen.findByRole('button', { name: 'Tạo interchange đã verify' })
+      await waitFor(() => expect(buildButton).toHaveProperty('disabled', false))
+      fireEvent.click(buildButton)
+      await waitFor(() => expect(core.buildTimelineInterchangeExport).toHaveBeenCalledWith(project.id, 'session-1', 'b'.repeat(64), 2, expect.stringContaining('timeline-interchange:project-1:session-1')))
+      expect((await screen.findAllByText('COMPLETED')).length).toBeGreaterThanOrEqual(1)
+      const downloadButton = await screen.findByRole('button', { name: 'Tải interchange đã verify' })
+      expect(downloadButton).toHaveProperty('disabled', false)
+      fireEvent.click(downloadButton)
+      await waitFor(() => expect(core.resolveTimelineInterchangeDownload).toHaveBeenCalledWith(project.id, 'session-1'))
+      expect(click).toHaveBeenCalled()
+    } finally {
+      click.mockRestore()
+    }
+  })
+
+  it('shows a blocked export next step and keeps build available for an explicit retry', async () => {
+    const blocked: HandoffWorkspace = {
+      ...result,
+      exportSession: { ...result.exportSession!, state: 'BLOCKED_RIGHTS', rowVersion: 4, nextStep: 'Bổ sung rights/consent cho asset trước khi retry.' },
+    }
+    const core = client({ getHandoffs: vi.fn(async () => [{ exportSession: blocked.exportSession!, handoffManifest: blocked.handoffManifest! }]), getHandoff: vi.fn(async () => blocked), buildTimelineInterchangeExport: vi.fn(async () => blocked) })
+    render(<HandoffView snapshot={snapshot} locale="vi" client={core} onToast={vi.fn()} />)
+    expect(await screen.findByText(/Bổ sung rights\/consent/)).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Tạo interchange đã verify' })).toHaveProperty('disabled', false))
   })
 })

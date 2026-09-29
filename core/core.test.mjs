@@ -3,8 +3,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { CoreService } from './core.mjs';
+import { initializeDatabase } from './schema.mjs';
 
 function tempDb() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-core-'));
@@ -43,6 +45,33 @@ test('smoke: create project, close, and reload it from SQLite WAL', () => {
   assert.equal(second.handle(request('query.system.health')).result.wal_enabled, true);
   second.close();
   fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('migrates a pre-export-evidence database before creating the output index', () => {
+  const { dbPath, directory } = tempDb();
+  const db = new DatabaseSync(dbPath);
+  try {
+    // This is the pre-v16 shape: the handoff reference already exists, while
+    // generated-output evidence columns have not been added yet.  The base
+    // schema must not create an index on a column that the legacy table lacks.
+    db.exec(`CREATE TABLE export_sessions (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timeline_revision_id TEXT NOT NULL,
+      deliverable_type TEXT NOT NULL, target_profile TEXT NOT NULL, target_editor TEXT NOT NULL,
+      target_version TEXT NOT NULL, state TEXT NOT NULL, output_manifest_id TEXT,
+      command_id TEXT NOT NULL, review_session_id TEXT NOT NULL, dependency_snapshot_hash TEXT NOT NULL,
+      subject_content_hash TEXT NOT NULL, media_profile_revision_id TEXT NOT NULL,
+      next_step TEXT NOT NULL DEFAULT '', row_version INTEGER NOT NULL DEFAULT 1,
+      created_by_actor_id TEXT NOT NULL, created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL
+    );`);
+    assert.doesNotThrow(() => initializeDatabase(db));
+    const columns = new Set(db.prepare('PRAGMA table_info(export_sessions)').all().map((row) => String(row.name)));
+    assert.equal(columns.has('output_asset_revision_id'), true);
+    assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'export_sessions_output_asset_idx'").get());
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('project metadata uses optimistic row versions and appends event plus audit', () => {
@@ -434,7 +463,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 15);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 16);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -573,7 +602,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 15);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 16);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -724,7 +753,7 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(fs.existsSync(persisted.snapshot_path), true);
   const manifest = JSON.parse(fs.readFileSync(persisted.manifest_path, 'utf8'));
   assert.equal(manifest.format_version, 1);
-  assert.equal(manifest.schema_version, 15);
+  assert.equal(manifest.schema_version, 16);
   assert.equal(manifest.objects.length, 1);
   assert.equal(manifest.objects[0].materialization, 'COPIED');
   assert.equal(fs.existsSync(path.join(persisted.destination_path, manifest.objects[0].relative_path)), true);
@@ -1247,6 +1276,8 @@ test('handoff manifest binds exact approval, sanitizes metadata, and stays conse
   assert.ok(manifest.compatibility.entries.every((entry) => ['UNKNOWN', 'UNSUPPORTED'].includes(entry.status)));
   assert.equal(manifest.sanitizationReport.recorded, true);
   assert.ok(manifest.sanitizationReport.removedFields.includes('absolute_local_paths'));
+  assert.equal(manifest.manifest_hash_verified, true);
+  assert.equal(manifest.public_manifest_hash, manifest.manifest_hash);
   assert.equal(Object.hasOwn(manifest.manifest, 'manifest_id'), false);
   assert.equal(Object.hasOwn(manifest.manifest, 'export_session_id'), false);
   assert.equal(JSON.stringify(manifest.manifest), JSON.stringify(JSON.parse(JSON.stringify(manifest.manifest))));
