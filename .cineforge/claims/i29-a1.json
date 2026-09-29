@@ -1,0 +1,14 @@
+{
+  "task_id": 29,
+  "claim_id": "i29-a1",
+  "contract_version": 1,
+  "contract_hash": "sha256:8fffc235bd75016a309e832f98920c6cf076bc4ec8ae5f0bc375cfc36c55b32b",
+  "agent_instance_id": "cineforge-WORK-audio-subtitle",
+  "slot_id": "WORK-audio-subtitle",
+  "run_id": "WORK-audio-subtitle-20260929-A1",
+  "base_ref": "agent/i27-a1-working-session",
+  "base_sha": "3cff4d8b0a062d9400a98488f1baa56b19fa51c8",
+  "context_base_sha": "3cff4d8b0a062d9400a98488f1baa56b19fa51c8",
+  "status": "CLAIMED",
+  "created_at": "2026-09-29T10:00:00+07:00"
+}
