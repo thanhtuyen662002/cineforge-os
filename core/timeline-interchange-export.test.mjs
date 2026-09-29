@@ -74,7 +74,7 @@ function createApprovedHandoff(core, code = 'interchange-film') {
       ],
       name: 'C:\\Users\\John Doe\\secret.mov',
     }],
-    markers: [{ time: { num: 12, den: 1 }, marker_type: 'NOTE', label: '/Users/John Doe/secret.mov' }],
+    markers: [{ time: { num: 12, den: 1 }, marker_type: 'NOTE', label: 'foo/bar.mov' }],
   }, { TIMELINE: 1 }, `${code}-checkpoint`);
   assert.equal(checkpoint.ok, true, JSON.stringify(checkpoint));
   const revisionId = checkpoint.result.revision.id;
@@ -129,7 +129,27 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
     };
     const expected = { EXPORT_SESSION: fixture.session.row_version };
     assert.throws(
+      () => core.db.prepare(`INSERT INTO export_sessions
+        (id, project_id, timeline_revision_id, deliverable_type, target_profile, target_editor, target_version,
+         state, output_manifest_id, command_id, review_session_id, dependency_snapshot_hash, subject_content_hash,
+         media_profile_revision_id, next_step, row_version, created_by_actor_id, created_at_utc_us, updated_at_utc_us)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'VERIFIED', NULL, ?, ?, ?, ?, ?, '', 1, ?, ?, ?)`)
+        .run('invalid-terminal-insert', fixture.projectId, fixture.session.timeline_revision_id, fixture.session.deliverable_type,
+          fixture.session.target_profile, fixture.session.target_editor, fixture.session.target_version, fixture.session.command_id,
+          fixture.session.review_session_id, fixture.session.dependency_snapshot_hash, fixture.session.subject_content_hash,
+          fixture.session.media_profile_revision_id, core.actorId, Date.now(), Date.now()),
+      /verified export requires output binding|verified export requires manifest binding|invalid export output binding/,
+    );
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET output_manifest_id = ? WHERE id = ?`).run('wrong-manifest', fixture.session.id),
+      /invalid export manifest binding/,
+    );
+    assert.throws(
       () => core.db.prepare(`UPDATE export_sessions SET output_content_hash = ? WHERE id = ?`).run('bad', fixture.session.id),
+      /invalid export output content hash/,
+    );
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET output_content_hash = ? WHERE id = ?`).run(Buffer.from('f'.repeat(64), 'utf8'), fixture.session.id),
       /invalid export output content hash/,
     );
     assert.throws(
@@ -165,7 +185,7 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
     assert.equal(crypto.createHash('sha256').update(bytes, 'utf8').digest('hex'), built.result.output_content_hash);
     assert.throws(
       () => core.db.prepare(`UPDATE export_sessions SET output_content_hash = ? WHERE id = ?`).run('f'.repeat(64), fixture.session.id),
-      /completed export session is immutable/,
+      /completed export session is immutable|invalid export output binding/,
     );
     assert.throws(
       () => core.db.prepare(`UPDATE export_sessions SET validation_snapshot_json = ? WHERE id = ?`).run('{}', fixture.session.id),
@@ -210,6 +230,16 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
     assert.equal(opened.length, 32);
     assert.equal(opened.contentRange, `bytes 0-31/${bytes.length}`);
     assert.equal(fs.readFileSync(opened.filePath).subarray(0, opened.length).toString('utf8').length > 0, true);
+    const openedWithFile = core.openTimelineInterchangeDownload({
+      project_id: fixture.projectId, export_session_id: fixture.session.id, session_id: 'ui-session-1', token: capability.result.token,
+      range: 'bytes=0-15', open_file: true,
+    });
+    try {
+      assert.equal(Number.isInteger(openedWithFile.fileDescriptor), true);
+      assert.equal(openedWithFile.length, 16);
+    } finally {
+      if (openedWithFile.fileDescriptor !== null) fs.closeSync(openedWithFile.fileDescriptor);
+    }
     const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
     try {
       const base = `http://127.0.0.1:${listener.address.port}`;
@@ -223,9 +253,10 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
       const streamed = await fetch(`${base}${capabilityBody.result.download_url}`, {
         headers: { 'x-cineforge-session': 'http-ui-1', range: 'bytes=0-15' },
       });
-      assert.equal(streamed.status, 206);
+      const streamedBody = await streamed.text();
+      assert.equal(streamed.status, 206, streamedBody);
       assert.equal(streamed.headers.get('content-range'), `bytes 0-15/${bytes.length}`);
-      assert.equal((await streamed.text()).length, 16);
+      assert.equal(streamedBody.length, 16);
       const head = await fetch(`${base}${capabilityBody.result.download_url}`, {
         method: 'HEAD',
         headers: { 'x-cineforge-session': 'http-ui-1' },
@@ -235,12 +266,33 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
     } finally {
       await new Promise((resolve) => listener.server.close(resolve));
     }
+    const authListener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0, token: 'cors-secret' });
+    try {
+      const authBase = `http://127.0.0.1:${authListener.address.port}`;
+      const preflight = await fetch(`${authBase}/v1/health`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: authBase,
+          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': 'authorization, x-cineforge-session',
+        },
+      });
+      assert.equal(preflight.status, 204);
+      assert.equal(preflight.headers.get('access-control-allow-origin'), authBase);
+      const unauthenticated = await fetch(`${authBase}/v1/health`, { headers: { Origin: authBase } });
+      assert.equal(unauthenticated.status, 401);
+    } finally {
+      await new Promise((resolve) => authListener.server.close(resolve));
+    }
     assert.throws(() => core.openTimelineInterchangeDownload({
       project_id: fixture.projectId, export_session_id: fixture.session.id, session_id: 'other-session', token: capability.result.token,
     }), (error) => error.code === 'EXPORT_DOWNLOAD_TOKEN_SCOPE');
     assert.throws(() => core.openTimelineInterchangeDownload({
       project_id: fixture.projectId, export_session_id: fixture.session.id, session_id: 'ui-session-1', token: capability.result.token, range: 'bytes=999999999-1000000000',
     }), (error) => error.code === 'EXPORT_DOWNLOAD_RANGE_NOT_SATISFIABLE');
+    assert.throws(() => core.openTimelineInterchangeDownload({
+      project_id: fixture.projectId, export_session_id: fixture.session.id, token: capability.result.token,
+    }), (error) => error.code === 'EXPORT_DOWNLOAD_SESSION_REQUIRED');
     const missingSession = core.handle(request('query.export.download', { project_id: fixture.projectId, export_session_id: fixture.session.id }, 'missing-session'));
     assert.equal(missingSession.ok, false, JSON.stringify(missingSession));
     assert.equal(missingSession.error.code, 'EXPORT_DOWNLOAD_SESSION_REQUIRED');
@@ -334,10 +386,41 @@ test('does not allow a verified export session to regress through direct SQL', (
   const core = new CoreService({ dbPath });
   try {
     const fixture = createApprovedHandoff(core, 'interchange-terminal-guard');
-    core.db.prepare(`UPDATE export_sessions SET state = 'VERIFIED' WHERE id = ?`).run(fixture.session.id);
+    // Build a second interchange in the same project so the direct SQL
+    // regression probe uses a semantically valid, same-project output asset.
+    const secondHandoff = execute(core, 'CreateHandoffManifest', {
+      project_id: fixture.projectId,
+      timeline_revision_id: fixture.revisionId,
+      review_session_id: fixture.reviewId,
+      dependency_snapshot_hash: fixture.session.dependency_snapshot_hash,
+      target_editor: 'GENERIC',
+      target_version: '2',
+      target_profile: 'GENERIC_INTERCHANGE',
+    }, { REVISION: 3 }, 'interchange-terminal-guard-second-handoff');
+    assert.equal(secondHandoff.ok, true, JSON.stringify(secondHandoff));
+    const built = execute(core, 'BuildTimelineInterchangeExport', {
+      project_id: fixture.projectId,
+      export_session_id: secondHandoff.result.export_session.id,
+      dependency_snapshot_hash: secondHandoff.result.export_session.dependency_snapshot_hash,
+    }, { EXPORT_SESSION: secondHandoff.result.export_session.row_version }, 'interchange-terminal-guard-second-build');
+    assert.equal(built.ok, true, JSON.stringify(built));
+    const outputRevision = built.result.asset.latest_revision;
+    core.db.prepare(`UPDATE export_sessions SET state = 'BUILDING', row_version = row_version + 1 WHERE id = ?`).run(fixture.session.id);
+    core.db.prepare(`UPDATE export_sessions SET state = 'VALIDATING', row_version = row_version + 1 WHERE id = ?`).run(fixture.session.id);
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET state = 'VERIFIED', output_asset_revision_id = ?, output_content_hash = ?, output_byte_size = ?, row_version = row_version + 1 WHERE id = ?`)
+        .run(outputRevision.id, 'f'.repeat(64), outputRevision.storage_object.byte_size, fixture.session.id),
+      /invalid export output binding/,
+    );
+    core.db.prepare(`UPDATE export_sessions SET state = 'VERIFIED', output_asset_revision_id = ?, output_content_hash = ?, output_byte_size = ?, row_version = row_version + 1 WHERE id = ?`)
+      .run(outputRevision.id, outputRevision.storage_object.content_hash, outputRevision.storage_object.byte_size, fixture.session.id);
+    assert.throws(
+      () => core.db.prepare(`UPDATE export_sessions SET state = 'COMPLETED', output_asset_revision_id = NULL WHERE id = ?`).run(fixture.session.id),
+      /verified export requires output binding|invalid export output binding/,
+    );
     assert.throws(
       () => core.db.prepare(`UPDATE export_sessions SET state = 'FAILED' WHERE id = ?`).run(fixture.session.id),
-      /verified export session cannot regress/,
+      /invalid export session state transition|verified export session cannot regress/,
     );
   } finally {
     core.close();
@@ -378,6 +461,51 @@ test('leaves auditable orphaned staging on persistence failure and retries from 
   } finally {
     core._materializeStagedObject = originalMaterialize;
     core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('marks a crash window with registered CAS staging as recovery-required on restart', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  const commandId = 'interchange-startup-recovery-command';
+  try {
+    const fixture = createApprovedHandoff(core, 'interchange-startup-recovery-film');
+    const payload = {
+      project_id: fixture.projectId,
+      export_session_id: fixture.session.id,
+      dependency_snapshot_hash: fixture.session.dependency_snapshot_hash,
+    };
+    const now = Date.now();
+    core.db.prepare(`INSERT INTO commands
+      (id, studio_id, project_id, actor_id, command_type, schema_version, scope_type, scope_id,
+       payload_json, expected_versions_json, reversibility, status, idempotency_key,
+       idempotency_fingerprint, created_at_utc_us)
+      VALUES (?, ?, ?, ?, 'BuildTimelineInterchangeExport', 1, 'PROJECT', ?, ?, '{}', 'REVERSIBLE', 'RECEIVED', ?, ?, ?)`)
+      .run(commandId, core.studioId, fixture.projectId, core.actorId, fixture.projectId, JSON.stringify(payload), commandId, 'startup-recovery', now);
+    core.db.prepare(`INSERT INTO staging_objects
+      (id, command_id, temp_path, expected_size, current_size, hash_algorithm, sha256,
+       reparse_state, state, row_version, created_at_utc_us, updated_at_utc_us)
+      VALUES (?, ?, ?, 1, 1, 'SHA-256', ?, 'NOT_REPARSE', 'REGISTERED', 3, ?, ?)`)
+      .run('interchange-startup-recovery-staging', commandId, path.join(directory, 'registered.part'), 'a'.repeat(64), now, now);
+    core.close();
+    const reopened = new CoreService({ dbPath });
+    try {
+      const failedCommand = reopened.db.prepare('SELECT status, error_code, error_details_json FROM commands WHERE id = ?').get(commandId);
+      assert.equal(failedCommand.status, 'FAILED');
+      assert.equal(failedCommand.error_code, 'EXPORT_RECOVERY_REQUIRED');
+      assert.equal(JSON.parse(failedCommand.error_details_json).code, 'EXPORT_RECOVERY_REQUIRED');
+      const failedSession = reopened.db.prepare('SELECT state, validation_snapshot_json FROM export_sessions WHERE id = ?').get(fixture.session.id);
+      assert.equal(failedSession.state, 'FAILED');
+      assert.equal(JSON.parse(failedSession.validation_snapshot_json).error_code, 'EXPORT_RECOVERY_REQUIRED');
+      const event = reopened.db.prepare(`SELECT event_type FROM domain_events
+        WHERE aggregate_type = 'EXPORT_SESSION' AND aggregate_id = ? ORDER BY seq DESC LIMIT 1`).get(fixture.session.id);
+      assert.equal(event.event_type, 'TIMELINE_INTERCHANGE_EXPORT_FAILED');
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    try { core.close(); } catch { /* already closed after the simulated crash */ }
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

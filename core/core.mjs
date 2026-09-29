@@ -939,21 +939,26 @@ function publicExportSession(row) {
     'validation_snapshot_json', 'command_id', 'review_session_id', 'dependency_snapshot_hash', 'subject_content_hash',
     'media_profile_revision_id', 'next_step',
   ]) if (Object.prototype.hasOwnProperty.call(row, field)) out[field] = row[field];
+  for (const field of ['target_profile', 'target_editor', 'target_version', 'next_step']) {
+    if (typeof out[field] === 'string') out[field] = safeReleaseCandidateText(out[field]) ?? '';
+  }
   // Validation evidence is safe metadata, never raw generated output.  Keep
   // the public projection bounded and avoid exposing stored JSON wholesale.
   if (typeof out.validation_snapshot_json === 'string') {
     const snapshot = parseJson(out.validation_snapshot_json, {});
     out.validation_snapshot = {
       schema_version: Number.isSafeInteger(Number(snapshot.schema_version)) ? Number(snapshot.schema_version) : 0,
-      export_profile: typeof snapshot.export_profile === 'string' ? snapshot.export_profile.slice(0, 80) : null,
+      export_profile: typeof snapshot.export_profile === 'string' ? safeReleaseCandidateText(snapshot.export_profile)?.slice(0, 80) ?? '[redacted]' : null,
       artifact_count: Number.isSafeInteger(Number(snapshot.artifact_count)) && Number(snapshot.artifact_count) >= 0 ? Number(snapshot.artifact_count) : 0,
       clip_count: Number.isSafeInteger(Number(snapshot.clip_count)) && Number(snapshot.clip_count) >= 0 ? Number(snapshot.clip_count) : 0,
       document_hash: SHA256_HEX.test(String(snapshot.document_hash ?? '')) ? String(snapshot.document_hash).toLowerCase() : null,
-      verified_at: typeof snapshot.verified_at === 'string' ? snapshot.verified_at.slice(0, 80) : null,
-      error_code: typeof snapshot.error_code === 'string' ? snapshot.error_code.slice(0, 120) : null,
+      verified_at: typeof snapshot.verified_at === 'string' ? safeReleaseCandidateText(snapshot.verified_at)?.slice(0, 80) ?? '[redacted]' : null,
+      error_code: typeof snapshot.error_code === 'string' ? safeReleaseCandidateText(snapshot.error_code)?.slice(0, 120) ?? '[redacted]' : null,
     };
-    delete out.validation_snapshot_json;
   }
+  // Never let the raw persisted JSON (including a legacy BLOB/tampered value)
+  // cross the Core boundary.  Only the bounded allowlist above is public.
+  delete out.validation_snapshot_json;
   out.row_version = Number(row.row_version ?? 1);
   if (row.created_at_utc_us !== undefined && row.created_at_utc_us !== null) out.created_at = rfc3339FromUs(row.created_at_utc_us);
   if (row.updated_at_utc_us !== undefined && row.updated_at_utc_us !== null) out.updated_at = rfc3339FromUs(row.updated_at_utc_us);
@@ -964,9 +969,12 @@ function publicHandoffManifest(row, options = {}) {
   if (!row) return null;
   const out = rowObject(row);
   if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
-  out.artifact_allowlist = parseJson(out.artifact_allowlist_json, []);
-  out.compatibility_report = parseJson(out.compatibility_report_json, {});
-  out.sanitization_report = parseJson(out.sanitization_report_json, {});
+  for (const field of ['target_editor', 'target_version', 'compatibility_profile_version']) {
+    if (typeof out[field] === 'string') out[field] = safeReleaseCandidateText(out[field]) ?? '[redacted]';
+  }
+  out.artifact_allowlist = sanitizePublicMetadata(parseJson(out.artifact_allowlist_json, []));
+  out.compatibility_report = sanitizePublicMetadata(parseJson(out.compatibility_report_json, {}));
+  out.sanitization_report = sanitizePublicMetadata(parseJson(out.sanitization_report_json, {}));
   out.compatibility = out.compatibility_report;
   out.sanitization = out.sanitization_report;
   out.sanitizationReport = {
@@ -974,8 +982,24 @@ function publicHandoffManifest(row, options = {}) {
     removedFields: Array.isArray(out.sanitization_report?.removed_fields) ? out.sanitization_report.removed_fields : [],
     nextStep: out.sanitization_report?.next_step ?? null,
   };
-  out.manifest = parseJson(out.manifest_json, {});
+  const storedManifest = parseJson(out.manifest_json, {});
+  out.manifest = sanitizePublicMetadata(storedManifest);
   out.manifest_hash = String(out.manifest_hash ?? '').toLowerCase();
+  const storedCanonical = canonicalJson(storedManifest);
+  const publicCanonical = canonicalJson(out.manifest);
+  const storedCanonicalHash = crypto.createHash('sha256').update(storedCanonical, 'utf8').digest('hex');
+  out.public_manifest_hash = crypto.createHash('sha256').update(publicCanonical, 'utf8').digest('hex');
+  out.manifest_hash_verified = storedCanonicalHash === out.manifest_hash && out.public_manifest_hash === out.manifest_hash;
+  if (!out.manifest_hash_verified) {
+    // Rows written before the public-safe hash contract may contain redacted
+    // fields in immutable storage.  Keep the original identity for audit,
+    // expose only the safe projection plus its separate digest, and make the
+    // required repair explicit instead of returning a misleading hash.
+    out.manifest_compatibility = {
+      state: 'LEGACY_UNVERIFIED',
+      next_step: 'Tạo lại handoff manifest từ revision/review hiện tại để có manifest hash public có thể kiểm chứng.',
+    };
+  }
   delete out.created_at_utc_us;
   delete out.manifest_json;
   delete out.artifact_allowlist_json;
@@ -994,10 +1018,34 @@ function safeReleaseCandidateText(value) {
   // projections are metadata only, so conservatively redact the entire bounded
   // value whenever a path/URI signature is present; this is fail-closed and
   // avoids trying to infer where an untrusted path ends.
-  const hasWindowsOrUriPath = /(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)/i.test(bounded);
-  const hasAbsolutePosixPath = /(?:^|\s)\/[^<>"'\r\n]*\//.test(bounded);
-  if (hasWindowsOrUriPath || hasAbsolutePosixPath) return '[redacted]';
+  const hasWindowsOrUriPath = /(?:[A-Za-z]:[\\/]|\\\\|(?:[A-Za-z][A-Za-z0-9+.-]{1,31}):\/\/)/i.test(bounded);
+  const hasAbsolutePosixPath = /(?:^|\s)\/(?=[^/\s])/.test(bounded);
+  const hasProtocolRelativePath = /(?:^|\s)\/\/(?=[^/\s])/.test(bounded);
+  const hasRelativePath = /(?:^|\s)(?:\.{1,2}[\\/]|[^\s/\\]+[\\/])[^\s]*/.test(bounded);
+  if (hasWindowsOrUriPath || hasAbsolutePosixPath || hasProtocolRelativePath || hasRelativePath) return '[redacted]';
   return bounded;
+}
+
+function sanitizePublicMetadata(value, depth = 0) {
+  if (depth > 12) return '[redacted]';
+  if (typeof value === 'string') return safeReleaseCandidateText(value) ?? '[redacted]';
+  if (Array.isArray(value)) return value.map((item) => sanitizePublicMetadata(item, depth + 1));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, item] of Object.entries(value)) {
+      // Keys can be attacker-controlled in legacy/tampered JSON too.  Drop
+      // path/URI-shaped keys rather than exposing them or allowing a special
+      // key such as __proto__ to mutate the projection object's prototype.
+      const safeKey = safeReleaseCandidateText(key);
+      if (!safeKey || safeKey === '[redacted]') continue;
+      Object.defineProperty(out, safeKey, {
+        configurable: true, enumerable: true, writable: true,
+        value: sanitizePublicMetadata(item, depth + 1),
+      });
+    }
+    return out;
+  }
+  return value;
 }
 
 function publicReleaseCandidate(row) {
@@ -1220,6 +1268,17 @@ export class CoreService {
     });
     this.studioId = this._getMeta('studio_id');
     this.actorId = this._getMeta('actor_id');
+    // A crash after generated bytes were registered in CAS but before the
+    // command transaction committed leaves a REGISTERED staging row paired
+    // with a non-terminal BuildTimelineInterchangeExport command.  Resolve
+    // that durable pair explicitly on the next launch; never replay the
+    // filesystem side effect or silently adopt it as a successful export.
+    try {
+      this._recoverInterruptedTimelineExports();
+    } catch {
+      // Keep Core available for read-only recovery if a damaged command row
+      // prevents one recovery pass.  The durable rows remain inspectable.
+    }
     // Reconcile only durable, non-terminal staging rows.  This is an
     // auditable system command so startup never silently adopts unknown bytes;
     // missing/changed/reparse paths become ORPHANED or QUARANTINED.
@@ -1245,6 +1304,39 @@ export class CoreService {
     } catch {
       // Older databases are upgraded before this point; keep startup read-only
       // if an interrupted migration cannot expose the recovery marker.
+    }
+  }
+
+  _recoverInterruptedTimelineExports() {
+    const rows = this.db.prepare(`SELECT c.id, c.status, c.payload_json
+      FROM commands c
+      JOIN staging_objects s ON s.command_id = c.id
+      WHERE c.command_type = 'BuildTimelineInterchangeExport'
+        AND c.status IN ('RECEIVED', 'VALIDATING', 'WAITING_DECISION', 'READY', 'EXECUTING')
+        AND s.state = 'REGISTERED'
+      ORDER BY c.created_at_utc_us ASC, c.id ASC`).all();
+    for (const command of rows) {
+      const payload = parseJson(command.payload_json, {});
+      const recoveryError = new CoreError(
+        'EXPORT_RECOVERY_REQUIRED', 'CONFLICT', 'errors.export_recovery_required', {},
+        { retryable: true, needsUser: true },
+      );
+      // The export-session fence is idempotent: if the process stopped after
+      // this call and before the command update, the next launch sees the
+      // recorded recovery marker and does not append a second event.
+      this._markTimelineInterchangeExportFailure(payload, recoveryError, command.id);
+      this._transaction(() => {
+        const current = this.db.prepare('SELECT * FROM commands WHERE id = ?').get(command.id);
+        if (!current || TERMINAL_COMMAND_STATES.has(String(current.status))) return;
+        const updated = this.db.prepare(`UPDATE commands SET status = 'FAILED', finished_at_utc_us = ?, error_code = ?, error_details_json = ?
+          WHERE id = ? AND status IN ('RECEIVED', 'VALIDATING', 'WAITING_DECISION', 'READY', 'EXECUTING')`)
+          .run(nowUtcUs(), recoveryError.code, json(recoveryError.toEnvelope()), command.id);
+        if (updated.changes !== 1) return;
+        this._insertAudit({
+          actionType: 'BuildTimelineInterchangeExport', targetType: 'COMMAND', targetId: command.id,
+          payload: { error_code: recoveryError.code, recovery: true },
+        }, command.id, this.actorId, 'FAILED');
+      });
     }
   }
 
@@ -2158,12 +2250,25 @@ export class CoreService {
 
   _sameSourceIdentity(left, right) {
     if (!left || !right) return false;
-    return String(left.dev) === String(right.dev)
+    const sameDevice = process.platform === 'win32' || String(left.dev) === String(right.dev);
+    return sameDevice
       && String(left.ino) === String(right.ino)
       && Number(left.size) === Number(right.size)
       && Number(left.mtime_ms) === Number(right.mtime_ms)
       && Number(left.ctime_ms) === Number(right.ctime_ms)
       && Number(left.mode) === Number(right.mode)
+      && Number(left.nlink ?? 1) === Number(right.nlink ?? 1);
+  }
+
+  _sameHandleIdentity(left, right) {
+    if (!left || !right) return false;
+    // lstat/fstat can expose platform-specific timestamp/mode rounding even
+    // for the same file handle.  Device/inode, size and link count are the
+    // stable identity needed to detect a path swap after opening.
+    const sameDevice = process.platform === 'win32' || String(left.dev) === String(right.dev);
+    return sameDevice
+      && String(left.ino) === String(right.ino)
+      && Number(left.size) === Number(right.size)
       && Number(left.nlink ?? 1) === Number(right.nlink ?? 1);
   }
 
@@ -2714,6 +2819,7 @@ export class CoreService {
     let stagingReservation = null;
     let backupReservation = null;
     let externalCommandPrepared = false;
+    let exportAttemptRowVersion = null;
     try {
       // COPY imports reserve and populate a durable staging row before the
       // canonical command transaction starts.  If the process stops during
@@ -2723,6 +2829,30 @@ export class CoreService {
       const storageMode = String(payload.storage_mode ?? payload.storageMode ?? 'COPY').trim().toUpperCase();
       if (importCommand && storageMode === 'COPY') stagingReservation = this._reserveImportStaging(payload, commandId);
       if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) stagingReservation = this._reserveGeneratedStaging(payload, expectedVersions, commandId);
+      if (commandType === 'BuildTimelineInterchangeExport' && stagingReservation?.context) {
+        // Materialize and hash the generated bytes before entering the command
+        // transaction.  The transaction below only registers the already
+        // verified CAS identity and canonical rows; it never holds SQLite
+        // writer locks across filesystem I/O.
+        exportAttemptRowVersion = Number(stagingReservation.context.session.row_version);
+        const preparedMaterialization = this._materializeStagedObject(
+          stagingReservation.id, 'SHA-256', stagingReservation.context.documentHash, stagingReservation.context.byteSize,
+        );
+        const preparedDigest = this._hashLocalFile(preparedMaterialization.target);
+        if (preparedDigest.content_hash !== stagingReservation.context.documentHash || preparedDigest.byte_size !== stagingReservation.context.byteSize) {
+          if (preparedMaterialization.created) { try { fs.rmSync(preparedMaterialization.target, { force: true }); } catch { /* preserve primary error */ } }
+          throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+        }
+        stagingReservation = {
+          ...stagingReservation,
+          // Keep the digest beside the materialization as an internal
+          // execution proof.  It is never persisted in the command payload;
+          // the build path validates its shape and content identity before it
+          // registers the CAS location.
+          preparedMaterialization: { ...preparedMaterialization, digest: preparedDigest },
+          preparedDigest,
+        };
+      }
       if (commandType === 'CreateBackup') {
         // VACUUM INTO cannot run inside a SQLite transaction.  Mark the
         // command executing first, create and verify the external artifact,
@@ -2738,7 +2868,11 @@ export class CoreService {
             .run('EXECUTING', nowUtcUs(), commandId);
         }
         const executionPayload = stagingReservation
-          ? { ...payload, __staging_id: stagingReservation.id }
+          ? {
+            ...payload,
+            __staging_id: stagingReservation.id,
+            ...(stagingReservation.preparedMaterialization ? { __prepared_materialization: stagingReservation.preparedMaterialization } : {}),
+          }
           : backupReservation ? { ...payload, __backup_reservation: backupReservation } : payload;
         const operation = this._applyCommand(commandType, executionPayload, expectedVersions, commandId);
         const eventSeq = this._insertEvent(operation.event, commandId, this.actorId, input.correlation_id ?? null, input.causation_id ?? null);
@@ -2774,7 +2908,7 @@ export class CoreService {
         } catch { /* preserve command failure; evidence remains queryable */ }
       }
       if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) {
-        this._markTimelineInterchangeExportFailure(payload, coreError, commandId);
+        this._markTimelineInterchangeExportFailure(payload, coreError, commandId, exportAttemptRowVersion);
       }
       if (backupReservation?.root) {
         try { fs.rmSync(backupReservation.root, { recursive: true, force: true }); } catch { /* preserve command failure */ }
@@ -4023,6 +4157,11 @@ export class CoreService {
       payload.compatibility_profile_version ?? payload.compatibilityProfileVersion ?? HANDOFF_COMPATIBILITY_PROFILE_VERSION,
       'compatibility_profile_version', 120,
     );
+    for (const [value, field] of [[targetVersion, 'target_version'], [compatibilityProfileVersion, 'compatibility_profile_version']]) {
+      if (safeReleaseCandidateText(value) !== value) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+      }
+    }
     return { targetEditor, targetVersion, targetProfile, compatibilityProfileVersion };
   }
 
@@ -4184,7 +4323,12 @@ export class CoreService {
     const exportSessionId = uuidv7();
     const manifestId = uuidv7();
     const mediaProfile = publicMediaProfileRevision(profile);
-    const manifest = {
+    // The manifest hash is the identity of the exact public-safe canonical
+    // manifest.  Sanitize before canonicalization and persistence so the
+    // stored bytes, returned projection, and manifest_hash all describe the
+    // same immutable document.  Redacting only in publicHandoffManifest would
+    // make the hash unverifiable and could leak a legacy path from storage.
+    const manifest = sanitizePublicMetadata({
       manifest_type: 'CINEFORGE_TIMELINE_HANDOFF',
       manifest_schema_version: HANDOFF_MANIFEST_SCHEMA_VERSION,
       deliverable_type: 'TIMELINE_INTERCHANGE',
@@ -4229,7 +4373,7 @@ export class CoreService {
       artifact_allowlist: artifacts,
       compatibility,
       sanitization,
-    };
+    });
     const manifestJson = canonicalJson(manifest);
     const manifestHash = crypto.createHash('sha256').update(manifestJson, 'utf8').digest('hex');
     const created = nowUtcUs();
@@ -4519,12 +4663,45 @@ export class CoreService {
   _buildTimelineInterchangeExport(payload, expectedVersions, commandId) {
     const context = this._timelineInterchangeContext(payload, expectedVersions);
     const stagingId = requiredString(payload.__staging_id ?? payload.staging_id, 'staging_id');
-    const staged = this._verifyStagingObject(stagingId);
-    if (staged.sha256 !== context.documentHash || Number(staged.expected_size) !== context.byteSize) {
-      throw new CoreError('EXPORT_STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.export_staging_verify_failed', {}, { needsUser: false });
-    }
+    const prepared = payload.__prepared_materialization;
+    let staged;
     let materialized = null;
     let existingObject = null;
+    if (prepared && typeof prepared === 'object' && !Array.isArray(prepared)) {
+      // executeCommand has already performed all filesystem work before the
+      // outer SQLite transaction.  Only accept the exact content-addressed
+      // location and the staging proof that was just registered; callers
+      // cannot smuggle an arbitrary path through this internal field.
+      staged = this._stagingRow(stagingId);
+      const expectedRelativePath = this._objectRelativePath('SHA-256', context.documentHash);
+      const expectedTarget = path.resolve(this.assetStorePath, expectedRelativePath);
+      const preparedDigest = prepared.digest;
+      if (staged.state !== 'REGISTERED'
+        || staged.sha256 !== context.documentHash
+        || Number(staged.expected_size) !== context.byteSize
+        || prepared.relativePath !== expectedRelativePath
+        || path.resolve(String(prepared.target ?? '')) !== expectedTarget
+        || !preparedDigest
+        || preparedDigest.content_hash !== context.documentHash
+        || Number(preparedDigest.byte_size) !== context.byteSize) {
+        throw new CoreError('EXPORT_STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.export_staging_verify_failed', {}, { needsUser: false });
+      }
+      materialized = {
+        relativePath: expectedRelativePath,
+        objectUri: `object://sha-256/${context.documentHash}`,
+        target: expectedTarget,
+        created: prepared.created === true,
+      };
+    } else {
+      // Kept for direct/internal callers that invoke the command executor
+      // without executeCommand's pre-materialization phase.  Normal command
+      // execution always takes the prepared branch above, so filesystem I/O
+      // is outside the command transaction.
+      staged = this._verifyStagingObject(stagingId);
+      if (staged.sha256 !== context.documentHash || Number(staged.expected_size) !== context.byteSize) {
+        throw new CoreError('EXPORT_STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.export_staging_verify_failed', {}, { needsUser: false });
+      }
+    }
     try {
       const current = this._exportSessionRow(context.session.id);
       const buildingVersion = Number(current.row_version) + 1;
@@ -4533,9 +4710,11 @@ export class CoreService {
       const validatingVersion = buildingVersion + 1;
       this.db.prepare(`UPDATE export_sessions SET state = 'VALIDATING', row_version = ?, updated_at_utc_us = ?, next_step = ? WHERE id = ?`)
         .run(validatingVersion, nowUtcUs(), 'Đang kiểm tra lại hash, kích thước và object identity.', current.id);
-      materialized = this._materializeStagedObject(stagingId, 'SHA-256', context.documentHash, context.byteSize);
-      const verified = this._hashLocalFile(materialized.target);
-      if (verified.content_hash !== context.documentHash || verified.byte_size !== context.byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+      if (!materialized) {
+        materialized = this._materializeStagedObject(stagingId, 'SHA-256', context.documentHash, context.byteSize);
+        const verified = this._hashLocalFile(materialized.target);
+        if (verified.content_hash !== context.documentHash || verified.byte_size !== context.byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+      }
       existingObject = this.db.prepare('SELECT * FROM storage_objects WHERE hash_algorithm = ? AND content_hash = ?').get('SHA-256', context.documentHash);
       if (existingObject && (Number(existingObject.byte_size) !== context.byteSize || existingObject.storage_class !== 'LOCAL_MANAGED')) throw new CoreError('EXPORT_STORAGE_CONFLICT', 'INTERNAL', 'errors.export_storage_conflict', {}, { needsUser: false });
       const storedObject = existingObject ?? { id: uuidv7(), hash_algorithm: 'SHA-256', content_hash: context.documentHash, byte_size: context.byteSize, storage_class: 'LOCAL_MANAGED', verified_at_utc_us: nowUtcUs(), created_at_utc_us: nowUtcUs() };
@@ -4572,7 +4751,7 @@ export class CoreService {
     }
   }
 
-  _markTimelineInterchangeExportFailure(payload, error, commandId) {
+  _markTimelineInterchangeExportFailure(payload, error, commandId, expectedRowVersion = null) {
     const rawSessionId = payload?.export_session_id ?? payload?.exportSessionId ?? payload?.handoff_id ?? payload?.handoffId;
     if (typeof rawSessionId !== 'string' || rawSessionId.trim().length === 0) return;
     const sessionId = rawSessionId.trim();
@@ -4605,7 +4784,12 @@ export class CoreService {
         const row = this.db.prepare('SELECT * FROM export_sessions WHERE id = ?').get(sessionId);
         if (!row || ['COMPLETED', 'VERIFIED', 'CANCELLED'].includes(String(row.state).toUpperCase())) return;
         if (payload.project_id !== undefined && payload.project_id !== null && String(payload.project_id) !== String(row.project_id)) return;
+        const currentRowVersion = Number(row.row_version);
+        if (expectedRowVersion !== null && expectedRowVersion !== undefined
+          && Number.isSafeInteger(Number(expectedRowVersion))
+          && currentRowVersion !== Number(expectedRowVersion)) return;
         const currentSnapshot = parseJson(row.validation_snapshot_json, {});
+        if (String(row.state).toUpperCase() === 'FAILED' && currentSnapshot.error_code === 'EXPORT_RECOVERY_REQUIRED') return;
         const validationSnapshot = {
           schema_version: TIMELINE_INTERCHANGE_SCHEMA_VERSION,
           ...currentSnapshot,
@@ -4616,8 +4800,12 @@ export class CoreService {
           failed_at: new Date().toISOString(),
         };
         const version = Number(row.row_version) + 1;
-        this.db.prepare(`UPDATE export_sessions SET state = ?, row_version = ?, updated_at_utc_us = ?, validation_snapshot_json = ?, next_step = ? WHERE id = ?`)
-          .run(nextState, version, nowUtcUs(), json(validationSnapshot), nextStep, sessionId);
+        const updated = this.db.prepare(`UPDATE export_sessions SET state = ?, row_version = ?, updated_at_utc_us = ?, validation_snapshot_json = ?, next_step = ?
+          WHERE id = ? AND row_version = ? AND state NOT IN ('COMPLETED', 'VERIFIED', 'CANCELLED')`)
+          .run(nextState, version, nowUtcUs(), json(validationSnapshot), nextStep, sessionId, currentRowVersion);
+        // Do not append an event/audit record if a concurrent retry won the
+        // row-version fence after the snapshot read.
+        if (updated.changes !== 1) return;
         this._insertEvent({
           aggregateType: 'EXPORT_SESSION', aggregateId: sessionId, aggregateVersion: version,
           eventType: nextState === 'FAILED' ? 'TIMELINE_INTERCHANGE_EXPORT_FAILED' : 'TIMELINE_INTERCHANGE_EXPORT_BLOCKED',
@@ -7954,21 +8142,27 @@ export class CoreService {
     };
   }
 
-  _timelineInterchangeDownloadDescriptor(projectIdValue, exportSessionIdValue) {
+  _timelineInterchangeDownloadDescriptor(projectIdValue, exportSessionIdValue, { openFile = false } = {}) {
     const projectId = requiredString(projectIdValue, 'project_id');
     const exportSessionId = requiredString(exportSessionIdValue, 'export_session_id');
     this._project(projectId);
     const session = this._exportSessionRow(exportSessionId);
     if (session.project_id !== projectId) throw new CoreError('EXPORT_PROJECT_SCOPE', 'CONFLICT', 'errors.export_project_scope', { project_id: projectId, export_session_id: exportSessionId }, { needsUser: true });
-    if (session.state !== 'COMPLETED' || !session.output_asset_revision_id || !SHA256_HEX.test(String(session.output_content_hash ?? ''))) {
+    const manifestBinding = session.output_manifest_id
+      ? this.db.prepare(`SELECT id FROM handoff_manifests
+          WHERE id = ? AND export_session_id = ? AND project_id = ?`).get(session.output_manifest_id, session.id, projectId)
+      : null;
+    if (session.state !== 'COMPLETED' || !manifestBinding || !session.output_asset_revision_id || !SHA256_HEX.test(String(session.output_content_hash ?? ''))) {
       throw new CoreError('EXPORT_NOT_READY', 'CONFLICT', 'errors.export_not_ready', { export_session_id: exportSessionId }, { needsUser: true });
     }
-    const revision = this.db.prepare(`SELECT r.*, a.project_id, a.lifecycle_state AS asset_lifecycle_state, a.asset_type,
+    const revision = this.db.prepare(`SELECT r.*, a.project_id, a.lifecycle_state AS asset_lifecycle_state, a.asset_type, a.origin_type AS asset_origin_type,
         so.hash_algorithm, so.content_hash, so.byte_size, so.storage_class
       FROM asset_revisions r JOIN assets a ON a.id = r.asset_id
       JOIN storage_objects so ON so.id = r.storage_object_id
       WHERE r.id = ?`).get(session.output_asset_revision_id);
-    if (!revision || revision.project_id !== projectId || revision.semantic_role !== 'TIMELINE_INTERCHANGE'
+    if (!revision || revision.project_id !== projectId || revision.asset_type !== 'TIMELINE_INTERCHANGE'
+      || revision.asset_origin_type !== 'SYSTEM' || revision.semantic_role !== 'TIMELINE_INTERCHANGE'
+      || revision.rebuildability !== 'REBUILDABLE'
       || revision.asset_lifecycle_state !== 'ACTIVE' || revision.availability_state !== 'AVAILABLE'
       || revision.availability_evidence_state !== 'VERIFIED' || revision.storage_class !== 'LOCAL_MANAGED'
       || String(revision.content_hash).toLowerCase() !== String(session.output_content_hash).toLowerCase()
@@ -7994,7 +8188,39 @@ export class CoreService {
       if (error instanceof CoreError) throw error;
       throw new CoreError('EXPORT_NOT_READY', 'CONFLICT', 'errors.export_not_ready', { export_session_id: exportSessionId }, { needsUser: true });
     }
-    return { projectId, exportSessionId, filePath: absolute, mimeType: 'application/json', byteSize, contentHash: String(revision.content_hash).toLowerCase() };
+    let fileDescriptor = null;
+    if (openFile) {
+      try {
+        const noFollow = Number(fs.constants.O_NOFOLLOW ?? 0);
+        fileDescriptor = fs.openSync(absolute, fs.constants.O_RDONLY | noFollow);
+        const openedStat = fs.fstatSync(fileDescriptor);
+        if (!openedStat.isFile() || Number(openedStat.nlink ?? 1) !== 1 || Number(openedStat.size) !== byteSize) {
+          throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+        }
+        // Hash the already-open descriptor as the final identity proof.  The
+        // HTTP layer consumes this same descriptor, so a path swap after this
+        // point cannot change the bytes being streamed (TOCTOU-safe).
+        const openedIdentity = this._sourceIdentity(openedStat);
+        let pathStat;
+        try { pathStat = fs.lstatSync(absolute); } catch { pathStat = null; }
+        if (!pathStat || pathStat.isSymbolicLink() || !pathStat.isFile()
+          || !this._sameHandleIdentity(openedIdentity, this._sourceIdentity(pathStat))) {
+          throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+        }
+        const openedDigest = this._hashDescriptor(fileDescriptor, byteSize, path.basename(absolute));
+        const afterOpened = fs.fstatSync(fileDescriptor);
+        if (!this._sameSourceIdentity(openedIdentity, this._sourceIdentity(afterOpened))
+          || openedDigest.content_hash !== String(revision.content_hash).toLowerCase()
+          || openedDigest.byte_size !== byteSize) {
+          throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+        }
+      } catch (error) {
+        if (fileDescriptor !== null) { try { fs.closeSync(fileDescriptor); } catch { /* preserve original error */ } }
+        if (error instanceof CoreError) throw error;
+        throw new CoreError('EXPORT_NOT_READY', 'CONFLICT', 'errors.export_not_ready', { export_session_id: exportSessionId }, { needsUser: true });
+      }
+    }
+    return { projectId, exportSessionId, filePath: absolute, fileDescriptor, mimeType: 'application/json', byteSize, contentHash: String(revision.content_hash).toLowerCase() };
   }
 
   _interchangeDownloadRange(value, byteSize) {
@@ -8049,11 +8275,22 @@ export class CoreService {
     if (record.expiresAtMs <= Date.now()) { this.previewTokens.delete(token); throw new CoreError('EXPORT_DOWNLOAD_TOKEN_EXPIRED', 'AUTH_REQUIRED', 'errors.export_download_token_expired', {}, { needsUser: true }); }
     const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
     const exportSessionId = requiredString(params.export_session_id ?? params.exportSessionId, 'export_session_id');
-    const sessionId = params.session_id ?? params.sessionId;
-    if (record.epoch !== this.previewEpoch || record.audience !== TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE || record.projectId !== projectId || record.exportSessionId !== exportSessionId || (sessionId !== undefined && sessionId !== null && String(sessionId) !== record.sessionId)) throw new CoreError('EXPORT_DOWNLOAD_TOKEN_SCOPE', 'AUTH_REQUIRED', 'errors.export_download_token_scope', {}, { needsUser: true });
-    const descriptor = this._timelineInterchangeDownloadDescriptor(projectId, exportSessionId);
-    if (descriptor.contentHash !== record.contentHash || descriptor.byteSize !== record.byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
-    return { ...descriptor, ...this._interchangeDownloadRange(params.range ?? params.range_header ?? params.rangeHeader, descriptor.byteSize), etag: `"${descriptor.contentHash}"`, expiresAt: new Date(record.expiresAtMs).toISOString() };
+    const rawSessionId = params.session_id ?? params.sessionId;
+    if (typeof rawSessionId !== 'string' || rawSessionId.trim().length === 0) {
+      throw new CoreError('EXPORT_DOWNLOAD_SESSION_REQUIRED', 'AUTH_REQUIRED', 'errors.export_download_session_required', {}, { needsUser: true });
+    }
+    const sessionId = requiredString(rawSessionId, 'session_id', 256);
+    if (record.epoch !== this.previewEpoch || record.audience !== TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE || record.projectId !== projectId || record.exportSessionId !== exportSessionId || String(sessionId) !== record.sessionId) throw new CoreError('EXPORT_DOWNLOAD_TOKEN_SCOPE', 'AUTH_REQUIRED', 'errors.export_download_token_scope', {}, { needsUser: true });
+    const descriptor = this._timelineInterchangeDownloadDescriptor(projectId, exportSessionId, {
+      openFile: Boolean(params.open_file ?? params.openFile),
+    });
+    try {
+      if (descriptor.contentHash !== record.contentHash || descriptor.byteSize !== record.byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
+      return { ...descriptor, ...this._interchangeDownloadRange(params.range ?? params.range_header ?? params.rangeHeader, descriptor.byteSize), etag: `"${descriptor.contentHash}"`, expiresAt: new Date(record.expiresAtMs).toISOString() };
+    } catch (error) {
+      if (descriptor.fileDescriptor !== null) { try { fs.closeSync(descriptor.fileDescriptor); } catch { /* preserve original error */ } }
+      throw error;
+    }
   }
 
   _assetDetails(assetId) {

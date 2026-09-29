@@ -85,8 +85,11 @@ reports. Unknown or unverified target versions never receive an editable
 project claim, and `UNKNOWN` rights/readiness never becomes `PASS`.
 
 The timeline working session, autosave, undo/redo, collaboration, playback,
-render, media-byte export, external-editor round-trip, release, publish,
-release signing and arbitrary provider execution remain explicitly deferred.
+render, technical-master/transcode and media-byte export, external-editor
+round-trip, release, publish, release signing and arbitrary provider execution
+remain explicitly deferred. The implemented timeline interchange is a
+verified, local JSON artifact boundary; it does not claim to render or publish
+media bytes.
 The desktop workspace states that boundary and never reports media progress
 without Core evidence. These later surfaces must receive their own contracts
 before they are added to the UI.
@@ -236,6 +239,10 @@ The desktop-facing routes are:
 | GET | `/v1/projects/{id}/handoffs` | List project-scoped handoff preflight sessions |
 | GET | `/v1/projects/{id}/handoffs/{handoffId}` | Read one immutable, redacted handoff manifest |
 | POST | `/v1/projects/{id}/handoffs` | Create an exact-hash handoff manifest preflight |
+| GET | `/v1/projects/{id}/exports` | List project-scoped timeline interchange export sessions |
+| GET | `/v1/projects/{id}/exports/{exportId}` | Read one redacted export session and validation snapshot |
+| POST | `/v1/projects/{id}/exports/{exportId}/build` | Build a verified local timeline interchange JSON artifact |
+| GET/HEAD | `/v1/projects/{id}/exports/{exportId}/download` | Issue a scoped capability or stream a verified artifact range |
 | GET | `/v1/projects/{id}/assets` | List project assets and latest immutable revisions |
 | POST | `/v1/projects/{id}/assets` | Hash and register a local file (copy by default) |
 | GET | `/v1/assets` | List assets across the studio |

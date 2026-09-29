@@ -11,6 +11,7 @@ function statusFor(response) {
   if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'REVIEW_NOT_SUPPORTED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'AUDIO_CUE_STALE', 'AUDIO_CUE_REVIEW_REQUIRED', 'SUBTITLE_TRACK_STALE', 'SUBTITLE_TRACK_REVIEW_REQUIRED', 'TIMING_DEPENDENCY_HASH_REQUIRED', 'TIMING_DEPENDENCY_HASH_MISMATCH', 'AUDIO_ASSET_REQUIRED', 'TIMING_OUT_OF_BOUNDS', 'SUBTITLE_SEGMENT_OVERLAP', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE', 'RELEASE_READINESS_BLOCKED', 'RELEASE_CANDIDATE_ALREADY_EXISTS', 'RELEASE_CANDIDATE_NOT_CANCELLABLE', 'INVALID_RELEASE_CANDIDATE_STATE'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED', 'PREVIEW_MIME_UNSUPPORTED', 'PREVIEW_PURPOSE_UNSUPPORTED', 'EXPORT_PROFILE_UNSUPPORTED'].includes(code)) return 415;
   if (['PREVIEW_TOKEN_INVALID', 'PREVIEW_TOKEN_EXPIRED', 'PREVIEW_TOKEN_SCOPE', 'PREVIEW_SESSION_REQUIRED', 'EXPORT_DOWNLOAD_TOKEN_INVALID', 'EXPORT_DOWNLOAD_TOKEN_EXPIRED', 'EXPORT_DOWNLOAD_TOKEN_SCOPE', 'EXPORT_DOWNLOAD_SESSION_REQUIRED'].includes(code)) return 401;
+  if (code === 'ORIGIN_NOT_ALLOWED' || code === 'LOCAL_ONLY') return 403;
   if (['PREVIEW_RANGE_INVALID', 'PREVIEW_RANGE_NOT_SATISFIABLE', 'PREVIEW_RANGE_TOO_LARGE', 'EXPORT_DOWNLOAD_RANGE_INVALID', 'EXPORT_DOWNLOAD_RANGE_NOT_SATISFIABLE', 'EXPORT_DOWNLOAD_RANGE_TOO_LARGE'].includes(code)) return 416;
   if (['PREVIEW_RANGE_REQUIRED', 'PREVIEW_NOT_READY', 'PREVIEW_EXTERNAL_REFERENCE', 'PREVIEW_RIGHTS_BLOCKED', 'PREVIEW_CONTENT_CHANGED', 'PREVIEW_PROJECT_SCOPE', 'PREVIEW_PATH_ESCAPE', 'EXPORT_NOT_READY', 'EXPORT_OBJECT_TAMPERED', 'EXPORT_PROJECT_SCOPE', 'EXPORT_PATH_ESCAPE', 'EXPORT_STAGING_VERIFY_FAILED'].includes(code)) return 409;
   if (response.error?.category === 'CONFLICT') return 409;
@@ -21,16 +22,14 @@ function statusFor(response) {
 
 function send(response, body, status = 200, extraHeaders = {}) {
   const payload = JSON.stringify(body);
+  const corsOrigin = response.__cineforgeCorsOrigin;
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(payload),
     'cache-control': 'no-store',
-    // The server is loopback-only and does not use browser credentials. A
-    // wildcard keeps the development Vite origin and the packaged same-origin
-    // proxy on the same stable API contract.
-    'access-control-allow-origin': '*',
     'access-control-allow-headers': 'content-type, authorization, idempotency-key, range, if-range, x-cineforge-preview, x-cineforge-download, x-cineforge-session, x-request-id',
     'access-control-allow-methods': 'GET,HEAD,POST,PATCH,OPTIONS',
+    ...(corsOrigin ? { 'access-control-allow-origin': corsOrigin, vary: 'Origin' } : {}),
     ...extraHeaders,
   });
   response.end(payload);
@@ -1390,7 +1389,7 @@ function previewErrorBody(error) {
   });
 }
 
-function previewHeaders(opened) {
+function previewHeaders(opened, response) {
   const headers = {
     'content-type': opened.mimeType,
     'content-length': String(opened.length),
@@ -1400,7 +1399,7 @@ function previewHeaders(opened) {
     'content-disposition': 'inline',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
-    'access-control-allow-origin': '*',
+    ...(response?.__cineforgeCorsOrigin ? { 'access-control-allow-origin': response.__cineforgeCorsOrigin, vary: 'Origin' } : {}),
   };
   if (opened.contentRange) headers['content-range'] = opened.contentRange;
   return headers;
@@ -1459,7 +1458,7 @@ async function handleMediaPreview(core, request, response, url, parts) {
     send(response, failed, failedStatus, extraHeaders);
     return;
   }
-  response.writeHead(opened.status, previewHeaders(opened));
+  response.writeHead(opened.status, previewHeaders(opened, response));
   if (request.method === 'HEAD' || opened.length === 0) {
     response.end();
     return;
@@ -1479,7 +1478,7 @@ async function handleMediaPreview(core, request, response, url, parts) {
   stream.pipe(response);
 }
 
-function exportDownloadHeaders(opened) {
+function exportDownloadHeaders(opened, response) {
   const headers = {
     'content-type': opened.mimeType,
     'content-length': String(opened.length),
@@ -1489,7 +1488,7 @@ function exportDownloadHeaders(opened) {
     'content-disposition': 'attachment; filename="cineforge-timeline-interchange.json"',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
-    'access-control-allow-origin': '*',
+    ...(response?.__cineforgeCorsOrigin ? { 'access-control-allow-origin': response.__cineforgeCorsOrigin, vary: 'Origin' } : {}),
   };
   if (opened.contentRange) headers['content-range'] = opened.contentRange;
   return headers;
@@ -1516,9 +1515,9 @@ async function handleTimelineInterchangeDownload(core, request, response, url, p
   }
   let opened;
   try {
-    opened = core.openTimelineInterchangeDownload({
+  opened = core.openTimelineInterchangeDownload({
       project_id: projectId, export_session_id: exportSessionId, token,
-      session_id: sessionId ?? undefined, range: request.headers.range ?? undefined,
+      session_id: sessionId ?? undefined, range: request.headers.range ?? undefined, open_file: true,
     });
   } catch (error) {
     const failed = previewErrorBody(error);
@@ -1528,9 +1527,12 @@ async function handleTimelineInterchangeDownload(core, request, response, url, p
     send(response, failed, failedStatus, extraHeaders);
     return;
   }
-  response.writeHead(opened.status, exportDownloadHeaders(opened));
-  if (request.method === 'HEAD' || opened.length === 0) { response.end(); return; }
-  const stream = fs.createReadStream(opened.filePath, { start: opened.start, end: opened.end });
+  response.writeHead(opened.status, exportDownloadHeaders(opened, response));
+  if (request.method === 'HEAD' || opened.length === 0) {
+    if (opened.fileDescriptor !== null && opened.fileDescriptor !== undefined) { try { fs.closeSync(opened.fileDescriptor); } catch { /* already closed */ } }
+    response.end(); return;
+  }
+  const stream = fs.createReadStream(null, { fd: opened.fileDescriptor, start: opened.start, end: opened.end, autoClose: true });
   let finished = false;
   const abort = () => { if (!finished) stream.destroy(); };
   request.once('aborted', abort);
@@ -1545,10 +1547,32 @@ export function createCoreHttpServer(core, options = {}) {
   const host = options.host ?? '127.0.0.1';
   const port = Number(options.port ?? 43217);
   const server = http.createServer(async (request, response) => {
-    if (request.method === 'OPTIONS') { send(response, {}, 204); return; }
-    if (!['127.0.0.1', '::1', 'localhost'].includes(request.headers.host?.split(':')[0])) {
+    const requestHostHeader = String(request.headers.host ?? '');
+    let requestHostname = '';
+    try { requestHostname = new URL(`http://${requestHostHeader}`).hostname.toLowerCase().replace(/^\[|\]$/g, ''); } catch { requestHostname = ''; }
+    if (!['127.0.0.1', '::1', 'localhost'].includes(requestHostname)) {
       send(response, errorBody('LOCAL_ONLY', 'errors.local_only'), 403); return;
     }
+    const origin = request.headers.origin;
+    if (origin) {
+      let trustedOrigin = false;
+      try {
+        const parsedOrigin = new URL(origin);
+        const configuredOrigins = Array.isArray(options.allowedOrigins)
+          ? options.allowedOrigins.map((value) => String(value).replace(/\/$/, '').toLowerCase())
+          : [];
+        const normalizedOrigin = parsedOrigin.toString().replace(/\/$/, '').toLowerCase();
+        trustedOrigin = configuredOrigins.includes(normalizedOrigin)
+          || (parsedOrigin.protocol === 'http:' && ['127.0.0.1', '::1', 'localhost'].includes(parsedOrigin.hostname)
+            && parsedOrigin.host.toLowerCase() === requestHostHeader.toLowerCase());
+      } catch { trustedOrigin = false; }
+      if (!trustedOrigin) { send(response, errorBody('ORIGIN_NOT_ALLOWED', 'errors.origin_not_allowed'), 403); return; }
+      response.__cineforgeCorsOrigin = origin;
+    }
+    // A validated CORS preflight is read-only and carries no bearer token by
+    // design.  Let it complete before auth so a browser can learn the
+    // allowed headers/methods; every actual data request remains token-gated.
+    if (request.method === 'OPTIONS') { send(response, {}, 204); return; }
     if (token) {
       const authorization = request.headers.authorization ?? '';
       if (authorization !== `Bearer ${token}`) {

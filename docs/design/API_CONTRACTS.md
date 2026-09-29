@@ -960,6 +960,15 @@ removed value is listed in the sanitization report with the policy version.
 Public projections return the parsed safe fields and never expose `storage_uri`
 or raw local paths.
 
+For a database upgraded from a build predating the public-safe hash contract,
+the immutable stored `manifest_hash` may refer to a legacy raw manifest that
+cannot be returned safely. In that compatibility case the projection keeps the
+original `manifest_hash` for audit, sets `manifest_hash_verified` to `false`,
+returns a separately computed `public_manifest_hash` for the redacted
+projection, and includes `manifest_compatibility.state = LEGACY_UNVERIFIED`
+with a recreate-handoff next step. New manifests always set
+`manifest_hash_verified = true` and have matching hashes.
+
 Compatibility is a feature-level report with statuses `NATIVE`,
 `APPROXIMATED`, `UNSUPPORTED` or `UNKNOWN`, plus a conservative editable claim.
 An unknown or unverified target editor/version cannot inherit an editable-project

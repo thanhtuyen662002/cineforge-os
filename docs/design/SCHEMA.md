@@ -1731,6 +1731,12 @@ The project index covers `(project_id, state, created_at_utc_us)` and the
 manifest index covers `(project_id, created_at_utc_us)` and
 `manifest_hash`. Public projections return parsed allowlist, compatibility and
 sanitization data and redact storage locations and internal database details.
+Rows created before the public-safe sanitization/hash contract remain
+append-only and are never rewritten in place. Their projection keeps the
+immutable stored `manifest_hash` for audit, sets `manifest_hash_verified` to
+`false`, exposes a separate `public_manifest_hash` for the safe redacted
+projection, and marks `manifest_compatibility.state` as `LEGACY_UNVERIFIED`
+until a new handoff manifest is created from current exact evidence.
 
 ## external_edits
 - id PK
