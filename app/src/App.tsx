@@ -1831,7 +1831,7 @@ function TimelineTimingPanel({ projectId, timelineId, revision, connected, local
       setAudioTiming(null); setSubtitleTiming(null); setTimingError(locale === 'vi' ? 'Core chưa cung cấp metadata audio/phụ đề.' : 'Core does not expose audio/subtitle metadata yet.'); setLoading(false)
       return
     }
-    setLoading(true); setTimingError(null); setNeedsUser(false)
+    setLoading(true); setTimingError(null); setNeedsUser(false); setAudioTiming(null); setSubtitleTiming(null)
     try {
       const [audioResult, subtitleResult] = await Promise.all([
         client.getTimelineAudioTiming ? client.getTimelineAudioTiming(projectId, timelineId, revisionId, signal) : Promise.resolve(null),
