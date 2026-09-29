@@ -238,12 +238,14 @@ test('builds a verified, deterministic, idempotent timeline interchange artifact
       assert.equal(Number.isInteger(openedWithFile.fileDescriptor), true);
       assert.equal(openedWithFile.length, 16);
       const originalBytes = fs.readFileSync(openedWithFile.filePath);
+      fs.chmodSync(openedWithFile.filePath, 0o666);
       fs.writeFileSync(openedWithFile.filePath, Buffer.alloc(originalBytes.length, 0x78));
       assert.throws(
         () => core.verifyTimelineInterchangeDownloadHandle(openedWithFile),
         (error) => error.code === 'EXPORT_OBJECT_TAMPERED',
       );
       fs.writeFileSync(openedWithFile.filePath, originalBytes);
+      fs.chmodSync(openedWithFile.filePath, 0o444);
     } finally {
       if (openedWithFile.fileDescriptor !== null) fs.closeSync(openedWithFile.fileDescriptor);
     }
@@ -335,11 +337,13 @@ test('fails closed on cross-project export claims and tampered or missing output
       JOIN storage_objects o ON o.id = l.storage_object_id WHERE o.content_hash = ? AND l.location_role = 'PRIMARY'`).get(built.result.output_content_hash);
     const outputPath = path.join(core.assetStorePath, location.relative_path);
     const original = fs.readFileSync(outputPath);
+    fs.chmodSync(outputPath, 0o666);
     fs.writeFileSync(outputPath, Buffer.concat([Buffer.from('tampered\n'), original.subarray(9)]));
     assert.throws(() => core.openTimelineInterchangeDownload({
       project_id: first.projectId, export_session_id: first.session.id, session_id: 'tamper-test', token: capability.token,
     }), (error) => error.code === 'EXPORT_OBJECT_TAMPERED');
     fs.writeFileSync(outputPath, original);
+    fs.chmodSync(outputPath, 0o666);
     fs.rmSync(outputPath);
     assert.throws(() => core.openTimelineInterchangeDownload({
       project_id: first.projectId, export_session_id: first.session.id, session_id: 'tamper-test', token: capability.token,

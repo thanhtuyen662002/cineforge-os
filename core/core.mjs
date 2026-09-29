@@ -2560,6 +2560,18 @@ export class CoreService {
     return { relativePath, objectUri: `object://${hashAlgorithm.toLowerCase()}/${contentHash}`, target, created };
   }
 
+  _protectManagedObject(target, contentHash) {
+    try {
+      // Generated CAS bytes are immutable evidence.  The read-only bit closes
+      // the normal in-place-write window between preflight materialization and
+      // the binding transaction; privileged tampering is still detected by
+      // the final hash checks and download verifier.
+      fs.chmodSync(target, 0o444);
+    } catch {
+      throw new CoreError('ASSET_STORE_CORRUPT', 'INTERNAL', 'errors.asset_store_corrupt', { content_hash: contentHash }, { needsUser: false });
+    }
+  }
+
   _reconcileStaging(payload = {}) {
     const requestedId = payload.staging_id ?? payload.stagingId ?? null;
     const rows = requestedId
@@ -2838,6 +2850,7 @@ export class CoreService {
         const preparedMaterialization = this._materializeStagedObject(
           stagingReservation.id, 'SHA-256', stagingReservation.context.documentHash, stagingReservation.context.byteSize,
         );
+        this._protectManagedObject(preparedMaterialization.target, stagingReservation.context.documentHash);
         const preparedDigest = this._hashLocalFile(preparedMaterialization.target);
         if (preparedDigest.content_hash !== stagingReservation.context.documentHash || preparedDigest.byte_size !== stagingReservation.context.byteSize) {
           if (preparedMaterialization.created) { try { fs.rmSync(preparedMaterialization.target, { force: true }); } catch { /* preserve primary error */ } }
@@ -4712,6 +4725,7 @@ export class CoreService {
         .run(validatingVersion, nowUtcUs(), 'Đang kiểm tra lại hash, kích thước và object identity.', current.id);
       if (!materialized) {
         materialized = this._materializeStagedObject(stagingId, 'SHA-256', context.documentHash, context.byteSize);
+        this._protectManagedObject(materialized.target, context.documentHash);
         const verified = this._hashLocalFile(materialized.target);
         if (verified.content_hash !== context.documentHash || verified.byte_size !== context.byteSize) throw new CoreError('EXPORT_OBJECT_TAMPERED', 'CONFLICT', 'errors.export_object_tampered', {}, { needsUser: true });
       }
