@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -30,6 +30,7 @@ export interface CoreBridge {
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
   getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
   reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
+  getReleaseReadiness?(projectId: string, signal?: AbortSignal): Promise<ReleaseReadiness>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
@@ -754,6 +755,13 @@ export class HttpCoreClient implements CoreClient {
       body: JSON.stringify(body),
     })
     return mapStagingCommandResultRecord(await readCorePayload(response, 'staging reconciliation'))
+  }
+
+  async getReleaseReadiness(projectId: string, signal?: AbortSignal): Promise<ReleaseReadiness> {
+    if (!this.baseUrl) throw new CoreClientError('Release readiness requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim()) throw new CoreClientError('A project id is required to read release readiness.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/readiness`, { signal, headers: { Accept: 'application/json' } })
+    return mapReleaseReadinessRecord(await readCorePayload(response, 'release readiness'))
   }
 
   async resolveMediaPreview(projectId: string, revisionId: string, purpose = 'LIBRARY_PREVIEW', signal?: AbortSignal): Promise<MediaPreviewResolution> {
@@ -1678,6 +1686,74 @@ function mapStagingCommandResultRecord(value: unknown): StagingWorkspace {
   const source = asRecord(value)
   const staging = source.staging && typeof source.staging === 'object' && !Array.isArray(source.staging) ? source.staging : source
   return mapStagingWorkspaceRecord(staging)
+}
+
+const RELEASE_GATE_KEYS = new Set(['PICTURE', 'AUDIO', 'LOCALIZATION', 'TECHNICAL_MEDIA', 'QC', 'RIGHTS', 'MISSING_MEDIA', 'UNRESOLVED_DECISIONS'])
+const RELEASE_GATE_STATES = new Set(['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE'])
+const RELEASE_EVIDENCE_KEYS = new Set([
+  'asset_revision_id', 'asset_count', 'availability_state', 'availability_evidence_state', 'review_state',
+  'asset_lifecycle_state', 'storage_class', 'location_state', 'rights_status', 'cue_count', 'track_count',
+  'review_count', 'approved_candidate_count', 'clip_count', 'media_profile_revision_id', 'timeline_id',
+  'timeline_revision_id', 'content_hash', 'state', 'width', 'height', 'audio_sample_rate', 'id', 'title',
+  'severity', 'blocking_scope_type', 'stale', 'locale', 'segment_count', 'asset_state', 'review_session_id',
+  'decision', 'count',
+])
+
+function mapReleaseEvidence(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const source = value as Record<string, unknown>
+  const output: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(source)) {
+    if (!RELEASE_EVIDENCE_KEYS.has(key)) continue
+    if (Array.isArray(item)) {
+      output[key] = item.slice(0, 200).map((entry) => typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? mapReleaseEvidence(entry) : typeof entry === 'string' ? entry.slice(0, 512) : entry).filter((entry) => entry !== undefined)
+    } else if (typeof item === 'object' && item !== null) {
+      output[key] = mapReleaseEvidence(item)
+    } else if (typeof item === 'string') {
+      output[key] = item.slice(0, 512)
+    } else if (typeof item === 'number' || typeof item === 'boolean' || item === null) {
+      output[key] = item
+    }
+  }
+  return output
+}
+
+function mapReleaseReadinessRecord(value: unknown): ReleaseReadiness {
+  const source = asRecord(value)
+  const rawGates = arrayValue(source.gates)
+  const gates: ReleaseGate[] = rawGates.map((value) => {
+    const item = asRecord(value)
+    const key = String(item.key ?? '').trim().toUpperCase()
+    const state = String(item.state ?? 'UNKNOWN').trim().toUpperCase()
+    return {
+      key,
+      state: (RELEASE_GATE_STATES.has(state) ? state : 'UNKNOWN') as ReleaseGate['state'],
+      blocking: item.blocking === true || state === 'FAIL' || state === 'UNKNOWN',
+      reason: stringValue(item.reason),
+      nextStep: stringValue(item.next_step ?? item.nextStep),
+      evidence: mapReleaseEvidence(item.evidence),
+    }
+  }).filter((item) => RELEASE_GATE_KEYS.has(item.key))
+  const policy = asRecord(source.policy)
+  const overall = String(source.overall_state ?? source.overallState ?? 'NOT_CHECKED').trim().toUpperCase()
+  const exactSource = mapReleaseEvidence(source.exact_source ?? source.exactSource)
+  const rawBlocking = arrayValue(source.blocking_gate_keys ?? source.blockingGateKeys)
+  const blockingGateKeys = rawBlocking.map((value) => String(value).trim().toUpperCase()).filter((value) => RELEASE_GATE_KEYS.has(value))
+  return {
+    projectId: stringValue(source.project_id ?? source.projectId),
+    projectTitle: stringValue(source.project_title ?? source.projectTitle),
+    overallState: (['READY', 'BLOCKED', 'NOT_CHECKED'].includes(overall) ? overall : 'NOT_CHECKED') as ReleaseReadiness['overallState'],
+    policy: { purpose: stringValue(policy.purpose) ?? 'RELEASE', unknownBlocks: policy.unknown_blocks !== false && policy.unknownBlocks !== false },
+    exactSource,
+    gates,
+    blockingGateKeys: blockingGateKeys.length > 0 ? blockingGateKeys : gates.filter((item) => item.blocking).map((item) => item.key),
+    blockingCount: integerValue(source.blocking_count ?? source.blockingCount, 0, 0, 1000),
+    unknownCount: integerValue(source.unknown_count ?? source.unknownCount, 0, 0, 1000),
+    gateManifestHash: stringValue(source.gate_manifest_hash ?? source.gateManifestHash),
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+    projectionSeq: integerValue(source.projection_seq ?? source.projectionSeq, 0, 0, Number.MAX_SAFE_INTEGER),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
 }
 
 function mapCharacterRights(value: unknown): RightsSummary | null {

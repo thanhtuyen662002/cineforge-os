@@ -983,6 +983,14 @@ Primary action stays disabled/guarded if blocking gates remain.
 
 Export and Publish are separate buttons/workflows.
 
+The V1 Release workspace renders the project-scoped read-only readiness
+projection. It keeps the eight gates in the contract order, shows the overall
+state and blocking/unknown counts, exposes only allowlisted evidence, and
+guards against stale project-switch responses. Export and Publish controls are
+visible as boundary affordances but remain unavailable until their separate
+exact release-manifest workflows exist; the readiness view never mutates
+project state.
+
 Publish screen always shows:
 - exact release manifest;
 - target platform/account;

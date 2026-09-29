@@ -6516,6 +6516,292 @@ export class CoreService {
     };
   }
 
+  /**
+   * Compute the read-only release gate projection from one explicit project
+   * snapshot.  This deliberately does not persist a release candidate or
+   * resolve a "latest" revision: an approved timeline is usable only when
+   * the project has exactly one unambiguous approved revision and every gate
+   * binds to that revision's concrete evidence.
+   */
+  _releaseReadiness(projectIdValue) {
+    const projectId = requiredString(projectIdValue, 'project_id');
+    const project = this._project(projectId);
+    const now = new Date().toISOString();
+    const gate = (key, state, reason, nextStep, evidence = {}, blocking = state === 'FAIL' || state === 'UNKNOWN') => ({
+      key,
+      state,
+      blocking: Boolean(blocking),
+      reason: reason ?? null,
+      next_step: nextStep ?? null,
+      evidence,
+    });
+
+    const timelineRows = this.db.prepare(`SELECT * FROM timelines
+      WHERE project_id = ? AND lifecycle_state != 'TRASHED'
+      ORDER BY id ASC`).all(project.id);
+    const approvedCandidates = [];
+    for (const timeline of timelineRows) {
+      const revisions = this.db.prepare(`SELECT * FROM timeline_revisions
+        WHERE timeline_id = ? AND lifecycle_state = 'APPROVED'
+        ORDER BY id ASC`).all(timeline.id);
+      for (const revision of revisions) approvedCandidates.push({ timeline, revision });
+    }
+    let exact = approvedCandidates.length === 1 ? approvedCandidates[0] : null;
+    let timelineProjection = null;
+    let timelineProjectionError = null;
+    let exactRefs = {
+      timeline_id: null,
+      timeline_revision_id: null,
+      timeline_content_hash: null,
+      media_profile_revision_id: null,
+      review_session_id: null,
+    };
+    if (exact) {
+      try {
+        // Use the canonical revision projection for every downstream hash and
+        // scope check.  The candidate query intentionally stays narrow, but
+        // review snapshots include the owning project id.
+        exact = { ...exact, revision: this._timelineRevision(exact.revision.id) };
+        timelineProjection = this._timelineRevisionProjection(exact.revision.id);
+      } catch (error) {
+        // A readiness projection is a read-side safety check.  A malformed
+        // or incomplete dependency must become UNKNOWN instead of turning a
+        // dashboard refresh into an HTTP 500.
+        timelineProjectionError = error?.code ?? 'TIMELINE_PROJECTION_UNAVAILABLE';
+      }
+      exactRefs = {
+        timeline_id: exact.timeline.id,
+        timeline_revision_id: exact.revision.id,
+        timeline_content_hash: String(exact.revision.content_hash ?? '').toLowerCase(),
+        media_profile_revision_id: exact.revision.media_profile_revision_id,
+        review_session_id: null,
+      };
+    }
+
+    const pictureEvidence = exact ? {
+      timeline_id: exact.timeline.id,
+      timeline_revision_id: exact.revision.id,
+      content_hash: String(exact.revision.content_hash ?? '').toLowerCase(),
+      approved_candidate_count: approvedCandidates.length,
+      clip_count: (timelineProjection?.revision?.tracks ?? []).reduce((sum, track) => sum + (track.clips?.length ?? 0), 0),
+    } : { approved_candidate_count: approvedCandidates.length };
+    const pictureClipCount = Number(pictureEvidence.clip_count ?? 0);
+    const picture = !exact
+      ? gate('PICTURE', 'UNKNOWN', approvedCandidates.length === 0 ? 'NO_APPROVED_TIMELINE' : 'AMBIGUOUS_APPROVED_TIMELINE', approvedCandidates.length === 0
+        ? 'Tạo và approve đúng một timeline revision làm nguồn picture cho project.'
+        : 'Giữ lại một approved timeline revision rõ ràng trước khi kiểm tra release.', pictureEvidence)
+      : timelineProjectionError
+        ? gate('PICTURE', 'UNKNOWN', 'TIMELINE_PROJECTION_UNAVAILABLE', 'Sửa dependency của timeline revision rồi refresh readiness.', { ...pictureEvidence, projection_error: timelineProjectionError })
+      : pictureClipCount === 0
+        ? gate('PICTURE', 'UNKNOWN', 'TIMELINE_HAS_NO_CLIPS', 'Thêm clip vào timeline và tạo checkpoint mới trước khi release.', pictureEvidence)
+        : timelineProjection.revision.readiness_state === 'READY'
+          ? gate('PICTURE', 'PASS', null, null, pictureEvidence, false)
+          : gate('PICTURE', 'UNKNOWN', 'TIMELINE_DEPENDENCY_NOT_READY', timelineProjection.revision.next_step ?? 'Kiểm tra materialization, review và rights của các clip đã pin.', pictureEvidence);
+
+    let profile = null;
+    if (exact) {
+      try { profile = this._mediaProfileRevision(exact.revision.media_profile_revision_id); } catch { profile = null; }
+    }
+    const technicalEvidence = exact ? {
+      media_profile_revision_id: exact.revision.media_profile_revision_id,
+      state: profile?.lifecycle_state ?? 'UNKNOWN',
+      width: profile ? Number(profile.width) : null,
+      height: profile ? Number(profile.height) : null,
+      audio_sample_rate: profile ? Number(profile.audio_sample_rate) : null,
+    } : {};
+    const technicalMedia = !exact || !profile
+      ? gate('TECHNICAL_MEDIA', 'UNKNOWN', 'MEDIA_PROFILE_NOT_FOUND', 'Tạo và approve một media profile revision rồi pin nó vào timeline.', technicalEvidence)
+      : profile.lifecycle_state === 'REJECTED'
+        ? gate('TECHNICAL_MEDIA', 'FAIL', 'MEDIA_PROFILE_REJECTED', 'Tạo một media profile revision hợp lệ và gửi lại review.', technicalEvidence)
+        : profile.lifecycle_state !== 'APPROVED' || !Number.isSafeInteger(Number(profile.width)) || Number(profile.width) <= 0 || !Number.isSafeInteger(Number(profile.height)) || Number(profile.height) <= 0
+          ? gate('TECHNICAL_MEDIA', 'UNKNOWN', 'MEDIA_PROFILE_NOT_APPROVED', 'Approve media profile revision chính xác đang được timeline pin.', technicalEvidence)
+          : gate('TECHNICAL_MEDIA', 'PASS', null, null, technicalEvidence, false);
+
+    const assetRefs = new Map();
+    for (const track of timelineProjection?.revision?.tracks ?? []) {
+      for (const clip of track.clips ?? []) {
+        if (clip.asset_revision_id) assetRefs.set(clip.asset_revision_id, clip.asset_revision_id);
+      }
+    }
+    const assetEvidence = [];
+    const rightsStatuses = [];
+    const materializationStates = [];
+    for (const assetRevisionId of [...assetRefs.values()].sort()) {
+      const asset = this.db.prepare(`SELECT r.id, r.asset_id, r.availability_state, r.review_state,
+          r.availability_evidence_state, a.lifecycle_state AS asset_lifecycle_state,
+          so.storage_class, sol.state AS location_state
+        FROM asset_revisions r JOIN assets a ON a.id = r.asset_id
+        LEFT JOIN storage_objects so ON so.id = r.storage_object_id
+        LEFT JOIN storage_object_locations sol ON sol.id = (
+          SELECT location.id FROM storage_object_locations location
+          WHERE location.storage_object_id = r.storage_object_id AND location.location_role = 'PRIMARY'
+          ORDER BY CASE WHEN location.state = 'AVAILABLE' THEN 0 ELSE 1 END, location.id ASC LIMIT 1
+        ) WHERE r.id = ?`).get(assetRevisionId);
+      let rights = { status: 'UNKNOWN', eligible: false };
+      if (asset) {
+        try { rights = this._rightsForAsset(asset.asset_id, { purpose: 'RELEASE' }); } catch { rights = { status: 'UNKNOWN', eligible: false }; }
+      }
+      const status = String(rights.status ?? 'UNKNOWN').toUpperCase();
+      rightsStatuses.push(status);
+      const materialized = Boolean(asset
+        && asset.asset_lifecycle_state !== 'TRASHED'
+        && asset.availability_state === 'AVAILABLE'
+        && asset.review_state === 'APPROVED'
+        && asset.availability_evidence_state === 'VERIFIED'
+        && asset.storage_class !== 'EXTERNAL_REFERENCE'
+        && asset.location_state === 'AVAILABLE');
+      const materializationState = !asset ? 'UNKNOWN' : materialized ? 'READY' : String(asset.availability_state ?? 'UNKNOWN').toUpperCase();
+      materializationStates.push(materializationState);
+      assetEvidence.push({
+        asset_revision_id: assetRevisionId,
+        availability_state: asset?.availability_state ?? 'UNKNOWN',
+        availability_evidence_state: asset?.availability_evidence_state ?? 'UNKNOWN',
+        review_state: asset?.review_state ?? 'UNKNOWN',
+        asset_lifecycle_state: asset?.asset_lifecycle_state ?? 'UNKNOWN',
+        storage_class: asset?.storage_class ?? 'UNKNOWN',
+        location_state: asset?.location_state ?? 'UNKNOWN',
+        rights_status: status,
+      });
+    }
+    const missingMediaEvidence = { asset_count: assetEvidence.length, assets: assetEvidence.map((item) => ({
+      asset_revision_id: item.asset_revision_id,
+      availability_state: item.availability_state,
+      availability_evidence_state: item.availability_evidence_state,
+      review_state: item.review_state,
+      location_state: item.location_state,
+    })) };
+    const missingMedia = exact && timelineProjectionError
+      ? gate('MISSING_MEDIA', 'UNKNOWN', 'TIMELINE_PROJECTION_UNAVAILABLE', 'Sửa dependency của timeline revision rồi refresh readiness.', { asset_count: 0, projection_error: timelineProjectionError })
+      : assetEvidence.length === 0
+      ? gate('MISSING_MEDIA', exact ? 'NOT_APPLICABLE' : 'UNKNOWN', exact ? 'NO_REFERENCED_MEDIA' : 'NO_APPROVED_TIMELINE', exact ? null : 'Approve a timeline before checking referenced media.', missingMediaEvidence, false)
+      : assetEvidence.some((item) => ['MISSING', 'CORRUPT', 'QUARANTINED'].includes(String(item.availability_state).toUpperCase()) || item.asset_lifecycle_state === 'TRASHED')
+        ? gate('MISSING_MEDIA', 'FAIL', 'MEDIA_MISSING_OR_UNUSABLE', 'Materialize hoặc khôi phục asset revision bị thiếu trước khi release.', missingMediaEvidence)
+        : materializationStates.every((state) => state === 'READY')
+          ? gate('MISSING_MEDIA', 'PASS', null, null, missingMediaEvidence, false)
+          : gate('MISSING_MEDIA', 'UNKNOWN', 'MEDIA_EVIDENCE_INCOMPLETE', 'Verify materialization và review của mọi asset revision đã pin.', missingMediaEvidence);
+    const rightsEvidence = { asset_count: assetEvidence.length, assets: assetEvidence.map((item) => ({ asset_revision_id: item.asset_revision_id, rights_status: item.rights_status })) };
+    const rights = exact && timelineProjectionError
+      ? gate('RIGHTS', 'UNKNOWN', 'TIMELINE_PROJECTION_UNAVAILABLE', 'Sửa dependency của timeline revision rồi refresh readiness.', { asset_count: 0, projection_error: timelineProjectionError })
+      : assetEvidence.length === 0
+      ? gate('RIGHTS', exact ? 'NOT_APPLICABLE' : 'UNKNOWN', exact ? 'NO_REFERENCED_MEDIA' : 'NO_APPROVED_TIMELINE', exact ? null : 'Approve a timeline trước khi kiểm tra rights cho release.', rightsEvidence, false)
+      : rightsStatuses.some((status) => ['REVOKED', 'EXPIRED', 'RESTRICTED'].includes(status))
+        ? gate('RIGHTS', 'FAIL', 'RIGHTS_RESTRICTED_OR_REVOKED', 'Bổ sung rights/consent hợp lệ hoặc thay asset bị hạn chế trước khi release.', rightsEvidence)
+        : rightsStatuses.every((status) => status === 'ALLOWED')
+          ? gate('RIGHTS', 'PASS', null, null, rightsEvidence, false)
+          : gate('RIGHTS', 'UNKNOWN', 'RIGHTS_NOT_VERIFIED', 'Ghi nhận rights và consent cho mọi asset trước khi release.', rightsEvidence);
+
+    const audioRows = exact ? this.db.prepare(`SELECT r.*, c.project_id, c.timeline_id, c.cue_type
+      FROM audio_cue_revisions r JOIN audio_cues c ON c.id = r.audio_cue_id
+      WHERE c.project_id = ? AND c.timeline_id = ? AND r.timeline_revision_id = ?
+      ORDER BY r.id ASC`).all(project.id, exact.timeline.id, exact.revision.id) : [];
+    const audioItems = audioRows.map((row) => {
+      const stale = this._timingRevisionStaleness(row).stale;
+      const assetGate = this._audioCueAssetGate(row);
+      return { id: row.id, state: String(row.lifecycle_state ?? 'UNKNOWN').toUpperCase(), stale, asset_state: assetGate.state, rights_status: assetGate.rights_status ?? null };
+    });
+    const audioEvidence = { cue_count: audioItems.length, cues: audioItems };
+    const audio = exact && timelineProjectionError
+      ? gate('AUDIO', 'UNKNOWN', 'TIMELINE_PROJECTION_UNAVAILABLE', 'Sửa dependency của timeline revision rồi refresh readiness.', { cue_count: 0, projection_error: timelineProjectionError })
+      : audioItems.length === 0
+      ? gate('AUDIO', exact ? 'NOT_APPLICABLE' : 'UNKNOWN', exact ? 'NO_AUDIO_CUES' : 'NO_APPROVED_TIMELINE', exact ? null : 'Approve a timeline trước khi kiểm tra audio.', audioEvidence, false)
+      : audioItems.some((item) => item.stale || item.state === 'REJECTED' || item.asset_state === 'BLOCKED' && ['RESTRICTED', 'REVOKED', 'EXPIRED'].includes(String(item.rights_status ?? '').toUpperCase()))
+        ? gate('AUDIO', 'FAIL', 'AUDIO_TIMING_OR_RIGHTS_INVALID', 'Sửa timing/audio rights bị stale hoặc bị chặn rồi tạo revision mới.', audioEvidence)
+        : audioItems.every((item) => item.state === 'SELECTED' && (item.asset_state === 'READY' || item.asset_state === 'NOT_APPLICABLE'))
+          ? gate('AUDIO', 'PASS', null, null, audioEvidence, false)
+          : gate('AUDIO', 'UNKNOWN', 'AUDIO_NOT_SELECTED_OR_NOT_VERIFIED', 'Hoàn tất chọn audio cue và verify asset gate; render/mix vẫn là bước riêng.', audioEvidence);
+
+    const subtitleRows = exact ? this.db.prepare(`SELECT r.*, t.project_id, t.timeline_id, t.locale
+      FROM subtitle_track_revisions r JOIN subtitle_tracks t ON t.id = r.subtitle_track_id
+      WHERE t.project_id = ? AND t.timeline_id = ? AND r.timeline_revision_id = ?
+      ORDER BY r.id ASC`).all(project.id, exact.timeline.id, exact.revision.id) : [];
+    const subtitleItems = subtitleRows.map((row) => ({
+      id: row.id,
+      locale: row.locale,
+      state: String(row.lifecycle_state ?? 'UNKNOWN').toUpperCase(),
+      stale: this._timingRevisionStaleness(row).stale,
+      segment_count: Number(this.db.prepare('SELECT COUNT(*) AS count FROM subtitle_track_segments WHERE subtitle_track_revision_id = ?').get(row.id).count),
+    }));
+    const localizationEvidence = { track_count: subtitleItems.length, tracks: subtitleItems };
+    const localization = exact && timelineProjectionError
+      ? gate('LOCALIZATION', 'UNKNOWN', 'TIMELINE_PROJECTION_UNAVAILABLE', 'Sửa dependency của timeline revision rồi refresh readiness.', { track_count: 0, projection_error: timelineProjectionError })
+      : subtitleItems.length === 0
+      ? gate('LOCALIZATION', exact ? 'NOT_APPLICABLE' : 'UNKNOWN', exact ? 'NO_SUBTITLE_TRACKS' : 'NO_APPROVED_TIMELINE', exact ? null : 'Approve a timeline trước khi kiểm tra localization.', localizationEvidence, false)
+      : subtitleItems.some((item) => item.stale || item.state === 'REJECTED' || item.segment_count === 0)
+        ? gate('LOCALIZATION', 'FAIL', 'SUBTITLE_EVIDENCE_INVALID', 'Sửa subtitle track bị stale/rỗng/rejected và tạo revision mới.', localizationEvidence)
+        : subtitleItems.every((item) => ['REVIEWED', 'APPROVED'].includes(item.state))
+          ? gate('LOCALIZATION', 'PASS', null, null, localizationEvidence, false)
+          : gate('LOCALIZATION', 'UNKNOWN', 'SUBTITLE_NOT_REVIEWED', 'Review subtitle track cho từng locale trước khi release.', localizationEvidence);
+
+    let qc = gate('QC', 'UNKNOWN', exact ? 'NO_APPROVED_REVIEW' : 'NO_APPROVED_TIMELINE', exact ? 'Mở và submit review APPROVE cho đúng timeline revision.' : 'Approve a timeline trước khi mở review.', {});
+    if (exact && !timelineProjectionError) {
+      let currentSnapshot;
+      try {
+        currentSnapshot = this._reviewSnapshot(exact.revision);
+      } catch (error) {
+        currentSnapshot = null;
+        qc = gate('QC', 'UNKNOWN', 'QC_SNAPSHOT_UNAVAILABLE', 'Sửa dependency của timeline revision rồi refresh readiness.', { projection_error: error?.code ?? 'QC_SNAPSHOT_UNAVAILABLE' });
+      }
+      if (!currentSnapshot) {
+        // Keep the fail-closed UNKNOWN result above; no review row may be
+        // promoted to PASS without a current dependency snapshot.
+      } else {
+      const rows = this.db.prepare(`SELECT s.*, h.decision, h.id AS human_review_id
+        FROM review_sessions s LEFT JOIN human_reviews h ON h.review_session_id = s.id
+        WHERE s.project_id = ? AND s.subject_type = 'TIMELINE_REVISION' AND s.subject_revision_id = ?
+        ORDER BY s.id ASC`).all(project.id, exact.revision.id);
+      const reviews = rows.map((row) => ({ review_session_id: row.id, state: row.state, decision: row.decision ?? null, stale: row.dependency_snapshot_hash !== currentSnapshot.hash || row.subject_content_hash !== exact.revision.content_hash }));
+      const qcEvidence = { review_count: reviews.length, reviews };
+      const validApprovals = reviews.filter((row) => row.state === 'SUBMITTED' && row.decision === 'APPROVE' && !row.stale);
+      // Return the exact review that actually supports approval.  A stale or
+      // superseded review may coexist with the current one and must never be
+      // selected merely because it is the only/last row.
+      exactRefs.review_session_id = validApprovals.length === 1 ? validApprovals[0].review_session_id : null;
+      const rejected = reviews.some((row) => row.state === 'SUBMITTED' && ['REJECT', 'REPAIR', 'ABSTAIN'].includes(String(row.decision ?? '').toUpperCase()) && !row.stale);
+      qc = reviews.length === 0
+        ? gate('QC', 'UNKNOWN', 'NO_APPROVED_REVIEW', 'Mở và submit review APPROVE cho đúng timeline revision.', qcEvidence)
+        : rejected
+          ? gate('QC', 'FAIL', 'QC_REJECTED', 'Xử lý quyết định QC và tạo review mới trên evidence hiện tại.', qcEvidence)
+          : validApprovals.length === 1
+            ? gate('QC', 'PASS', null, null, qcEvidence, false)
+            : reviews.some((row) => row.stale)
+              ? gate('QC', 'FAIL', 'QC_REVIEW_STALE', 'Mở lại review trên timeline revision hiện tại; review stale không đủ điều kiện.', qcEvidence)
+              : gate('QC', 'UNKNOWN', 'QC_NOT_SUBMITTED', 'Submit review APPROVE sau khi đã kiểm tra đúng checkpoint.', qcEvidence);
+      }
+    }
+
+    const decisions = this._decisions({ project_id: project.id, state: 'OPEN', limit: 200 });
+    const decisionEvidence = { count: decisions.length, items: decisions.map((item) => ({ id: item.id, title: item.title, severity: item.severity, blocking_scope_type: item.blocking_scope_type })) };
+    const unresolvedDecisions = decisions.length > 0
+      ? gate('UNRESOLVED_DECISIONS', 'FAIL', 'OPEN_DECISIONS', 'Xử lý mọi quyết định đang mở trong Needs You trước khi release.', decisionEvidence)
+      : gate('UNRESOLVED_DECISIONS', 'PASS', null, null, decisionEvidence, false);
+
+    const gates = [picture, audio, localization, technicalMedia, qc, rights, missingMedia, unresolvedDecisions];
+    const blocking = gates.filter((item) => item.blocking);
+    const unknownCount = gates.filter((item) => item.state === 'UNKNOWN').length;
+    const overallState = blocking.some((item) => item.state === 'FAIL') ? 'BLOCKED' : blocking.length > 0 ? 'NOT_CHECKED' : 'READY';
+    const digestEvidence = {
+      project_id: project.id,
+      exact_source: exactRefs,
+      gates: gates.map((item) => ({ key: item.key, state: item.state, blocking: item.blocking, reason: item.reason, evidence: item.evidence })),
+    };
+    const gateManifestHash = crypto.createHash('sha256').update(canonicalJson(digestEvidence), 'utf8').digest('hex');
+    return {
+      project_id: project.id,
+      project_title: project.title,
+      overall_state: overallState,
+      policy: { purpose: 'RELEASE', unknown_blocks: true },
+      exact_source: exactRefs,
+      gates,
+      blocking_gate_keys: blocking.map((item) => item.key),
+      blocking_count: blocking.length,
+      unknown_count: unknownCount,
+      gate_manifest_hash: gateManifestHash,
+      next_step: overallState === 'READY' ? 'Readiness gates đã pass ở mức metadata hiện có; tạo release candidate/render là bước riêng.' : blocking[0]?.next_step ?? 'Refresh projection sau khi đã xử lý blocker.',
+      projection_seq: this._projectionSeq(),
+      generated_at: now,
+    };
+  }
+
   _systemHealth() {
     const journalMode = String(this.db.prepare('PRAGMA journal_mode').get().journal_mode ?? '').toUpperCase();
     const synchronousValue = Number(this.db.prepare('PRAGMA synchronous').get().synchronous ?? -1);
@@ -6596,6 +6882,7 @@ export class CoreService {
       case 'query.project.workspace':
         return this._workspace(params.project_id ?? params.projectId);
       case 'query.project.health': return this._projectHealth(params.project_id ?? params.projectId);
+      case 'query.release.readiness': return this._releaseReadiness(params.project_id ?? params.projectId);
       case 'query.project.activity': return this._activity(params.project_id ?? params.projectId, params);
       case 'query.task.list': return this._tasks(params.project_id ?? params.projectId);
       case 'query.shot.list': return this._shots(params.project_id ?? params.projectId);

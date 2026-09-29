@@ -51,9 +51,9 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
 
-type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
+type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'release' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
 export const copy = {
   vi: {
@@ -62,6 +62,7 @@ export const copy = {
     timeline: 'Timeline',
     review: 'Duyệt',
     handoff: 'Bàn giao',
+    release: 'Phát hành',
     characters: 'Nhân vật',
     needs: 'Cần bạn',
     activity: 'Hoạt động',
@@ -117,6 +118,7 @@ export const copy = {
     timeline: 'Timeline',
     review: 'Review',
     handoff: 'Handoff',
+    release: 'Release',
     characters: 'Characters',
     needs: 'Needs You',
     activity: 'Activity',
@@ -176,6 +178,7 @@ const navItems: Array<{ key: NavKey; icon: typeof Home; label: keyof typeof copy
   { key: 'timeline', icon: Film, label: 'timeline' },
   { key: 'review', icon: CheckCircle2, label: 'review' },
   { key: 'handoff', icon: PackageOpen, label: 'handoff' },
+  { key: 'release', icon: ShieldCheck, label: 'release' },
   { key: 'characters', icon: UserRound, label: 'characters' },
   { key: 'needs', icon: Inbox, label: 'needs' },
   { key: 'activity', icon: Activity, label: 'activity' },
@@ -371,6 +374,7 @@ function App() {
       {activeNav === 'timeline' && <TimelineView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
       {activeNav === 'review' && <ReviewView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
       {activeNav === 'handoff' && <HandoffView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
+      {activeNav === 'release' && <ReleaseView snapshot={snapshot} locale={locale} client={client} />}
       {activeNav === 'characters' && <CharactersView snapshot={snapshot} locale={locale} client={client} onToast={setToast} />}
       {activeNav === 'needs' && (
         <NeedsView snapshot={snapshot} t={t} locale={locale} onOpenDecision={openDecision} onResolve={resolveDecision} onDismiss={dismissDecision} pendingId={decisionPendingId} decisionError={decisionError} onRefresh={() => void loadDashboard()} />
@@ -399,7 +403,7 @@ function App() {
         <nav className="main-nav" aria-label={locale === 'vi' ? 'Điều hướng chính' : 'Primary navigation'}>
           <div className="nav-label">{locale === 'vi' ? 'Không gian làm việc' : 'Workspace'}</div>
           {navItems.map(({ key, icon: Icon, label }) => (
-            <button key={key} className={`nav-item ${activeNav === key ? 'active' : ''}`} onClick={() => { setActiveNav(key); if (key === 'projects' || key === 'timeline' || key === 'review' || key === 'handoff') setSelectedProjectId(null); setMobileNavOpen(false) }} aria-current={activeNav === key ? 'page' : undefined}>
+            <button key={key} className={`nav-item ${activeNav === key ? 'active' : ''}`} onClick={() => { setActiveNav(key); if (key === 'projects' || key === 'timeline' || key === 'review' || key === 'handoff' || key === 'release') setSelectedProjectId(null); setMobileNavOpen(false) }} aria-current={activeNav === key ? 'page' : undefined}>
               <Icon size={18} />
               {!sidebarCollapsed && <span>{t[label]}</span>}
               {key === 'needs' && snapshot && snapshot.decisions.length > 0 && <span className="nav-badge">{snapshot.decisions.length}</span>}
@@ -422,7 +426,7 @@ function App() {
           <div className="topbar-left">
             <button className="icon-button mobile-menu" aria-label={locale === 'vi' ? 'Mở menu' : 'Open menu'} onClick={() => setMobileNavOpen(true)}><Menu size={19} /></button>
             <button className="icon-button collapse-button" aria-label={sidebarCollapsed ? (locale === 'vi' ? 'Mở rộng menu' : 'Expand menu') : (locale === 'vi' ? 'Thu gọn menu' : 'Collapse menu')} onClick={() => setSidebarCollapsed((value) => !value)}><PanelLeftClose size={18} /></button>
-            <div className="breadcrumbs"><span>{activeNav === 'home' ? t.home : activeNav === 'projects' ? t.projects : activeNav === 'timeline' ? t.timeline : activeNav === 'review' ? t.review : activeNav === 'handoff' ? t.handoff : activeNav === 'characters' ? t.characters : activeNav === 'needs' ? t.needs : activeNav === 'activity' ? t.activity : activeNav === 'library' ? t.library : t.settings}</span>{activeNav === 'home' && <><span className="breadcrumb-separator">/</span><span className="muted">{locale === 'vi' ? 'Tổng quan' : 'Overview'}</span></>}</div>
+            <div className="breadcrumbs"><span>{activeNav === 'home' ? t.home : activeNav === 'projects' ? t.projects : activeNav === 'timeline' ? t.timeline : activeNav === 'review' ? t.review : activeNav === 'handoff' ? t.handoff : activeNav === 'release' ? t.release : activeNav === 'characters' ? t.characters : activeNav === 'needs' ? t.needs : activeNav === 'activity' ? t.activity : activeNav === 'library' ? t.library : t.settings}</span>{activeNav === 'home' && <><span className="breadcrumb-separator">/</span><span className="muted">{locale === 'vi' ? 'Tổng quan' : 'Overview'}</span></>}</div>
           </div>
           <div className="topbar-actions">
             <button className="search-trigger" onClick={() => setSearchOpen(true)}><Search size={16} /><span>{t.searchPlaceholder}</span><kbd><Command size={11} /> K</kbd></button>
@@ -2594,8 +2598,11 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
       await loadProject()
       // A list projection can lag a successful command. Keep the returned immutable
       // workspace visible until the next Core refresh reconciles it.
-      setSelectedWorkspace(next)
+      // Set the identity before the workspace so the detail effect never
+      // observes a workspace with no selected handoff and clears fresh
+      // evidence during React's async update boundary.
       if (next.exportSession?.id) setSelectedHandoffId(next.exportSession.id)
+      setSelectedWorkspace(next)
       onToast(locale === 'vi' ? 'Đã tạo manifest bàn giao bất biến từ bằng chứng đã approve.' : 'Created an immutable handoff manifest from approved evidence.')
     } catch (cause) {
       setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
@@ -2701,6 +2708,113 @@ function StagingEvidenceRow({ item, locale, connected, mutating, onReconcile }: 
     </div>
     <button type="button" className="subtle-button tiny" disabled={!canReconcile} onClick={() => onReconcile(item)}>{mutating === `staging-reconcile:${item.id}` ? <RefreshCw size={12} className="spin" /> : <RefreshCw size={12} />}{locale === 'vi' ? 'Reconcile' : 'Reconcile'}</button>
   </div>
+}
+
+const RELEASE_GATE_ORDER = ['PICTURE', 'AUDIO', 'LOCALIZATION', 'TECHNICAL_MEDIA', 'QC', 'RIGHTS', 'MISSING_MEDIA', 'UNRESOLVED_DECISIONS'] as const
+const RELEASE_SAFE_EVIDENCE_KEYS = new Set(['asset_revision_id', 'asset_count', 'availability_state', 'availability_evidence_state', 'review_state', 'asset_lifecycle_state', 'storage_class', 'location_state', 'rights_status', 'cue_count', 'track_count', 'review_count', 'approved_candidate_count', 'clip_count', 'media_profile_revision_id', 'timeline_id', 'timeline_revision_id', 'content_hash', 'state', 'width', 'height', 'audio_sample_rate', 'id', 'title', 'severity', 'blocking_scope_type', 'stale', 'locale', 'segment_count', 'asset_state', 'review_session_id', 'decision', 'count'])
+
+function releaseGateLabel(key: string, locale: Locale): string {
+  const labels: Record<string, [string, string]> = {
+    PICTURE: ['Picture lock', 'Picture lock'], AUDIO: ['Âm thanh', 'Audio'], LOCALIZATION: ['Bản địa hoá', 'Localization'],
+    TECHNICAL_MEDIA: ['Media kỹ thuật', 'Technical media'], QC: ['QC / review', 'QC / review'], RIGHTS: ['Quyền & consent', 'Rights & consent'],
+    MISSING_MEDIA: ['Media đã materialize', 'Materialized media'], UNRESOLVED_DECISIONS: ['Quyết định đang mở', 'Open decisions'],
+  }
+  return labels[key]?.[locale === 'vi' ? 0 : 1] ?? key
+}
+
+function releaseStateLabel(state: ReleaseGateState | ReleaseReadiness['overallState'], locale: Locale): string {
+  const labels: Record<string, [string, string]> = {
+    PASS: ['Đạt', 'Pass'], FAIL: ['Bị chặn', 'Blocked'], UNKNOWN: ['Chưa kiểm tra', 'Not checked'], NOT_APPLICABLE: ['Không áp dụng', 'Not applicable'],
+    READY: ['Sẵn sàng', 'Ready'], BLOCKED: ['Bị chặn', 'Blocked'], NOT_CHECKED: ['Chưa đủ bằng chứng', 'Not checked'],
+  }
+  return labels[state]?.[locale === 'vi' ? 0 : 1] ?? state
+}
+
+function releaseStateClass(state: ReleaseGateState | ReleaseReadiness['overallState']): string {
+  if (state === 'PASS' || state === 'READY') return 'pass'
+  if (state === 'FAIL' || state === 'BLOCKED') return 'fail'
+  if (state === 'NOT_APPLICABLE') return 'na'
+  return 'unknown'
+}
+
+function releaseEvidenceLabel(key: string, locale: Locale): string {
+  const labels: Record<string, [string, string]> = {
+    asset_count: ['Số asset', 'Assets'], cue_count: ['Số cue', 'Cues'], track_count: ['Số track', 'Tracks'], review_count: ['Số review', 'Reviews'],
+    approved_candidate_count: ['Approved candidate', 'Approved candidates'], clip_count: ['Số clip', 'Clips'], asset_revision_id: ['Asset revision', 'Asset revision'],
+    timeline_id: ['Timeline', 'Timeline'], timeline_revision_id: ['Timeline revision', 'Timeline revision'], media_profile_revision_id: ['Media profile revision', 'Media profile revision'],
+    content_hash: ['Content hash', 'Content hash'], rights_status: ['Rights', 'Rights'], availability_state: ['Availability', 'Availability'],
+    availability_evidence_state: ['Evidence', 'Evidence'], review_state: ['Review state', 'Review state'], location_state: ['Location', 'Location'],
+    storage_class: ['Storage class', 'Storage class'], state: ['State', 'State'], stale: ['Stale', 'Stale'], locale: ['Locale', 'Locale'],
+    segment_count: ['Số đoạn', 'Segments'], decision: ['Decision', 'Decision'], count: ['Số lượng', 'Count'],
+  }
+  return labels[key]?.[locale === 'vi' ? 0 : 1] ?? key.replace(/_/g, ' ')
+}
+
+function releaseEvidenceFacts(gate: ReleaseGate, locale: Locale): Array<{ label: string; value: string }> {
+  return Object.entries(gate.evidence ?? {}).filter(([key]) => RELEASE_SAFE_EVIDENCE_KEYS.has(key)).flatMap(([key, value]) => {
+    if (Array.isArray(value)) return [{ label: releaseEvidenceLabel(key, locale), value: `${value.length} ${locale === 'vi' ? 'mục' : value.length === 1 ? 'item' : 'items'}` }]
+    if (value && typeof value === 'object') return []
+    if (value === null || value === undefined) return []
+    const text = typeof value === 'string' && value.length > 24 ? `${value.slice(0, 20)}…` : String(value)
+    return [{ label: releaseEvidenceLabel(key, locale), value: text }]
+  }).slice(0, 8)
+}
+
+function releaseGateFor(readiness: ReleaseReadiness, key: string): ReleaseGate {
+  return readiness.gates.find((gate) => gate.key === key) ?? { key, state: 'UNKNOWN', blocking: true, reason: 'GATE_EVIDENCE_MISSING', nextStep: 'Refresh Core readiness before continuing.', evidence: {} }
+}
+
+export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient }) {
+  const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
+  const [readiness, setReadiness] = useState<ReleaseReadiness | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const generationRef = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
+  const project = snapshot.projects.find((candidate) => candidate.id === projectId)
+  const connected = Boolean(snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true))
+  const supported = typeof client.getReleaseReadiness === 'function'
+
+  useEffect(() => {
+    if (!snapshot.projects.some((candidate) => candidate.id === projectId)) setProjectId(snapshot.projects[0]?.id ?? '')
+  }, [projectId, snapshot.projects])
+
+  const load = useCallback(async () => {
+    const generation = ++generationRef.current
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    setReadiness(null)
+    setError(null)
+    setLoading(false)
+    if (!projectId) return
+    if (!connected) {
+      setError(locale === 'vi' ? 'Core đang offline. Readiness cần dữ liệu canonical mới nhất; không dùng snapshot cũ để kết luận.' : 'Core is offline. Readiness requires current canonical data; an old snapshot cannot be used as a conclusion.')
+      return
+    }
+    if (!supported) {
+      setError(locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ release readiness.' : 'This bridge does not expose release readiness yet.')
+      return
+    }
+    setLoading(true)
+    try {
+      const next = await client.getReleaseReadiness!(projectId, controller.signal)
+      if (generation === generationRef.current && !controller.signal.aborted) setReadiness(next)
+    } catch (cause) {
+      if (controller.signal.aborted || (cause instanceof DOMException && cause.name === 'AbortError')) return
+      if (generation === generationRef.current) setError(cause instanceof Error ? cause.message : (locale === 'vi' ? 'Không đọc được readiness từ Core.' : 'Could not read readiness from Core.'))
+    } finally {
+      if (generation === generationRef.current && !controller.signal.aborted) setLoading(false)
+    }
+  }, [client, connected, locale, projectId, supported])
+
+  useEffect(() => {
+    void load()
+    return () => abortRef.current?.abort()
+  }, [load])
+
+  const overallState = readiness?.overallState ?? 'NOT_CHECKED'
+  return <div className="page release-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'SẴN SÀNG PHÁT HÀNH' : 'RELEASE READINESS'}</p><h1>{locale === 'vi' ? 'Kiểm tra readiness' : 'Release readiness'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Projection chỉ đọc từ Core để kiểm tra đúng revision và bằng chứng hiện tại trước khi tạo release candidate.' : 'A read-only Core projection that checks exact revisions and current evidence before a release candidate is created.'}</p></div><button className="subtle-button" onClick={() => void load()} disabled={loading || !projectId}><RefreshCw size={15} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div><div className="release-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="release-project-select" value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label={locale === 'vi' ? 'Project readiness' : 'Readiness project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className="state-label"><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>{error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{loading && <LoadingState label={locale === 'vi' ? 'Đang kiểm tra tám gate từ Core…' : 'Checking eight gates from Core…'} />}{!loading && !error && !readiness && !project && <EmptyState icon={ShieldCheck} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi kiểm tra readiness.' : 'Create a project before checking readiness.'} />}{readiness && <><section className="release-overview-card"><div><p className="eyebrow">{locale === 'vi' ? 'KẾT LUẬN HIỆN TẠI' : 'CURRENT CONCLUSION'}</p><div className="release-overview-heading"><span className={`release-status ${releaseStateClass(overallState)}`}><span />{releaseStateLabel(overallState, locale)}</span><strong>{readiness.projectTitle ?? project?.name ?? projectId}</strong></div><p>{readiness.nextStep ?? (locale === 'vi' ? 'Refresh sau khi xử lý blocker.' : 'Refresh after resolving the blocker.')}</p></div><div className="release-overview-facts"><div><span>{locale === 'vi' ? 'Gate chặn' : 'Blocking gates'}</span><strong>{readiness.blockingCount}</strong></div><div><span>UNKNOWN</span><strong>{readiness.unknownCount}</strong></div><div><span>Manifest hash</span><strong title={readiness.gateManifestHash}>{readiness.gateManifestHash?.slice(0, 12) ?? '—'}</strong></div></div></section><div className="release-gate-list">{RELEASE_GATE_ORDER.map((key) => { const gate = releaseGateFor(readiness, key); const facts = releaseEvidenceFacts(gate, locale); return <section className={`release-gate-card ${releaseStateClass(gate.state)}`} key={key}><div className="release-gate-heading"><div><p className="eyebrow">{key}</p><h2>{releaseGateLabel(key, locale)}</h2></div><span className={`release-status ${releaseStateClass(gate.state)}`}><span />{releaseStateLabel(gate.state, locale)}</span></div>{gate.reason && <p className="release-gate-reason">{gate.reason}</p>}{facts.length > 0 && <div className="release-evidence-facts">{facts.map((fact) => <span key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong title={fact.value}>{fact.value}</strong></span>)}</div>}{gate.nextStep && <p className="release-next-step"><Info size={13} />{gate.nextStep}</p>}</section> })}</div><section className="release-boundary-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Boundary tiếp theo' : 'Next boundary'}</h2><p>{locale === 'vi' ? 'Readiness không tự tạo master và không công bố nội dung.' : 'Readiness never creates a master or publishes content.'}</p></div></div></div><div className="release-boundary-actions"><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Export master — chưa mở' : 'Export master — unavailable'}</button><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Publish — cần release manifest' : 'Publish — requires release manifest'}</button></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Export và Publish là boundary riêng, cần contract và confirmation riêng. Không có thao tác state-changing nào trong workspace này.' : 'Export and Publish are separate boundaries with separate contracts and confirmation. This workspace has no state-changing action.'}</p></section></>}</div>
 }
 
 export function SettingsView({ snapshot, locale, client, theme, onThemeChange, onLocaleChange, onRefresh, refreshLabel, onToast }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; theme: Theme; onThemeChange: (theme: Theme) => void; onLocaleChange: (locale: Locale) => void; onRefresh: () => void; refreshLabel: string; onToast: (message: string) => void }) {

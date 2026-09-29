@@ -1171,6 +1171,68 @@ function mapHandoffList(result) {
   };
 }
 
+const RELEASE_GATE_KEYS = new Set(['PICTURE', 'AUDIO', 'LOCALIZATION', 'TECHNICAL_MEDIA', 'QC', 'RIGHTS', 'MISSING_MEDIA', 'UNRESOLVED_DECISIONS']);
+const RELEASE_GATE_STATES = new Set(['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE']);
+const RELEASE_EVIDENCE_KEYS = new Set([
+  'asset_revision_id', 'asset_count', 'availability_state', 'availability_evidence_state', 'review_state',
+  'asset_lifecycle_state', 'storage_class', 'location_state', 'rights_status', 'cue_count', 'track_count',
+  'review_count', 'approved_candidate_count', 'clip_count', 'media_profile_revision_id', 'timeline_id',
+  'timeline_revision_id', 'content_hash', 'state', 'width', 'height', 'audio_sample_rate', 'id', 'title',
+  'severity', 'blocking_scope_type', 'stale', 'locale', 'segment_count', 'asset_state', 'review_session_id',
+  'decision', 'count',
+]);
+
+function safeReleaseEvidence(value) {
+  if (Array.isArray(value)) return value.slice(0, 200).map(safeReleaseEvidence);
+  if (!value || typeof value !== 'object') {
+    if (typeof value === 'string') return value.slice(0, 512);
+    if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value;
+    return undefined;
+  }
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => RELEASE_EVIDENCE_KEYS.has(key))
+    .map(([key, item]) => [key, safeReleaseEvidence(item)])
+    .filter(([, item]) => item !== undefined));
+}
+
+function safeReleaseNumber(value, fallback = 0) {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : fallback;
+}
+
+function mapReleaseReadiness(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const rawGates = Array.isArray(value.gates) ? value.gates : [];
+  const gates = rawGates.filter((item) => item && typeof item === 'object').map((item) => {
+    const key = String(item.key ?? '').toUpperCase();
+    const state = String(item.state ?? 'UNKNOWN').toUpperCase();
+    return {
+      key: RELEASE_GATE_KEYS.has(key) ? key : 'UNKNOWN',
+      state: RELEASE_GATE_STATES.has(state) ? state : 'UNKNOWN',
+      blocking: item.blocking === true || state === 'FAIL' || state === 'UNKNOWN',
+      reason: readString(item, 'reason'),
+      nextStep: readString(item, 'next_step', 'nextStep'),
+      evidence: safeReleaseEvidence(item.evidence),
+    };
+  }).filter((item) => item.key !== 'UNKNOWN');
+  const exact = value.exact_source ?? value.exactSource ?? {};
+  return {
+    projectId: readString(value, 'project_id', 'projectId'),
+    projectTitle: readString(value, 'project_title', 'projectTitle'),
+    overallState: ['READY', 'BLOCKED', 'NOT_CHECKED'].includes(String(value.overall_state ?? value.overallState).toUpperCase()) ? String(value.overall_state ?? value.overallState).toUpperCase() : 'NOT_CHECKED',
+    policy: { purpose: readString(value.policy, 'purpose') ?? 'RELEASE', unknownBlocks: value.policy?.unknown_blocks !== false && value.policy?.unknownBlocks !== false },
+    exactSource: safeReleaseEvidence(exact),
+    gates,
+    blockingGateKeys: Array.isArray(value.blocking_gate_keys ?? value.blockingGateKeys) ? (value.blocking_gate_keys ?? value.blockingGateKeys).filter((key) => RELEASE_GATE_KEYS.has(String(key).toUpperCase())).map((key) => String(key).toUpperCase()) : gates.filter((item) => item.blocking).map((item) => item.key),
+    blockingCount: safeReleaseNumber(value.blocking_count ?? value.blockingCount, 0),
+    unknownCount: safeReleaseNumber(value.unknown_count ?? value.unknownCount, 0),
+    gateManifestHash: readString(value, 'gate_manifest_hash', 'gateManifestHash'),
+    nextStep: readString(value, 'next_step', 'nextStep'),
+    projectionSeq: safeReleaseNumber(value.projection_seq ?? value.projectionSeq, 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
 function mapDashboard(result) {
   const health = result?.system_health ?? result?.systemHealth ?? {};
   const backupState = String(health.backup_state ?? health.backupState ?? '').toUpperCase();
@@ -1627,6 +1689,9 @@ export function createCoreHttpServer(core, options = {}) {
         result = query(core, request, 'query.project.workspace', { project_id: parts[2] });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'activity') {
         result = query(core, request, 'query.project.activity', { project_id: parts[2], limit: url.searchParams.get('limit') ?? 100 });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'release' && parts[4] === 'readiness' && parts.length === 5) {
+        const readiness = query(core, request, 'query.release.readiness', { project_id: parts[2] });
+        result = readiness.ok ? { ...readiness, result: mapReleaseReadiness(readiness.result) } : readiness;
 
       // First-class project task routes.  The legacy production-items route
       // below remains a compact UI projection; these routes expose the

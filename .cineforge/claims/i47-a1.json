@@ -1,0 +1,16 @@
+{
+  "event": "claim-intent-i47-a1-20260929",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 47,
+  "agent_instance_id": "cineforge-WORK-release-readiness",
+  "slot_id": "WORK-release-readiness",
+  "run_id": "WORK-release-readiness-20260929-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:55804284290aeb04ff9df3fef5b4dd38a523cdd9edd3f3e088df629235d7df93",
+  "base_ref": "agent/i45-a1-staging-workspace",
+  "base_sha": "cdd1b558ac658870b17f1c22397986d1b3b43f19",
+  "context_base_sha": "cdd1b558ac658870b17f1c22397986d1b3b43f19",
+  "requested_state": "CLAIMED"
+}
