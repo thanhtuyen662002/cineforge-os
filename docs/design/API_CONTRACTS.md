@@ -1305,13 +1305,15 @@ The executable command subset is:
   `DIALOGUE`, `ADR`, `NONVERBAL`, `FOLEY`, `SFX`, `AMBIENCE`, `ROOM_TONE`,
   `MUSIC` or intentional `SILENCE` types;
 - `CreateAudioCueRevision` — create one immutable draft timing revision;
-- `TransitionAudioCueRevision` — make an explicit timed/reviewed/approved
-  transition after revalidation;
+- `TransitionAudioCueRevision` — make an explicit candidate/selected
+  transition after revalidation; `APPROVED` remains reserved for a supported
+  audio-cue review subject;
 - `CreateSubtitleTrack` — create a project/timeline-owned track identity;
 - `CreateSubtitleTrackRevision` — create one immutable draft with a bounded
   segment batch; and
-- `TransitionSubtitleTrackRevision` — make an explicit timed/reviewed/approved
-  transition after revalidation.
+- `TransitionSubtitleTrackRevision` — make an explicit timed/reviewed
+  transition after revalidation; `APPROVED` remains reserved for a supported
+  subtitle review subject.
 
 `ApproveAudioCue` and `ApproveSubtitleTrack` are compatibility command names in
 the broader catalog. An implementation may expose them as typed aliases of the

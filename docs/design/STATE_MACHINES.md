@@ -1056,10 +1056,13 @@ Audio cue timing revision:
 
 ```text
 DRAFT
-  → TIMED
-  → REVIEWED
-  → APPROVED
+  → CANDIDATE
+  → SELECTED
 ```
+
+`APPROVED` is a reserved explicit transition after an audio-cue review
+subject is available; Issue #29 must return `REVIEW_NOT_SUPPORTED` rather than
+claiming approval when that subject is not active.
 
 Subtitle track timing revision:
 
@@ -1067,8 +1070,9 @@ Subtitle track timing revision:
 DRAFT
   → TIMED
   → REVIEWED
-  → APPROVED
 ```
+
+`APPROVED` is likewise reserved behind the supported review/authority gate.
 
 Either revision may exit to `REJECTED`. `STALE` is a derived dependency
 projection, not an in-place rewrite of an immutable revision:
