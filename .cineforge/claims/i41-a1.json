@@ -1,0 +1,16 @@
+{
+  "event": "claim-intent-i41-a1-20260929",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 41,
+  "agent_instance_id": "cineforge-WORK-timeline-preview",
+  "slot_id": "WORK-timeline-preview",
+  "run_id": "WORK-timeline-preview-20260929-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:372aec2bf88997c199c168d4aafa27701277a65acdaffcd3eb5869ca0862dbf9",
+  "base_ref": "agent/i39-a1-backup-workspace",
+  "base_sha": "f0b5967a52cc63cf7bf048c2c8bd365d3b44a5b1",
+  "context_base_sha": "f0b5967a52cc63cf7bf048c2c8bd365d3b44a5b1",
+  "requested_state": "CLAIMED"
+}
