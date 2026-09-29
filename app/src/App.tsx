@@ -2498,6 +2498,12 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const [needsUser, setNeedsUser] = useState(false)
   const [mutating, setMutating] = useState(false)
   const loadGenerationRef = useRef(0)
+  const projectEpochRef = useRef(0)
+  const projectIdRef = useRef(projectId)
+  if (projectIdRef.current !== projectId) {
+    projectIdRef.current = projectId
+    projectEpochRef.current += 1
+  }
 
   const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true)
   const project = snapshot.projects.find((candidate) => candidate.id === projectId) ?? null
@@ -2508,6 +2514,10 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     : null
   const dependencySnapshotHash = approvalReview?.dependencySnapshotHash ?? approvalReview?.humanReview?.dependencySnapshotHash ?? ''
   const canCreate = Boolean(connected && client.createHandoffManifest && projectId && approvedRevision?.id && approvalReview?.id && dependencySnapshotHash && approvedRevision.rowVersion > 0 && targetEditor.trim() && targetVersion.trim() && !mutating)
+  // Do not expose a clickable-looking mutation control while exact
+  // timeline/review evidence is still loading. Offline and unsupported
+  // bridges still render the disabled control with an explanation.
+  const createControlReady = !connected || !client.getTimelineWorkspace || timelineWorkspace !== null
 
   useEffect(() => {
     if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
@@ -2588,7 +2598,11 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     // Invalidate any initial/list projection still in flight. A stale list
     // response must not clear the workspace returned by this successful
     // command after the user has already selected it.
-    const createGeneration = ++loadGenerationRef.current
+    // Invalidate an older list projection, but keep the command response
+    // authoritative if a same-project refresh races with this mutation.
+    // Only a project boundary change may discard the response.
+    ++loadGenerationRef.current
+    const createProjectEpoch = projectEpochRef.current
     setMutating(true); setActionError(null); setNeedsUser(false)
     const cleanEditor = targetEditor.trim().toUpperCase()
     const cleanVersion = targetVersion.trim()
@@ -2603,7 +2617,7 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
         targetProfile: 'GENERIC_INTERCHANGE',
         expectedVersion: approvedRevision.rowVersion,
       }, idempotencyKey)
-      if (createGeneration !== loadGenerationRef.current) return
+      if (createProjectEpoch !== projectEpochRef.current || projectIdRef.current !== projectId) return
       // The command response is the authoritative immutable workspace. Update
       // the list and detail from it immediately; a separate list refresh can
       // lag and must not clear the just-created evidence between these state
@@ -2618,7 +2632,10 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     } catch (cause) {
       setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
       setActionError(workspaceErrorMessage(cause, locale))
-    } finally { setMutating(false) }
+    } finally {
+      if (createProjectEpoch === projectEpochRef.current) setLoading(false)
+      setMutating(false)
+    }
   }
 
   const compatibility = selectedWorkspace?.handoffManifest?.compatibility ?? selectedWorkspace?.compatibilityReport
@@ -2646,7 +2663,7 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     {actionError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{actionError}</span>{needsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện hoặc xung đột rồi thử lại.' : 'Core needs you to resolve the condition or conflict before retrying.'}</small>}</div>}
     {!project ? <EmptyState icon={PackageOpen} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi bàn giao timeline.' : 'Create a project before handing off a timeline.'} /> : loading ? <LoadingState label={locale === 'vi' ? 'Đang đọc handoff từ Core…' : 'Reading handoffs from Core…'} /> : <div className="handoff-grid">
       <section className="workspace-panel handoff-list-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><PackageOpen size={16} /></span><div><h2>{locale === 'vi' ? 'Manifest đã tạo' : 'Created manifests'}</h2><p>{locale === 'vi' ? 'Mỗi manifest pin exact revision và bằng chứng review.' : 'Each manifest pins an exact revision and review evidence.'}</p></div></div><span className="count-chip">{handoffs.length}</span></div>{handoffs.length === 0 ? <EmptyState icon={PackageOpen} title={locale === 'vi' ? 'Chưa có manifest' : 'No manifests yet'} detail={locale === 'vi' ? 'Chọn timeline đã approve ở bên phải để tạo manifest.' : 'Choose an approved timeline on the right to create a manifest.'} /> : <div className="workspace-record-list">{handoffs.map((item) => <button type="button" className={`timeline-row ${item.exportSession.id === selectedHandoffId ? 'active' : ''}`} key={item.exportSession.id} onClick={() => setSelectedHandoffId(item.exportSession.id ?? null)}><span className="timeline-row-icon"><PackageOpen size={15} /></span><span className="workspace-record-main"><strong>{item.handoffManifest.targetEditor ?? item.exportSession.targetEditor ?? 'UNKNOWN_EDITOR'}</strong><small>{item.handoffManifest.manifestHash?.slice(0, 16) ?? '—'} · {item.exportSession.timelineRevisionId ?? '—'}</small></span><span className="record-code">{item.exportSession.state}</span><ArrowRight size={14} /></button>)}</div>}
-        <div className="handoff-create-panel"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tạo handoff mới' : 'Create a handoff'}</h3><p>{locale === 'vi' ? 'Chỉ khả dụng khi evidence hiện tại đã approve.' : 'Available only when current evidence is approved.'}</p></div></div><form className="workspace-form" onSubmit={create}><label>{locale === 'vi' ? 'Timeline' : 'Timeline'}<select value={timelineId ?? ''} onChange={(event) => setTimelineId(event.target.value || null)} disabled={mutating}><option value="">{locale === 'vi' ? 'Chọn timeline' : 'Choose timeline'}</option>{timelines.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>{approvedRevision ? <div className="handoff-evidence"><span><strong>{locale === 'vi' ? 'Revision đã approve' : 'Approved revision'}</strong><code>{approvedRevision.id}</code></span><span><strong>{locale === 'vi' ? 'Review APPROVE' : 'APPROVE review'}</strong><code>{approvalReview?.id ?? (locale === 'vi' ? 'Thiếu' : 'Missing')}</code></span><span><strong>Dependency snapshot</strong><code>{dependencySnapshotHash || 'MISSING'}</code></span></div> : <div className="inline-state warning"><Info size={14} />{locale === 'vi' ? 'Timeline này chưa có revision APPROVED.' : 'This timeline has no APPROVED revision.'}</div>}<div className="form-grid two"><label>{locale === 'vi' ? 'Editor đích' : 'Target editor'}<input value={targetEditor} onChange={(event) => setTargetEditor(event.target.value)} placeholder="GENERIC" disabled={mutating} /></label><label>{locale === 'vi' ? 'Phiên bản' : 'Version'}<input value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)} placeholder="1" disabled={mutating} /></label></div><button className="primary-button small" type="submit" disabled={!canCreate}>{mutating ? <RefreshCw size={14} className="spin" /> : <PackageOpen size={14} />}{locale === 'vi' ? 'Tạo manifest' : 'Create manifest'}</button></form></div>
+        <div className="handoff-create-panel"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tạo handoff mới' : 'Create a handoff'}</h3><p>{locale === 'vi' ? 'Chỉ khả dụng khi evidence hiện tại đã approve.' : 'Available only when current evidence is approved.'}</p></div></div><form className="workspace-form" onSubmit={create}><label>{locale === 'vi' ? 'Timeline' : 'Timeline'}<select value={timelineId ?? ''} onChange={(event) => setTimelineId(event.target.value || null)} disabled={mutating}><option value="">{locale === 'vi' ? 'Chọn timeline' : 'Choose timeline'}</option>{timelines.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>{approvedRevision ? <div className="handoff-evidence"><span><strong>{locale === 'vi' ? 'Revision đã approve' : 'Approved revision'}</strong><code>{approvedRevision.id}</code></span><span><strong>{locale === 'vi' ? 'Review APPROVE' : 'APPROVE review'}</strong><code>{approvalReview?.id ?? (locale === 'vi' ? 'Thiếu' : 'Missing')}</code></span><span><strong>Dependency snapshot</strong><code>{dependencySnapshotHash || 'MISSING'}</code></span></div> : <div className="inline-state warning"><Info size={14} />{locale === 'vi' ? 'Timeline này chưa có revision APPROVED.' : 'This timeline has no APPROVED revision.'}</div>}<div className="form-grid two"><label>{locale === 'vi' ? 'Editor đích' : 'Target editor'}<input value={targetEditor} onChange={(event) => setTargetEditor(event.target.value)} placeholder="GENERIC" disabled={mutating} /></label><label>{locale === 'vi' ? 'Phiên bản' : 'Version'}<input value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)} placeholder="1" disabled={mutating} /></label></div>{createControlReady ? <button className="primary-button small" type="submit" disabled={!canCreate}>{mutating ? <RefreshCw size={14} className="spin" /> : <PackageOpen size={14} />}{locale === 'vi' ? 'Tạo manifest' : 'Create manifest'}</button> : <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Đang đọc exact revision và review từ Core…' : 'Reading exact revision and review evidence from Core…'}</p>}</form></div>
       </section>
       <section className="workspace-panel handoff-detail-card">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc manifest…' : 'Reading manifest…'} /> : !session ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một manifest' : 'Select a manifest'} detail={locale === 'vi' ? 'Chi tiết chain-of-custody và compatibility sẽ hiển thị ở đây.' : 'Chain-of-custody and compatibility details will appear here.'} /> : <>
          <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon green"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Handoff workspace' : 'Handoff workspace'}</h2><p>{session.timelineRevisionId ?? '—'} · v{session.rowVersion}</p></div></div><div className="handoff-detail-actions"><button type="button" className="subtle-button tiny" onClick={download} disabled={!manifest?.manifestHash || detailLoading}><Download size={13} />{locale === 'vi' ? 'Tải manifest JSON' : 'Download manifest JSON'}</button><span className="state-label">{session.state}</span></div></div>
