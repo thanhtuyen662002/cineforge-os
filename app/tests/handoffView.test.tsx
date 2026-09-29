@@ -58,4 +58,49 @@ describe('HandoffView', () => {
     expect(await screen.findByText(/Core is offline/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create manifest' })).toHaveProperty('disabled', true)
   })
+
+  it('downloads a safe metadata evidence copy and never serializes unknown unsafe fields', async () => {
+    const originalUrlDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'URL')
+    const originalBlobDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Blob')
+    const createObjectURL = vi.fn(() => 'blob:cineforge-manifest')
+    const revokeObjectURL = vi.fn()
+    const blobParts: unknown[][] = []
+    class CapturingBlob {
+      constructor(parts: unknown[]) { blobParts.push(parts) }
+    }
+    Object.defineProperty(globalThis, 'URL', { configurable: true, value: { createObjectURL, revokeObjectURL } })
+    Object.defineProperty(globalThis, 'Blob', { configurable: true, value: CapturingBlob })
+    let downloadedName = ''
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () { downloadedName = this.download })
+    const unsafeManifest = {
+      ...result.handoffManifest!,
+      manifest: {
+        manifest_type: 'CINEFORGE_TIMELINE_HANDOFF',
+        source: { project_id: project.id, timeline_id: timeline.id, unsafe_path: 'C:\\secret\\source.mov', credentials: 'should-never-cross' },
+        api_endpoint: 'http://127.0.0.1:48201',
+      },
+    }
+    const downloadedResult: HandoffWorkspace = { ...result, handoffManifest: unsafeManifest }
+    const core = client({ createHandoffManifest: vi.fn(async () => downloadedResult) })
+    try {
+      render(<HandoffView snapshot={snapshot} locale="vi" client={core} onToast={vi.fn()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Tạo manifest' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Tải manifest JSON' }))
+      await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
+      const downloaded = String(blobParts[0]?.[0] ?? '')
+      expect(downloaded).toContain('CINEFORGE_HANDOFF_EVIDENCE_V1')
+      expect(downloaded).toContain(project.id)
+      expect(downloaded).not.toContain('unsafe_path')
+      expect(downloaded).not.toContain('should-never-cross')
+      expect(downloaded).not.toContain('api_endpoint')
+      expect(downloadedName).toMatch(/^cineforge-handoff-UNKNOWN_EDITOR-c{16}\.json$/)
+      await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:cineforge-manifest'))
+    } finally {
+      click.mockRestore()
+      if (originalUrlDescriptor) Object.defineProperty(globalThis, 'URL', originalUrlDescriptor)
+      else delete (globalThis as { URL?: unknown }).URL
+      if (originalBlobDescriptor) Object.defineProperty(globalThis, 'Blob', originalBlobDescriptor)
+      else delete (globalThis as { Blob?: unknown }).Blob
+    }
+  })
 })

@@ -15,6 +15,7 @@ import {
   CloudOff,
   Command,
   Database,
+  Download,
   File as FileIcon,
   FilePlus2,
   Film,
@@ -2260,6 +2261,217 @@ export function ReviewView({ snapshot, locale, client, onToast }: { snapshot: Da
   </div>
 }
 
+function downloadRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function downloadString(value: unknown, maximum = 500) {
+  return typeof value === 'string' && value.length > 0 && value.length <= maximum ? value : undefined
+}
+
+function downloadHash(value: unknown) {
+  const hash = downloadString(value, 64)?.toLowerCase()
+  return hash && /^[0-9a-f]{64}$/.test(hash) ? hash : undefined
+}
+
+function downloadInteger(value: unknown) {
+  const number = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : Number.NaN
+  return Number.isSafeInteger(number) ? number : undefined
+}
+
+function downloadRational(value: unknown) {
+  const source = downloadRecord(value)
+  const num = downloadInteger(source.num)
+  const den = downloadInteger(source.den)
+  return num !== undefined && den !== undefined && den > 0 ? { num, den } : undefined
+}
+
+function compactDownloadRecord(value: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined))
+}
+
+function safeHandoffManifestDocument(value: Record<string, unknown> | undefined) {
+  const source = downloadRecord(value)
+  const target = downloadRecord(source.target)
+  const sourceDocument = downloadRecord(source.source)
+  const mediaProfile = downloadRecord(sourceDocument.media_profile ?? sourceDocument.mediaProfile)
+  const review = downloadRecord(sourceDocument.review)
+  const tracks = Array.isArray(sourceDocument.tracks) ? sourceDocument.tracks.map((rawTrack) => {
+    const track = downloadRecord(rawTrack)
+    const clips = Array.isArray(track.clips) ? track.clips.map((rawClip) => {
+      const clip = downloadRecord(rawClip)
+      return compactDownloadRecord({
+        id: downloadString(clip.id, 160),
+        asset_revision_id: downloadString(clip.asset_revision_id ?? clip.assetRevisionId, 160),
+        source_in: clip.source_in === null || clip.sourceIn === null ? null : downloadRational(clip.source_in ?? clip.sourceIn),
+        source_out: clip.source_out === null || clip.sourceOut === null ? null : downloadRational(clip.source_out ?? clip.sourceOut),
+        timeline_in: downloadRational(clip.timeline_in ?? clip.timelineIn),
+        timeline_out: downloadRational(clip.timeline_out ?? clip.timelineOut),
+        speed: downloadRational(clip.speed),
+      })
+    }) : []
+    return compactDownloadRecord({
+      id: downloadString(track.id, 160),
+      track_type: downloadString(track.track_type ?? track.trackType, 80),
+      order_index: downloadInteger(track.order_index ?? track.orderIndex),
+      name: downloadString(track.name, 500),
+      enabled: typeof track.enabled === 'boolean' ? track.enabled : undefined,
+      clips,
+    })
+  }) : []
+  const markers = Array.isArray(sourceDocument.markers) ? sourceDocument.markers.map((rawMarker) => {
+    const marker = downloadRecord(rawMarker)
+    return compactDownloadRecord({
+      id: downloadString(marker.id, 160),
+      time: downloadRational(marker.time),
+      marker_type: downloadString(marker.marker_type ?? marker.markerType, 120),
+      label: downloadString(marker.label, 500),
+    })
+  }) : []
+  return compactDownloadRecord({
+    manifest_type: downloadString(source.manifest_type ?? source.manifestType, 120),
+    manifest_schema_version: downloadInteger(source.manifest_schema_version ?? source.manifestSchemaVersion),
+    deliverable_type: downloadString(source.deliverable_type ?? source.deliverableType, 120),
+    target: compactDownloadRecord({
+      editor: downloadString(target.editor, 120),
+      version: downloadString(target.version, 120),
+      profile: downloadString(target.profile, 80),
+      compatibility_profile_version: downloadString(target.compatibility_profile_version ?? target.compatibilityProfileVersion, 120),
+    }),
+    source: compactDownloadRecord({
+      project_id: downloadString(sourceDocument.project_id ?? sourceDocument.projectId, 160),
+      timeline_id: downloadString(sourceDocument.timeline_id ?? sourceDocument.timelineId, 160),
+      timeline_revision_id: downloadString(sourceDocument.timeline_revision_id ?? sourceDocument.timelineRevisionId, 160),
+      revision_number: downloadInteger(sourceDocument.revision_number ?? sourceDocument.revisionNumber),
+      lifecycle_state: downloadString(sourceDocument.lifecycle_state ?? sourceDocument.lifecycleState, 80),
+      content_hash: downloadHash(sourceDocument.content_hash ?? sourceDocument.contentHash),
+      duration: downloadRational(sourceDocument.duration),
+      media_profile: compactDownloadRecord({
+        revision_id: downloadString(mediaProfile.revision_id ?? mediaProfile.revisionId, 160),
+        lifecycle_state: downloadString(mediaProfile.lifecycle_state ?? mediaProfile.lifecycleState, 80),
+        timeline_rate: downloadRational(mediaProfile.timeline_rate ?? mediaProfile.timelineRate),
+        time_base: downloadRational(mediaProfile.time_base ?? mediaProfile.timeBase),
+        pixel_aspect: downloadRational(mediaProfile.pixel_aspect ?? mediaProfile.pixelAspect),
+        width: downloadInteger(mediaProfile.width),
+        height: downloadInteger(mediaProfile.height),
+        working_color_space: downloadString(mediaProfile.working_color_space ?? mediaProfile.workingColorSpace, 120),
+        transfer_function: downloadString(mediaProfile.transfer_function ?? mediaProfile.transferFunction, 120),
+        hdr_policy: downloadString(mediaProfile.hdr_policy ?? mediaProfile.hdrPolicy, 120),
+        audio_sample_rate: downloadInteger(mediaProfile.audio_sample_rate ?? mediaProfile.audioSampleRate),
+        audio_channel_layout: downloadString(mediaProfile.audio_channel_layout ?? mediaProfile.audioChannelLayout, 120),
+      }),
+      review: compactDownloadRecord({
+        session_id: downloadString(review.session_id ?? review.sessionId, 160),
+        state: downloadString(review.state, 80),
+        decision: downloadString(review.decision, 80),
+        dependency_snapshot_hash: downloadHash(review.dependency_snapshot_hash ?? review.dependencySnapshotHash),
+        subject_content_hash: downloadHash(review.subject_content_hash ?? review.subjectContentHash),
+      }),
+      tracks,
+      markers,
+    }),
+  })
+}
+
+function safeHandoffCompatibility(value: HandoffWorkspace['compatibilityReport'] | undefined) {
+  if (!value) return undefined
+  return compactDownloadRecord({
+    profile_version: downloadString(value.profileVersion, 120),
+    target_editor: downloadString(value.targetEditor, 120),
+    target_version: downloadString(value.targetVersion, 120),
+    editable_claim: value.editableClaim === true,
+    entries: value.entries.map((entry) => compactDownloadRecord({ feature: downloadString(entry.feature, 120), status: downloadString(entry.status, 40), detail: downloadString(entry.detail, 1000) })),
+    counts: value.counts ? Object.fromEntries(Object.entries(value.counts).filter(([key, count]) => /^[A-Z_]+$/.test(key) && downloadInteger(count) !== undefined).map(([key, count]) => [key, downloadInteger(count)])) : undefined,
+    next_step: downloadString(value.nextStep, 1000),
+  })
+}
+
+function safeHandoffSanitization(value: HandoffWorkspace['sanitizationReport'] | undefined) {
+  if (!value) return undefined
+  return compactDownloadRecord({
+    policy: downloadString(value.policy, 120),
+    recorded: value.recorded === true,
+    removed_fields: value.removedFields.filter((field) => typeof field === 'string' && field.length <= 160),
+    next_step: downloadString(value.nextStep, 1000),
+  })
+}
+
+function handoffDownloadFilename(session: HandoffWorkspace['exportSession'], manifest: HandoffWorkspace['handoffManifest']) {
+  const rawTarget = session?.targetEditor ?? manifest?.targetEditor ?? 'manifest'
+  const target = rawTarget.normalize('NFKC').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'manifest'
+  const hash = downloadHash(manifest?.manifestHash) ?? 'unverified'
+  return `cineforge-handoff-${target}-${hash.slice(0, 16)}.json`
+}
+
+function downloadHandoffEvidence(session: HandoffWorkspace['exportSession'], manifest: HandoffWorkspace['handoffManifest'], compatibility: HandoffWorkspace['compatibilityReport'] | undefined, sanitization: HandoffWorkspace['sanitizationReport'] | undefined) {
+  const manifestHash = downloadHash(manifest?.manifestHash)
+  if (!session || !manifest || !manifestHash || typeof Blob === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof document === 'undefined') return false
+  const payload = {
+    schema: 'CINEFORGE_HANDOFF_EVIDENCE_V1',
+    manifest_hash: manifestHash,
+    export_session: compactDownloadRecord({
+      id: downloadString(session.id, 160),
+      project_id: downloadString(session.projectId, 160),
+      timeline_revision_id: downloadString(session.timelineRevisionId, 160),
+      deliverable_type: downloadString(session.deliverableType, 120),
+      target_profile: downloadString(session.targetProfile, 80),
+      target_editor: downloadString(session.targetEditor, 120),
+      target_version: downloadString(session.targetVersion, 120),
+      state: downloadString(session.state, 80),
+      output_manifest_id: downloadString(session.outputManifestId, 160),
+      review_session_id: downloadString(session.reviewSessionId, 160),
+      dependency_snapshot_hash: downloadHash(session.dependencySnapshotHash),
+      subject_content_hash: downloadHash(session.subjectContentHash),
+      media_profile_revision_id: downloadString(session.mediaProfileRevisionId, 160),
+      next_step: downloadString(session.nextStep, 1000),
+      row_version: downloadInteger(session.rowVersion),
+      created_at: downloadString(session.createdAt, 80),
+      updated_at: downloadString(session.updatedAt, 80),
+    }),
+    handoff_manifest: compactDownloadRecord({
+      id: downloadString(manifest.id, 160),
+      export_session_id: downloadString(manifest.exportSessionId, 160),
+      project_id: downloadString(manifest.projectId, 160),
+      target_editor: downloadString(manifest.targetEditor, 120),
+      target_version: downloadString(manifest.targetVersion, 120),
+      compatibility_profile_version: downloadString(manifest.compatibilityProfileVersion, 120),
+      manifest_hash: manifestHash,
+      manifest: safeHandoffManifestDocument(manifest.manifest),
+      artifact_allowlist: manifest.artifactAllowlist.map((artifact) => compactDownloadRecord({
+        asset_revision_id: downloadString(artifact.assetRevisionId, 160),
+        asset_id: downloadString(artifact.assetId, 160),
+        semantic_role: downloadString(artifact.semanticRole, 160),
+        rebuildability: downloadString(artifact.rebuildability, 80),
+        hash_algorithm: downloadString(artifact.hashAlgorithm, 80),
+        content_hash: downloadHash(artifact.contentHash),
+        byte_size: downloadInteger(artifact.byteSize),
+        availability_state: downloadString(artifact.availabilityState, 80),
+        review_state: downloadString(artifact.reviewState, 80),
+        availability_evidence_state: downloadString(artifact.availabilityEvidenceState, 80),
+      })),
+      compatibility: safeHandoffCompatibility(compatibility ?? manifest.compatibility),
+      sanitization_report: safeHandoffSanitization(sanitization ?? manifest.sanitizationReport),
+    }),
+  }
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json;charset=utf-8' })
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = handoffDownloadFilename(session, manifest)
+  anchor.rel = 'noopener'
+  anchor.style.display = 'none'
+  document.body?.appendChild(anchor)
+  try {
+    anchor.click()
+  } finally {
+    anchor.remove()
+    const revoke = () => URL.revokeObjectURL(objectUrl)
+    if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') window.setTimeout(revoke, 0)
+    else revoke()
+  }
+  return true
+}
+
 export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; onToast: (message: string) => void }) {
   const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
   const [handoffs, setHandoffs] = useState<HandoffListItem[]>([])
@@ -2389,6 +2601,19 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const sanitization = selectedWorkspace?.handoffManifest?.sanitizationReport ?? selectedWorkspace?.sanitizationReport
   const manifest = selectedWorkspace?.handoffManifest
   const session = selectedWorkspace?.exportSession ?? selectedHandoff
+  const download = () => {
+    if (!session || !manifest) return
+    setActionError(null)
+    try {
+      if (!downloadHandoffEvidence(session, manifest, compatibility, sanitization)) {
+        setActionError(locale === 'vi' ? 'Trình duyệt hiện tại không hỗ trợ tải manifest an toàn.' : 'This browser cannot create a safe manifest download.')
+        return
+      }
+      onToast(locale === 'vi' ? 'Đã tải bản sao manifest metadata đã redacted.' : 'Downloaded the redacted metadata manifest copy.')
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : (locale === 'vi' ? 'Không thể tạo file manifest.' : 'Could not create the manifest file.'))
+    }
+  }
   return <div className="page handoff-page">
     <div className="page-heading"><div><p className="eyebrow">TIMELINE HANDOFF</p><h1>{locale === 'vi' ? 'Bàn giao timeline' : 'Timeline handoff'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Tạo manifest metadata bất biến từ timeline đã approve. Không render, transcode hoặc ghi file đích trong bước này.' : 'Create an immutable metadata manifest from an approved timeline. This step does not render, transcode or write to a destination.'}</p></div><div className="page-heading-actions"><button className="subtle-button tiny" onClick={() => void loadProject()} disabled={loading}><RefreshCw size={13} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip"><PackageOpen size={15} />{handoffs.length}</span></div></div>
     <div className="timeline-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="timeline-project-select" value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label={locale === 'vi' ? 'Project bàn giao' : 'Handoff project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className={`state-label ${connected ? '' : 'warning-text'}`}><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>
@@ -2400,7 +2625,7 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
         <div className="handoff-create-panel"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tạo handoff mới' : 'Create a handoff'}</h3><p>{locale === 'vi' ? 'Chỉ khả dụng khi evidence hiện tại đã approve.' : 'Available only when current evidence is approved.'}</p></div></div><form className="workspace-form" onSubmit={create}><label>{locale === 'vi' ? 'Timeline' : 'Timeline'}<select value={timelineId ?? ''} onChange={(event) => setTimelineId(event.target.value || null)} disabled={mutating}><option value="">{locale === 'vi' ? 'Chọn timeline' : 'Choose timeline'}</option>{timelines.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>{approvedRevision ? <div className="handoff-evidence"><span><strong>{locale === 'vi' ? 'Revision đã approve' : 'Approved revision'}</strong><code>{approvedRevision.id}</code></span><span><strong>{locale === 'vi' ? 'Review APPROVE' : 'APPROVE review'}</strong><code>{approvalReview?.id ?? (locale === 'vi' ? 'Thiếu' : 'Missing')}</code></span><span><strong>Dependency snapshot</strong><code>{dependencySnapshotHash || 'MISSING'}</code></span></div> : <div className="inline-state warning"><Info size={14} />{locale === 'vi' ? 'Timeline này chưa có revision APPROVED.' : 'This timeline has no APPROVED revision.'}</div>}<div className="form-grid two"><label>{locale === 'vi' ? 'Editor đích' : 'Target editor'}<input value={targetEditor} onChange={(event) => setTargetEditor(event.target.value)} placeholder="GENERIC" disabled={mutating} /></label><label>{locale === 'vi' ? 'Phiên bản' : 'Version'}<input value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)} placeholder="1" disabled={mutating} /></label></div><button className="primary-button small" type="submit" disabled={!canCreate}>{mutating ? <RefreshCw size={14} className="spin" /> : <PackageOpen size={14} />}{locale === 'vi' ? 'Tạo manifest' : 'Create manifest'}</button></form></div>
       </section>
       <section className="workspace-panel handoff-detail-card">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc manifest…' : 'Reading manifest…'} /> : !session ? <EmptyState icon={Info} title={locale === 'vi' ? 'Chọn một manifest' : 'Select a manifest'} detail={locale === 'vi' ? 'Chi tiết chain-of-custody và compatibility sẽ hiển thị ở đây.' : 'Chain-of-custody and compatibility details will appear here.'} /> : <>
-        <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon green"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Handoff workspace' : 'Handoff workspace'}</h2><p>{session.timelineRevisionId ?? '—'} · v{session.rowVersion}</p></div></div><span className="state-label">{session.state}</span></div>
+         <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon green"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Handoff workspace' : 'Handoff workspace'}</h2><p>{session.timelineRevisionId ?? '—'} · v{session.rowVersion}</p></div></div><div className="handoff-detail-actions"><button type="button" className="subtle-button tiny" onClick={download} disabled={!manifest?.manifestHash || detailLoading}><Download size={13} />{locale === 'vi' ? 'Tải manifest JSON' : 'Download manifest JSON'}</button><span className="state-label">{session.state}</span></div></div>
         <div className="timeline-metrics"><div><span>{locale === 'vi' ? 'Editor' : 'Editor'}</span><strong>{session.targetEditor ?? manifest?.targetEditor ?? 'UNKNOWN'}</strong></div><div><span>{locale === 'vi' ? 'Phiên bản' : 'Version'}</span><strong>{session.targetVersion ?? manifest?.targetVersion ?? 'UNKNOWN'}</strong></div><div><span>Manifest SHA-256</span><strong title={selectedWorkspace?.manifestHash ?? manifest?.manifestHash}>{(selectedWorkspace?.manifestHash ?? manifest?.manifestHash)?.slice(0, 16) ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Allowlist' : 'Allowlist'}</span><strong>{manifest?.artifactAllowlist.length ?? 0}</strong></div></div>
         <p className="readonly-note"><Info size={14} />{selectedWorkspace?.nextStep ?? session.nextStep ?? (locale === 'vi' ? 'Manifest chỉ chứa metadata an toàn; chưa có file media hoặc đường dẫn cục bộ.' : 'The manifest contains safe metadata only; no media bytes or local paths are included.')}</p>
         {compatibility && <div className="handoff-section"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tương thích đích' : 'Target compatibility'}</h3><p>{compatibility.profileVersion ?? '—'} · {compatibility.editableClaim ? (locale === 'vi' ? 'Có thể chỉnh sửa theo claim' : 'Editable claim') : (locale === 'vi' ? 'Không claim editable' : 'No editable claim')}</p></div></div><div className="compatibility-list">{compatibility.entries.map((entry) => <div className="compatibility-row" key={`${entry.feature}:${entry.status}`}><span>{entry.feature}</span><span className={`compatibility-status ${entry.status.toLowerCase()}`}>{entry.status}</span><small>{entry.detail}</small></div>)}</div></div>}
