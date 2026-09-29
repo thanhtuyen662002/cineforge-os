@@ -1,0 +1,16 @@
+{
+  "event": "claim-intent-i43-a1-20260929",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 43,
+  "agent_instance_id": "cineforge-WORK-handoff-download",
+  "slot_id": "WORK-handoff-download",
+  "run_id": "WORK-handoff-download-20260929-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:c334496beffb4668c9b6731e623172c69c841dd2794088295ac3529630ce54b8",
+  "base_ref": "agent/i41-a1-timeline-preview",
+  "base_sha": "861beac2d99eadde8a7db925cbb4bfa971072b45",
+  "context_base_sha": "861beac2d99eadde8a7db925cbb4bfa971072b45",
+  "requested_state": "CLAIMED"
+}

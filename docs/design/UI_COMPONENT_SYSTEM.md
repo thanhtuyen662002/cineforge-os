@@ -657,6 +657,8 @@ export monitor. It contains:
 - the immutable `PREFLIGHT` session and manifest hash after Core confirms it;
 - an explicit artifact allowlist showing only pinned asset-revision IDs,
   SHA-256 digests and safe metadata;
+- an explicit `Tải manifest JSON` action that downloads a local UTF-8 evidence
+  copy made only from this redacted projection, with a fixed safe filename;
 - a feature-level compatibility/loss report using `Giữ nguyên`, `Chuyển gần
   đúng`, `Không hỗ trợ` and `Chưa xác định` for `NATIVE`, `APPROXIMATED`,
   `UNSUPPORTED` and `UNKNOWN`;
@@ -674,9 +676,11 @@ unavailable asset disables creation and explains how to open a fresh review or
 resolve the blocker. Repeating an idempotency key shows the same manifest
 rather than a second session.
 
-The workspace deliberately has no play/pause, render, transcode, audio or
-subtitle controls, destination path picker, provider dispatch, percentage
-progress or editable-project promise. `PREFLIGHT` is not `BUILDING`,
+The manifest download is metadata evidence only: it contains no media bytes and
+does not mutate Core state or mark the handoff exported. The workspace
+deliberately has no play/pause, render, transcode, audio or subtitle controls,
+destination path picker, provider dispatch, percentage progress or
+editable-project promise. `PREFLIGHT` is not `BUILDING`,
 `VERIFIED` or `COMPLETED`; later media export, external-editor round-trip,
 release and publish each require their own state and approval contract.
 
