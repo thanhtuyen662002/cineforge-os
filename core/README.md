@@ -91,6 +91,49 @@ The desktop workspace states that boundary and never reports media progress
 without Core evidence. These later surfaces must receive their own contracts
 before they are added to the UI.
 
+## Issue #27 bounded timeline working-session contract
+
+Issue #27 specifies the next Core boundary for a project-scoped local editing
+draft. This section is a contract and scope declaration; it is not an
+implementation or verification claim. Until the matching code and evidence
+exist, the runtime must continue to treat the working-session surface as
+unavailable.
+
+The specified audited commands are:
+
+- `BeginTimelineWorkingSession`;
+- `ApplyTimelineEditOp`;
+- `UndoTimelineEditOp`;
+- `RedoTimelineEditOp`;
+- `AutosaveTimelineWorkingSession`;
+- `CheckpointTimelineWorkingSession`; and
+- `CloseTimelineWorkingSession`.
+
+The session binds an actor/client to one exact project-scoped timeline
+revision, content hash and row version. Operations are append-only, typed and
+idempotent; the bounded allowlist is `INSERT_CLIP`, `MOVE_CLIP`, `TRIM_CLIP`,
+`DELETE_CLIP` and `ADD_MARKER`. Payloads use checked rational time and exact
+materialized asset revisions. `SPLIT_CLIP`, `RETIME_CLIP` and all audio,
+caption, transition, link and effect operations are typed unsupported results.
+Unknown fields, `latest`, provider/path data, cross-project IDs,
+malformed/overflowed rationals and unavailable or rights-blocked assets are
+rejected before mutation.
+
+Undo is a causal compensating operation and redo replays the latest eligible
+undo relation; neither rewinds global history. A new edit invalidates redo.
+Autosave persists only the durable draft and acknowledgement sequence. A
+checkpoint revalidates the exact profile, pins, materialization and rights,
+then creates an immutable `DRAFT_CHECKPOINT` without approval. Close requires
+`CLEAN` or an explicit abandon that preserves the draft. Stale base/session
+versions, duplicate active sessions, dirty close, idempotency mismatch and
+recovery failures are typed, redacted conflicts with `needs_user`/`next_step`.
+
+The corresponding read projections and project-scoped HTTP routes must remain
+Core-owned and redacted. Playback, audio/caption/transition editing,
+multi-user/offline branch merge, leases, render/transcode, handoff/export,
+release/publish, provider dispatch and arbitrary shell execution remain out of
+scope for this issue.
+
 ## Handoff manifest preflight status
 
 The executable Core queries are `query.handoff.list` and `query.handoff.get`.

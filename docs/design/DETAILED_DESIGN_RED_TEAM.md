@@ -400,6 +400,67 @@ The following interactions were tested conceptually:
 20. Intentional continuity break is flagged by QC.
    - scoped CreativeException prevents endless auto-repair but remains visible in audit.
 
+# Issue #27 — bounded timeline working-session adversarial acceptance
+
+The working-session slice is safe to implement only within the following
+bounded contract. The control registry entry `CF-CTRL-TIMELINE-WORKING-SESSION`
+is a `SPECIFIED` design requirement; its registry maturity is not evidence that
+the control is implemented, tested or production-proven.
+
+1. **Stale second window or suspended client.** Begin binds one project-scoped
+   timeline to an exact immutable base revision, content hash, timeline row
+   version, actor and client instance. A second active session or a stale
+   autosave returns a typed conflict and cannot overwrite newer work.
+2. **Retry and duplicate delivery.** Every begin/apply/undo/redo/autosave/
+   checkpoint/close command has a canonical idempotency key and expected
+   session version. Equivalent retries return the original result; key reuse
+   with a different payload/base is a conflict with no second operation/event.
+3. **Hostile operation payload.** Unknown keys, provider/path data, cross-
+   project IDs, `latest`, NaN/Infinity, zero or negative denominators,
+   overflowed rationals, empty intervals and unavailable or rights-blocked
+    assets fail before any row or event is written. The allowlist is exactly the
+    five Issue #27 VIDEO/marker operations; split and retime are unsupported.
+4. **Partial apply or crash.** An operation, its canonical payload hash,
+   operation sequence, session row version and audit command commit together.
+   A crash after commit is replayable from the durable acknowledgement; a
+   crash before commit leaves the prior session unchanged. There is no partial
+   multi-row operation result.
+5. **Undo/redo misuse.** Undo is a causal compensating operation over the
+   current actor's reversible operation, never a global history rewind. A
+   dependent descendant or external effect blocks undo with an explanation.
+   Redo is limited to the latest eligible undo relation and is invalidated by a
+   new edit. Earlier operation/audit rows remain append-only.
+6. **Autosave mistaken for approval.** Autosave persists only a draft working
+   snapshot and acknowledgement sequence. It cannot create, mutate, approve
+   or supersede a canonical revision, review, handoff, release or publish
+   state. The UI must distinguish `Đã lưu bản nháp` from approval.
+7. **Checkpoint race or hidden downgrade.** Checkpoint requires all accepted
+   operations acknowledged, the exact base/version current, and fresh profile,
+   materialization, asset-pin and rights validation. It creates one immutable
+   `DRAFT_CHECKPOINT`; it never resolves `latest`, silently drops unsupported
+   fields or promotes/approves a revision.
+8. **Dirty close and recovery.** Closing dirty work requires checkpoint or an
+   explicit abandon decision that preserves the draft. Interrupted autosave or
+   checkpoint enters `RECOVERY_REQUIRED`; terminal sessions reject later
+   mutations and a new session must name its exact base revision.
+9. **Resource exhaustion.** Operation count, payload size and working-set
+   storage are bounded. Limit failures preserve the previous durable state and
+   identify the limit/next step; history is not silently discarded to make the
+   operation appear successful. Large history is paged/virtualized in the UI.
+10. **Scope creep.** Audio/caption/transition/link/effect editing, nested
+    sequences, multi-user branch/merge/leases, offline semantic reconciliation,
+    playback, render/transcode, handoff/export, release/publish and provider or
+    shell execution remain typed unsupported results and have no Issue #27 UI
+    affordance.
+
+Required evidence for implementation review is a schema migration (if the
+compatibility tables need new fields), Core command/query tests, stale and
+idempotency tests, malformed/rational-bound tests, crash/recovery tests,
+causal undo/redo tests, checkpoint exact-pin/rights tests, project-scoping
+tests, and UI tests for every normal, empty, loading, conflict, recovery and
+dirty-close state. These tests are future evidence requirements; this document
+does not claim that they have passed.
+
 # Remaining irreducible risks
 
 No architecture can eliminate:

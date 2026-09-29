@@ -558,6 +558,54 @@ Checkpoint creates an immutable timeline revision.
 Autosave updates only draft/working state.
 Undo/redo operate on edit operation history within working session.
 
+# 22A. Issue #27 executable working-session lifecycle
+
+Issue #21's deferred shape is opened only through the bounded Issue #27
+contract. The session lifecycle and the immutable revision lifecycle remain
+separate state axes:
+
+```text
+OPEN
+  └─ accepted edit ───────────────→ DIRTY
+DIRTY
+  ├─ Autosave commit ─────────────→ AUTOSAVING ── success ──→ DIRTY
+  ├─ Checkpoint request ──────────→ CHECKPOINTING ─ commit ─→ CLEAN
+  └─ explicit ABANDON close ───────────────────────────────→ ABANDONED
+CLEAN
+  └─ explicit close ───────────────────────────────────────→ CLOSED
+```
+
+Any mutable state may enter `CONFLICT` when the exact base revision, base row
+version or session row version no longer matches. An interrupted autosave or
+checkpoint enters `RECOVERY_REQUIRED` until Core reconciles the durable
+operation acknowledgement and the working snapshot. These states never fall
+back to last-write-wins. A stale/suspended client cannot autosave over a newer
+session or canonical revision.
+
+`ApplyTimelineEditOp` appends one typed operation or a bounded all-or-nothing
+batch and advances the session version atomically. `UndoTimelineEditOp` appends
+a causal compensating relation
+for the current actor's reversible operation; `RedoTimelineEditOp` appends a
+replay relation for the most recent eligible undo. Neither removes history or
+rewinds unrelated project state. A new edit after undo invalidates the redo
+branch. External publication, upload, charge and provider effects are outside
+this state machine and are never reported as reversible.
+
+`AutosaveTimelineWorkingSession` may move `DIRTY → AUTOSAVING → DIRTY` only
+after a durable Core commit. It does not change `TimelineCheckpoint` lifecycle
+or review/approval state. `CheckpointTimelineWorkingSession` may move
+`DIRTY → CHECKPOINTING → CLEAN` only when all accepted operations are
+acknowledged, the exact base/version is still current, and profile, asset
+materialization and rights checks pass. The successful transition creates one
+new immutable `DRAFT_CHECKPOINT` and binds the still-open session to that exact
+revision; it never creates `CANDIDATE` or `APPROVED` state implicitly.
+
+`CloseTimelineWorkingSession` requires `CLEAN` for `CLOSED`. A dirty session
+must checkpoint or explicitly choose `ABANDON`, which preserves its durable
+draft and enters `ABANDONED`. Terminal sessions reject further edits,
+autosave, undo and redo. A new session must begin from an explicit immutable
+revision; no transition resolves `latest`.
+
 # 23. Timeline revision lifecycle
 
 - DRAFT_CHECKPOINT
