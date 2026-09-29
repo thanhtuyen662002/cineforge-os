@@ -240,4 +240,45 @@ describe('local Core adapter', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('maps redacted backup/admission projections and sends idempotent backup commands', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/v1/backups') && !init?.method) {
+        return new Response(JSON.stringify({ ok: true, result: { backups: [{ id: 'backup-1', state: 'VERIFIED', destination_name: 'backup-1', manifest_name: 'manifest.json', snapshot_name: 'cineforge.sqlite', byte_size: 2048, object_count: 3, manifest_sha256: 'a'.repeat(64), row_version: 1 }] } }), { status: 200 })
+      }
+      if (url.endsWith('/v1/storage/admission')) {
+        return new Response(JSON.stringify({ ok: true, result: { destination_name: 'backups', durability_class: 'LOCAL_WRITABLE', estimated_bytes: 1000, available_bytes: 5000, reserve_bytes: 500, object_count: 3 } }), { status: 200 })
+      }
+      if (url.endsWith('/v1/backups/backup-1') && !init?.method) {
+        return new Response(JSON.stringify({ ok: true, result: { backup: { id: 'backup-1', state: 'VERIFIED', destination_name: 'backup-1', manifest_name: 'manifest.json', snapshot_name: 'cineforge.sqlite', row_version: 1 }, verifications: [{ id: 'verification-1', backup_id: 'backup-1', outcome: 'VERIFIED', integrity_state: 'PASS', details: { db_sha256: 'b'.repeat(64) } }] } }), { status: 200 })
+      }
+      expect(init?.method).toBe('POST')
+      expect((init?.headers as Record<string, string>)['Idempotency-Key']).toBe(url.endsWith('/verify') ? 'backup-verify-1' : 'backup-create-1')
+      if (url.endsWith('/verify')) {
+        expect(JSON.parse(String(init?.body))).toEqual({})
+        return new Response(JSON.stringify({ ok: true, result: { backup: { id: 'backup-1', state: 'VERIFIED', destination_name: 'backup-1', row_version: 2 }, verification: { id: 'verification-2', backup_id: 'backup-1', outcome: 'VERIFIED', integrity_state: 'PASS' } } }), { status: 200 })
+      }
+      expect(JSON.parse(String(init?.body))).toEqual({ durability_class: 'LOCAL_WRITABLE' })
+      return new Response(JSON.stringify({ ok: true, result: { backup: { id: 'backup-1', state: 'VERIFIED', destination_name: 'backup-1', row_version: 1 }, verification: { id: 'verification-1', backup_id: 'backup-1', outcome: 'VERIFIED', integrity_state: 'PASS' } } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const backups = await client.getBackups?.()
+      expect(backups?.[0]).toMatchObject({ id: 'backup-1', destinationName: 'backup-1', byteSize: 2048, objectCount: 3 })
+      expect((backups?.[0] as Record<string, unknown>).destinationPath).toBeUndefined()
+      const admission = await client.getStorageAdmission?.()
+      expect(admission).toMatchObject({ estimatedBytes: 1000, availableBytes: 5000, reserveBytes: 500 })
+      const workspace = await client.getBackup?.('backup-1')
+      expect(workspace?.verifications[0]).toMatchObject({ outcome: 'VERIFIED', integrityState: 'PASS' })
+      const created = await client.createBackup?.({ durabilityClass: 'LOCAL_WRITABLE' }, 'backup-create-1')
+      expect(created?.backup?.state).toBe('VERIFIED')
+      const verified = await client.verifyBackup?.('backup-1', 'backup-verify-1')
+      expect(verified?.verification?.integrityState).toBe('PASS')
+      expect(fetchMock).toHaveBeenCalledTimes(5)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

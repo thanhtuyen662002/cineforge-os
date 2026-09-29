@@ -824,6 +824,69 @@ export interface DashboardSnapshot {
   }
 }
 
+/** Redacted local-backup projection. Internal paths never cross the Core boundary. */
+export interface BackupSummary {
+  id?: string
+  backupType?: string
+  durabilityClass?: string
+  failureDomain?: string
+  destinationName?: string
+  manifestName?: string
+  snapshotName?: string
+  installationId?: string
+  schemaVersion?: number
+  eventSeqCheckpoint?: number
+  state: string
+  dbSha256?: string
+  manifestSha256?: string
+  byteSize?: number
+  objectCount?: number
+  externalObjectCount?: number
+  errorCode?: string
+  rowVersion: number
+  createdAt?: string
+  completedAt?: string
+}
+
+export interface BackupVerification {
+  id?: string
+  backupId?: string
+  outcome: string
+  integrityState: string
+  manifestSha256?: string
+  objectCount?: number
+  byteSize?: number
+  details?: Record<string, unknown>
+  createdAt?: string
+}
+
+export interface BackupWorkspace {
+  backup: BackupSummary | null
+  verifications: BackupVerification[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export interface BackupCommandResult {
+  backup: BackupSummary | null
+  verification: BackupVerification | null
+  idempotentReplay?: boolean
+}
+
+export interface StorageAdmission {
+  destinationName?: string
+  durabilityClass?: string
+  failureDomain?: string
+  databaseBytes?: number
+  objectBytes?: number
+  estimatedBytes?: number
+  availableBytes?: number
+  reserveBytes?: number
+  objectCount?: number
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
@@ -841,6 +904,11 @@ export interface CoreClient {
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  getBackups?(signal?: AbortSignal): Promise<BackupSummary[]>
+  getBackup?(backupId: string, signal?: AbortSignal): Promise<BackupWorkspace>
+  getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
+  createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
+  verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>

@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -23,6 +23,11 @@ export interface CoreBridge {
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  getBackups?(signal?: AbortSignal): Promise<BackupSummary[]>
+  getBackup?(backupId: string, signal?: AbortSignal): Promise<BackupWorkspace>
+  getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
+  createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
+  verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
@@ -679,6 +684,49 @@ export class HttpCoreClient implements CoreClient {
     return arrayValue(result.assets).map(mapAssetRecord)
   }
 
+  async getBackups(signal?: AbortSignal): Promise<BackupSummary[]> {
+    if (!this.baseUrl) return []
+    const response = await fetch(`${this.baseUrl}/v1/backups`, { signal, headers: { Accept: 'application/json' } })
+    const payload = asRecord(await readCorePayload(response, 'backups'))
+    return arrayValue(payload.backups ?? payload.items ?? payload).map(mapBackupSummaryRecord)
+  }
+
+  async getBackup(backupId: string, signal?: AbortSignal): Promise<BackupWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Backup details require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!backupId.trim()) throw new CoreClientError('A backup id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/backups/${encodeURIComponent(backupId)}`, { signal, headers: { Accept: 'application/json' } })
+    return mapBackupWorkspaceRecord(await readCorePayload(response, 'backup details'))
+  }
+
+  async getStorageAdmission(signal?: AbortSignal): Promise<StorageAdmission | null> {
+    if (!this.baseUrl) return null
+    const response = await fetch(`${this.baseUrl}/v1/storage/admission`, { signal, headers: { Accept: 'application/json' } })
+    return mapStorageAdmissionRecord(await readCorePayload(response, 'storage admission'))
+  }
+
+  async createBackup(input: { durabilityClass?: string } = {}, idempotencyKey: string = crypto.randomUUID()): Promise<BackupCommandResult> {
+    if (!this.baseUrl) throw new CoreClientError('Creating a backup requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const durabilityClass = (input.durabilityClass?.trim() || 'LOCAL_WRITABLE').toUpperCase()
+    if (durabilityClass !== 'LOCAL_WRITABLE') throw new CoreClientError('Only the local writable backup policy is available.', { code: 'DURABILITY_PROFILE_UNAVAILABLE', category: 'CONFLICT', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/backups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ durability_class: durabilityClass }),
+    })
+    return mapBackupCommandResultRecord(await readCorePayload(response, 'backup creation'))
+  }
+
+  async verifyBackup(backupId: string, idempotencyKey: string = crypto.randomUUID()): Promise<BackupCommandResult> {
+    if (!this.baseUrl) throw new CoreClientError('Verifying a backup requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!backupId.trim()) throw new CoreClientError('A backup id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/backups/${encodeURIComponent(backupId)}/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({}),
+    })
+    return mapBackupCommandResultRecord(await readCorePayload(response, 'backup verification'))
+  }
+
   async resolveMediaPreview(projectId: string, revisionId: string, purpose = 'LIBRARY_PREVIEW', signal?: AbortSignal): Promise<MediaPreviewResolution> {
     if (!this.baseUrl) throw new CoreClientError('Media preview requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
     const query = new URLSearchParams({ purpose, session_id: this.previewSessionId })
@@ -1205,6 +1253,11 @@ function numberValue(value: unknown, fallback: number): number {
   return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : fallback
 }
 
+function optionalNumberValue(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : undefined
+}
+
 function integerValue(value: unknown, fallback: number, minimum: number, maximum: number): number {
   const numeric = typeof value === 'number' ? value : Number(value)
   return Number.isSafeInteger(numeric) && numeric >= minimum && numeric <= maximum ? numeric : fallback
@@ -1461,6 +1514,85 @@ function mapAssetRecord(value: unknown): AssetSummary {
     warnings,
     rights,
     latestRevision: revision,
+  }
+}
+
+function mapBackupSummaryRecord(value: unknown): BackupSummary {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id ?? source.backup_id ?? source.backupId),
+    backupType: stringValue(source.backup_type ?? source.backupType),
+    durabilityClass: stringValue(source.durability_class ?? source.durabilityClass),
+    failureDomain: stringValue(source.failure_domain ?? source.failureDomain),
+    destinationName: stringValue(source.destination_name ?? source.destinationName),
+    manifestName: stringValue(source.manifest_name ?? source.manifestName),
+    snapshotName: stringValue(source.snapshot_name ?? source.snapshotName),
+    installationId: stringValue(source.installation_id ?? source.installationId),
+    schemaVersion: optionalNumberValue(source.schema_version ?? source.schemaVersion),
+    eventSeqCheckpoint: optionalNumberValue(source.event_seq_checkpoint ?? source.eventSeqCheckpoint),
+    state: stringValue(source.state ?? source.status) ?? 'UNKNOWN',
+    dbSha256: stringValue(source.db_sha256 ?? source.dbSha256),
+    manifestSha256: stringValue(source.manifest_sha256 ?? source.manifestSha256),
+    byteSize: optionalNumberValue(source.byte_size ?? source.byteSize),
+    objectCount: optionalNumberValue(source.object_count ?? source.objectCount),
+    externalObjectCount: optionalNumberValue(source.external_object_count ?? source.externalObjectCount),
+    errorCode: stringValue(source.error_code ?? source.errorCode),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    completedAt: stringValue(source.completed_at ?? source.completedAt),
+  }
+}
+
+function mapBackupVerificationRecord(value: unknown): BackupVerification {
+  const source = asRecord(value)
+  const details = source.details && typeof source.details === 'object' && !Array.isArray(source.details) ? source.details as Record<string, unknown> : undefined
+  return {
+    id: stringValue(source.id ?? source.verification_id ?? source.verificationId),
+    backupId: stringValue(source.backup_id ?? source.backupId),
+    outcome: stringValue(source.outcome) ?? 'UNKNOWN',
+    integrityState: stringValue(source.integrity_state ?? source.integrityState) ?? 'UNKNOWN',
+    manifestSha256: stringValue(source.manifest_sha256 ?? source.manifestSha256),
+    objectCount: optionalNumberValue(source.object_count ?? source.objectCount),
+    byteSize: optionalNumberValue(source.byte_size ?? source.byteSize),
+    details,
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapBackupWorkspaceRecord(value: unknown): BackupWorkspace {
+  const source = asRecord(value)
+  const backupSource = source.backup ?? source.backup_record
+  return {
+    backup: backupSource ? mapBackupSummaryRecord(backupSource) : null,
+    verifications: arrayValue(source.verifications ?? source.verification_history).map(mapBackupVerificationRecord),
+    projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapBackupCommandResultRecord(value: unknown): BackupCommandResult {
+  const source = asRecord(value)
+  return {
+    backup: source.backup ? mapBackupSummaryRecord(source.backup) : null,
+    verification: source.verification ? mapBackupVerificationRecord(source.verification) : null,
+    idempotentReplay: source.idempotent_replay === true || source.idempotentReplay === true,
+  }
+}
+
+function mapStorageAdmissionRecord(value: unknown): StorageAdmission {
+  const source = asRecord(value)
+  return {
+    destinationName: stringValue(source.destination_name ?? source.destinationName),
+    durabilityClass: stringValue(source.durability_class ?? source.durabilityClass),
+    failureDomain: stringValue(source.failure_domain ?? source.failureDomain),
+    databaseBytes: optionalNumberValue(source.database_bytes ?? source.databaseBytes),
+    objectBytes: optionalNumberValue(source.object_bytes ?? source.objectBytes),
+    estimatedBytes: optionalNumberValue(source.estimated_bytes ?? source.estimatedBytes),
+    availableBytes: optionalNumberValue(source.available_bytes ?? source.availableBytes),
+    reserveBytes: optionalNumberValue(source.reserve_bytes ?? source.reserveBytes),
+    objectCount: optionalNumberValue(source.object_count ?? source.objectCount),
+    projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }
 }
 
