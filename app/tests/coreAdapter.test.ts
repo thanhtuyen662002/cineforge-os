@@ -185,6 +185,29 @@ describe('local Core adapter', () => {
     }
   })
 
+  it('reads project-scoped release readiness and keeps evidence redacted', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('http://core/v1/projects/project-1/release/readiness')
+      return new Response(JSON.stringify({ ok: true, result: {
+        project_id: 'project-1', project_title: 'Film', overall_state: 'NOT_CHECKED',
+        policy: { purpose: 'RELEASE', unknown_blocks: true }, exact_source: { timeline_id: 'timeline-1', local_path: 'C:\\secret\\cut.mov' },
+        gates: [{ key: 'PICTURE', state: 'PASS', blocking: false, evidence: { clip_count: 2, provider_path: 'C:\\secret\\provider' } }, { key: 'QC', state: 'UNKNOWN', blocking: true, reason: 'QC_NOT_SUBMITTED', evidence: { review_count: 0 } }],
+        blocking_gate_keys: ['QC'], blocking_count: 1, unknown_count: 1, gate_manifest_hash: 'a'.repeat(64), projection_seq: 7,
+      } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const readiness = await new HttpCoreClient('http://core').getReleaseReadiness!('project-1')
+      expect(readiness.overallState).toBe('NOT_CHECKED')
+      expect(readiness.gates).toHaveLength(2)
+      expect(readiness.gates[0].evidence).toEqual({ clip_count: 2 })
+      expect(readiness.exactSource).toEqual({ timeline_id: 'timeline-1' })
+      expect(JSON.stringify(readiness)).not.toContain('secret')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('maps first-class workspace records and sends expected row versions for stale-safe updates', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)

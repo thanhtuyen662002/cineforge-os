@@ -920,6 +920,39 @@ export interface StagingWorkspace {
   generatedAt?: string
 }
 
+export type ReleaseGateState = 'PASS' | 'FAIL' | 'UNKNOWN' | 'NOT_APPLICABLE'
+export type ReleaseOverallState = 'READY' | 'BLOCKED' | 'NOT_CHECKED'
+
+/**
+ * Read-only, redacted evidence for one release readiness gate.  The Core
+ * owns the allowlist; the UI must never infer a path, provider field, or
+ * release artifact from this object.
+ */
+export interface ReleaseGate {
+  key: string
+  state: ReleaseGateState
+  blocking: boolean
+  reason?: string
+  nextStep?: string
+  evidence?: Record<string, unknown>
+}
+
+export interface ReleaseReadiness {
+  projectId?: string
+  projectTitle?: string
+  overallState: ReleaseOverallState
+  policy: { purpose: string; unknownBlocks: boolean }
+  exactSource: Record<string, unknown>
+  gates: ReleaseGate[]
+  blockingGateKeys: string[]
+  blockingCount: number
+  unknownCount: number
+  gateManifestHash?: string
+  nextStep?: string
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
@@ -944,6 +977,7 @@ export interface CoreClient {
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
   getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
   reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
+  getReleaseReadiness?(projectId: string, signal?: AbortSignal): Promise<ReleaseReadiness>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>

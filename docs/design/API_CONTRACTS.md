@@ -1022,6 +1022,24 @@ A gate is:
 
 UNKNOWN can block depending on release policy.
 
+The V1 read-only query is exposed as `GET
+/v1/projects/{project_id}/release/readiness` and as the Core method
+`query.release.readiness`. The projection is scoped to one project and binds
+to an exact source only when there is exactly one `APPROVED` timeline revision;
+it never selects a latest revision implicitly and never creates a release
+candidate. The response contains `overall_state` (`READY`, `BLOCKED`, or
+`NOT_CHECKED`), `policy.unknown_blocks`, `exact_source`, the ordered eight
+`gates`, `blocking_gate_keys`, `blocking_count`, `unknown_count`, a deterministic
+`gate_manifest_hash`, `next_step`, `projection_seq`, and `generated_at`.
+
+Readiness evidence is a redacted projection. It may contain stable IDs,
+revision/content hashes, lifecycle/status values, bounded counts and
+human-readable reasons; local paths, provider URIs, credentials, raw payloads
+and connector-specific fields are not part of the public response. Missing or
+ambiguous dependencies resolve to `UNKNOWN` and remain blocking under the V1
+policy. This query is read-only: render, export, release-manifest creation and
+publish are separate workflows and require their own exact-boundary contracts.
+
 Publish API requires immutable release_manifest_id, never “current project”.
 
 # 20. Connector host interface
