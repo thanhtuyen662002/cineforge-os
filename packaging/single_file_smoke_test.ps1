@@ -96,6 +96,15 @@ try {
     foreach ($privateField in @('db_path', 'wal_path', 'object_store_path')) {
         if ($null -ne $result.PSObject.Properties[$privateField]) { throw "Single-file health projection leaked private field $privateField." }
     }
+    $rendererPreflightEnvelope = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/release/renderer/preflight" -TimeoutSec 5
+    $rendererPreflight = if ($rendererPreflightEnvelope.result) { $rendererPreflightEnvelope.result } else { $rendererPreflightEnvelope }
+    if ($rendererPreflight.state -ne 'BLOCKED' -or $rendererPreflight.execution_state -ne 'DISABLED') {
+        throw 'Single-file renderer preflight did not fail closed with execution disabled when no trusted toolchain pack is bundled.'
+    }
+    $rendererJson = $rendererPreflight | ConvertTo-Json -Depth 20 -Compress
+    if ($rendererJson -match '(?i)([A-Za-z]:\\|\\\\|(?:file|https?)://|/Users/|/home/)') {
+        throw 'Single-file renderer preflight leaked a filesystem or provider path.'
+    }
     $jobs = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/jobs?limit=1" -TimeoutSec 5
     $jobsResult = if ($jobs.result) { $jobs.result } else { $jobs }
     if ($null -eq $jobsResult.PSObject.Properties['jobs'] -and $null -eq $jobsResult.PSObject.Properties['items']) {
