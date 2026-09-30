@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -729,6 +729,18 @@ export class HttpCoreClient implements CoreClient {
     if (!this.baseUrl) return null
     const response = await fetch(`${this.baseUrl}/v1/storage/admission`, { signal, headers: { Accept: 'application/json' } })
     return mapStorageAdmissionRecord(await readCorePayload(response, 'storage admission'))
+  }
+
+  async getStorageScrubHealth(options: { limit?: number; maxBytes?: number; after?: string } = {}, signal?: AbortSignal): Promise<StorageScrubHealth> {
+    if (!this.baseUrl) throw new CoreClientError('Storage integrity evidence requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const query = new URLSearchParams()
+    if (options.limit !== undefined) query.set('limit', String(integerValue(options.limit, 100, 1, 200)))
+    if (options.maxBytes !== undefined) query.set('max_bytes', String(integerValue(options.maxBytes, 256 * 1024 * 1024, 1, 4 * 1024 * 1024 * 1024)))
+    const after = options.after?.trim()
+    if (after) query.set('after', after)
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    const response = await fetch(`${this.baseUrl}/v1/storage/scrub-health${suffix}`, { signal, headers: { Accept: 'application/json' } })
+    return mapStorageScrubHealthRecord(await readCorePayload(response, 'storage integrity evidence'))
   }
 
   async createBackup(input: { durabilityClass?: string } = {}, idempotencyKey: string = crypto.randomUUID()): Promise<BackupCommandResult> {
@@ -1858,6 +1870,63 @@ function mapStorageAdmissionRecord(value: unknown): StorageAdmission {
     reserveBytes: optionalNumberValue(source.reserve_bytes ?? source.reserveBytes),
     objectCount: optionalNumberValue(source.object_count ?? source.objectCount),
     projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapStorageScrubHealthRecord(value: unknown): StorageScrubHealth {
+  const source = asRecord(value)
+  const limits = asRecord(source.limits)
+  const scan = asRecord(source.scan)
+  const cursor = asRecord(source.cursor)
+  return {
+    schemaVersion: optionalNumberValue(source.schema_version ?? source.schemaVersion),
+    status: stringValue(source.status) ?? 'UNKNOWN',
+    readOnly: source.read_only === true || source.readOnly === true,
+    storageClass: stringValue(source.storage_class ?? source.storageClass),
+    limits: {
+      maxObjects: numberValue(limits.max_objects ?? limits.maxObjects, 0),
+      maxBytes: numberValue(limits.max_bytes ?? limits.maxBytes, 0),
+    },
+    scan: {
+      managedObjectCount: numberValue(scan.managed_object_count ?? scan.managedObjectCount, 0),
+      checkedCount: numberValue(scan.checked_count ?? scan.checkedCount, 0),
+      checkedBytes: numberValue(scan.checked_bytes ?? scan.checkedBytes, 0),
+      failedCount: numberValue(scan.failed_count ?? scan.failedCount, 0),
+      unknownCount: numberValue(scan.unknown_count ?? scan.unknownCount, 0),
+      complete: scan.complete === true,
+      truncated: scan.truncated === true,
+      truncationReason: stringValue(scan.truncation_reason ?? scan.truncationReason),
+      remainingCount: numberValue(scan.remaining_count ?? scan.remainingCount, 0),
+    },
+    objects: arrayValue(source.objects).map((value): StorageScrubHealth['objects'][number] => {
+      const item = asRecord(value)
+      return {
+        id: stringValue(item.id),
+        hashAlgorithm: stringValue(item.hash_algorithm ?? item.hashAlgorithm),
+        contentHash: stringValue(item.content_hash ?? item.contentHash),
+        expectedByteSize: optionalNumberValue(item.expected_byte_size ?? item.expectedByteSize),
+        observedHash: stringValue(item.observed_hash ?? item.observedHash),
+        observedByteSize: optionalNumberValue(item.observed_byte_size ?? item.observedByteSize),
+        locationState: stringValue(item.location_state ?? item.locationState),
+        state: stringValue(item.state) ?? 'UNKNOWN',
+        code: stringValue(item.code),
+        registeredVerifiedAt: stringValue(item.registered_verified_at ?? item.registeredVerifiedAt),
+      }
+    }),
+    cursor: {
+      requestedAfter: stringValue(cursor.requested_after ?? cursor.requestedAfter),
+      nextAfter: stringValue(cursor.next_after ?? cursor.nextAfter),
+    },
+    blockedObject: source.blocked_object && typeof source.blocked_object === 'object' && !Array.isArray(source.blocked_object)
+      ? {
+          id: stringValue((source.blocked_object as Record<string, unknown>).id),
+          contentHash: stringValue((source.blocked_object as Record<string, unknown>).content_hash ?? (source.blocked_object as Record<string, unknown>).contentHash),
+          expectedByteSize: optionalNumberValue((source.blocked_object as Record<string, unknown>).expected_byte_size ?? (source.blocked_object as Record<string, unknown>).expectedByteSize),
+        }
+      : undefined,
+    projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
+    checkedAt: stringValue(source.checked_at ?? source.checkedAt),
     generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }
 }

@@ -425,4 +425,35 @@ describe('local Core adapter', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('maps bounded storage scrub evidence without exposing local paths', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      expect(url.startsWith('http://core/v1/storage/scrub-health?')).toBe(true)
+      const parsed = new URL(url)
+      expect(parsed.searchParams.get('limit')).toBe('25')
+      expect(parsed.searchParams.get('max_bytes')).toBe('4096')
+      expect(parsed.searchParams.get('after')).toBe('a'.repeat(64))
+      return new Response(JSON.stringify({ ok: true, result: {
+        schema_version: 1, status: 'UNKNOWN', read_only: true, storage_class: 'LOCAL_MANAGED',
+        limits: { max_objects: 25, max_bytes: 4096 },
+        scan: { managed_object_count: 30, checked_count: 25, checked_bytes: 2048, failed_count: 0, unknown_count: 1, complete: false, truncated: true, truncation_reason: 'MAX_OBJECTS', remaining_count: 5 },
+        objects: [{ id: 'object-1', hash_algorithm: 'SHA-256', content_hash: 'b'.repeat(64), expected_byte_size: 2048, observed_hash: 'c'.repeat(64), observed_byte_size: 2048, location_state: 'AVAILABLE', state: 'UNKNOWN', code: 'SCRUB_OBJECT_CHANGED_DURING_SCAN', relative_path: 'C:\\private\\object' }],
+        cursor: { requested_after: 'a'.repeat(64), next_after: 'b'.repeat(64) }, projection_seq: 9,
+      } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const evidence = await client.getStorageScrubHealth?.({ limit: 25, maxBytes: 4096, after: 'a'.repeat(64) })
+      expect(evidence).toMatchObject({ status: 'UNKNOWN', readOnly: true, storageClass: 'LOCAL_MANAGED' })
+      expect(evidence?.limits).toEqual({ maxObjects: 25, maxBytes: 4096 })
+      expect(evidence?.scan).toMatchObject({ checkedCount: 25, unknownCount: 1, complete: false, truncated: true, remainingCount: 5 })
+      expect(evidence?.objects[0]).toMatchObject({ contentHash: 'b'.repeat(64), observedHash: 'c'.repeat(64), state: 'UNKNOWN' })
+      expect((evidence?.objects[0] as Record<string, unknown>).relativePath).toBeUndefined()
+      expect(evidence?.cursor.nextAfter).toBe('b'.repeat(64))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

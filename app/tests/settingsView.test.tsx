@@ -2,7 +2,7 @@ import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SettingsView } from '../src/App'
-import type { BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CoreClient, DashboardSnapshot, RecoveryStatus, StagingEvidence, StagingWorkspace, StorageAdmission } from '../src/types'
+import type { BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CoreClient, DashboardSnapshot, RecoveryStatus, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth } from '../src/types'
 
 const snapshot: DashboardSnapshot = {
   generatedAt: '2026-09-29T08:00:00.000Z',
@@ -59,6 +59,33 @@ const recoveryStatus: RecoveryStatus = {
   ],
 }
 
+const scrubHealth: StorageScrubHealth = {
+  schemaVersion: 1,
+  status: 'UNKNOWN',
+  readOnly: true,
+  storageClass: 'LOCAL_MANAGED',
+  limits: { maxObjects: 100, maxBytes: 256 * 1024 * 1024 },
+  scan: {
+    managedObjectCount: 2,
+    checkedCount: 1,
+    checkedBytes: 1024,
+    failedCount: 0,
+    unknownCount: 1,
+    complete: false,
+    truncated: true,
+    truncationReason: 'MAX_BYTES',
+    remainingCount: 1,
+  },
+  objects: [{
+    id: 'object-1', hashAlgorithm: 'SHA-256', contentHash: 'a'.repeat(64), expectedByteSize: 1024,
+    locationState: 'AVAILABLE', state: 'UNKNOWN', code: 'SCRUB_IO_BUDGET_EXCEEDED',
+  }],
+  cursor: { requestedAfter: null, nextAfter: 'a'.repeat(64) },
+  projectionSeq: 9,
+  checkedAt: '2026-09-29T08:00:00.000Z',
+  generatedAt: '2026-09-29T08:00:00.000Z',
+}
+
 const writingStaging: StagingEvidence = {
   id: 'stage-1', state: 'WRITING', tempName: 'clip.mov', expectedSize: 1024, currentSize: 512,
   hashAlgorithm: 'SHA-256', sha256: 'a'.repeat(64), reparseState: 'CLEAR',
@@ -98,6 +125,22 @@ describe('SettingsView backup workspace', () => {
     expect(await screen.findByText('NOT_IMPLEMENTED')).toBeTruthy()
     expect(await screen.findByText(/RECOVERY_EPOCH_NOT_INITIALIZED/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /activate|restore now/i })).toBeNull()
+  })
+
+  it('shows bounded managed-object evidence and keeps partial scans UNKNOWN', async () => {
+    const getStorageScrubHealth = vi.fn(async () => scrubHealth)
+    const core = client({ getStorageScrubHealth })
+    render(<SettingsView snapshot={snapshot} locale="en" client={core} theme="dark" onThemeChange={vi.fn()} onLocaleChange={vi.fn()} onRefresh={vi.fn()} refreshLabel="Refresh" onToast={vi.fn()} />)
+
+    expect(await screen.findByText('Managed-object integrity')).toBeTruthy()
+    await waitFor(() => expect(getStorageScrubHealth).toHaveBeenCalledWith({ limit: 100 }, expect.any(AbortSignal)))
+    expect((await screen.findAllByText('UNKNOWN')).length).toBeGreaterThan(0)
+    expect(await screen.findByText('Partial')).toBeTruthy()
+    expect(await screen.findByText(/remaining range is checked/i)).toBeTruthy()
+    expect(screen.queryByText(/C:\\|file:\/\//i)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    await waitFor(() => expect(getStorageScrubHealth).toHaveBeenCalledTimes(2))
   })
 
   it('loads admission and lets the user create then verify a redacted local backup', async () => {

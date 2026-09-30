@@ -140,6 +140,32 @@ try {
     $html = (Invoke-WebRequest -Uri "http://127.0.0.1:$webPort/" -UseBasicParsing -TimeoutSec 5).Content
     if ($html -notmatch '<html') { throw 'CineForge root page did not return HTML.' }
     if ($health.core) {
+        # The browser-facing health projection must remain useful without
+        # disclosing the Core's private database/WAL/object-store locations.
+        $apiHealth = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/health" -TimeoutSec 5
+        $apiHealthResult = Get-OptionalProperty $apiHealth 'result'
+        foreach ($privateHealthField in @('db_path', 'wal_path', 'object_store_path')) {
+            if ($null -ne (Get-OptionalProperty $apiHealthResult $privateHealthField)) {
+                throw "Browser health projection leaked private field $privateHealthField."
+            }
+        }
+        $recovery = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/recovery/status" -TimeoutSec 5
+        $recoveryResult = Get-OptionalProperty $recovery 'result'
+        if ($null -eq $recoveryResult -or (Get-OptionalProperty $recoveryResult 'read_only') -ne $true) {
+            throw 'Packaged recovery status did not expose an explicit read-only posture.'
+        }
+        if ((Get-OptionalProperty $recoveryResult 'restore_activation_state') -ne 'NOT_IMPLEMENTED') {
+            throw 'Packaged recovery status silently advertised restore activation.'
+        }
+        $scrub = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/storage/scrub-health?limit=1&max_bytes=65536" -TimeoutSec 5
+        $scrubResult = Get-OptionalProperty $scrub 'result'
+        if ($null -eq $scrubResult -or (Get-OptionalProperty $scrubResult 'read_only') -ne $true) {
+            throw 'Packaged storage scrub endpoint did not expose a read-only evidence contract.'
+        }
+        $scrubScan = Get-OptionalProperty $scrubResult 'scan'
+        if ($null -eq $scrubScan -or $null -eq (Get-OptionalProperty $scrubScan 'complete')) {
+            throw 'Packaged storage scrub endpoint returned no bounded scan evidence.'
+        }
         $dashboard = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/dashboard" -TimeoutSec 5
         if ($null -eq $dashboard) { throw 'Core dashboard response was empty.' }
         $browserHeaders = @{ Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }

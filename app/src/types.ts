@@ -1050,6 +1050,47 @@ export interface StorageAdmission {
   generatedAt?: string
 }
 
+export type StorageScrubState = 'PASS' | 'FAIL' | 'UNKNOWN' | string
+
+/** Read-only, bounded managed-CAS integrity evidence. */
+export interface StorageScrubObjectEvidence {
+  id?: string
+  hashAlgorithm?: string
+  contentHash?: string
+  expectedByteSize?: number
+  observedHash?: string
+  observedByteSize?: number
+  locationState?: string
+  state: StorageScrubState
+  code?: string
+  registeredVerifiedAt?: string
+}
+
+export interface StorageScrubHealth {
+  schemaVersion?: number
+  status: StorageScrubState
+  readOnly: boolean
+  storageClass?: string
+  limits: { maxObjects: number; maxBytes: number }
+  scan: {
+    managedObjectCount: number
+    checkedCount: number
+    checkedBytes: number
+    failedCount: number
+    unknownCount: number
+    complete: boolean
+    truncated: boolean
+    truncationReason?: string | null
+    remainingCount: number
+  }
+  objects: StorageScrubObjectEvidence[]
+  cursor: { requestedAfter?: string | null; nextAfter?: string | null }
+  blockedObject?: { id?: string; contentHash?: string; expectedByteSize?: number }
+  projectionSeq?: number
+  checkedAt?: string
+  generatedAt?: string
+}
+
 /**
  * Redacted evidence for a durable import staging row.
  *
@@ -1167,6 +1208,7 @@ export interface CoreClient {
   getBackupRestoreEstimate?(backupId: string, signal?: AbortSignal): Promise<BackupRestoreWorkspace>
   getRecoveryStatus?(signal?: AbortSignal): Promise<RecoveryStatus>
   getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
+  getStorageScrubHealth?(options?: { limit?: number; maxBytes?: number; after?: string }, signal?: AbortSignal): Promise<StorageScrubHealth>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
   getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>

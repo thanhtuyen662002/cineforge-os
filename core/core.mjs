@@ -171,6 +171,15 @@ const DEFAULT_BACKUP_RESERVE_BYTES = 64 * 1024 * 1024;
 const BACKUP_RESTORE_ESTIMATE_THROUGHPUT_BYTES_PER_SECOND = 64 * 1024 * 1024;
 const BACKUP_RESTORE_ESTIMATE_SCHEMA_VERSION = 1;
 const BACKUP_MAX_MANIFEST_OBJECTS = 200_000;
+// Storage scrub is intentionally a bounded read-only projection in the V1
+// slice.  It proves the registered CAS identity for a finite byte budget; it
+// never creates scrub rows, updates verification timestamps, repairs bytes or
+// deletes anything.  Larger/full scans belong to the future RunStorageScrub
+// command and must be scheduled with an explicit IO budget.
+const STORAGE_SCRUB_DEFAULT_MAX_OBJECTS = 100;
+const STORAGE_SCRUB_MAX_OBJECTS = 200;
+const STORAGE_SCRUB_DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+const STORAGE_SCRUB_MAX_BYTES = 4 * 1024 * 1024 * 1024;
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 const MAX_ASSET_METADATA_BYTES = 64 * 1024;
 // Media preview is deliberately a narrow inspection capability.  It never
@@ -8460,6 +8469,7 @@ export class CoreService {
       case 'query.entity.history': return this._entityHistory(params);
       case 'query.search': return this._search(params);
       case 'query.storage.summary': return this._storageSummary();
+      case 'query.storage.scrub_health': return this._storageScrubHealth(params);
       case 'query.backup.list': return this._backups(params);
       case 'query.backup.get': return this._backupDetails(params.backup_id ?? params.backupId ?? params.id);
       case 'query.backup.restore_estimate': return this._backupRestoreEstimate(params.backup_id ?? params.backupId ?? params.id);
@@ -9419,6 +9429,264 @@ export class CoreService {
         WHERE sol.storage_object_id = so.id AND sol.location_role = 'PRIMARY' AND sol.state = 'AVAILABLE'
       )`).get().bytes);
     return { db_path: this.dbPath, bytes, object_store_bytes: objectStoreBytes, object_store_path: this.assetStorePath, cache_bytes: 0, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  /**
+   * Read-only, bounded integrity evidence for the managed CAS.
+   *
+   * The database is the object index and the filesystem is only read through
+   * a stable descriptor.  Every checked object must match its registered
+   * SHA-256 and byte size, have exactly one canonical PRIMARY location, and
+   * resolve to the deterministic asset-store path.  A byte or object budget
+   * makes this safe to call from Settings while a large library is active.
+   * No database row, location state, timestamp, or file is changed here.
+   */
+  _storageScrubHealth(params = {}) {
+    const safeNonNegativeInteger = (value) => {
+      const number = typeof value === 'number'
+        ? value
+        : typeof value === 'bigint' && value <= BigInt(Number.MAX_SAFE_INTEGER)
+          ? Number(value)
+          : typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value.trim()) : Number.NaN;
+      return Number.isSafeInteger(number) && number >= 0 ? number : null;
+    };
+    const requestedLimit = params.limit ?? params.max_objects ?? params.maxObjects ?? STORAGE_SCRUB_DEFAULT_MAX_OBJECTS;
+    const maxObjects = boundedInteger(requestedLimit, 'limit', { min: 1, max: STORAGE_SCRUB_MAX_OBJECTS });
+    const requestedBytes = params.max_bytes ?? params.maxBytes ?? STORAGE_SCRUB_DEFAULT_MAX_BYTES;
+    const maxBytes = boundedInteger(requestedBytes, 'max_bytes', { min: 1, max: STORAGE_SCRUB_MAX_BYTES });
+    const afterInput = params.after ?? params.after_content_hash ?? params.afterContentHash ?? null;
+    // Preserve whitespace in the opaque lexical key.  A registered object
+    // row is allowed to be malformed by the current schema (it only checks
+    // length), so trimming here could make a returned cursor impossible to
+    // submit and leave pagination stuck on that row.
+    const after = afterInput === null || afterInput === undefined || afterInput === '' ? null : String(afterInput).toLowerCase();
+    // The cursor is a bounded lexical key, not an integrity claim.  Keeping
+    // malformed registered hashes pageable lets a later page surface the
+    // remaining rows instead of getting stuck on one corrupt metadata row.
+    if (after !== null && (after.length === 0 || after.length > 128 || /[\u0000-\u001f\u007f]/u.test(after))) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'after' });
+    }
+
+    // A cursor is content-addressed, so pagination remains deterministic even
+    // if a caller asks for a smaller page after a previous bounded scan.
+    const rows = this.db.prepare(`SELECT so.id, so.hash_algorithm, so.content_hash,
+        so.byte_size, so.storage_class, so.verified_at_utc_us,
+        (SELECT COUNT(*) FROM storage_object_locations all_locations
+          WHERE all_locations.storage_object_id = so.id AND all_locations.location_role = 'PRIMARY') AS primary_location_count,
+        (SELECT location.state FROM storage_object_locations location
+          WHERE location.storage_object_id = so.id AND location.location_role = 'PRIMARY'
+          ORDER BY location.id ASC LIMIT 1) AS location_state,
+        (SELECT location.storage_root FROM storage_object_locations location
+          WHERE location.storage_object_id = so.id AND location.location_role = 'PRIMARY'
+          ORDER BY location.id ASC LIMIT 1) AS location_root,
+        (SELECT location.relative_path FROM storage_object_locations location
+          WHERE location.storage_object_id = so.id AND location.location_role = 'PRIMARY'
+          ORDER BY location.id ASC LIMIT 1) AS relative_path
+      FROM storage_objects so
+      WHERE so.storage_class = 'LOCAL_MANAGED'
+        AND (? IS NULL OR lower(so.content_hash) > ?)
+      ORDER BY lower(so.content_hash) ASC, so.id ASC
+      LIMIT ?`).all(after, after, maxObjects + 1);
+    const managedObjectCountRow = this.db.prepare(`SELECT COUNT(*) AS count
+      FROM storage_objects WHERE storage_class = 'LOCAL_MANAGED'`).get();
+    const managedObjectCount = safeNonNegativeInteger(managedObjectCountRow?.count) ?? 0;
+
+    const objects = [];
+    let checkedBytes = 0;
+    let checkedCount = 0;
+    let unknownCount = 0;
+    let failedCount = 0;
+    let budgetExhausted = false;
+    let lastCursor = after;
+    let blockedObject = null;
+
+    const record = (row, state, code, evidence = {}) => {
+      const expectedHash = typeof row.content_hash === 'string' && SHA256_HEX.test(row.content_hash)
+        ? row.content_hash.toLowerCase() : null;
+      const expectedSize = safeNonNegativeInteger(row.byte_size);
+      const item = {
+        id: typeof row.id === 'string' ? row.id : String(row.id ?? ''),
+        hash_algorithm: typeof row.hash_algorithm === 'string' ? row.hash_algorithm : null,
+        content_hash: expectedHash,
+        expected_byte_size: expectedSize,
+        location_state: typeof row.location_state === 'string' ? row.location_state : null,
+        state,
+        ...(code ? { code } : {}),
+        ...(evidence.observedHash ? { observed_hash: evidence.observedHash } : {}),
+        ...(evidence.observedSize !== undefined ? { observed_byte_size: evidence.observedSize } : {}),
+        ...(safeNonNegativeInteger(row.verified_at_utc_us) !== null
+          ? { registered_verified_at: rfc3339FromUs(safeNonNegativeInteger(row.verified_at_utc_us)) } : {}),
+      };
+      objects.push(item);
+      checkedCount += 1;
+      if (state === 'FAIL') failedCount += 1;
+      if (state === 'UNKNOWN') unknownCount += 1;
+      if (Number.isSafeInteger(evidence.bytesHashed) && evidence.bytesHashed >= 0) checkedBytes += evidence.bytesHashed;
+      if (state !== 'UNKNOWN' || code !== 'SCRUB_IO_BUDGET_EXCEEDED') {
+        // Advance by the registered lexical key even when the key is not a
+        // valid SHA-256.  This keeps malformed rows pageable for diagnostics.
+        if (typeof row.content_hash === 'string' && row.content_hash.length > 0) lastCursor = row.content_hash.toLowerCase();
+      }
+      return item;
+    };
+
+    for (const row of rows.slice(0, maxObjects)) {
+      const expectedSize = safeNonNegativeInteger(row.byte_size);
+      // Metadata failures are deterministic and do not consume filesystem IO.
+      if (row.hash_algorithm !== 'SHA-256') {
+        record(row, 'FAIL', 'SCRUB_HASH_ALGORITHM_INVALID');
+        continue;
+      }
+      if (typeof row.content_hash !== 'string' || !SHA256_HEX.test(row.content_hash)) {
+        record(row, 'FAIL', 'SCRUB_CONTENT_HASH_INVALID');
+        continue;
+      }
+      if (expectedSize === null) {
+        record(row, 'FAIL', 'SCRUB_BYTE_SIZE_INVALID');
+        continue;
+      }
+      if (row.verified_at_utc_us !== null && row.verified_at_utc_us !== undefined
+        && safeNonNegativeInteger(row.verified_at_utc_us) === null) {
+        record(row, 'FAIL', 'SCRUB_VERIFIED_AT_INVALID');
+        continue;
+      }
+      const primaryLocationCount = safeNonNegativeInteger(row.primary_location_count) ?? 0;
+      if (primaryLocationCount !== 1) {
+        record(row, 'FAIL', primaryLocationCount === 0
+          ? 'SCRUB_PRIMARY_LOCATION_MISSING' : 'SCRUB_PRIMARY_LOCATION_AMBIGUOUS');
+        continue;
+      }
+      const expectedRelativePath = this._objectRelativePath('SHA-256', row.content_hash.toLowerCase()).split(path.sep).join('/');
+      if (row.location_root !== 'asset-store' || row.location_state !== 'AVAILABLE' || row.relative_path !== expectedRelativePath) {
+        record(row, 'FAIL', row.location_state !== 'AVAILABLE' ? 'SCRUB_LOCATION_UNAVAILABLE' : 'SCRUB_LOCATION_INVALID');
+        continue;
+      }
+      const remainingBytes = maxBytes - checkedBytes;
+      if (expectedSize > remainingBytes) {
+        budgetExhausted = true;
+        blockedObject = { id: row.id, content_hash: row.content_hash.toLowerCase(), expected_byte_size: expectedSize };
+        record(row, 'UNKNOWN', 'SCRUB_IO_BUDGET_EXCEEDED');
+        // Do not advance the cursor over an object whose bytes were not read.
+        lastCursor = after;
+        break;
+      }
+
+      const target = path.resolve(this.assetStorePath, row.relative_path);
+      if (!pathIsWithin(target, this.assetStorePath) || pathKey(target) === pathKey(this.assetStorePath)) {
+        record(row, 'FAIL', 'SCRUB_PATH_ESCAPE');
+        continue;
+      }
+
+      let descriptor;
+      let observedSize;
+      let observedHash;
+      try {
+        this._assertNoReparsePath(target);
+        // O_NOFOLLOW is unavailable on Windows.  Bind the descriptor to the
+        // path identity observed before open and again after hashing so a
+        // rename/reparse swap cannot be reported as PASS on that platform.
+        const pathBefore = fs.lstatSync(target);
+        if (pathBefore.isSymbolicLink() || !pathBefore.isFile() || safeNonNegativeInteger(pathBefore.nlink) !== 1) {
+          throw new Error('SOURCE_CHANGED_DURING_HASH');
+        }
+        const noFollow = Number(fs.constants.O_NOFOLLOW ?? 0);
+        descriptor = fs.openSync(target, fs.constants.O_RDONLY | noFollow);
+        const before = fs.fstatSync(descriptor);
+        if (!before.isFile()) {
+          record(row, 'FAIL', 'SCRUB_NOT_REGULAR_FILE');
+          continue;
+        }
+        if (safeNonNegativeInteger(before.nlink) !== 1) {
+          record(row, 'FAIL', 'SCRUB_HARDLINK_REJECTED');
+          continue;
+        }
+        if (pathBefore.dev !== undefined && !this._sameHandleIdentity(this._sourceIdentity(pathBefore), this._sourceIdentity(before))) {
+          throw new Error('SOURCE_CHANGED_DURING_HASH');
+        }
+        observedSize = safeNonNegativeInteger(before.size);
+        if (observedSize === null) {
+          record(row, 'UNKNOWN', 'SCRUB_OBJECT_UNREADABLE');
+          continue;
+        }
+        if (observedSize > remainingBytes) {
+          budgetExhausted = true;
+          blockedObject = { id: row.id, content_hash: row.content_hash.toLowerCase(), expected_byte_size: expectedSize };
+          record(row, 'UNKNOWN', 'SCRUB_IO_BUDGET_EXCEEDED', { observedSize });
+          lastCursor = after;
+          break;
+        }
+        const digest = crypto.createHash('sha256');
+        const buffer = Buffer.allocUnsafe(1024 * 1024);
+        let position = 0;
+        while (position < observedSize) {
+          const read = fs.readSync(descriptor, buffer, 0, Math.min(buffer.length, observedSize - position), position);
+          if (read <= 0) throw new Error('SHORT_READ');
+          digest.update(buffer.subarray(0, read));
+          position += read;
+        }
+        const afterStat = fs.fstatSync(descriptor);
+        if (!this._sameSourceIdentity(this._sourceIdentity(before), this._sourceIdentity(afterStat))) throw new Error('SOURCE_CHANGED_DURING_HASH');
+        let pathAfter;
+        try { pathAfter = fs.lstatSync(target); } catch { throw new Error('SOURCE_CHANGED_DURING_HASH'); }
+        if (pathAfter.isSymbolicLink() || !pathAfter.isFile()
+          || !this._sameHandleIdentity(this._sourceIdentity(afterStat), this._sourceIdentity(pathAfter))) {
+          throw new Error('SOURCE_CHANGED_DURING_HASH');
+        }
+        observedHash = digest.digest('hex');
+        const state = observedSize === expectedSize && observedHash === row.content_hash.toLowerCase() ? 'PASS' : 'FAIL';
+        const code = state === 'PASS' ? null : observedSize !== expectedSize ? 'SCRUB_BYTE_SIZE_MISMATCH' : 'SCRUB_CONTENT_HASH_MISMATCH';
+        record(row, state, code, { observedHash, observedSize, bytesHashed: observedSize });
+      } catch (error) {
+        const code = error?.code === 'ENOENT' ? 'SCRUB_OBJECT_MISSING'
+          : error?.code === 'ELOOP' || error?.code === 'SOURCE_REPARSE_REJECTED' ? 'SCRUB_REPARSE_REJECTED'
+            : error?.message === 'SOURCE_CHANGED_DURING_HASH' ? 'SCRUB_OBJECT_CHANGED_DURING_SCAN'
+              : 'SCRUB_OBJECT_UNREADABLE';
+        const state = code === 'SCRUB_OBJECT_MISSING' || code === 'SCRUB_REPARSE_REJECTED' ? 'FAIL' : 'UNKNOWN';
+        record(row, state, code, { ...(observedSize !== undefined ? { observedSize } : {}), ...(observedHash ? { observedHash } : {}) });
+        if (state === 'UNKNOWN' && code === 'SCRUB_OBJECT_UNREADABLE') {
+          // Continue bounded metadata checks for the remaining objects; one
+          // transient permission/read error must not make the scan unbounded.
+        }
+      } finally {
+        if (descriptor !== undefined) { try { fs.closeSync(descriptor); } catch { /* preserve evidence */ } }
+      }
+      if (budgetExhausted) break;
+    }
+
+    const hasMoreRows = rows.length > maxObjects;
+    const truncated = budgetExhausted || hasMoreRows;
+    const complete = !truncated;
+    const status = failedCount > 0 ? 'FAIL' : (unknownCount > 0 || truncated ? 'UNKNOWN' : 'PASS');
+    const remainingCountRow = this.db.prepare(`SELECT COUNT(*) AS count FROM storage_objects
+        WHERE storage_class = 'LOCAL_MANAGED' AND (? IS NULL OR lower(content_hash) > ?)`).get(lastCursor, lastCursor);
+    const remainingCount = safeNonNegativeInteger(remainingCountRow?.count) ?? 0;
+    return {
+      schema_version: 1,
+      status,
+      read_only: true,
+      storage_class: 'LOCAL_MANAGED',
+      limits: { max_objects: maxObjects, max_bytes: maxBytes },
+      scan: {
+        managed_object_count: managedObjectCount,
+        checked_count: checkedCount,
+        checked_bytes: checkedBytes,
+        failed_count: failedCount,
+        unknown_count: unknownCount,
+        complete,
+        truncated,
+        truncation_reason: budgetExhausted ? 'MAX_BYTES' : hasMoreRows ? 'MAX_OBJECTS' : null,
+        remaining_count: remainingCount,
+      },
+      objects,
+      cursor: {
+        requested_after: after,
+        next_after: complete ? null : lastCursor,
+      },
+      ...(blockedObject ? { blocked_object: blockedObject } : {}),
+      projection_seq: this._projectionSeq(),
+      checked_at: new Date().toISOString(),
+      generated_at: new Date().toISOString(),
+    };
   }
 
   _backups(params = {}) {
