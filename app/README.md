@@ -1,12 +1,11 @@
 # CineForge OS desktop slice
 
 This directory is the first usable desktop vertical slice. It keeps the UI
-behind a small `CoreClient` interface so the screen can run against the real
-local Core when available and still provide a deterministic first-run workspace
-for design review. The browser fallback stores a bounded demo snapshot plus
-workspace records and local idempotency bindings in `localStorage`; it remains
-a development/offline path and does not claim to be the canonical Core database
-or to provide the Core command/audit ledger.
+behind a small `CoreClient` interface so the screen runs against the real local
+Core in the packaged product. Vite development and test modes retain a
+deterministic bounded workspace for design review; that browser fallback stores
+demo data and local idempotency bindings in `localStorage`, never claims to be
+the canonical Core database, and is fail-closed out of production bundles.
 
 ## Run it
 
@@ -59,12 +58,13 @@ The adapter calls:
 - `POST /v1/decisions/{decisionId}/resolve` with a choice and decision version
 - `POST /v1/decisions/{decisionId}/dismiss` with the current decision version
 
-The UI never writes a database directly. When no URL is configured, the local
-adapter gives the first-run shell a clearly bounded, persisted demo workspace,
-replays equivalent local mutations by idempotency key, and labels production
-state honestly. The canonical live workspace keeps task, planning-shot, and
-note identities separate; a planning shot is never labelled as rendered or
-approved media. The staging endpoint exists on the
+The UI never writes a database directly. When no URL is configured in
+development/test mode, the local adapter gives the first-run shell a clearly
+bounded, persisted demo workspace and replays equivalent local mutations by
+idempotency key. A production build refuses to use that path and displays a
+Core-unavailable state until the packaged local Core is ready. The canonical
+live workspace keeps task, planning-shot, and note identities separate; a
+planning shot is never labelled as rendered or approved media. The staging endpoint exists on the
 packaged bootstrap boundary; a Vite development server pointed directly at
 Core should use the advanced path or a Core endpoint that implements the same
 staged-file contract.

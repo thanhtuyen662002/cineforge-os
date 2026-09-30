@@ -90,7 +90,8 @@ export const copy = {
     refresh: 'Tải lại',
     loading: 'Đang tải không gian làm việc…',
     retry: 'Thử lại',
-    loadError: 'Không thể đọc trạng thái từ Core.',
+    loadError: 'Không thể kết nối CineForge Core.',
+    loadErrorDetail: 'Ứng dụng production cần Core local đang chạy. Không có dữ liệu demo nào được dùng khi Core chưa sẵn sàng.',
     createProjectTitle: 'Tạo dự án mới',
     createProjectHint: 'Bắt đầu bằng một cái tên. Bạn có thể thêm kịch bản sau.',
     projectName: 'Tên dự án',
@@ -146,7 +147,8 @@ export const copy = {
     refresh: 'Refresh',
     loading: 'Loading your workspace…',
     retry: 'Retry',
-    loadError: 'Could not read the latest state from Core.',
+    loadError: 'CineForge Core is unavailable.',
+    loadErrorDetail: 'The production app requires the local Core to be ready. No demo data is used while Core is unavailable.',
     createProjectTitle: 'Create a new project',
     createProjectHint: 'Start with a name. You can add a script later.',
     projectName: 'Project name',
@@ -440,7 +442,7 @@ function App() {
         </header>
 
         <div className="content-scroll">
-          {isLoading && !snapshot ? <LoadingState label={t.loading} /> : loadError && !snapshot ? <ErrorState message={t.loadError} onRetry={() => void loadDashboard()} retryLabel={t.retry} /> : content}
+          {isLoading && !snapshot ? <LoadingState label={t.loading} /> : loadError && !snapshot ? <ErrorState message={t.loadError} detail={loadError === t.loadError ? t.loadErrorDetail : `${t.loadErrorDetail} (${loadError})`} onRetry={() => void loadDashboard()} retryLabel={t.retry} /> : content}
         </div>
       </main>
 
@@ -3667,8 +3669,8 @@ function LoadingState({ label }: { label: string }) {
   return <div className="loading-state"><div className="loading-orb"><Sparkles size={20} /></div><p>{label}</p><div className="loading-skeleton wide" /><div className="loading-skeleton" /><div className="loading-skeleton" /></div>
 }
 
-function ErrorState({ message, retryLabel, onRetry }: { message: string; retryLabel: string; onRetry: () => void }) {
-  return <div className="error-state"><div className="error-icon"><CloudOff size={24} /></div><h2>{message}</h2><p>CineForge không giả vờ đã lưu thay đổi. Kiểm tra Core rồi thử lại.</p><button className="primary-button" onClick={onRetry}>{retryLabel}</button></div>
+function ErrorState({ message, detail, retryLabel, onRetry }: { message: string; detail?: string; retryLabel: string; onRetry: () => void }) {
+  return <div className="error-state"><div className="error-icon"><CloudOff size={24} /></div><h2>{message}</h2><p>{detail ?? 'CineForge không giả vờ đã lưu thay đổi. Kiểm tra Core rồi thử lại.'}</p><button className="primary-button" onClick={onRetry}>{retryLabel}</button></div>
 }
 
 function EmptyInline({ icon: Icon, text }: { icon: typeof CheckCircle2; text: string }) {

@@ -59,6 +59,37 @@ describe('local Core adapter', () => {
     }
   })
 
+  it('sends idempotency keys and maps canonical project/item writes', async () => {
+    const calls: Array<{ url: string; key: string | undefined }> = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const headers = init?.headers as Record<string, string>
+      calls.push({ url, key: headers['Idempotency-Key'] })
+      expect(init?.method).toBe('POST')
+      if (url.endsWith('/v1/projects')) {
+        expect(headers['Idempotency-Key']).toBe('project-create-1')
+        return new Response(JSON.stringify({ ok: true, result: { id: 'project-live', title: 'Live project', lifecycle_state: 'ACTIVE', code: 'LIVE' } }), { status: 200 })
+      }
+      expect(url).toBe('http://core/v1/projects/project-live/production-items')
+      expect(headers['Idempotency-Key']).toBe('item-create-1')
+      return new Response(JSON.stringify({ ok: true, result: { id: 'task-live', title: 'Opening shot' } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const project = await client.createProject('Live project', 'project-create-1')
+      const item = await client.addProductionItem('project-live', 'Opening shot', 'item-create-1')
+      expect(project).toMatchObject({ id: 'project-live', name: 'Live project', stage: 'ACTIVE', stageDetail: 'LIVE' })
+      expect(item).toEqual({ id: 'task-live', title: 'Opening shot', detail: 'Mới tạo · chưa bắt đầu', state: 'todo' })
+      expect(calls).toEqual([
+        { url: 'http://core/v1/projects', key: 'project-create-1' },
+        { url: 'http://core/v1/projects/project-live/production-items', key: 'item-create-1' },
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('recovers from a malformed local snapshot', async () => {
     localStorage.setItem('cineforge-dashboard-v1', '{broken')
     const snapshot = await createCoreClient().getDashboard()

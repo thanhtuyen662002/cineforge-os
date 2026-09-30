@@ -55,9 +55,11 @@ The shipped flow is real and persisted:
 
 The UI defaults to Vietnamese and includes an English toggle, dark/light theme,
 responsive navigation, search, loading/error/needs-user states, Activity,
-Library, Settings, and an honest offline/demo fallback only when no Core
-endpoint is configured. The packaged build always configures the same-origin
-Core proxy; the production import action stays disabled in the demo fallback.
+Library, and Settings. A bounded offline/demo adapter exists only in Vite
+development/test mode for design review. The production bundle fails closed
+when Core is unavailable and never presents or mutates demo data. The packaged
+build always configures the same-origin Core proxy, and production import
+remains disabled until that live Core is ready.
 
 ## Verification
 

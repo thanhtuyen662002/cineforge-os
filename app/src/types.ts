@@ -1274,11 +1274,11 @@ export interface ReleaseCandidateList {
 export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
-  acknowledgeDecision(id: string): Promise<void>
+  acknowledgeDecision(id: string, idempotencyKey?: string): Promise<void>
   resolveDecision?(id: string, choiceId: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
   dismissDecision?(id: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
-  createProject(name: string): Promise<ProjectSummary>
-  addProductionItem(projectId: string, title: string): Promise<ProductionItem>
+  createProject(name: string, idempotencyKey?: string): Promise<ProjectSummary>
+  addProductionItem(projectId: string, title: string, idempotencyKey?: string): Promise<ProductionItem>
   createTask?(projectId: string, title: string, options?: { description?: string; priority?: number; idempotencyKey?: string }): Promise<TaskSummary>
   updateTask?(taskId: string, patch: { title?: string; description?: string; priority?: number; status?: TaskStatus }, expectedVersion: number, idempotencyKey?: string): Promise<TaskSummary>
   createShot?(projectId: string, code: string, title: string, idempotencyKey?: string): Promise<ShotSummary>

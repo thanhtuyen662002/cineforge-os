@@ -10,11 +10,11 @@ declare global {
 
 export interface CoreBridge {
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
-  acknowledgeDecision(id: string): Promise<void>
+  acknowledgeDecision(id: string, idempotencyKey?: string): Promise<void>
   resolveDecision?(id: string, choiceId: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
   dismissDecision?(id: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
-  createProject(name: string): Promise<ProjectSummary>
-  addProductionItem(projectId: string, title: string): Promise<ProductionItem>
+  createProject(name: string, idempotencyKey?: string): Promise<ProjectSummary>
+  addProductionItem(projectId: string, title: string, idempotencyKey?: string): Promise<ProductionItem>
   createTask?(projectId: string, title: string, options?: { description?: string; priority?: number; idempotencyKey?: string }): Promise<TaskSummary>
   updateTask?(taskId: string, patch: { title?: string; description?: string; priority?: number; status?: TaskStatus }, expectedVersion: number, idempotencyKey?: string): Promise<TaskSummary>
   createShot?(projectId: string, code: string, title: string, idempotencyKey?: string): Promise<ShotSummary>
@@ -93,6 +93,13 @@ export interface CoreBridge {
 const LOCAL_SNAPSHOT_KEY = 'cineforge-dashboard-v1'
 const LOCAL_WORKSPACE_KEY = 'cineforge-workspaces-v1'
 const LOCAL_IDEMPOTENCY_KEY = 'cineforge-idempotency-v1'
+// The local snapshot/workspace adapter is intentionally available to Vite's
+// development and test modes only.  A production bundle must never silently
+// present or mutate demo data when the Core endpoint is missing.  Keeping a
+// loopback-only sentinel as the effective URL makes every existing HTTP path
+// fail closed without duplicating a production guard across dozens of
+// capability methods; it also avoids an accidental cloud/network fallback.
+const PRODUCTION_MISSING_CORE_BASE_URL = 'http://127.0.0.1:1'
 
 export class CoreClientError extends Error {
   readonly code: string
@@ -291,17 +298,27 @@ function persistLocalWorkspace(projectId: string, value: LocalWorkspaceState) {
  *
  * The browser adapter speaks the versioned local Core HTTP surface. In a
  * Tauri build the same interface can be backed by invoke() without changing
- * the UI. A read-only mock is used when no Core endpoint is configured so the
- * app remains useful for design review and first-run onboarding.
+ * the UI. A bounded local snapshot is available only to development/test
+ * builds; production builds fail closed if the packaged Core endpoint is not
+ * configured, so a release can never look healthy while mutating demo data.
  */
 export class HttpCoreClient implements CoreClient {
   private readonly timelineWorkingClientInstances = new Map<string, string>()
   private readonly previewSessionId = globalThis.crypto?.randomUUID?.() ?? `preview-${Math.random().toString(36).slice(2)}-${Date.now()}`
 
-  constructor(private readonly baseUrl = import.meta.env.VITE_CORE_BASE_URL ?? globalThis.window?.__CINEFORGE_CORE_BASE_URL__ ?? '') {}
+  private readonly baseUrl: string
+
+  constructor(configuredBaseUrl = import.meta.env.VITE_CORE_BASE_URL ?? globalThis.window?.__CINEFORGE_CORE_BASE_URL__ ?? '') {
+    const normalized = typeof configuredBaseUrl === 'string' ? configuredBaseUrl.trim() : ''
+    // Vite's test mode is deliberately non-production, so existing adapter
+    // tests continue to exercise the bounded local path.  `PROD` is static at
+    // build time and therefore cannot be changed by a page query parameter or
+    // localStorage value in the shipped bundle.
+    this.baseUrl = normalized || (import.meta.env.PROD ? PRODUCTION_MISSING_CORE_BASE_URL : '')
+  }
 
   isLive(): boolean {
-    return this.baseUrl.length > 0
+    return this.baseUrl.length > 0 && this.baseUrl !== PRODUCTION_MISSING_CORE_BASE_URL
   }
 
   async getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot> {
@@ -351,7 +368,7 @@ export class HttpCoreClient implements CoreClient {
     }
   }
 
-  async acknowledgeDecision(id: string): Promise<void> {
+  async acknowledgeDecision(id: string, idempotencyKey = crypto.randomUUID()): Promise<void> {
     if (!this.baseUrl) {
       const snapshot = localSnapshot()
       snapshot.decisions = snapshot.decisions.filter((decision) => decision.id !== id)
@@ -360,10 +377,10 @@ export class HttpCoreClient implements CoreClient {
     }
     const response = await fetch(`${this.baseUrl}/v1/decisions/${encodeURIComponent(id)}/ack`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
       body: JSON.stringify({ source: 'desktop-ui' }),
     })
-    if (!response.ok) throw new Error(`Core decision acknowledgement failed (${response.status})`)
+    await readCorePayload(response, 'decision acknowledgement')
   }
 
   async resolveDecision(id: string, choiceId: string, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<DecisionRequest> {
@@ -433,11 +450,14 @@ export class HttpCoreClient implements CoreClient {
     }
   }
 
-  async createProject(name: string): Promise<ProjectSummary> {
+  async createProject(name: string, idempotencyKey = crypto.randomUUID()): Promise<ProjectSummary> {
     if (this.baseUrl) {
-      const response = await fetch(`${this.baseUrl}/v1/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
-      if (!response.ok) throw new Error(`Core project creation failed (${response.status})`)
-      return response.json() as Promise<ProjectSummary>
+      const response = await fetch(`${this.baseUrl}/v1/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ name }),
+      })
+      return mapProjectSummary(await readCorePayload(response, 'project creation'))
     }
     const snapshot = localSnapshot()
     const project: ProjectSummary = {
@@ -462,11 +482,14 @@ export class HttpCoreClient implements CoreClient {
     return project
   }
 
-  async addProductionItem(projectId: string, title: string): Promise<ProductionItem> {
+  async addProductionItem(projectId: string, title: string, idempotencyKey = crypto.randomUUID()): Promise<ProductionItem> {
     if (this.baseUrl) {
-      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/production-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
-      if (!response.ok) throw new Error(`Core production item creation failed (${response.status})`)
-      return response.json() as Promise<ProductionItem>
+      const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/production-items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ title }),
+      })
+      return mapProductionItemRecord(await readCorePayload(response, 'production item creation'), 0)
     }
     const snapshot = localSnapshot()
     const project = snapshot.projects.find((candidate) => candidate.id === projectId)
@@ -1511,6 +1534,35 @@ function optionalNumberValue(value: unknown): number | undefined {
 function integerValue(value: unknown, fallback: number, minimum: number, maximum: number): number {
   const numeric = typeof value === 'number' ? value : Number(value)
   return Number.isSafeInteger(numeric) && numeric >= minimum && numeric <= maximum ? numeric : fallback
+}
+
+function mapProjectSummary(value: unknown): ProjectSummary {
+  const source = asRecord(value)
+  const completionSource = asRecord(source.completion)
+  const rawProductionItems = source.production_items ?? source.productionItems
+  const productionItems = Array.isArray(rawProductionItems)
+    ? rawProductionItems.map((item, index) => mapProductionItemRecord(item, index))
+    : []
+  const done = integerValue(completionSource.done, productionItems.filter((item) => item.state === 'done').length, 0, Number.MAX_SAFE_INTEGER)
+  const total = integerValue(completionSource.total, productionItems.length, 0, Number.MAX_SAFE_INTEGER)
+  const rawHealth = stringValue(source.health ?? source.health_state ?? source.healthState)?.toLowerCase()
+  const health: ProjectSummary['health'] = rawHealth === 'blocked' ? 'blocked' : rawHealth === 'attention' || rawHealth === 'at_risk' ? 'attention' : 'healthy'
+  return {
+    id: stringValue(source.id ?? source.project_id ?? source.projectId) ?? `project-${crypto.randomUUID()}`,
+    name: stringValue(source.name ?? source.title) ?? 'CineForge project',
+    kind: stringValue(source.kind ?? source.project_type ?? source.projectType) ?? 'Project',
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt) ?? new Date().toISOString(),
+    stage: stringValue(source.stage ?? source.lifecycle_state ?? source.lifecycleState) ?? 'ACTIVE',
+    stageDetail: stringValue(source.stage_detail ?? source.stageDetail ?? source.code) ?? '',
+    cover: stringValue(source.cover) ?? 'linear-gradient(145deg, #7664a9 0%, #35446a 56%, #171c2a 100%)',
+    accent: stringValue(source.accent) ?? '#b9a0ff',
+    completion: { done, total },
+    health,
+    nextAction: stringValue(source.next_action ?? source.nextAction) ?? 'Mở dự án',
+    nextActionLabel: stringValue(source.next_action_label ?? source.nextActionLabel) ?? 'Mở',
+    storage: stringValue(source.storage) ?? '—',
+    productionItems,
+  }
 }
 
 function mapProductionItemRecord(value: unknown, index: number): ProductionItem {
