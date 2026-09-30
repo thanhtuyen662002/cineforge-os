@@ -1142,3 +1142,35 @@ test('HTTP external-edit routes preserve lineage, rights state and optimistic ex
     await new Promise((resolve) => listener.server.close(resolve));
   }
 });
+
+test('HTTP Core epoch fencing rejects stale proxy traffic before mutation', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-epoch-'));
+  const core = new CoreService({ dbPath: path.join(directory, 'cineforge.sqlite') });
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  try {
+    const healthResponse = await fetch(`${base}/v1/health`);
+    const health = await healthResponse.json();
+    assert.equal(health.ok, true);
+    const epoch = health.result.instance_epoch;
+    const stale = await fetch(`${base}/v1/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'stale-epoch-http', 'x-cineforge-core-epoch': 'old-epoch' },
+      body: JSON.stringify({ name: 'Không được tạo' }),
+    });
+    assert.equal(stale.status, 409);
+    assert.equal((await stale.json()).error.code, 'CORE_EPOCH_STALE');
+
+    const current = await fetch(`${base}/v1/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'current-epoch-http', 'x-cineforge-core-epoch': epoch },
+      body: JSON.stringify({ name: 'Được tạo' }),
+    });
+    assert.equal(current.status, 200);
+    assert.equal((await current.json()).name, 'Được tạo');
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -47,6 +47,67 @@ test('smoke: create project, close, and reload it from SQLite WAL', () => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+test('single-writer ownership rejects a duplicate Core, fences stale epochs, and reclaims a dead owner', () => {
+  const { dbPath, directory } = tempDb();
+  const first = new CoreService({ dbPath, ownershipHeartbeatIntervalMs: 250 });
+  const health = first.handle(request('query.system.health', {}, 'ownership-health'));
+  assert.equal(health.ok, true);
+  assert.equal(health.result.ownership_state, 'ACTIVE_OWNER');
+  assert.equal(health.result.mutation_enabled, true);
+  assert.equal(typeof health.result.instance_epoch, 'string');
+  assert.ok(health.result.instance_epoch.length > 0);
+
+  assert.throws(
+    () => new CoreService({ dbPath }),
+    (error) => error?.code === 'CORE_ALREADY_OWNED',
+  );
+
+  const staleEpoch = first.handle({
+    ...request('command.execute', {
+      command_type: 'CreateProject', payload: { title: 'Không được ghi bởi epoch cũ' },
+    }, 'stale-epoch'),
+    core_epoch: 'old-core-epoch',
+  });
+  assert.equal(staleEpoch.ok, false);
+  assert.equal(staleEpoch.error.code, 'CORE_EPOCH_STALE');
+  assert.equal(first.handle(request('query.project.list')).result.projects.length, 0);
+
+  const ownerRow = first.db.prepare('SELECT * FROM core_instances WHERE id = ?').get(first.instanceId);
+  assert.ok(ownerRow);
+  first.close();
+
+  // Simulate a crash window after the OS lock disappeared but before the
+  // durable owner was marked STOPPED.  Recovery may reclaim only with dead
+  // process evidence; a fresh heartbeat from a live PID remains a conflict.
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.prepare(`UPDATE core_instances SET state = 'ACTIVE_OWNER', process_identity = ?,
+      last_heartbeat_at_utc_us = ? WHERE id = ?`).run(
+      '2147483647@dead-owner', Date.now() * 1000 - 60_000_000, ownerRow.id,
+    );
+    db.prepare(`UPDATE core_instance_ownership SET active_core_instance_id = ?, active_epoch = ?,
+      fencing_token = ? WHERE singleton_id = 1`).run(ownerRow.id, ownerRow.instance_epoch, ownerRow.fencing_token);
+  } finally {
+    db.close();
+  }
+
+  const recovered = new CoreService({ dbPath, ownershipHeartbeatIntervalMs: 60_000 });
+  const recoveredHealth = recovered.handle(request('query.system.health', {}, 'recovered-health'));
+  assert.equal(recoveredHealth.result.ownership_state, 'ACTIVE_OWNER');
+  assert.equal(recoveredHealth.result.mutation_enabled, true);
+  assert.equal(recoveredHealth.result.instance_epoch, recovered.instanceEpoch);
+  const fenced = recovered.db.prepare('SELECT state FROM core_instances WHERE id = ?').get(ownerRow.id);
+  assert.equal(fenced.state, 'STALE_FENCED');
+  recovered.db.prepare(`UPDATE core_instance_ownership SET fencing_token = ? WHERE singleton_id = 1`).run('stolen-fencing-token');
+  const staleOwnerWrite = execute(recovered, 'CreateProject', { title: 'Không được ghi bởi token cũ' }, {}, 'stale-owner-token');
+  assert.equal(staleOwnerWrite.ok, false);
+  assert.equal(staleOwnerWrite.error.code, 'CORE_OWNERSHIP_LOST');
+  assert.equal(recovered.handle(request('query.project.list')).result.projects.length, 0);
+  recovered.db.prepare(`UPDATE core_instance_ownership SET fencing_token = ? WHERE singleton_id = 1`).run(recovered.fencingToken);
+  recovered.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
 test('migrates a pre-export-evidence database before creating the output index', () => {
   const { dbPath, directory } = tempDb();
   const db = new DatabaseSync(dbPath);
@@ -463,7 +524,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 17);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 18);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -516,6 +577,9 @@ test('asset intake hashes bytes, stages a durable object and preserves redacted 
   assert.equal(replay.result.idempotent_replay, true);
   assert.equal(core.handle(request('query.project.assets', { project_id: projectId })).result.assets.length, 1);
 
+  // A second Core must never open the same writable database while the first
+  // owner is alive.  Close the original before exercising restart recovery.
+  core.close();
   const reopened = new CoreService({ dbPath, assetStorePath });
   const loaded = reopened.handle(request('query.library.assets'));
   assert.equal(loaded.ok, true);
@@ -602,7 +666,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 17);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 18);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -753,7 +817,7 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(fs.existsSync(persisted.snapshot_path), true);
   const manifest = JSON.parse(fs.readFileSync(persisted.manifest_path, 'utf8'));
   assert.equal(manifest.format_version, 1);
-  assert.equal(manifest.schema_version, 17);
+  assert.equal(manifest.schema_version, 18);
   assert.equal(manifest.objects.length, 1);
   assert.equal(manifest.objects[0].materialization, 'COPIED');
   assert.equal(fs.existsSync(path.join(persisted.destination_path, manifest.objects[0].relative_path)), true);

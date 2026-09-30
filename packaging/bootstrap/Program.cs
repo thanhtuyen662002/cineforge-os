@@ -22,8 +22,10 @@ internal static class Program
 {
     private const int DefaultWebPort = 48200;
     private const int DefaultCorePort = 48201;
+    private const int AlreadyRunningExitCode = 6;
     private const long MaxStagedUploadBytes = 8L * 1024 * 1024 * 1024;
     private const int MaxStagedFileNameLength = 255;
+    private const string SingleInstanceMutexPrefix = "Local\\CineForge.Bootstrap.";
     private static readonly TimeSpan StagedUploadTtl = TimeSpan.FromHours(24);
     private static readonly HttpClient Http = new(new SocketsHttpHandler
     {
@@ -37,6 +39,27 @@ internal static class Program
         var root = Path.GetFullPath(options.Root ?? AppContext.BaseDirectory);
         var dataRoot = Path.GetFullPath(options.DataRoot ??
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CineForge", "data"));
+
+        // Port probing is intentionally not the ownership mechanism: a second
+        // launch can otherwise choose a different port and open the same
+        // SQLite database concurrently. Acquire a stable, data-root-scoped
+        // mutex before touching the data directory or starting Core.
+        var singleInstance = TryAcquireSingleInstance(dataRoot);
+        if (singleInstance.State == SingleInstanceState.AlreadyRunning)
+        {
+            var message = $"CineForge is already running for this data directory: {dataRoot}";
+            Console.Error.WriteLine(message);
+            Console.Error.WriteLine($"Close the existing CineForge instance before launching another (exit code {AlreadyRunningExitCode}).");
+            return AlreadyRunningExitCode;
+        }
+        if (singleInstance.State == SingleInstanceState.Failed)
+        {
+            var message = $"CineForge could not acquire its single-instance guard for {dataRoot}: {singleInstance.Error}";
+            Console.Error.WriteLine(message);
+            return 5;
+        }
+
+        using var singleInstanceLease = singleInstance.Lease!;
         Directory.CreateDirectory(dataRoot);
         PruneStagedUploads(dataRoot);
         var logsRoot = Path.Combine(dataRoot, "logs");
@@ -70,7 +93,7 @@ internal static class Program
             var coreBase = new Uri($"http://127.0.0.1:{corePort}");
             var coreCapabilityToken = CreateCapabilityToken();
             var sessionId = Guid.NewGuid().ToString("N");
-            core = StartCore(root, dataRoot, corePort, logsRoot, coreCapabilityToken);
+            core = StartCore(root, dataRoot, corePort, logsRoot, coreCapabilityToken, sessionId);
             if (core is null)
             {
                 Log(bootstrapLog, "Core was not found or could not be started.");
@@ -220,7 +243,7 @@ internal static class Program
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 
-    private static CoreHost? StartCore(string root, string dataRoot, int port, string logsRoot, string capabilityToken)
+    private static CoreHost? StartCore(string root, string dataRoot, int port, string logsRoot, string capabilityToken, string coreSession)
     {
         var database = Path.Combine(dataRoot, "cineforge.sqlite3");
         var runtimeRoot = Path.Combine(root, "runtime");
@@ -259,6 +282,7 @@ internal static class Program
                 nodeStart.ArgumentList.Add(nodeServer);
                 AddServerArguments(nodeStart, database, port);
                 nodeStart.Environment["CINEFORGE_CORE_TOKEN"] = capabilityToken;
+                nodeStart.Environment["CINEFORGE_CORE_SESSION"] = coreSession;
                 return StartProcess(nodeStart, logsRoot);
             }
             if (isPackagedCore)
@@ -316,7 +340,50 @@ internal static class Program
 
         AddServerArguments(start, database, port);
         start.Environment["CINEFORGE_CORE_TOKEN"] = capabilityToken;
+        start.Environment["CINEFORGE_CORE_SESSION"] = coreSession;
         return StartProcess(start, logsRoot);
+    }
+
+    private static SingleInstanceAttempt TryAcquireSingleInstance(string dataRoot)
+    {
+        Mutex? mutex = null;
+        try
+        {
+            var mutexName = BuildSingleInstanceMutexName(dataRoot);
+            mutex = new Mutex(initiallyOwned: false, name: mutexName, createdNew: out _);
+            try
+            {
+                if (!mutex.WaitOne(0))
+                {
+                    mutex.Dispose();
+                    return SingleInstanceAttempt.AlreadyRunning;
+                }
+            }
+            catch (AbandonedMutexException)
+            {
+                // WaitOne acquires an abandoned mutex and reports the previous
+                // owner's crash separately. The current process now owns it.
+            }
+
+            return SingleInstanceAttempt.Acquired(new SingleInstanceLease(mutex!));
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or
+            WaitHandleCannotBeOpenedException or ArgumentException or PlatformNotSupportedException or
+            System.Security.SecurityException)
+        {
+            try { mutex?.Dispose(); } catch (ObjectDisposedException) { }
+            return SingleInstanceAttempt.Failed(ex.Message);
+        }
+    }
+
+    private static string BuildSingleInstanceMutexName(string dataRoot)
+    {
+        var normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataRoot));
+        // Windows paths are case-insensitive. Normalizing before hashing makes
+        // C:\CineForge\Data and c:\cineforge\data share one mutex.
+        if (OperatingSystem.IsWindows()) normalized = normalized.ToUpperInvariant();
+        var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
+        return SingleInstanceMutexPrefix + digest;
     }
 
     private static void AddServerArguments(ProcessStartInfo start, string database, int port)
@@ -560,6 +627,12 @@ internal static class Program
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", health.CoreCapabilityToken);
             request.Headers.Remove("X-CineForge-Session");
             request.Headers.TryAddWithoutValidation("X-CineForge-Session", health.SessionId);
+            // The bootstrap supplies the exact Core epoch it requested at
+            // launch.  Core rejects a stale epoch before any command/query is
+            // dispatched, so a restarted process cannot accept old browser
+            // or proxy traffic by accident.
+            request.Headers.Remove("X-CineForge-Core-Epoch");
+            request.Headers.TryAddWithoutValidation("X-CineForge-Core-Epoch", health.SessionId);
             // Only versioned API headers cross the desktop boundary. Browser
             // cookies, Origin, forwarding headers, and hop-by-hop transport
             // metadata must never reach Core or become part of its trust model.
@@ -1121,6 +1194,41 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Could not open the browser automatically: {ex.Message}");
+        }
+    }
+
+    private enum SingleInstanceState
+    {
+        Acquired,
+        AlreadyRunning,
+        Failed,
+    }
+
+    private sealed record SingleInstanceAttempt(SingleInstanceState State, SingleInstanceLease? Lease, string? Error)
+    {
+        public static SingleInstanceAttempt Acquired(SingleInstanceLease lease) => new(SingleInstanceState.Acquired, lease, null);
+        public static SingleInstanceAttempt AlreadyRunning { get; } = new(SingleInstanceState.AlreadyRunning, null, null);
+        public static SingleInstanceAttempt Failed(string error) => new(SingleInstanceState.Failed, null, error);
+    }
+
+    private sealed class SingleInstanceLease : IDisposable
+    {
+        private readonly Mutex mutex;
+        private bool disposed;
+
+        public SingleInstanceLease(Mutex mutex)
+        {
+            this.mutex = mutex;
+        }
+
+        public void Dispose()
+        {
+            if (disposed) return;
+            disposed = true;
+            try { mutex.ReleaseMutex(); } catch (ApplicationException) { }
+            catch (SynchronizationLockException) { }
+            catch (ObjectDisposedException) { }
+            mutex.Dispose();
         }
     }
 

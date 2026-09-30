@@ -18,17 +18,24 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
-> Executable Core schema: version 17 (the Issue #27 working-session tables, the
+> Executable Core schema: version 18 (the Issue #27 working-session tables, the
 > bounded Issue #29 timing metadata tables and the metadata-only Issue #49
 > release-candidate draft table plus the verified local timeline-interchange
 > output binding and the bounded returned external-edit registration tables are
-> included). The generic
+> included, together with the durable single-writer Core ownership/fencing
+> records). The generic
 > dependency/staleness graph remains a broader design contract; the Issue #29
 > slice computes its stale projection from immutable pins and current gate
 > evidence instead of materializing that graph.
 > This document describes canonical data. Search indexes, embeddings, thumbnails, previews and caches are derived data.
 
-The v17 upgrade is additive. It creates the returned external-edit lineage and
+The v18 upgrade is additive. It creates the durable Core instance registry and
+singleton ownership row used for process fencing, heartbeat evidence and stale
+owner recovery. A Core process must hold the OS/user-scoped launch lock before
+opening a writable database, acquire the singleton ownership epoch before
+bootstrap, and validate its fencing token inside every canonical mutation
+transaction. An ambiguous owner is a conflict; it is never silently replaced.
+The preceding v17 upgrade is additive and creates the returned external-edit lineage and
 contract-diff tables, indexes and no-update/no-delete guards while preserving
 the immutable handoff/export identity. The preceding v16 upgrade created the
 verified export-output columns and index; the preceding v15 upgrade created
@@ -1936,6 +1943,35 @@ manifest overhead and a configurable free-space reserve.  A configured maximum
 or insufficient free space returns `STORAGE_PRESSURE` before creating the
 destination.  Paths inside command/audit internals are resolver-only; the
 public backup/list/detail projections expose stable basenames and digests.
+
+## core_instances
+- id PK
+- instance_epoch UNIQUE (opaque process/session epoch)
+- process_identity (PID/host evidence, internal only)
+- os_user_identity (internal only)
+- started_at_utc_us
+- last_heartbeat_at_utc_us
+- state: `STARTING` | `ACTIVE_OWNER` | `DRAINING` | `STOPPED` |
+  `STALE_FENCED` | `CONFLICT`
+- fencing_token UNIQUE (internal, never returned by health or public API)
+- stopped_at_utc_us nullable
+
+## core_instance_ownership
+- singleton_id PK CHECK (`1`)
+- active_core_instance_id FK `core_instances.id` nullable
+- active_epoch nullable
+- fencing_token nullable
+- row_version positive integer
+- acquired_at_utc_us nullable
+
+The ownership row is the durable singleton fence. A new Core may reclaim an
+old row only with explicit release or dead-process evidence; a fresh heartbeat
+from a live or ambiguous process remains a conflict. Health exposes the
+instance epoch, owner state and mutation-enabled flag, while the fencing token
+and process/user identities remain internal. Every command insertion, external
+staging/backup preparation boundary and final canonical transaction rechecks
+the owner tuple. A stale epoch supplied through the HTTP adapter is rejected
+before dispatch.
 
 ## schema_migrations
 - version PK
