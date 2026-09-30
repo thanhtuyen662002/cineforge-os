@@ -329,6 +329,18 @@ describe('local Core adapter', () => {
       if (url.endsWith('/v1/backups/backup-1') && !init?.method) {
         return new Response(JSON.stringify({ ok: true, result: { backup: { id: 'backup-1', state: 'VERIFIED', destination_name: 'backup-1', manifest_name: 'manifest.json', snapshot_name: 'cineforge.sqlite', row_version: 1 }, verifications: [{ id: 'verification-1', backup_id: 'backup-1', outcome: 'VERIFIED', integrity_state: 'PASS', details: { db_sha256: 'b'.repeat(64) } }] } }), { status: 200 })
       }
+      if (url.endsWith('/v1/backups/backup-1/restore-estimate')) {
+        return new Response(JSON.stringify({ ok: true, result: {
+          backup: { id: 'backup-1', state: 'VERIFIED', destination_name: 'backup-1', row_version: 1 },
+          restore_estimate: {
+            schema_version: 1, preflight_state: 'UNKNOWN', restore_allowed: false, activation_state: 'NOT_IMPLEMENTED',
+            checks: [{ id: 'ARTIFACT_INTEGRITY', state: 'PASS' }, { id: 'TARGET_INSTALLATION', state: 'UNKNOWN', code: 'BACKUP_INSTALLATION_RECONCILIATION_REQUIRED' }],
+            artifact: { byte_size: 2048, object_count: 3, manifest_sha256: 'a'.repeat(64) },
+            target: { current_schema_version: 18, current_event_seq: 5, installation_state: 'UNKNOWN', schema_state: 'PASS', checkpoint_state: 'PASS' },
+            estimated_restore_bytes: 2048, estimated_restore_duration_ms: 1, duration_estimate_method: 'THEORETICAL_IO_ONLY_64_MIB_PER_SECOND',
+          },
+        } }), { status: 200 })
+      }
       expect(init?.method).toBe('POST')
       expect((init?.headers as Record<string, string>)['Idempotency-Key']).toBe(url.endsWith('/verify') ? 'backup-verify-1' : 'backup-create-1')
       if (url.endsWith('/verify')) {
@@ -348,11 +360,14 @@ describe('local Core adapter', () => {
       expect(admission).toMatchObject({ estimatedBytes: 1000, availableBytes: 5000, reserveBytes: 500 })
       const workspace = await client.getBackup?.('backup-1')
       expect(workspace?.verifications[0]).toMatchObject({ outcome: 'VERIFIED', integrityState: 'PASS' })
+      const restorePlan = await client.getBackupRestoreEstimate?.('backup-1')
+      expect(restorePlan?.restoreEstimate).toMatchObject({ preflightState: 'UNKNOWN', restoreAllowed: false, activationState: 'NOT_IMPLEMENTED' })
+      expect(restorePlan?.restoreEstimate?.checks[1]).toMatchObject({ id: 'TARGET_INSTALLATION', state: 'UNKNOWN' })
       const created = await client.createBackup?.({ durabilityClass: 'LOCAL_WRITABLE' }, 'backup-create-1')
       expect(created?.backup?.state).toBe('VERIFIED')
       const verified = await client.verifyBackup?.('backup-1', 'backup-verify-1')
       expect(verified?.verification?.integrityState).toBe('PASS')
-      expect(fetchMock).toHaveBeenCalledTimes(5)
+      expect(fetchMock).toHaveBeenCalledTimes(6)
     } finally {
       vi.unstubAllGlobals()
     }

@@ -4104,12 +4104,23 @@ Queries are:
 
 - `query.backup.list({limit?})`;
 - `query.backup.get({backup_id})`, including append-only verification rows;
+- `query.backup.restore_estimate({backup_id})`, a read-only artifact and
+  recovery preflight that returns bounded byte/time estimates and explicit
+  activation blockers;
 - `query.storage.admission({destination_path?, durability_class?, reserve_bytes?, max_backup_bytes?})`,
   which returns an estimate or the same fail-closed pressure/profile error as
   `CreateBackup`.
 
 The HTTP adapter maps these to `GET /v1/backups`, `GET /v1/backups/{id}`,
-`POST /v1/backups`, and `POST /v1/backups/{id}/verify`.  The admission
+`GET /v1/backups/{id}/restore-estimate`, `POST /v1/backups`, and
+`POST /v1/backups/{id}/verify`.  The restore-estimate route re-hashes the
+registered artifact without copying bytes or changing backup rows. It reports
+artifact integrity, installation/schema compatibility, event-checkpoint and
+external-reference checks, plus an explicitly theoretical IO-only duration
+estimate. It always returns `restore_allowed=false` and
+`activation_state=NOT_IMPLEMENTED`; restore activation, recovery epochs,
+forward-policy replay and external-world reconciliation remain separate gates.
+The admission
 preflight is also available as `GET /v1/storage/admission` with query
 parameters.  Public backup
 projections expose IDs, digests, counts, state, and stable file basenames;

@@ -296,6 +296,7 @@ The desktop-facing routes are:
 | GET | `/v1/rights/{id}/identity` | Read identity and append-only rights evidence |
 | GET | `/v1/backups` | List local backup metadata and verification state |
 | GET | `/v1/backups/{id}` | Read one backup and its append-only verification history |
+| GET | `/v1/backups/{id}/restore-estimate` | Read-only artifact/recovery preflight with bounded byte/time estimate |
 | POST | `/v1/backups` | Admit, create and verify a local backup (idempotency key supported) |
 | POST | `/v1/backups/{id}/verify` | Re-verify a registered backup artifact |
 | GET | `/v1/storage/admission` | Estimate backup storage or return fail-closed pressure/profile errors |
@@ -379,6 +380,17 @@ registered artifact and appends either a `VERIFIED/PASS` or `FAILED/FAIL`
 measurement. `STORAGE_PRESSURE` and unavailable durability profiles fail before
 any destination is created. Absolute resolver paths are never returned by the
 public backup/list/detail responses.
+
+`GET /v1/backups/{id}/restore-estimate` is a read-only recovery preflight. It
+re-hashes the registered manifest, SQLite snapshot and copied objects without
+copying bytes or changing Core state, then reports bounded checks for record
+state, artifact integrity, installation/schema compatibility, event checkpoint
+and external references. It returns a theoretical IO-only byte/time estimate
+(`64 MiB/s`) labelled as such; no observed restore duration is implied. The
+response always sets `restore_allowed=false` and `activation_state=NOT_IMPLEMENTED`
+until a governed recovery epoch, forward-policy reconciliation and explicit
+activation command are implemented. `UNKNOWN` checks remain visible and are
+never promoted to a restore pass.
 
 Canonical command examples:
 

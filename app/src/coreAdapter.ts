@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -25,6 +25,7 @@ export interface CoreBridge {
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
   getBackups?(signal?: AbortSignal): Promise<BackupSummary[]>
   getBackup?(backupId: string, signal?: AbortSignal): Promise<BackupWorkspace>
+  getBackupRestoreEstimate?(backupId: string, signal?: AbortSignal): Promise<BackupRestoreWorkspace>
   getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
@@ -708,6 +709,13 @@ export class HttpCoreClient implements CoreClient {
     if (!backupId.trim()) throw new CoreClientError('A backup id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
     const response = await fetch(`${this.baseUrl}/v1/backups/${encodeURIComponent(backupId)}`, { signal, headers: { Accept: 'application/json' } })
     return mapBackupWorkspaceRecord(await readCorePayload(response, 'backup details'))
+  }
+
+  async getBackupRestoreEstimate(backupId: string, signal?: AbortSignal): Promise<BackupRestoreWorkspace> {
+    if (!this.baseUrl) throw new CoreClientError('Restore preflight requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!backupId.trim()) throw new CoreClientError('A backup id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/backups/${encodeURIComponent(backupId)}/restore-estimate`, { signal, headers: { Accept: 'application/json' } })
+    return mapBackupRestoreWorkspaceRecord(await readCorePayload(response, 'restore preflight'))
   }
 
   async getStorageAdmission(signal?: AbortSignal): Promise<StorageAdmission | null> {
@@ -1721,6 +1729,74 @@ function mapBackupWorkspaceRecord(value: unknown): BackupWorkspace {
   return {
     backup: backupSource ? mapBackupSummaryRecord(backupSource) : null,
     verifications: arrayValue(source.verifications ?? source.verification_history).map(mapBackupVerificationRecord),
+    projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapBackupRestoreCheckRecord(value: unknown): BackupRestoreCheck {
+  const source = asRecord(value)
+  return {
+    id: stringValue(source.id) ?? 'UNKNOWN_CHECK',
+    state: stringValue(source.state) ?? 'UNKNOWN',
+    code: stringValue(source.code),
+    details: source.details && typeof source.details === 'object' && !Array.isArray(source.details) ? source.details as Record<string, unknown> : undefined,
+  }
+}
+
+function mapBackupRestoreEstimateRecord(value: unknown): BackupRestoreEstimate {
+  const source = asRecord(value)
+  const artifact = asRecord(source.artifact)
+  const target = asRecord(source.target)
+  return {
+    schemaVersion: optionalNumberValue(source.schema_version ?? source.schemaVersion),
+    preflightState: stringValue(source.preflight_state ?? source.preflightState) ?? 'UNKNOWN',
+    restoreAllowed: source.restore_allowed === true || source.restoreAllowed === true,
+    activationState: stringValue(source.activation_state ?? source.activationState),
+    recoveryEpochState: stringValue(source.recovery_epoch_state ?? source.recoveryEpochState),
+    forwardPolicyReconciliationState: stringValue(source.forward_policy_reconciliation_state ?? source.forwardPolicyReconciliationState),
+    nextStepCode: stringValue(source.next_step_code ?? source.nextStepCode),
+    checks: arrayValue(source.checks).map(mapBackupRestoreCheckRecord),
+    artifact: {
+      formatVersion: optionalNumberValue(artifact.format_version ?? artifact.formatVersion),
+      backupType: stringValue(artifact.backup_type ?? artifact.backupType),
+      durabilityClass: stringValue(artifact.durability_class ?? artifact.durabilityClass),
+      failureDomain: stringValue(artifact.failure_domain ?? artifact.failureDomain),
+      schemaVersion: optionalNumberValue(artifact.schema_version ?? artifact.schemaVersion),
+      eventSeqCheckpoint: optionalNumberValue(artifact.event_seq_checkpoint ?? artifact.eventSeqCheckpoint),
+      databaseBytes: optionalNumberValue(artifact.database_bytes ?? artifact.databaseBytes),
+      copiedObjectBytes: optionalNumberValue(artifact.copied_object_bytes ?? artifact.copiedObjectBytes),
+      copiedObjectCount: optionalNumberValue(artifact.copied_object_count ?? artifact.copiedObjectCount),
+      externalObjectCount: optionalNumberValue(artifact.external_object_count ?? artifact.externalObjectCount),
+      objectCount: optionalNumberValue(artifact.object_count ?? artifact.objectCount),
+      byteSize: optionalNumberValue(artifact.byte_size ?? artifact.byteSize),
+      manifestSha256: stringValue(artifact.manifest_sha256 ?? artifact.manifestSha256),
+      databaseSha256: stringValue(artifact.database_sha256 ?? artifact.databaseSha256),
+    },
+    target: {
+      currentSchemaVersion: optionalNumberValue(target.current_schema_version ?? target.currentSchemaVersion),
+      currentEventSeq: optionalNumberValue(target.current_event_seq ?? target.currentEventSeq),
+      installationState: stringValue(target.installation_state ?? target.installationState),
+      schemaState: stringValue(target.schema_state ?? target.schemaState),
+      checkpointState: stringValue(target.checkpoint_state ?? target.checkpointState),
+      forwardEventCount: optionalNumberValue(target.forward_event_count ?? target.forwardEventCount),
+    },
+    estimatedRestoreBytes: optionalNumberValue(source.estimated_restore_bytes ?? source.estimatedRestoreBytes),
+    estimatedRestoreDurationMs: optionalNumberValue(source.estimated_restore_duration_ms ?? source.estimatedRestoreDurationMs),
+    durationEstimateMethod: stringValue(source.duration_estimate_method ?? source.durationEstimateMethod),
+    observedRestoreDurationMs: optionalNumberValue(source.observed_restore_duration_ms ?? source.observedRestoreDurationMs),
+    verificationErrorCode: stringValue(source.verification_error_code ?? source.verificationErrorCode),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapBackupRestoreWorkspaceRecord(value: unknown): BackupRestoreWorkspace {
+  const source = asRecord(value)
+  const backupSource = source.backup ?? source.backup_record
+  const estimateSource = source.restore_estimate ?? source.restoreEstimate
+  return {
+    backup: backupSource ? mapBackupSummaryRecord(backupSource) : null,
+    restoreEstimate: estimateSource ? mapBackupRestoreEstimateRecord(estimateSource) : null,
     projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
     generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }

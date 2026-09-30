@@ -1721,6 +1721,8 @@ export function createCoreHttpServer(core, options = {}) {
           durability_class: url.searchParams.get('durability_class') ?? url.searchParams.get('durabilityClass') ?? undefined,
           limit: url.searchParams.get('limit') ?? 100,
         });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'backups' && parts[2] && parts[3] === 'restore-estimate' && parts.length === 4) {
+        result = query(core, request, 'query.backup.restore_estimate', { backup_id: parts[2] });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'backups' && parts[2] && parts.length === 3) {
         result = query(core, request, 'query.backup.get', { backup_id: parts[2] });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'backups' && parts.length === 2) {

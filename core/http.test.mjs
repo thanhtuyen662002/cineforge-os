@@ -772,6 +772,13 @@ test('HTTP local backup routes expose redacted metadata, admission and verificat
     assert.equal(detail.payload.result.verifications.length, 1);
     assert.equal(detail.payload.result.verifications[0].outcome, 'VERIFIED');
 
+    const restoreEstimate = await jsonRequest(`/v1/backups/${encodeURIComponent(backup.id)}/restore-estimate`);
+    assert.equal(restoreEstimate.response.status, 200);
+    assert.equal(restoreEstimate.payload.result.restore_estimate.restore_allowed, false);
+    assert.equal(restoreEstimate.payload.result.restore_estimate.activation_state, 'NOT_IMPLEMENTED');
+    assert.equal(restoreEstimate.payload.result.restore_estimate.artifact.object_count, 1);
+    assert.equal(restoreEstimate.payload.result.restore_estimate.target.schema_state, 'PASS');
+
     const verified = await jsonRequest(`/v1/backups/${encodeURIComponent(backup.id)}/verify`, {
       method: 'POST', headers: { 'idempotency-key': 'http-backup-verify' }, body: '{}',
     });
