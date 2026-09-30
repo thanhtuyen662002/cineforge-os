@@ -77,6 +77,13 @@ internal static class Program
             Console.Error.WriteLine("Run packaging\\build_windows.ps1 first, or copy the Vite dist folder to web\\.");
             return 2;
         }
+        if (!ValidateArtifactManifest(root, out var manifestError))
+        {
+            var message = $"CineForge package integrity verification failed: {manifestError}";
+            Log(bootstrapLog, message);
+            Console.Error.WriteLine(message);
+            return 7;
+        }
 
         using var lifetime = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>
@@ -210,6 +217,108 @@ internal static class Program
             Path.Combine(root, "dist", "web"),
         };
         return candidates.FirstOrDefault(Directory.Exists) ?? candidates[0];
+    }
+
+    private static bool ValidateArtifactManifest(string root, out string error)
+    {
+        error = string.Empty;
+        var manifestPath = Path.Combine(root, "build-manifest.json");
+        if (!File.Exists(manifestPath)) return true;
+
+        try
+        {
+            var manifestInfo = new FileInfo(manifestPath);
+            if (manifestInfo.Length > 4 * 1024 * 1024)
+            {
+                error = "build-manifest.json is too large.";
+                return false;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(manifestPath));
+            if (!document.RootElement.TryGetProperty("artifact_files", out var files)
+                || files.ValueKind != JsonValueKind.Array
+                || files.GetArrayLength() == 0
+                || files.GetArrayLength() > 20_000)
+            {
+                error = "build-manifest.json has no bounded artifact file inventory.";
+                return false;
+            }
+
+            var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in files.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Object
+                    || !entry.TryGetProperty("path", out var pathValue)
+                    || pathValue.ValueKind != JsonValueKind.String
+                    || !entry.TryGetProperty("bytes", out var bytesValue)
+                    || !bytesValue.TryGetInt64(out var expectedBytes)
+                    || expectedBytes < 0
+                    || !entry.TryGetProperty("sha256", out var hashValue)
+                    || hashValue.ValueKind != JsonValueKind.String)
+                {
+                    error = "build-manifest.json contains an invalid artifact entry.";
+                    return false;
+                }
+
+                var relative = pathValue.GetString() ?? string.Empty;
+                var normalizedRelative = relative.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+                if (string.IsNullOrWhiteSpace(relative)
+                    || Path.IsPathRooted(normalizedRelative)
+                    || normalizedRelative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
+                        .Any(segment => segment is "." or ".."))
+                {
+                    error = $"build-manifest.json contains an unsafe artifact path '{relative}'.";
+                    return false;
+                }
+
+                var candidate = Path.GetFullPath(Path.Combine(root, normalizedRelative));
+                if (!candidate.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase)
+                    || !seen.Add(candidate))
+                {
+                    error = $"build-manifest.json contains a duplicate or escaped artifact path '{relative}'.";
+                    return false;
+                }
+                if (!File.Exists(candidate))
+                {
+                    error = $"Packaged artifact is missing: {relative}.";
+                    return false;
+                }
+                if ((File.GetAttributes(candidate) & FileAttributes.ReparsePoint) != 0)
+                {
+                    error = $"Packaged artifact is a reparse point: {relative}.";
+                    return false;
+                }
+
+                var actualBytes = new FileInfo(candidate).Length;
+                if (actualBytes != expectedBytes)
+                {
+                    error = $"Packaged artifact size mismatch: {relative}.";
+                    return false;
+                }
+                var expectedHash = hashValue.GetString() ?? string.Empty;
+                if (!System.Text.RegularExpressions.Regex.IsMatch(expectedHash, "^[0-9a-fA-F]{64}$"))
+                {
+                    error = $"build-manifest.json contains an invalid artifact hash for '{relative}'.";
+                    return false;
+                }
+                using var stream = File.OpenRead(candidate);
+                var actualHash = Convert.ToHexString(SHA256.HashData(stream));
+                if (!actualHash.Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    error = $"Packaged artifact hash mismatch: {relative}.";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            error = $"could not validate build-manifest.json ({ex.Message})";
+            return false;
+        }
     }
 
     private static int PickPort(int preferred, params int[] excluded)
