@@ -1,5 +1,13 @@
-import { mockSnapshot } from './data/mockSnapshot'
 import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, ManagedAssetIntegrityJob, ManagedJobList, ManagedJobRetryPlan, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+
+// Keep the bounded local adapter available for development and tests without
+// shipping its demo project data in a production bundle. Vite replaces
+// import.meta.env.PROD at build time, so the dynamic import is removed from a
+// release build. The production client uses a loopback sentinel instead and
+// therefore never calls the local path.
+const localMockSnapshot: DashboardSnapshot | null = import.meta.env.PROD
+  ? null
+  : (await import('./data/mockSnapshot')).mockSnapshot
 
 declare global {
   interface Window {
@@ -124,7 +132,8 @@ export class CoreClientError extends Error {
 function localSnapshot(): DashboardSnapshot {
   const stored = localStorage.getItem(LOCAL_SNAPSHOT_KEY)
   if (!stored) {
-    const snapshot = structuredClone(mockSnapshot)
+    if (!localMockSnapshot) throw new CoreClientError('Local demo data is unavailable in a production build.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', needsUser: true })
+    const snapshot = structuredClone(localMockSnapshot)
     snapshot.decisions = snapshot.decisions.map(mapDecisionRecord)
     return snapshot
   }
@@ -134,7 +143,8 @@ function localSnapshot(): DashboardSnapshot {
     return snapshot
   } catch {
     localStorage.removeItem(LOCAL_SNAPSHOT_KEY)
-    const snapshot = structuredClone(mockSnapshot)
+    if (!localMockSnapshot) throw new CoreClientError('Local demo data is unavailable in a production build.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', needsUser: true })
+    const snapshot = structuredClone(localMockSnapshot)
     snapshot.decisions = snapshot.decisions.map(mapDecisionRecord)
     return snapshot
   }
