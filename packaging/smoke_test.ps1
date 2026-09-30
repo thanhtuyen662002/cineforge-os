@@ -116,6 +116,7 @@ try {
         if (-not $duplicate.WaitForExit(10000)) {
             throw 'A second CineForge bootstrap did not exit after detecting the active data-root owner.'
         }
+        $duplicate.Refresh()
         if ($duplicate.ExitCode -ne 6) {
             $duplicateError = if (Test-Path -LiteralPath $duplicateStderr) { Get-Content -LiteralPath $duplicateStderr -Raw } else { '' }
             throw "A second CineForge bootstrap returned exit code $($duplicate.ExitCode), expected 6. $duplicateError"
