@@ -1,0 +1,18 @@
+{
+  "event": "claim-intent-i1-a2-20260930",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 1,
+  "agent_instance_id": "cineforge-WORK-architecture-closure-refresh",
+  "slot_id": "WORK-architecture-closure-refresh",
+  "run_id": "WORK-architecture-closure-refresh-20260930-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:a7b8e8642da937b56f77202810a9214aa123d4c23b76dec95f67deac85f1584e",
+  "base_ref": "agent/i52-a1-external-edit-registration",
+  "base_sha": "5557fccc0aa50986ea4f56725e4742c3b7a351eb",
+  "context_base_sha": "5557fccc0aa50986ea4f56725e4742c3b7a351eb",
+  "requested_state": "CLAIMED",
+  "contract_revision": "TASK_CONTRACT_REVISION_V1",
+  "scope": "refresh architecture closure source digest after authoritative contract changes; do not claim runtime or production closure"
+}
