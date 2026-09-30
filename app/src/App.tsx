@@ -51,7 +51,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, ManagedAssetIntegrityJob, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryStatus, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, ManagedAssetIntegrityJob, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryStatus, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'release' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -68,7 +68,9 @@ export const copy = {
     activity: 'Hoạt động',
     library: 'Thư viện',
     settings: 'Cài đặt',
-    searchPlaceholder: 'Tìm dự án, cảnh, shot, tài sản…',
+    searchPlaceholder: 'Tìm dự án…',
+    searchNoResults: 'Không tìm thấy dự án phù hợp.',
+    searchHint: 'Gõ để tìm dự án.',
     greeting: 'Chào buổi tối, Tuyên',
     greetingHint: 'Mọi thứ quan trọng của bạn, ở đúng một chỗ.',
     continue: 'Tiếp tục',
@@ -125,7 +127,9 @@ export const copy = {
     activity: 'Activity',
     library: 'Library',
     settings: 'Settings',
-    searchPlaceholder: 'Search projects, scenes, shots, assets…',
+    searchPlaceholder: 'Search projects…',
+    searchNoResults: 'No matching projects found.',
+    searchHint: 'Type to find a project.',
     greeting: 'Good evening, Tuyên',
     greetingHint: 'Everything that matters, in one calm place.',
     continue: 'Continue',
@@ -623,6 +627,71 @@ function workspaceErrorMessage(cause: unknown, locale: Locale) {
     INVALID_ARGUMENT: { vi: 'Thông tin nhập chưa hợp lệ.', en: 'Some entered values are invalid.' },
   }
   return messages[cause.code]?.[locale] ?? (locale === 'vi' ? 'Core không thể ghi thay đổi này.' : 'Core could not save this change.')
+}
+
+/**
+ * Merge one page of the read-only working-session history endpoint into the
+ * pages already shown by the Timeline view. The Core cursor is monotonic by
+ * operation sequence, but de-duplication keeps a retry or stale response from
+ * rendering the same operation twice.
+ */
+export function mergeTimelineWorkingHistory(current: TimelineWorkingHistory | null, next: TimelineWorkingHistory): TimelineWorkingHistory {
+  if (!current) return {
+    ...next,
+    operations: [...next.operations].sort((left, right) => left.opSeq - right.opSeq),
+    historyActions: [...next.historyActions].sort((left, right) => left.actionSeq - right.actionSeq),
+  }
+  const operations = new Map<string, TimelineWorkingHistory['operations'][number]>()
+  for (const operation of [...current.operations, ...next.operations]) {
+    const key = Number.isSafeInteger(operation.opSeq) && operation.opSeq >= 0 ? `seq:${operation.opSeq}` : `id:${operation.id ?? 'unknown'}`
+    operations.set(key, operation)
+  }
+  const historyActions = new Map<string, TimelineWorkingHistory['historyActions'][number]>()
+  for (const action of [...current.historyActions, ...next.historyActions]) {
+    const key = Number.isSafeInteger(action.actionSeq) && action.actionSeq >= 0 ? `seq:${action.actionSeq}` : `id:${action.id ?? 'unknown'}`
+    historyActions.set(key, action)
+  }
+  return {
+    ...next,
+    operations: [...operations.values()].sort((left, right) => left.opSeq - right.opSeq),
+    historyActions: [...historyActions.values()].sort((left, right) => left.actionSeq - right.actionSeq),
+  }
+}
+
+export function timelineHistoryOperationLabel(opType: string, locale: Locale) {
+  const labels: Record<string, { vi: string; en: string }> = {
+    ADD_MARKER: { vi: 'Thêm marker', en: 'Add marker' },
+    INSERT_CLIP: { vi: 'Chèn clip', en: 'Insert clip' },
+    MOVE_CLIP: { vi: 'Di chuyển clip', en: 'Move clip' },
+    TRIM_CLIP: { vi: 'Trim clip', en: 'Trim clip' },
+    DELETE_CLIP: { vi: 'Xoá clip', en: 'Delete clip' },
+  }
+  const normalized = String(opType ?? 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN'
+  return labels[normalized]?.[locale] ?? (locale === 'vi' ? 'Thao tác khác' : 'Other operation')
+}
+
+export function timelineHistoryStateLabel(state: string, locale: Locale) {
+  const labels: Record<string, { vi: string; en: string }> = {
+    ACTIVE: { vi: 'Đang áp dụng', en: 'Active' },
+    UNDONE: { vi: 'Đã undo', en: 'Undone' },
+    DISCARDED: { vi: 'Đã loại khỏi nhánh', en: 'Discarded' },
+  }
+  const normalized = String(state ?? 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN'
+  return labels[normalized]?.[locale] ?? 'UNKNOWN'
+}
+
+export function timelineHistoryActionLabel(actionType: string, locale: Locale) {
+  const labels: Record<string, { vi: string; en: string }> = {
+    UNDO: { vi: 'Undo', en: 'Undo' },
+    REDO: { vi: 'Redo', en: 'Redo' },
+    DISCARD_REDO_BRANCH: { vi: 'Loại nhánh redo', en: 'Discard redo branch' },
+  }
+  const normalized = String(actionType ?? 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN'
+  return labels[normalized]?.[locale] ?? (locale === 'vi' ? 'Lịch sử khác' : 'Other history action')
+}
+
+export function timelineHistoryHashPreview(hash?: string) {
+  return typeof hash === 'string' && /^[a-f0-9]{64}$/i.test(hash) ? hash.slice(0, 12) : '—'
 }
 
 export function ProjectPlanningView({ snapshot, projectId, locale, client, onBack, onWorkspaceChanged }: { snapshot: DashboardSnapshot; projectId: string; locale: Locale; client: CoreClient; onBack: () => void; onWorkspaceChanged?: (workspace: ProjectWorkspace) => void }) {
@@ -1401,6 +1470,10 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
   const [selectedTimelineId, setSelectedTimelineId] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<TimelineWorkspace | null>(null)
   const [workingWorkspace, setWorkingWorkspace] = useState<TimelineWorkingWorkspace | null>(null)
+  const [workingHistory, setWorkingHistory] = useState<TimelineWorkingHistory | null>(null)
+  const [workingHistoryLoading, setWorkingHistoryLoading] = useState(false)
+  const [workingHistoryError, setWorkingHistoryError] = useState<string | null>(null)
+  const [workingHistoryNeedsUser, setWorkingHistoryNeedsUser] = useState(false)
   const [workingLoading, setWorkingLoading] = useState(false)
   const [workingError, setWorkingError] = useState<string | null>(null)
   const [markerNum, setMarkerNum] = useState('0')
@@ -1455,6 +1528,8 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
   })
   const loadGenerationRef = useRef(0)
   const workspaceGenerationRef = useRef(0)
+  const historyGenerationRef = useRef(0)
+  const historyAbortRef = useRef<AbortController | null>(null)
 
   const connected = snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true)
   const project = snapshot.projects.find((candidate) => candidate.id === projectId)
@@ -1635,6 +1710,44 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
     return () => controller.abort()
   }, [loadWorkingSession, projectId, selectedTimelineId])
 
+  useEffect(() => {
+    historyAbortRef.current?.abort()
+    historyAbortRef.current = null
+    historyGenerationRef.current += 1
+    setWorkingHistory(null)
+    setWorkingHistoryError(null)
+    setWorkingHistoryNeedsUser(false)
+    setWorkingHistoryLoading(false)
+  }, [projectId, selectedTimelineId, workingWorkspace?.session?.id])
+
+  const loadWorkingHistory = useCallback(async (reset = false) => {
+    const sessionId = workingWorkspace?.session?.id
+    if (!client.getTimelineWorkingHistory || !projectId || !selectedTimelineId || !sessionId) {
+      setWorkingHistoryError(client.getTimelineWorkingHistory ? null : (locale === 'vi' ? 'Bridge hiện tại chưa cung cấp history phiên chỉnh sửa.' : 'This bridge does not expose working-session history yet.'))
+      setWorkingHistoryNeedsUser(false)
+      return
+    }
+    historyAbortRef.current?.abort()
+    const controller = new AbortController()
+    historyAbortRef.current = controller
+    const generation = ++historyGenerationRef.current
+    const afterOpSeq = reset ? 0 : workingHistory?.cursor.afterOpSeq ?? 0
+    setWorkingHistoryLoading(true)
+    setWorkingHistoryError(null)
+    setWorkingHistoryNeedsUser(false)
+    try {
+      const next = await client.getTimelineWorkingHistory(projectId, selectedTimelineId, sessionId, afterOpSeq, 100, controller.signal)
+      if (controller.signal.aborted || generation !== historyGenerationRef.current) return
+      setWorkingHistory((current) => reset ? mergeTimelineWorkingHistory(null, next) : mergeTimelineWorkingHistory(current, next))
+    } catch (cause) {
+      if (controller.signal.aborted || generation !== historyGenerationRef.current) return
+      setWorkingHistoryError(workspaceErrorMessage(cause, locale))
+      setWorkingHistoryNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+    } finally {
+      if (!controller.signal.aborted && generation === historyGenerationRef.current) setWorkingHistoryLoading(false)
+    }
+  }, [client, locale, projectId, selectedTimelineId, workingHistory?.cursor.afterOpSeq, workingWorkspace?.session?.id])
+
   const updateProfileDraft = (key: keyof TimelineProfileDraft) => (event: ChangeEvent<HTMLInputElement>) => {
     setProfileDraft((current) => ({ ...current, [key]: event.target.value }))
   }
@@ -1801,6 +1914,9 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
       return
     }
     setWorkingWorkspace(next)
+    setWorkingHistory(null)
+    setWorkingHistoryError(null)
+    setWorkingHistoryNeedsUser(false)
     const nextId = next.session?.id
     if (workingSessionStorageKey && nextId) {
       try { localStorage.setItem(workingSessionStorageKey, nextId) } catch { /* local storage is an optional recovery hint */ }
@@ -1929,6 +2045,8 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
   const currentRevision = workspace?.currentRevision
   const revisions = workspace?.revisions ?? []
   const profileRevisions = mediaProfile?.revisions ?? []
+  const historyOperations = workingHistory?.operations ?? []
+  const historyActions = workingHistory?.historyActions ?? []
 
   return <div className="page timeline-page">
     <div className="page-heading"><div><p className="eyebrow">CANONICAL TIMELINE</p><h1>{locale === 'vi' ? 'Timeline' : 'Timeline'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Media Profile và checkpoint bất biến được Core quản lý; playback, render và export sẽ triển khai ở phase sau.' : 'Core-owned Media Profiles and immutable checkpoints; playback, render and export are deferred to a later phase.'}</p></div><div className="page-heading-actions"><button className="subtle-button tiny" onClick={() => void loadProjectData()}><RefreshCw size={13} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip"><Film size={15} />{timelines.length}</span></div></div>
@@ -1970,6 +2088,13 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
               </div>
               <div className="working-draft-records"><strong>{locale === 'vi' ? 'Draft hiện tại' : 'Current draft'}</strong>{workingTracks.map((track) => <div className="working-draft-row" key={track.id ?? track.orderIndex}><span>{track.name}</span><small>{track.clips.length} {locale === 'vi' ? 'clip' : 'clips'}</small></div>)}<div className="working-draft-row"><span>{locale === 'vi' ? 'Markers' : 'Markers'}</span><small>{workingSession?.draft.markers.length ?? 0}</small></div></div>
               <div className="working-session-actions"><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || workingWorkspace.session.historyCursorSeq < 1 || !client.undoTimelineEditOp || !workingEditable} onClick={() => void runWorkingCommand('undo')}><Undo2 size={13} />Undo</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !workingWorkspace.session.operations.some((operation) => operation.opSeq === workingWorkspace.session!.historyCursorSeq + 1 && operation.historyState === 'UNDONE') || !client.redoTimelineEditOp || !workingEditable} onClick={() => void runWorkingCommand('redo')}><Redo2 size={13} />Redo</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !client.autosaveTimelineWorkingSession || !workingEditable} onClick={() => void runWorkingCommand('autosave')}><Save size={13} />Autosave</button><button type="button" className="primary-button small" disabled={!connected || mutating !== null || !client.checkpointTimelineWorkingSession || workingWorkspace.session.draftHash !== workingWorkspace.session.autosavedHash || ['CLOSED', 'ABANDONED', 'CONFLICT', 'RECOVERY_REQUIRED'].includes(workingWorkspace.session.state)} onClick={() => void runWorkingCommand('checkpoint')}><CheckCircle2 size={13} />{locale === 'vi' ? 'Tạo checkpoint' : 'Create checkpoint'}</button><button type="button" className="subtle-button tiny" disabled={!connected || mutating !== null || !client.closeTimelineWorkingSession || workingWorkspace.session.state !== 'CLEAN' || workingWorkspace.session.draftHash !== workingWorkspace.session.autosavedHash} onClick={() => void runWorkingCommand('close', 'SAVE')}><XCircle size={13} />{locale === 'vi' ? 'Đóng sạch' : 'Close cleanly'}</button><button type="button" className="subtle-button tiny danger-button" disabled={!connected || mutating !== null || !client.closeTimelineWorkingSession || ['CLOSED', 'ABANDONED'].includes(workingWorkspace.session.state)} onClick={() => { if (window.confirm(locale === 'vi' ? 'Giữ draft và đóng phiên? Bạn sẽ cần mở phiên mới để tiếp tục.' : 'Keep the draft and close this session? You will need a new session to continue.')) void runWorkingCommand('close', 'ABANDON') }}><XCircle size={13} />{locale === 'vi' ? 'Đóng, giữ draft' : 'Abandon with draft'}</button></div>
+              <section className="working-history-card" aria-labelledby="working-history-title">
+                <div className="working-tool-heading"><strong id="working-history-title">{locale === 'vi' ? 'Lịch sử thao tác' : 'Operation history'}</strong><span>{locale === 'vi' ? 'Chỉ đọc; dữ liệu đến từ Core.' : 'Read-only evidence from Core.'}</span><button type="button" className="subtle-button tiny" onClick={() => void loadWorkingHistory(true)} disabled={!connected || workingHistoryLoading || !client.getTimelineWorkingHistory}>{workingHistoryLoading ? <RefreshCw size={12} className="spin" /> : <RefreshCw size={12} />}{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>
+                {!client.getTimelineWorkingHistory ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Bridge hiện tại chưa cung cấp history phiên chỉnh sửa.' : 'This bridge does not expose working-session history yet.'} /> : workingHistoryLoading && !workingHistory ? <LoadingState label={locale === 'vi' ? 'Đang đọc history…' : 'Reading operation history…'} /> : workingHistoryError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{workingHistoryError}</span><button type="button" className="subtle-button tiny" onClick={() => void loadWorkingHistory(!workingHistory)} disabled={workingHistoryLoading}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button>{workingHistoryNeedsUser && <small>{locale === 'vi' ? 'Core cần bạn xử lý điều kiện rồi thử lại.' : 'Core needs you to resolve the condition before retrying.'}</small>}</div> : !workingHistory ? <div className="working-history-empty"><p>{locale === 'vi' ? 'Chưa tải history của phiên này.' : 'The history for this session has not been loaded.'}</p><button type="button" className="subtle-button tiny" onClick={() => void loadWorkingHistory(true)} disabled={!connected || workingHistoryLoading}>{locale === 'vi' ? 'Đọc history' : 'Load history'}</button></div> : <>
+                  {historyOperations.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Phiên này chưa có thao tác.' : 'This session has no operations yet.'} /> : <div className="working-history-list">{historyOperations.map((operation) => { const relatedActions = historyActions.filter((action) => action.targetOpSeq === operation.opSeq); const hashPreview = timelineHistoryHashPreview(operation.resultHash); return <article className="working-history-row" key={operation.id ?? `operation-${operation.opSeq}`}><div className="working-history-main"><strong>#{operation.opSeq} · {timelineHistoryOperationLabel(operation.opType, locale)}</strong><small>{timelineHistoryStateLabel(operation.historyState, locale)}{operation.createdAt ? ` · ${formatRelativeSnapshot(operation.createdAt, locale)}` : ''}</small>{relatedActions.map((action) => <small className="working-history-action" key={action.id ?? `action-${action.actionSeq}`}>{timelineHistoryActionLabel(action.actionType, locale)}{action.targetOpSeq === null || action.targetOpSeq === undefined ? '' : ` · #${action.targetOpSeq}`}{action.createdAt ? ` · ${formatRelativeSnapshot(action.createdAt, locale)}` : ''}</small>)}</div><span className="record-code" title={hashPreview === '—' ? undefined : operation.resultHash}>{hashPreview}</span></article> })}</div>}
+                  {workingHistory.cursor.hasMore && <button type="button" className="subtle-button tiny working-history-more" onClick={() => void loadWorkingHistory(false)} disabled={!connected || workingHistoryLoading}>{workingHistoryLoading ? <RefreshCw size={12} className="spin" /> : <ArrowRight size={12} />}{locale === 'vi' ? 'Tải thêm' : 'Load more'}</button>}
+                </>}
+              </section>
               <p className="readonly-note"><Info size={14} />{locale === 'vi' ? `${workingWorkspace.session.draft.markers.length} marker · ${workingWorkspace.session.operations.length} operation · history action ${workingWorkspace.session.historyActions.length}.` : `${workingWorkspace.session.draft.markers.length} markers · ${workingWorkspace.session.operations.length} operations · ${workingWorkspace.session.historyActions.length} history actions.`}</p>
             </>}
           </div>
@@ -3684,7 +3809,7 @@ function EmptyState({ icon: Icon, title, detail }: { icon: typeof CheckCircle2; 
 function SearchOverlay({ snapshot, t, onClose, onSelectProject }: { snapshot: DashboardSnapshot | null; t: Copy; onClose: () => void; onSelectProject: (project: ProjectSummary) => void }) {
   const [query, setQuery] = useState('')
   const filtered = snapshot?.projects.filter((project) => project.name.toLowerCase().includes(query.toLowerCase())) ?? []
-  return <div className="overlay-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><div className="search-dialog" role="dialog" aria-modal="true" aria-label={t.searchPlaceholder}><div className="search-dialog-input"><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.searchPlaceholder} /><kbd>ESC</kbd></div><div className="search-dialog-body">{filtered.length ? <>{filtered.map((project) => <button className="search-result" key={project.id} onClick={() => onSelectProject(project)}><span className="result-thumb" style={{ background: project.cover }} /><span><strong>{project.name}</strong><small>{project.kind} · {project.stage}</small></span><ArrowRight size={15} /></button>)}</> : <div className="search-empty"><Search size={20} /><p>{query ? 'Không tìm thấy kết quả phù hợp.' : 'Gõ để tìm dự án hoặc tài sản.'}</p></div>}</div><div className="search-dialog-footer"><span>{t.commandHint}</span><span><kbd>↵</kbd> {t.view}</span></div></div></div>
+  return <div className="overlay-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><div className="search-dialog" role="dialog" aria-modal="true" aria-label={t.searchPlaceholder}><div className="search-dialog-input"><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.searchPlaceholder} /><kbd>ESC</kbd></div><div className="search-dialog-body">{filtered.length ? <>{filtered.map((project) => <button className="search-result" key={project.id} onClick={() => onSelectProject(project)}><span className="result-thumb" style={{ background: project.cover }} /><span><strong>{project.name}</strong><small>{project.kind} · {project.stage}</small></span><ArrowRight size={15} /></button>)}</> : <div className="search-empty"><Search size={20} /><p>{query ? t.searchNoResults : t.searchHint}</p></div>}</div><div className="search-dialog-footer"><span>{t.commandHint}</span><span><kbd>↵</kbd> {t.view}</span></div></div></div>
 }
 
 function NewProjectModal({ t, onClose, onCreated }: { t: Copy; onClose: () => void; onCreated: (name: string) => void }) {

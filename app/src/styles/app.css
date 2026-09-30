@@ -347,6 +347,18 @@ h3 { font-size: 13px; font-weight: 600; }
 .working-draft-row small { color: var(--text-soft); }
 .working-session-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
 .working-session-actions .primary-button, .working-session-actions .subtle-button { white-space: nowrap; }
+.working-history-card { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 13px; }
+.working-history-card .working-tool-heading { align-items: center; }
+.working-history-card .working-tool-heading button { margin-left: auto; }
+.working-history-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px dashed var(--line-strong); border-radius: 8px; padding: 10px; color: var(--text-muted); font-size: 9px; line-height: 1.4; }
+.working-history-empty p { margin: 0; }
+.working-history-list { display: flex; flex-direction: column; margin-top: 3px; }
+.working-history-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding: 9px 0; }
+.working-history-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.working-history-main strong { overflow: hidden; color: var(--text-soft); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.working-history-main small { overflow: hidden; color: var(--text-muted); font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.working-history-main .working-history-action { color: var(--indigo-bright); padding-left: 9px; }
+.working-history-more { margin-top: 9px; }
 .danger-button { color: var(--red) !important; }
 .timeline-timing-panel { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
 .timeline-timing-panel h3 { margin: 0; color: var(--text-soft); font-size: 11px; }
