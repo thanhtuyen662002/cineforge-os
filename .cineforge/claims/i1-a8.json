@@ -1,0 +1,34 @@
+{
+  "event": "claim-intent-i1-a8-20260930",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 1,
+  "agent_instance_id": "cineforge-WORK-packaging-provenance",
+  "slot_id": "WORK-packaging-provenance",
+  "run_id": "WORK-packaging-provenance-20260930-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:a7b8e8642da937b56f77202810a9214aa123d4c23b76dec95f67deac85f1584e",
+  "base_ref": "agent/i1-a7-storage-integrity",
+  "base_sha": "1e26245efaaed5035f3554cc7aab24415d5911d0",
+  "context_base_sha": "1e26245efaaed5035f3554cc7aab24415d5911d0",
+  "requested_state": "CLAIMED",
+  "contract_revision": "TASK_CONTRACT_REVISION_V1",
+  "scope": [
+    "README.md",
+    "packaging/README.md",
+    "packaging/bootstrap/Program.cs",
+    "packaging/build_windows.ps1",
+    "packaging/launch_windows.ps1",
+    ".cineforge/claims/i1-a8.json"
+  ],
+  "forbidden_scope": [
+    "trusted_code_signing",
+    "update_anti_rollback",
+    "restore_activation",
+    "recovery_epoch_activation",
+    "external_side_effect_dispatch",
+    "forward_revocation_replay",
+    "production_closure"
+  ]
+}

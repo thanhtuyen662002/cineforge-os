@@ -72,7 +72,10 @@ Push-Location app; npm test; npm run build; Pop-Location
 The packaging command is the release-shaped check: it rebuilds the artifact and
 must finish with `PACKAGING_SMOKE=PASS`. The manifest at
 `dist/CineForge/build-manifest.json` records the source head, bootstrap hash,
-runtime mode, and signing status.
+the byte/hash inventory for the EXE, web bundle, and Core runtime, runtime mode,
+and signing status. The bootstrap and `packaging/launch_windows.ps1` verify that
+inventory before starting; the local build remains explicitly unsigned until a
+trusted release signer attaches authenticity.
 
 The Tauri 2 files under `app/src-tauri/` are a future native-shell scaffold.
 They are intentionally fail-closed in packaging until the shell packages and

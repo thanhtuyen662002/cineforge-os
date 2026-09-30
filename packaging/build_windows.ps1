@@ -296,6 +296,33 @@ Copy-Item -LiteralPath $publishedExe -Destination (Join-Path $packageRoot 'CineF
 
 $gitHead = Get-GitHead
 $exe = Join-Path $packageRoot 'CineForge.exe'
+$artifactFiles = [System.Collections.Generic.List[object]]::new()
+$packagePrefix = $packageRoot.TrimEnd('\') + '\'
+$artifactRoots = @('CineForge.exe', 'web', 'runtime')
+foreach ($artifactRoot in $artifactRoots) {
+    $artifactPath = Join-Path $packageRoot $artifactRoot
+    if (-not (Test-Path -LiteralPath $artifactPath)) { continue }
+    $artifactItem = Get-Item -LiteralPath $artifactPath
+    $files = if ($artifactItem.PSIsContainer) {
+        @(Get-ChildItem -LiteralPath $artifactPath -Recurse -File | Sort-Object FullName)
+    }
+    else {
+        @($artifactItem)
+    }
+    foreach ($file in $files) {
+        $fullFilePath = (Resolve-Path -LiteralPath $file.FullName).Path
+        if (-not $fullFilePath.StartsWith($packagePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Artifact file escaped the package root: $fullFilePath"
+        }
+        $relative = $fullFilePath.Substring($packagePrefix.Length).Replace('\', '/')
+        $artifactFiles.Add([ordered]@{
+            path = $relative
+            bytes = [int64]$file.Length
+            sha256 = Get-Sha256 $file.FullName
+        })
+    }
+}
+$artifactFiles = @($artifactFiles | Sort-Object { [string]$_['path'] })
 $manifest = [ordered]@{
     product = 'CineForge OS'
     version = '0.1.0-portable'
@@ -307,6 +334,8 @@ $manifest = [ordered]@{
     tauri_installer = if ($null -ne $tauriInstaller) { [IO.Path]::GetRelativePath($distRoot, $tauriInstaller) } else { $null }
     bootstrap = 'CineForge.exe'
     bootstrap_sha256 = if (Test-Path -LiteralPath $exe) { Get-Sha256 $exe } else { $null }
+    artifact_file_count = $artifactFiles.Count
+    artifact_files = $artifactFiles
     signing = 'UNSIGNED_BUILD_REQUIRES_TRUSTED_RELEASE_SIGNING'
     runtime = if ($coreMode -eq 'node-self-contained') { 'Self-contained bootstrap with bundled Node.js and Core.' } elseif ($coreMode -eq 'python-source-fallback') { 'Python 3.11+ required unless Core is bundled with PyInstaller.' } else { 'Self-contained bootstrap; Core bundled.' }
     warnings = @($warnings)
