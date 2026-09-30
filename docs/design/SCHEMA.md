@@ -1772,7 +1772,8 @@ until a new handoff manifest is created from current exact evidence.
 - created_at_utc_us
 
 The v17 registration command inserts one immutable lineage record only after
-the exact handoff/export binding is verified, the returned asset belongs to the
+an exact handoff or export identity resolves to the verified handoff/export
+pair (when both are supplied they must agree), the returned asset belongs to the
 same project and is a managed `TIMELINE_INTERCHANGE` revision, the bytes are
 read through the managed content-addressed store, the canonical interchange
 profile validates, and the current rights/consent result is `ALLOWED`. The

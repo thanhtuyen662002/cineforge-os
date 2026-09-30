@@ -713,6 +713,12 @@ export interface ExternalEditList {
   generatedAt?: string
 }
 
+export type ExternalEditRegistrationInput = {
+  returnedAssetRevisionId: string
+  expectedVersion: number
+  lineageConfidence?: ExternalEditLineageConfidence
+} & ({ handoffManifestId: string; exportSessionId?: string } | { handoffManifestId?: string; exportSessionId: string })
+
 export interface TimelineInterchangeDownload {
   projectId?: string
   exportSessionId?: string
@@ -1123,7 +1129,7 @@ export interface CoreClient {
   getHandoff?(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace>
   getExternalEdits?(projectId: string, state?: string, signal?: AbortSignal): Promise<ExternalEditList>
   getExternalEdit?(projectId: string, externalEditId: string, signal?: AbortSignal): Promise<ExternalEdit>
-  registerExternalEdit?(projectId: string, input: { handoffManifestId: string; exportSessionId: string; returnedAssetRevisionId: string; expectedVersion: number; lineageConfidence?: ExternalEditLineageConfidence }, idempotencyKey?: string): Promise<ExternalEdit>
+  registerExternalEdit?(projectId: string, input: ExternalEditRegistrationInput, idempotencyKey?: string): Promise<ExternalEdit>
   createHandoffManifest?(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey?: string): Promise<HandoffWorkspace>
   buildTimelineInterchangeExport?(projectId: string, exportSessionId: string, dependencySnapshotHash: string, expectedVersion: number, idempotencyKey?: string): Promise<HandoffWorkspace>
   resolveTimelineInterchangeDownload?(projectId: string, exportSessionId: string, signal?: AbortSignal): Promise<TimelineInterchangeDownload>

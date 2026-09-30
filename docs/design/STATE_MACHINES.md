@@ -766,8 +766,10 @@ as fabricated validation rows. The other states are schema vocabulary reserved
 for a future staged/asynchronous validator and must not be presented as
 runtime evidence until that validator exists.
 
-The command requires the same project for the handoff, completed export and
-returned active managed `TIMELINE_INTERCHANGE` asset revision, plus an
+The command requires the same project for the resolved handoff, completed
+export and returned active managed `TIMELINE_INTERCHANGE` asset revision. The
+caller must provide an exact `handoff_manifest_id` or `export_session_id`; when
+both are supplied they must resolve to the same pair. It also requires an
 optimistic export-session row version and an idempotency key. It revalidates
 the immutable handoff hash, output hash/size, approved review/dependency and
 media-profile bindings, managed CAS identity, strict canonical JSON profile and

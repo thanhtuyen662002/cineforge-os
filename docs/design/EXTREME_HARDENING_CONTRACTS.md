@@ -2411,9 +2411,9 @@ Apply:
 ## CX4. Returned external-edit interchange intake
 
 The returned interchange boundary is a hostile structured-document intake, even
-when a user says that it came from a trusted editor. Registration must bind the
-document to one exact immutable handoff and completed export before any lineage
-record is accepted. The returned asset must be a same-project managed object
+when a user says that it came from a trusted editor. Registration must resolve
+an exact immutable handoff or completed export (and cross-check both when both
+are supplied) before any lineage record is accepted. The returned asset must be a same-project managed object
 with a stable descriptor, content hash and byte size; an arbitrary path, URI,
 provider reference, cloud location or filename is never an identity.
 

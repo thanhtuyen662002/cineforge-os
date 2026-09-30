@@ -168,9 +168,10 @@ audio/subtitle processing, generation, external publish or release signing.
 ## Returned external-edit registration
 
 After an editor returns a managed interchange document, the executable Core
-command `RegisterExternalEdit` records its lineage against one exact immutable
-handoff manifest and one `COMPLETED` export session. The command requires an
-optimistic export-session version and an idempotency key, checks same-project
+command `RegisterExternalEdit` records its lineage against an exact immutable
+handoff manifest or `COMPLETED` export session (callers may provide both; when
+both are present they must resolve to the same binding). The command requires
+an optimistic export-session version and an idempotency key, checks same-project
 scope, current rights/consent (`ALLOWED`), active managed
 `TIMELINE_INTERCHANGE` asset identity and stable SHA-256/size, then validates
 the canonical UTF-8 `CINEFORGE_TIMELINE_INTERCHANGE` /
@@ -191,7 +192,8 @@ explicit conflict. The loopback adapter exposes these redacted projections:
 - `GET /v1/projects/{id}/external-edits?validation_state=&limit=`;
 - `GET /v1/projects/{id}/external-edits/{externalEditId}`; and
 - `POST /v1/projects/{id}/external-edits` with
-  `handoff_manifest_id`, `export_session_id`,
+  at least one of `handoff_manifest_id` or `export_session_id` (both are
+  recommended when the caller has the exact pair),
   `returned_asset_revision_id`, optional `lineage_confidence` and
   `expected_version`.
 

@@ -2754,7 +2754,10 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
     }
     setSelectedReturnedRevisionId((current) => {
       if (current && returnedInterchangeAssets.some((asset) => asset.revisionId === current)) return current
-      return returnedInterchangeAssets[0]?.revisionId ?? ''
+      // Do not silently choose the first returned asset. Registration is a
+      // mutating, auditable action and the user must select the exact managed
+      // revision that came back from the editor.
+      return ''
     })
   }, [returnedInterchangeAssets, session?.id, session?.outputAssetRevisionId, session?.state])
 

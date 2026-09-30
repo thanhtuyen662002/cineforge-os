@@ -1052,7 +1052,10 @@ the artifact to the canonical timeline. The project-scoped routes are:
 - `GET /v1/projects/{project_id}/external-edits/{external_edit_id}`
 - `POST /v1/projects/{project_id}/external-edits`
 
-The POST body names every identity needed for an exact, stale-safe join:
+The POST body must name at least one exact identity for a stale-safe join. A
+caller may send either `handoff_manifest_id` or `export_session_id`; sending
+both is recommended and requires the two values to resolve to the same
+immutable pair:
 
 ```json
 {

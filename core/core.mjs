@@ -8569,8 +8569,11 @@ export class CoreService {
     const byteSize = Number(revision.byte_size);
     if (revision.storage_class !== 'LOCAL_MANAGED' || revision.availability_state !== 'AVAILABLE'
       || revision.availability_evidence_state !== 'VERIFIED' || !Number.isSafeInteger(byteSize)
-      || byteSize <= 0 || byteSize > EXTERNAL_EDIT_MAX_BYTES) {
+      || byteSize <= 0) {
       throw this._externalEditError('EXTERNAL_EDIT_ASSET_NOT_READY', 'errors.external_edit_asset_not_ready', { asset_revision_id: revision.id });
+    }
+    if (byteSize > EXTERNAL_EDIT_MAX_BYTES) {
+      throw this._externalEditError('EXTERNAL_EDIT_TOO_LARGE', 'errors.external_edit_too_large', { max_bytes: EXTERNAL_EDIT_MAX_BYTES });
     }
     const location = this.db.prepare(`SELECT * FROM storage_object_locations
       WHERE storage_object_id = ? AND storage_root = 'asset-store' AND location_role = 'PRIMARY' AND state = 'AVAILABLE'
@@ -8746,14 +8749,29 @@ export class CoreService {
     const projectId = requiredString(payload.project_id ?? payload.projectId, 'project_id');
     const project = this._project(projectId);
     this._assertProjectWritable(project);
-    const handoffManifestId = requiredString(payload.handoff_manifest_id ?? payload.handoffManifestId, 'handoff_manifest_id');
-    const exportSessionId = requiredString(payload.export_session_id ?? payload.exportSessionId, 'export_session_id');
+    const optionalIdentity = (value, field) => {
+      if (value === undefined || value === null || value === '') return null;
+      return requiredString(value, field);
+    };
+    const suppliedHandoffManifestId = optionalIdentity(payload.handoff_manifest_id ?? payload.handoffManifestId, 'handoff_manifest_id');
+    const suppliedExportSessionId = optionalIdentity(payload.export_session_id ?? payload.exportSessionId, 'export_session_id');
+    if (!suppliedHandoffManifestId && !suppliedExportSessionId) {
+      throw this._externalEditError('INVALID_ARGUMENT', 'errors.invalid_field', { field: 'handoff_manifest_id_or_export_session_id' });
+    }
     const returnedRevisionId = requiredString(payload.returned_asset_revision_id ?? payload.returnedAssetRevisionId, 'returned_asset_revision_id');
+    const joinWhere = suppliedHandoffManifestId && suppliedExportSessionId
+      ? 'h.id = ? AND e.id = ?'
+      : suppliedHandoffManifestId ? 'h.id = ?' : 'e.id = ?';
+    const joinArgument = suppliedHandoffManifestId && suppliedExportSessionId
+      ? [suppliedHandoffManifestId, suppliedExportSessionId]
+      : [suppliedHandoffManifestId ?? suppliedExportSessionId];
     const joined = this.db.prepare(`SELECT e.*, h.id AS handoff_id, h.manifest_hash, h.manifest_json,
         h.project_id AS handoff_project_id, h.export_session_id AS handoff_export_session_id
       FROM export_sessions e JOIN handoff_manifests h ON h.export_session_id = e.id
-      WHERE h.id = ? AND e.id = ?`).get(handoffManifestId, exportSessionId);
+      WHERE ${joinWhere}`).get(...joinArgument);
     if (!joined) throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'handoff_or_export' });
+    const handoffManifestId = String(joined.handoff_id);
+    const exportSessionId = String(joined.id);
     if (joined.project_id !== projectId || joined.handoff_project_id !== projectId) throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'project' });
     this._expectedVersion(expectedVersions, 'EXPORT_SESSION', joined.id, joined.row_version);
     if (joined.state !== 'COMPLETED' || joined.output_manifest_id !== handoffManifestId || !joined.output_asset_revision_id || !SHA256_HEX.test(String(joined.output_content_hash ?? '')) || !Number.isSafeInteger(Number(joined.output_byte_size)) || Number(joined.output_byte_size) <= 0 || Number(joined.output_byte_size) > EXTERNAL_EDIT_MAX_BYTES) {
@@ -8773,6 +8791,13 @@ export class CoreService {
       || !['IMPORTED', 'EXTERNAL_EDIT', 'HANDOFF_RETURN'].includes(revision.origin_type)
       || revision.asset_lifecycle_state !== 'ACTIVE' || revision.semantic_role !== 'TIMELINE_INTERCHANGE'
       || revision.rebuildability !== 'ORIGINAL') {
+      throw this._externalEditError('EXTERNAL_EDIT_ASSET_NOT_READY', 'errors.external_edit_asset_not_ready', { asset_revision_id: returnedRevisionId });
+    }
+    // The asset revision is the immutable bridge to the import/provenance
+    // record. Require that row to exist before registration so a hand-crafted
+    // or damaged revision cannot look like a returned editor artifact.
+    const provenance = this.db.prepare('SELECT id, origin_type FROM provenance_records WHERE id = ?').get(revision.provenance_record_id);
+    if (!provenance || !provenance.id || !provenance.origin_type) {
       throw this._externalEditError('EXTERNAL_EDIT_ASSET_NOT_READY', 'errors.external_edit_asset_not_ready', { asset_revision_id: returnedRevisionId });
     }
     const rights = this._rightsForAsset(revision.asset_id, { purpose: 'EXTERNAL_EDIT_REGISTRATION' });
@@ -8821,6 +8846,7 @@ export class CoreService {
       source_dependency_snapshot_hash: String(joined.dependency_snapshot_hash).toLowerCase(),
       returned_document_hash: materialized.contentHash,
       returned_byte_size: materialized.byteSize,
+      returned_provenance_record_id: provenance.id,
       output_document_hash: String(joined.output_content_hash).toLowerCase(),
       output_byte_size: Number(joined.output_byte_size),
       clip_count: validated.clipCount,

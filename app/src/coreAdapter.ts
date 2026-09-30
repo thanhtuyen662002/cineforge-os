@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -76,7 +76,7 @@ export interface CoreBridge {
   getHandoff?(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace>
   getExternalEdits?(projectId: string, state?: string, signal?: AbortSignal): Promise<ExternalEditList>
   getExternalEdit?(projectId: string, externalEditId: string, signal?: AbortSignal): Promise<ExternalEdit>
-  registerExternalEdit?(projectId: string, input: { handoffManifestId: string; exportSessionId: string; returnedAssetRevisionId: string; expectedVersion: number; lineageConfidence?: ExternalEditLineageConfidence }, idempotencyKey?: string): Promise<ExternalEdit>
+  registerExternalEdit?(projectId: string, input: ExternalEditRegistrationInput, idempotencyKey?: string): Promise<ExternalEdit>
   createHandoffManifest?(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey?: string): Promise<HandoffWorkspace>
   buildTimelineInterchangeExport?(projectId: string, exportSessionId: string, dependencySnapshotHash: string, expectedVersion: number, idempotencyKey?: string): Promise<HandoffWorkspace>
   resolveTimelineInterchangeDownload?(projectId: string, exportSessionId: string, signal?: AbortSignal): Promise<TimelineInterchangeDownload>
@@ -1165,16 +1165,18 @@ export class HttpCoreClient implements CoreClient {
     return mapExternalEditRecord(result.external_edit ?? result.externalEdit ?? result)
   }
 
-  async registerExternalEdit(projectId: string, input: { handoffManifestId: string; exportSessionId: string; returnedAssetRevisionId: string; expectedVersion: number; lineageConfidence?: ExternalEditLineageConfidence }, idempotencyKey: string = crypto.randomUUID()): Promise<ExternalEdit> {
+  async registerExternalEdit(projectId: string, input: ExternalEditRegistrationInput, idempotencyKey: string = crypto.randomUUID()): Promise<ExternalEdit> {
     if (!this.baseUrl) throw new CoreClientError('Registering a returned interchange requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
-    if (!input.handoffManifestId.trim() || !input.exportSessionId.trim() || !input.returnedAssetRevisionId.trim() || !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1) throw new CoreClientError('The exact handoff, export, returned asset and current export version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const handoffManifestId = input.handoffManifestId?.trim() ?? ''
+    const exportSessionId = input.exportSessionId?.trim() ?? ''
+    if ((!handoffManifestId && !exportSessionId) || !input.returnedAssetRevisionId.trim() || !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1) throw new CoreClientError('An exact handoff or export identity, returned asset and current export version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
     if (input.lineageConfidence && !['EXACT', 'PARTIAL', 'FLATTENED', 'UNKNOWN'].includes(input.lineageConfidence)) throw new CoreClientError('The lineage confidence is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/external-edits`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
       body: JSON.stringify({
-        handoff_manifest_id: input.handoffManifestId,
-        export_session_id: input.exportSessionId,
+        ...(handoffManifestId ? { handoff_manifest_id: handoffManifestId } : {}),
+        ...(exportSessionId ? { export_session_id: exportSessionId } : {}),
         returned_asset_revision_id: input.returnedAssetRevisionId,
         expected_version: input.expectedVersion,
         ...(input.lineageConfidence ? { lineage_confidence: input.lineageConfidence } : {}),
