@@ -47,6 +47,47 @@ test('smoke: create project, close, and reload it from SQLite WAL', () => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+test('recovery status is read-only and fails closed when recovery epoch/external reality are unavailable', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  try {
+    const before = core.handle(request('query.system.health', {}, 'recovery-before')).result;
+    const status = core.handle(request('query.recovery.status', {}, 'recovery-status'));
+    assert.equal(status.ok, true);
+    assert.equal(status.result.read_only, true);
+    assert.equal(status.result.recovery_epoch_state, 'NOT_INITIALIZED');
+    assert.equal(status.result.external_reality_state, 'UNKNOWN');
+    assert.equal(status.result.restore_activation_state, 'NOT_IMPLEMENTED');
+    assert.equal(status.result.readiness_state, 'UNKNOWN');
+    assert.equal(status.result.recovery_state, 'RECONCILIATION_REQUIRED');
+    assert.equal(status.result.next_step_code, 'RECOVERY_EPOCH_AND_EXTERNAL_RECONCILIATION_REQUIRED');
+    assert.ok(status.result.checks.some((check) => check.id === 'RECOVERY_EPOCH' && check.state === 'UNKNOWN'));
+    assert.ok(status.result.checks.some((check) => check.id === 'EXTERNAL_REALITY_LEDGER' && check.state === 'UNKNOWN'));
+    assert.equal(Object.hasOwn(status.result, 'db_path'), false);
+    assert.equal(Object.hasOwn(status.result, 'object_store_path'), false);
+    const after = core.handle(request('query.system.health', {}, 'recovery-after')).result;
+    assert.equal(after.projection_seq, before.projection_seq);
+    assert.equal(after.backup_state, before.backup_state);
+
+    const originalHealth = core._systemHealth.bind(core);
+    core._systemHealth = () => ({ ...originalHealth(), integrity_check: 'malformed', status: 'DEGRADED', mutation_enabled: true });
+    const blocked = core.handle(request('query.recovery.status', {}, 'recovery-status-fail'));
+    assert.equal(blocked.ok, true);
+    assert.equal(blocked.result.readiness_state, 'BLOCKED');
+    assert.equal(blocked.result.recovery_state, 'BLOCKED');
+    assert.ok(blocked.result.checks.some((check) => check.id === 'DATABASE_INTEGRITY' && check.state === 'FAIL'));
+
+    core._systemHealth = () => ({ ...originalHealth(), backup_available_bytes: null, backup_estimated_bytes: null });
+    const unknownStorage = core.handle(request('query.recovery.status', {}, 'recovery-status-storage-unknown'));
+    assert.equal(unknownStorage.ok, true);
+    assert.equal(unknownStorage.result.readiness_state, 'UNKNOWN');
+    assert.ok(unknownStorage.result.checks.some((check) => check.id === 'STORAGE_RESERVE' && check.state === 'UNKNOWN'));
+  } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('single-writer ownership rejects a duplicate Core, fences stale epochs, and reclaims a dead owner', () => {
   const { dbPath, directory } = tempDb();
   const first = new CoreService({ dbPath, ownershipHeartbeatIntervalMs: 250 });

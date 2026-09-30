@@ -326,6 +326,14 @@ describe('local Core adapter', () => {
       if (url.endsWith('/v1/storage/admission')) {
         return new Response(JSON.stringify({ ok: true, result: { destination_name: 'backups', durability_class: 'LOCAL_WRITABLE', estimated_bytes: 1000, available_bytes: 5000, reserve_bytes: 500, object_count: 3 } }), { status: 200 })
       }
+      if (url.endsWith('/v1/recovery/status')) {
+        return new Response(JSON.stringify({ ok: true, result: {
+          schema_version: 1, readiness_state: 'UNKNOWN', recovery_state: 'RECONCILIATION_REQUIRED',
+          recovery_epoch_state: 'NOT_INITIALIZED', external_reality_state: 'UNKNOWN', restore_activation_state: 'NOT_IMPLEMENTED',
+          dispatch_policy_state: 'UNKNOWN_REQUIRES_RECOVERY_EPOCH', read_only: true,
+          checks: [{ id: 'RECOVERY_EPOCH', state: 'UNKNOWN', code: 'RECOVERY_EPOCH_NOT_INITIALIZED' }],
+        } }), { status: 200 })
+      }
       if (url.endsWith('/v1/backups/backup-1') && !init?.method) {
         return new Response(JSON.stringify({ ok: true, result: { backup: { id: 'backup-1', state: 'VERIFIED', destination_name: 'backup-1', manifest_name: 'manifest.json', snapshot_name: 'cineforge.sqlite', row_version: 1 }, verifications: [{ id: 'verification-1', backup_id: 'backup-1', outcome: 'VERIFIED', integrity_state: 'PASS', details: { db_sha256: 'b'.repeat(64) } }] } }), { status: 200 })
       }
@@ -358,6 +366,9 @@ describe('local Core adapter', () => {
       expect((backups?.[0] as Record<string, unknown>).destinationPath).toBeUndefined()
       const admission = await client.getStorageAdmission?.()
       expect(admission).toMatchObject({ estimatedBytes: 1000, availableBytes: 5000, reserveBytes: 500 })
+      const recovery = await client.getRecoveryStatus?.()
+      expect(recovery).toMatchObject({ readinessState: 'UNKNOWN', recoveryEpochState: 'NOT_INITIALIZED', readOnly: true })
+      expect(recovery?.checks[0]).toMatchObject({ id: 'RECOVERY_EPOCH', state: 'UNKNOWN' })
       const workspace = await client.getBackup?.('backup-1')
       expect(workspace?.verifications[0]).toMatchObject({ outcome: 'VERIFIED', integrityState: 'PASS' })
       const restorePlan = await client.getBackupRestoreEstimate?.('backup-1')
@@ -367,7 +378,7 @@ describe('local Core adapter', () => {
       expect(created?.backup?.state).toBe('VERIFIED')
       const verified = await client.verifyBackup?.('backup-1', 'backup-verify-1')
       expect(verified?.verification?.integrityState).toBe('PASS')
-      expect(fetchMock).toHaveBeenCalledTimes(6)
+      expect(fetchMock).toHaveBeenCalledTimes(7)
     } finally {
       vi.unstubAllGlobals()
     }

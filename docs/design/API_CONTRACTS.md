@@ -202,6 +202,7 @@ Common query methods:
 - `query.storage.cleanup_preview`
 - `query.release.readiness`
 - `query.system.health`
+- `query.recovery.status`
 
 Every query that can become stale returns:
 - projection_seq;
@@ -2046,6 +2047,20 @@ If the installation ledger is unavailable after full disaster restore, Core expo
 - immutability/offline class.
 
 `backup.verify` validates both content integrity and manifest authenticity according to policy.
+
+`query.recovery.status` (also exposed as `GET /v1/recovery/status`) is a
+read-only posture projection. It returns bounded checks for current Core
+ownership, SQLite integrity/WAL, storage reserve evidence, latest verified
+backup state and event projection evidence. It must also return explicit
+`UNKNOWN` for `RECOVERY_EPOCH` and `EXTERNAL_REALITY_LEDGER` until the governed
+recovery implementation exists. The Core process/session ownership epoch is
+not a restore recovery epoch. `readiness_state` is `BLOCKED` when a proven
+health check fails, `UNKNOWN` when any required recovery evidence is unknown,
+and `PASS` only when every check passes. The projection includes
+`read_only=true`, `restore_activation_state=NOT_IMPLEMENTED`, and a next-step
+code; it never creates an epoch, freezes dispatch, mutates backup/audit rows,
+or activates a restored snapshot. Clients must not turn `UNKNOWN` into a
+successful restore or dispatch permission.
 
 # 74. Cache validity API
 

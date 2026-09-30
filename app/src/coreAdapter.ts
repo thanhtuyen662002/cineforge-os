@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -26,6 +26,7 @@ export interface CoreBridge {
   getBackups?(signal?: AbortSignal): Promise<BackupSummary[]>
   getBackup?(backupId: string, signal?: AbortSignal): Promise<BackupWorkspace>
   getBackupRestoreEstimate?(backupId: string, signal?: AbortSignal): Promise<BackupRestoreWorkspace>
+  getRecoveryStatus?(signal?: AbortSignal): Promise<RecoveryStatus>
   getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
@@ -716,6 +717,12 @@ export class HttpCoreClient implements CoreClient {
     if (!backupId.trim()) throw new CoreClientError('A backup id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
     const response = await fetch(`${this.baseUrl}/v1/backups/${encodeURIComponent(backupId)}/restore-estimate`, { signal, headers: { Accept: 'application/json' } })
     return mapBackupRestoreWorkspaceRecord(await readCorePayload(response, 'restore preflight'))
+  }
+
+  async getRecoveryStatus(signal?: AbortSignal): Promise<RecoveryStatus> {
+    if (!this.baseUrl) throw new CoreClientError('Recovery status requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/recovery/status`, { signal, headers: { Accept: 'application/json' } })
+    return mapRecoveryStatusRecord(await readCorePayload(response, 'recovery status'))
   }
 
   async getStorageAdmission(signal?: AbortSignal): Promise<StorageAdmission | null> {
@@ -1797,6 +1804,33 @@ function mapBackupRestoreWorkspaceRecord(value: unknown): BackupRestoreWorkspace
   return {
     backup: backupSource ? mapBackupSummaryRecord(backupSource) : null,
     restoreEstimate: estimateSource ? mapBackupRestoreEstimateRecord(estimateSource) : null,
+    projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapRecoveryStatusRecord(value: unknown): RecoveryStatus {
+  const source = asRecord(value)
+  return {
+    schemaVersion: optionalNumberValue(source.schema_version ?? source.schemaVersion),
+    readinessState: stringValue(source.readiness_state ?? source.readinessState) ?? 'UNKNOWN',
+    recoveryState: stringValue(source.recovery_state ?? source.recoveryState),
+    coreHealthState: stringValue(source.core_health_state ?? source.coreHealthState),
+    recoveryEpochState: stringValue(source.recovery_epoch_state ?? source.recoveryEpochState),
+    externalRealityState: stringValue(source.external_reality_state ?? source.externalRealityState),
+    restoreActivationState: stringValue(source.restore_activation_state ?? source.restoreActivationState),
+    dispatchPolicyState: stringValue(source.dispatch_policy_state ?? source.dispatchPolicyState),
+    readOnly: source.read_only === true || source.readOnly === true,
+    nextStepCode: stringValue(source.next_step_code ?? source.nextStepCode),
+    checks: arrayValue(source.checks).map((value): RecoveryCheck => {
+      const check = asRecord(value)
+      return {
+        id: stringValue(check.id) ?? 'UNKNOWN_CHECK',
+        state: stringValue(check.state) ?? 'UNKNOWN',
+        code: stringValue(check.code),
+        details: check.details && typeof check.details === 'object' && !Array.isArray(check.details) ? check.details as Record<string, unknown> : undefined,
+      }
+    }),
     projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
     generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }
