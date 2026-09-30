@@ -1,24 +1,35 @@
 [CmdletBinding()]
 param(
-    [string]$ArtifactRoot = (Join-Path $PSScriptRoot '..\dist\CineForge'),
+    [string]$ArtifactRoot,
     [switch]$NoBrowser,
     [switch]$AllowOffline
 )
 
 $ErrorActionPreference = 'Stop'
-$exe = Join-Path (Resolve-Path -LiteralPath $ArtifactRoot).Path 'CineForge.exe'
+$singleFileDefault = Join-Path $PSScriptRoot '..\dist\CineForge-OneFile'
+$portableDefault = Join-Path $PSScriptRoot '..\dist\CineForge'
+if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
+    $ArtifactRoot = if (Test-Path -LiteralPath (Join-Path $singleFileDefault 'CineForge.exe') -PathType Leaf) { $singleFileDefault } else { $portableDefault }
+}
+$resolvedRoot = (Resolve-Path -LiteralPath $ArtifactRoot).Path
+$exe = Join-Path $resolvedRoot 'CineForge.exe'
 if (-not (Test-Path -LiteralPath $exe)) {
     throw "CineForge.exe is missing. Run packaging\\build_windows.ps1 first."
 }
-$resolvedRoot = (Resolve-Path -LiteralPath $ArtifactRoot).Path
 $webIndex = Join-Path $resolvedRoot 'web\index.html'
-if (-not (Test-Path -LiteralPath $webIndex)) {
+$embeddedSingleFile = -not (Test-Path -LiteralPath $webIndex -PathType Leaf)
+if ($embeddedSingleFile -and [IO.Path]::GetFileName($resolvedRoot) -ne 'CineForge-OneFile') {
     throw "CineForge web bundle is missing: $webIndex"
 }
 $manifestPath = Join-Path $resolvedRoot 'build-manifest.json'
-if (-not (Test-Path -LiteralPath $manifestPath)) {
-    throw "CineForge build manifest is missing: $manifestPath"
+if ($embeddedSingleFile) {
+    $args = @()
+    if ($NoBrowser) { $args += '--no-browser' }
+    if ($AllowOffline) { $args += '--allow-offline' }
+    & $exe @args
+    exit $LASTEXITCODE
 }
+if (-not (Test-Path -LiteralPath $manifestPath)) { throw "CineForge build manifest is missing: $manifestPath" }
 
 function Get-Sha256([string]$PathToHash) {
     $fileHash = Get-Command Get-FileHash -ErrorAction SilentlyContinue

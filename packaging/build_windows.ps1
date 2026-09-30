@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Auto', 'Portable', 'Tauri')]
+    [ValidateSet('Auto', 'Portable', 'SingleFile', 'Tauri')]
     [string]$Mode = 'Auto',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
@@ -12,6 +12,29 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# SingleFile has a separate, deliberately small orchestration layer. It first
+# produces the exact verified portable payload, then embeds that payload into
+# the self-contained bootstrap and runs a smoke test against the resulting
+# lone executable. Keeping the existing Portable path intact avoids changing
+# its manifest contract or release behaviour.
+if ($Mode -eq 'SingleFile') {
+    if ($SkipCoreBundle) {
+        throw 'Single-file packaging always bundles the production Node/Core runtime; -SkipCoreBundle is not supported.'
+    }
+    $singleFileScript = Join-Path $PSScriptRoot 'build_single_file.ps1'
+    if (-not (Test-Path -LiteralPath $singleFileScript)) {
+        throw "Single-file packaging script is missing: $singleFileScript"
+    }
+    $singleParams = @{
+        Configuration = $Configuration
+        SkipTests = $SkipTests
+        NoInstall = $NoInstall
+        KeepBuildFiles = $KeepBuildFiles
+    }
+    & $singleFileScript @singleParams
+    exit $LASTEXITCODE
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $distRoot = Join-Path $repoRoot 'dist'

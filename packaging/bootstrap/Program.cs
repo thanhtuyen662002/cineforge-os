@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.ComponentModel;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
@@ -7,11 +8,13 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Globalization;
 
 namespace CineForge.Bootstrap;
 
 /// <summary>
-/// Small, self-contained Windows host for the portable CineForge build.
+/// Small, self-contained Windows host for the portable and resource-embedded
+/// CineForge builds.
 ///
 /// The host deliberately owns only process/bootstrap concerns. The Core remains
 /// the authority for project state and the web bundle remains a replaceable UI.
@@ -26,6 +29,16 @@ internal static class Program
     private const long MaxStagedUploadBytes = 8L * 1024 * 1024 * 1024;
     private const int MaxStagedFileNameLength = 255;
     private const string SingleInstanceMutexPrefix = "Local\\CineForge.Bootstrap.";
+    // The single-file product embeds its payload as a .NET resource. A small
+    // generated metadata class carries the SHA-256 digests into the bootstrap
+    // at compile time. This avoids appending bytes after a PublishSingleFile
+    // bundle (which is not a supported host format).
+    private const string EmbeddedPayloadResourceName = "CineForge.payload.zip";
+    private const long MaxEmbeddedPayloadBytes = 4L * 1024 * 1024 * 1024;
+    private const long MaxEmbeddedUncompressedBytes = 8L * 1024 * 1024 * 1024;
+    private const long MaxEmbeddedEntryBytes = 4L * 1024 * 1024 * 1024;
+    private const int MaxEmbeddedEntryCount = 20_000;
+    private const string EmbeddedPackageCachePrefix = "Local\\CineForge.EmbeddedPackage.";
     private static readonly TimeSpan StagedUploadTtl = TimeSpan.FromHours(24);
     private static readonly HttpClient Http = new(new SocketsHttpHandler
     {
@@ -40,6 +53,46 @@ internal static class Program
         var dataRoot = Path.GetFullPath(options.DataRoot ??
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CineForge", "data"));
 
+        // A SingleFile build carries its web/Core payload as an authenticated
+        // managed resource inside the .NET bundle. Resolve and authenticate
+        // that payload before touching the user data directory. An explicit
+        // --root always wins for development and for the portable layout.
+        EmbeddedPayloadInfo? embeddedPayload = null;
+        EmbeddedPayloadInfo? detectedPayload = null;
+        string? embeddedError = null;
+        if (options.Root is null
+            && TryReadEmbeddedPayload(Environment.ProcessPath, out detectedPayload, out embeddedError))
+        {
+            if (detectedPayload is null)
+            {
+                Console.Error.WriteLine($"CineForge single-file payload is invalid: {embeddedError}");
+                return 7;
+            }
+
+            try
+            {
+                embeddedPayload = detectedPayload;
+                try
+                {
+                    root = ExtractEmbeddedPackage(detectedPayload);
+                }
+                finally
+                {
+                    detectedPayload.CleanupTemporaryPayload();
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
+            {
+                Console.Error.WriteLine($"CineForge single-file payload could not be prepared: {ex.Message}");
+                return 7;
+            }
+        }
+        else if (options.Root is null && !string.IsNullOrEmpty(embeddedError))
+        {
+            Console.Error.WriteLine($"CineForge single-file payload is invalid: {embeddedError}");
+            return 7;
+        }
+
         // Validate the immutable package boundary before creating or pruning
         // anything under the user data root. A tampered package must fail
         // without changing the user's data, logs, or staged-upload state.
@@ -50,7 +103,7 @@ internal static class Program
             Console.Error.WriteLine("Run packaging\\build_windows.ps1 first, or copy the Vite dist folder to web\\.");
             return 2;
         }
-        if (!ValidateArtifactManifest(root, out var manifestError))
+        if (!ValidateArtifactManifest(root, embeddedPayload, out var manifestError))
         {
             Console.Error.WriteLine($"CineForge package integrity verification failed: {manifestError}");
             return 7;
@@ -218,15 +271,256 @@ internal static class Program
         return candidates.FirstOrDefault(Directory.Exists) ?? candidates[0];
     }
 
-    private static bool ValidateArtifactManifest(string root, out string error)
+    private static bool TryReadEmbeddedPayload(string? executablePath, out EmbeddedPayloadInfo? payload, out string? error)
+    {
+        payload = null;
+        error = null;
+        // `executablePath` is retained in the signature so the portable and
+        // single-file launch paths share the same call site. The resource is
+        // read from the executing assembly; no sibling file is trusted.
+#if !CINEFORGE_EMBEDDED_PAYLOAD
+        _ = executablePath;
+        return false;
+#else
+        try
+        {
+            var expected = EmbeddedBuildMetadata.PayloadSha256.Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(expected, "^[0-9a-fA-F]{64}$"))
+            {
+                error = "the embedded payload digest metadata is missing or invalid.";
+                return true;
+            }
+
+            var resource = typeof(Program).Assembly.GetManifestResourceStream(EmbeddedPayloadResourceName);
+            if (resource is null)
+            {
+                error = "the embedded payload resource is missing from the executable.";
+                return true;
+            }
+
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData))
+            {
+                resource.Dispose();
+                error = "the Windows local application-data directory is unavailable.";
+                return true;
+            }
+            var cacheRoot = Path.Combine(localAppData, "CineForge", "packages");
+            Directory.CreateDirectory(cacheRoot);
+            var temporaryPath = Path.Combine(cacheRoot, ".payload-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                using (resource)
+                using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024, FileOptions.SequentialScan))
+                using (var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+                {
+                    var buffer = new byte[128 * 1024];
+                    long total = 0;
+                    while (true)
+                    {
+                        var read = resource.Read(buffer, 0, buffer.Length);
+                        if (read == 0) break;
+                        if (total > MaxEmbeddedPayloadBytes - read)
+                            throw new InvalidDataException("the embedded payload exceeds its size bound.");
+                        output.Write(buffer, 0, read);
+                        hash.AppendData(buffer, 0, read);
+                        total += read;
+                    }
+                    output.Flush(true);
+                    var actual = hash.GetHashAndReset();
+                    var expectedBytes = Convert.FromHexString(expected);
+                    if (!CryptographicOperations.FixedTimeEquals(actual, expectedBytes))
+                    {
+                        try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); } catch { }
+                        error = "the embedded payload digest does not match the bootstrap metadata.";
+                        return true;
+                    }
+                    payload = new EmbeddedPayloadInfo(temporaryPath, 0, total, actual);
+                }
+            }
+            catch
+            {
+                try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); } catch { }
+                throw;
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentOutOfRangeException or FormatException)
+        {
+            error = $"could not read the embedded payload resource ({ex.Message})";
+            return true;
+        }
+#endif
+    }
+
+    private static string ExtractEmbeddedPackage(EmbeddedPayloadInfo payload)
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(localAppData))
+            throw new InvalidOperationException("the Windows local application-data directory is unavailable.");
+
+        var cacheRoot = Path.Combine(localAppData, "CineForge", "packages");
+        Directory.CreateDirectory(cacheRoot);
+        var packageKey = Convert.ToHexString(payload.PayloadSha256).ToLowerInvariant();
+        var packageRoot = Path.Combine(cacheRoot, packageKey);
+        var mutexName = EmbeddedPackageCachePrefix + packageKey;
+        using var mutex = new Mutex(false, mutexName);
+        var acquired = false;
+        try
+        {
+            try { acquired = mutex.WaitOne(TimeSpan.FromSeconds(30)); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) throw new IOException("timed out waiting for the embedded package cache lock.");
+
+            if (Directory.Exists(packageRoot)
+                && (File.GetAttributes(packageRoot) & FileAttributes.ReparsePoint) == 0
+                && ValidateArtifactManifest(packageRoot, payload, out _))
+            {
+                return packageRoot;
+            }
+
+            // A cache entry is never followed through a reparse point. If a
+            // user or another process placed one at this exact hash path, fail
+            // closed instead of deleting outside the known cache root.
+            if (File.Exists(packageRoot)
+                || (Directory.Exists(packageRoot)
+                    && (File.GetAttributes(packageRoot) & FileAttributes.ReparsePoint) != 0))
+            {
+                throw new InvalidDataException("the embedded package cache path is occupied by an unsafe entry.");
+            }
+            if (Directory.Exists(packageRoot))
+            {
+                // Do not let cleanup of a corrupted cache follow a nested
+                // junction/symlink outside the package cache. The verifier
+                // rejects reparse points; this second walk protects the
+                // recursive delete on the failure path as well.
+                foreach (var _ in EnumeratePackageFiles(packageRoot)) { }
+                Directory.Delete(packageRoot, recursive: true);
+            }
+
+            var staging = packageRoot + ".staging-" + Guid.NewGuid().ToString("N");
+            Directory.CreateDirectory(staging);
+            try
+            {
+                ExtractEmbeddedZip(payload, staging);
+                if (!ValidateArtifactManifest(staging, payload, out var manifestError))
+                    throw new InvalidDataException($"embedded package manifest validation failed: {manifestError}");
+                Directory.Move(staging, packageRoot);
+            }
+            finally
+            {
+                if (Directory.Exists(staging))
+                {
+                    try { Directory.Delete(staging, recursive: true); } catch { }
+                }
+            }
+
+            return packageRoot;
+        }
+        finally
+        {
+            if (acquired)
+            {
+                try { mutex.ReleaseMutex(); } catch (ApplicationException) { }
+                catch (SynchronizationLockException) { }
+            }
+        }
+    }
+
+    private static void ExtractEmbeddedZip(EmbeddedPayloadInfo payload, string destinationRoot)
+    {
+        using var source = new FileStream(payload.PayloadPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            128 * 1024, FileOptions.SequentialScan);
+        using var bounded = new BoundedReadStream(source, payload.PayloadOffset, payload.PayloadLength);
+        using var archive = new ZipArchive(bounded, ZipArchiveMode.Read, leaveOpen: false);
+        if (archive.Entries.Count == 0 || archive.Entries.Count > MaxEmbeddedEntryCount)
+            throw new InvalidDataException("the embedded package has an invalid entry count.");
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        long totalBytes = 0;
+        foreach (var entry in archive.Entries)
+        {
+            var normalized = entry.FullName.Replace('/', '\\').Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+            var isDirectory = normalized.EndsWith(Path.DirectorySeparatorChar);
+            normalized = normalized.TrimEnd(Path.DirectorySeparatorChar);
+            if (string.IsNullOrWhiteSpace(normalized) || normalized.Contains(':')
+                || Path.IsPathRooted(normalized)
+                || normalized.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
+                    .Any(segment => segment is "." or ".."))
+            {
+                throw new InvalidDataException($"the embedded package contains an unsafe path: {entry.FullName}");
+            }
+            if (!string.Equals(normalized, "build-manifest.json", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(normalized, "web", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(normalized, "runtime", StringComparison.OrdinalIgnoreCase)
+                && !(normalized.StartsWith("web" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    || normalized.StartsWith("runtime" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidDataException($"the embedded package contains an unsupported path: {entry.FullName}");
+            }
+            if (!seen.Add(normalized)) throw new InvalidDataException($"the embedded package contains a duplicate path: {entry.FullName}");
+
+            var target = Path.GetFullPath(Path.Combine(destinationRoot, normalized));
+            var rootWithSeparator = Path.GetFullPath(destinationRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!target.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"the embedded package path escaped its destination: {entry.FullName}");
+
+            if (isDirectory)
+            {
+                if (File.Exists(target)) throw new InvalidDataException($"the embedded package has a file/directory collision: {entry.FullName}");
+                Directory.CreateDirectory(target);
+                continue;
+            }
+            if (entry.Length < 0 || entry.Length > MaxEmbeddedEntryBytes || totalBytes > MaxEmbeddedUncompressedBytes - entry.Length)
+                throw new InvalidDataException("the embedded package exceeds its uncompressed size bound.");
+            if (Directory.Exists(target)) throw new InvalidDataException($"the embedded package has a file/directory collision: {entry.FullName}");
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            using var input = entry.Open();
+            using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024, FileOptions.SequentialScan);
+            var copied = CopyBounded(input, output, entry.Length, MaxEmbeddedEntryBytes);
+            if (copied != entry.Length) throw new InvalidDataException($"the embedded package entry was truncated: {entry.FullName}");
+            totalBytes += copied;
+        }
+    }
+
+    private static long CopyBounded(Stream input, Stream output, long expectedLength, long maxBytes)
+    {
+        var buffer = new byte[128 * 1024];
+        long total = 0;
+        while (true)
+        {
+            var read = input.Read(buffer, 0, buffer.Length);
+            if (read == 0) break;
+            if (total > maxBytes - read) throw new InvalidDataException("the embedded package entry exceeds its size bound.");
+            output.Write(buffer, 0, read);
+            total += read;
+        }
+        if (total > expectedLength) throw new InvalidDataException("the embedded package entry expanded beyond its declared size.");
+        return total;
+    }
+
+    private static bool ValidateArtifactManifest(string root, EmbeddedPayloadInfo? embedded, out string error)
     {
         error = string.Empty;
         var manifestPath = Path.Combine(root, "build-manifest.json");
-        if (!File.Exists(manifestPath)) return true;
+        if (!File.Exists(manifestPath))
+        {
+            if (embedded is not null)
+            {
+                error = "the embedded package is missing build-manifest.json.";
+                return false;
+            }
+            return true;
+        }
 
         try
         {
             var manifestInfo = new FileInfo(manifestPath);
+            if ((manifestInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                error = "build-manifest.json is a reparse point.";
+                return false;
+            }
             if (manifestInfo.Length > 4 * 1024 * 1024)
             {
                 error = "build-manifest.json is too large.";
@@ -243,11 +537,10 @@ internal static class Program
                 return false;
             }
 
-            // The inventory is the bootstrap's release boundary.  Require the
-            // count and the explicit bootstrap digest as well as each file
-            // entry so a malformed or hand-edited manifest cannot silently
-            // omit the executable from direct EXE launches (the PowerShell
-            // launcher performs the same checks before delegation).
+            // The inventory is the release boundary. Require the count and an
+            // explicit bootstrap digest for a portable package. A SingleFile
+            // package has no self-referential EXE hash; its resource digest is
+            // authenticated by the compiled bootstrap metadata instead.
             if (!document.RootElement.TryGetProperty("artifact_file_count", out var countValue)
                 || !countValue.TryGetInt32(out var declaredCount)
                 || declaredCount != files.GetArrayLength())
@@ -255,17 +548,39 @@ internal static class Program
                 error = "build-manifest.json has an invalid artifact file count.";
                 return false;
             }
-            if (!document.RootElement.TryGetProperty("bootstrap_sha256", out var bootstrapHashValue)
-                || bootstrapHashValue.ValueKind != JsonValueKind.String
-                || !System.Text.RegularExpressions.Regex.IsMatch(bootstrapHashValue.GetString() ?? string.Empty, "^[0-9a-fA-F]{64}$"))
+            string? bootstrapHash = null;
+            if (document.RootElement.TryGetProperty("bootstrap_sha256", out var bootstrapHashValue)
+                && bootstrapHashValue.ValueKind == JsonValueKind.String)
+            {
+                bootstrapHash = bootstrapHashValue.GetString();
+            }
+            if (embedded is null && !System.Text.RegularExpressions.Regex.IsMatch(bootstrapHash ?? string.Empty, "^[0-9a-fA-F]{64}$"))
             {
                 error = "build-manifest.json has no valid bootstrap_sha256.";
                 return false;
+            }
+            var manifestMode = document.RootElement.TryGetProperty("mode", out var modeValue)
+                && modeValue.ValueKind == JsonValueKind.String
+                ? modeValue.GetString()
+                : null;
+            if (embedded is not null)
+            {
+                if (!string.Equals(manifestMode, "single-file", StringComparison.OrdinalIgnoreCase))
+                {
+                    error = "the embedded package manifest does not identify a single-file build.";
+                    return false;
+                }
+                if (bootstrapHash is not null)
+                {
+                    error = "the embedded package must not claim a self-referential bootstrap_sha256.";
+                    return false;
+                }
             }
 
             var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 + Path.DirectorySeparatorChar;
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var canonicalEntries = new List<CanonicalArtifactEntry>(files.GetArrayLength());
             string? inventoryBootstrapHash = null;
             foreach (var entry in files.EnumerateArray())
             {
@@ -334,21 +649,110 @@ internal static class Program
                     error = $"Packaged artifact hash mismatch: {relative}.";
                     return false;
                 }
+                canonicalEntries.Add(new CanonicalArtifactEntry(relative.Replace('\\', '/'), expectedBytes, expectedHash.ToLowerInvariant()));
             }
 
-            if (inventoryBootstrapHash is null
-                || !inventoryBootstrapHash.Equals(bootstrapHashValue.GetString(), StringComparison.OrdinalIgnoreCase))
+            if (embedded is null && (inventoryBootstrapHash is null
+                || !inventoryBootstrapHash.Equals(bootstrapHash, StringComparison.OrdinalIgnoreCase)))
             {
                 error = "build-manifest.json bootstrap_sha256 does not match the CineForge.exe inventory entry.";
                 return false;
             }
+            if (embedded is not null && inventoryBootstrapHash is not null)
+            {
+                error = "the embedded package inventory must not include an external CineForge.exe entry.";
+                return false;
+            }
+
+            if (embedded is not null)
+            {
+                if (!document.RootElement.TryGetProperty("embedded_content_sha256", out var contentHashValue)
+                    || contentHashValue.ValueKind != JsonValueKind.String
+                    || !System.Text.RegularExpressions.Regex.IsMatch(contentHashValue.GetString() ?? string.Empty, "^[0-9a-fA-F]{64}$"))
+                {
+                    error = "the embedded package has no valid embedded_content_sha256.";
+                    return false;
+                }
+                var actualContentHash = ComputeCanonicalArtifactDigest(canonicalEntries);
+                if (!actualContentHash.Equals(contentHashValue.GetString(), StringComparison.OrdinalIgnoreCase))
+                {
+                    error = $"the embedded package content digest does not match its manifest inventory (declared {contentHashValue.GetString()}, actual {actualContentHash}).";
+                    return false;
+                }
+#if CINEFORGE_EMBEDDED_PAYLOAD
+                var expectedContentHash = EmbeddedBuildMetadata.ContentSha256.Trim();
+                if (!actualContentHash.Equals(expectedContentHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    error = "the embedded package content digest does not match the bootstrap metadata.";
+                    return false;
+                }
+#endif
+            }
+
+            // The inventory is also a closure boundary. Hashing every listed
+            // file is insufficient if a stale or tampered package adds an
+            // unlisted script/runtime file that the Core or browser can load.
+            // Walk the tree without following reparse points and reject every
+            // file that is not either in the inventory or the manifest itself.
+            foreach (var actualPath in EnumeratePackageFiles(root))
+            {
+                var relative = Path.GetRelativePath(root, actualPath).Replace('\\', '/');
+                if (string.Equals(relative, "build-manifest.json", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!seen.Contains(actualPath))
+                {
+                    error = $"Packaged artifact is not declared in build-manifest.json: {relative}.";
+                    return false;
+                }
+            }
 
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or NotSupportedException)
         {
             error = $"could not validate build-manifest.json ({ex.Message})";
             return false;
+        }
+    }
+
+    private static string ComputeCanonicalArtifactDigest(IEnumerable<CanonicalArtifactEntry> entries)
+    {
+        var canonical = new StringBuilder();
+        // Manifest order is intentionally part of the compiled content
+        // digest. This keeps the PowerShell release builder and the runtime
+        // verifier independent of each platform's culture-sensitive sorting.
+        foreach (var entry in entries)
+        {
+            canonical.Append(entry.Path).Append('\n')
+                .Append(entry.Bytes.ToString(CultureInfo.InvariantCulture)).Append('\n')
+                .Append(entry.Sha256).Append('\n');
+        }
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()))).ToLowerInvariant();
+    }
+
+    private sealed record CanonicalArtifactEntry(string Path, long Bytes, string Sha256);
+
+    private static IEnumerable<string> EnumeratePackageFiles(string root)
+    {
+        var pending = new Stack<string>();
+        pending.Push(Path.GetFullPath(root));
+        while (pending.Count > 0)
+        {
+            var directory = pending.Pop();
+            var directoryAttributes = File.GetAttributes(directory);
+            if ((directoryAttributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException($"Packaged directory is a reparse point: {directory}.");
+
+            foreach (var path in Directory.EnumerateFileSystemEntries(directory))
+            {
+                var attributes = File.GetAttributes(path);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidDataException($"Packaged path is a reparse point: {path}.");
+                if ((attributes & FileAttributes.Directory) != 0)
+                    pending.Push(path);
+                else
+                    yield return Path.GetFullPath(path);
+            }
         }
     }
 
@@ -1334,6 +1738,119 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Could not open the browser automatically: {ex.Message}");
+        }
+    }
+
+    private sealed record EmbeddedPayloadInfo(
+        string PayloadPath,
+        long PayloadOffset,
+        long PayloadLength,
+        byte[] PayloadSha256)
+    {
+        public void CleanupTemporaryPayload()
+        {
+            var fileName = Path.GetFileName(PayloadPath);
+            if (!fileName.StartsWith(".payload-", StringComparison.OrdinalIgnoreCase)
+                || !fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) return;
+            try
+            {
+                var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrWhiteSpace(localAppData)) return;
+                var packageRoot = Path.GetFullPath(Path.Combine(localAppData, "CineForge", "packages"))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                var candidate = Path.GetFullPath(PayloadPath);
+                if (!candidate.StartsWith(packageRoot, StringComparison.OrdinalIgnoreCase)) return;
+                if (File.Exists(candidate)
+                    && (File.GetAttributes(candidate) & FileAttributes.ReparsePoint) == 0)
+                    File.Delete(candidate);
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// A seekable, read-only view over the bounded embedded resource copy.
+    /// ZipArchive can therefore validate the central directory without
+    /// allocating a second copy of the payload in memory.
+    /// </summary>
+    private sealed class BoundedReadStream : Stream
+    {
+        private readonly Stream inner;
+        private readonly long start;
+        private readonly long length;
+        private long position;
+
+        public BoundedReadStream(Stream inner, long start, long length)
+        {
+            if (!inner.CanSeek || start < 0 || length < 0 || start > inner.Length - length)
+                throw new ArgumentOutOfRangeException(nameof(start));
+            this.inner = inner;
+            this.start = start;
+            this.length = length;
+            inner.Seek(start, SeekOrigin.Begin);
+        }
+
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => length;
+        public override long Position
+        {
+            get => position;
+            set => Seek(value, SeekOrigin.Begin);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            ValidateReadArguments(buffer, offset, count);
+            var boundedCount = (int)Math.Min(count, length - position);
+            if (boundedCount <= 0) return 0;
+            inner.Seek(start + position, SeekOrigin.Begin);
+            var read = inner.Read(buffer, offset, boundedCount);
+            position += read;
+            return read;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            var boundedCount = (int)Math.Min(buffer.Length, length - position);
+            if (boundedCount <= 0) return 0;
+            inner.Seek(start + position, SeekOrigin.Begin);
+            var read = inner.Read(buffer[..boundedCount]);
+            position += read;
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            var next = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => position + offset,
+                SeekOrigin.End => length + offset,
+                _ => throw new ArgumentOutOfRangeException(nameof(origin)),
+            };
+            if (next < 0 || next > length) throw new IOException("embedded payload seek escaped its bounded range.");
+            position = next;
+            return position;
+        }
+
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            // The owner of the underlying executable stream disposes it.
+            base.Dispose(disposing);
+        }
+
+        private static void ValidateReadArguments(byte[] buffer, int offset, int count)
+        {
+            if (buffer is null) throw new ArgumentNullException(nameof(buffer));
+            if (offset < 0 || count < 0 || offset > buffer.Length - count)
+                throw new ArgumentOutOfRangeException();
         }
     }
 

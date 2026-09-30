@@ -3,9 +3,40 @@
 `CineForge-OneClick.cmd` is the shortest path for a Windows user:
 
 1. Double-click `CineForge-OneClick.cmd`.
-2. If `dist/CineForge/` already contains a verified package, the self-contained executable opens immediately and needs no Node, npm, Rust or .NET installation. A source checkout without an artifact takes the developer build path: install pinned UI dependencies, run the UI/Core checks, build the Vite bundle, package the Core, publish a self-contained `CineForge.exe`, run a loopback smoke test, and open the result.
+2. If `dist/CineForge-OneFile/CineForge.exe` already exists, that single executable opens immediately. A source checkout without the artifact takes the developer build path and produces it: install pinned UI dependencies, run the UI/Core checks, build the Vite bundle, package the Core, publish a self-contained bootstrap, embed and authenticate the web/Core/Node payload, run a loopback smoke test, and open the result.
 
-The output is placed under `dist/CineForge/`:
+The supported consumer artifact is `dist/CineForge-OneFile/CineForge.exe`. It is
+one file: there is no adjacent web directory, Node runtime, Core source, or
+manifest required to launch it. The EXE is a .NET single-file bundle with the
+versioned ZIP payload embedded as a managed resource. Compiled metadata binds
+the payload SHA-256 and canonical artifact-inventory digest before first launch.
+The bootstrap extracts into `%LOCALAPPDATA%\CineForge\packages\<payload-sha256>`
+using an atomic staging rename, verifies the embedded manifest and every
+payload file, then starts the same local Core/web host used by the portable
+path. The cache is rebuildable and keyed by the authenticated payload; user
+database/data remain under `%LOCALAPPDATA%\CineForge\data`. A malformed or
+tampered one-file artifact exits before creating the user data directory.
+
+Build it explicitly with:
+
+```powershell
+.\packaging\build_windows.ps1 -Mode SingleFile
+```
+
+`-Mode Portable` remains available for diagnostics and deployment layouts that
+prefer a visible `web/` and `runtime/` directory. `-Mode SingleFile` requires
+the production `node-self-contained` Core mode and refuses Python/source
+fallbacks so the one-file EXE never gains a hidden machine prerequisite.
+
+The one-file output is placed under `dist/CineForge-OneFile/`:
+
+```text
+dist/CineForge-OneFile/
+  CineForge.exe          # the only consumer artifact
+```
+
+For diagnostics, the intermediate portable build remains available when
+`-KeepBuildFiles` is supplied (or when `-Mode Portable` is run directly):
 
 ```text
 dist/CineForge/
@@ -17,7 +48,7 @@ dist/CineForge/
   build-manifest.json    # source head, mode, hashes and explicit warnings
 ```
 
-The bootstrap binds only to `127.0.0.1`. It starts the packaged Core, exposes the UI on a loopback port, and proxies `/v1/*` to the Core. Mutating API requests require the exact local UI origin; proxied Core CORS headers are stripped at this desktop boundary. The browser file picker uses `POST /v1/desktop/stage`: the bootstrap accepts the raw stream only from that origin, writes it below the data root's `intake` directory, and returns a 128-bit opaque handle plus size/name metadata. The handle is resolved only inside the bootstrap when the subsequent `ImportAsset` request arrives; the browser never receives the machine path. Each handle is bound to the first successful import idempotency key: a retry with that same key is replay-safe, while a new key is rejected. Staging is capped at 8 GiB per file and stale staging directories are removed after 24 hours. Core remains the canonical hasher, object-store writer, provenance recorder, and policy boundary. The active local database and startup/Core logs live under `%LOCALAPPDATA%\CineForge\data` by default. Pass `--data DIR` to choose another data root. The bootstrap never accepts a remote bind address. A packaged runtime refuses to open in offline/demo mode if the bundled Node/Core files are missing or unhealthy; this prevents a broken release from looking like a usable product. The build manifest contains a bounded inventory of the EXE, web bundle, and Core runtime with byte sizes and SHA-256 digests. The bootstrap verifies that inventory before starting, and `launch_windows.ps1` verifies it before delegating to the EXE. This detects accidental or post-build bundle changes; the manifest remains explicitly unsigned until trusted release signing is supplied. `--allow-offline` is an explicit development escape hatch and is not used by the production one-click path.
+The bootstrap binds only to `127.0.0.1`. It starts the packaged Core, exposes the UI on a loopback port, and proxies `/v1/*` to the Core. Mutating API requests require the exact local UI origin; proxied Core CORS headers are stripped at this desktop boundary. The browser file picker uses `POST /v1/desktop/stage`: the bootstrap accepts the raw stream only from that origin, writes it below the data root's `intake` directory, and returns a 128-bit opaque handle plus size/name metadata. The handle is resolved only inside the bootstrap when the subsequent `ImportAsset` request arrives; the browser never receives the machine path. Each handle is bound to the first successful import idempotency key: a retry with that same key is replay-safe, while a new key is rejected. Staging is capped at 8 GiB per file and stale staging directories are removed after 24 hours. Core remains the canonical hasher, object-store writer, provenance recorder, and policy boundary. The active local database and startup/Core logs live under `%LOCALAPPDATA%\CineForge\data` by default. Pass `--data DIR` to choose another data root. The bootstrap never accepts a remote bind address. A packaged runtime refuses to open in offline/demo mode if the bundled Node/Core files are missing or unhealthy; this prevents a broken release from looking like a usable product. The portable manifest contains a bounded inventory of the EXE, web bundle, and Core runtime; the embedded one-file manifest contains the web/Core inventory and is authenticated by compiled payload/content digests. The bootstrap verifies the applicable inventory before starting. This detects accidental or post-build bundle changes; the manifests remain explicitly unsigned until trusted release signing is supplied. `--allow-offline` is an explicit development escape hatch and is not used by the production one-click path.
 
 ## Build commands
 
@@ -25,12 +56,15 @@ From PowerShell:
 
 ```powershell
 .\packaging\build_windows.ps1
+.\packaging\build_windows.ps1 -Mode SingleFile
 .\packaging\build_windows.ps1 -Mode Portable -SkipTests
 .\packaging\build_windows.ps1 -Mode Tauri
 ```
 
-`Auto` produces the verified portable bootstrap. `Portable` is the supported
-Windows product path and does not require Rust. `Tauri` is fail-closed for now:
+`Auto` and `Portable` produce the verified intermediate portable bootstrap.
+`SingleFile` is the supported Windows consumer path and does not require Rust.
+It embeds the web/Core/Node payload inside the self-contained .NET bundle and
+refuses Python/source Core fallbacks. `Tauri` is fail-closed for now:
 the native shell scaffold has not yet been wired to package and start the Core
 sidecar, so an installer would otherwise open a UI without the canonical local
 database. `-NoInstall` avoids changing the UI dependency tree and requires
@@ -49,16 +83,25 @@ The portable build is the reliable fallback when the Rust toolchain is absent. W
 .\packaging\launch_windows.ps1
 .\packaging\smoke_test.ps1 -ArtifactRoot .\dist\CineForge
 .\packaging\tamper_test.ps1 -ArtifactRoot .\dist\CineForge
+.\packaging\single_file_smoke_test.ps1 -ExecutablePath .\dist\CineForge-OneFile\CineForge.exe
+.\packaging\single_file_tamper_test.ps1 -ExecutablePath .\dist\CineForge-OneFile\CineForge.exe
 ```
 
-The launcher verifies the manifest hash and the adjacent web/Core runtime before starting the exact executable. The smoke test starts that artifact, checks `/healthz`, verifies that the root document is HTML, exercises the redacted local integrity job list, project/item CRUD, stages a raw browser-style upload through `/v1/desktop/stage`, imports the opaque handle through Core, creates and verifies a local backup (including idempotent replay, redacted metadata, tamper detection, and storage-pressure admission), exercises exact-pin audio/subtitle timing metadata (invalid rational bounds, overlap, idempotent replay, stale projection after a checkpoint and redaction), builds and downloads a verified timeline interchange, registers a managed returned interchange with rights/consent and idempotent replay, and verifies all durable records after a bootstrap restart. `tamper_test.ps1` copies the artifact to a verified temp directory, changes a manifest-bound web byte, and proves the bootstrap exits with code 7 before creating user data. Offline/demo mode is accepted only when the test is explicitly called with `-AllowOffline`; a production packaging run must have a ready Core. If a launch fails, inspect `%LOCALAPPDATA%\CineForge\data\logs\bootstrap.log` and `core.log`.
+The launcher verifies the portable manifest before starting an adjacent layout and delegates embedded-resource verification to the one-file bootstrap. The smoke tests start the real artifact, check `/healthz`, verify that the root document is HTML, exercise the redacted local integrity job list, project/item CRUD, and restart persistence. The broader portable smoke test also stages a raw browser-style upload through `/v1/desktop/stage`, imports the opaque handle through Core, creates and verifies a local backup (including idempotent replay, redacted metadata, tamper detection, and storage-pressure admission), exercises exact-pin audio/subtitle timing metadata (invalid rational bounds, overlap, idempotent replay, stale projection after a checkpoint and redaction), builds and downloads a verified timeline interchange, registers a managed returned interchange with rights/consent and idempotent replay, and verifies all durable records after a bootstrap restart. The one-file tamper test flips embedded bytes and proves the bootstrap exits with code 7 before creating user data. Offline/demo mode is accepted only when a test is explicitly called with `-AllowOffline`; a production packaging run must have a ready Core. If a launch fails, inspect `%LOCALAPPDATA%\CineForge\data\logs\bootstrap.log` and `core.log`.
 
 ## Release boundary
 
-The portable executable is self-contained but unsigned in this repository. A release job must sign the executable/installer with the trusted Windows certificate, publish the SBOM and provenance manifest, and verify the exact source/toolchain/dependency digests before distribution. The build manifest deliberately reports `UNSIGNED_BUILD_REQUIRES_TRUSTED_RELEASE_SIGNING`; it never presents an unsigned local build as a release artifact.
+Both the portable bootstrap and the one-file executable are self-contained but
+unsigned in this repository. A release job must sign the final EXE with the
+trusted Windows certificate, publish the SBOM and provenance manifest, and
+verify the exact source/toolchain/dependency digests before distribution. The
+embedded and portable manifests deliberately report
+`UNSIGNED_BUILD_REQUIRES_TRUSTED_RELEASE_SIGNING`; a local build is never
+presented as a signed release artifact.
 
 The current repository may not have Cargo/Rust installed. Even when it is
 installed, the Tauri target remains disabled until sidecar Core startup and its
-own end-to-end test are complete. The portable bootstrap is the reviewable,
-usable executable path; this is an explicit product boundary, not evidence that
-the Tauri installer or production release gate has passed.
+own end-to-end test are complete. The resource-embedded one-file bootstrap is
+the reviewable, usable consumer path; this is an explicit product boundary,
+not evidence that the Tauri installer or trusted signing/release gate has
+passed.

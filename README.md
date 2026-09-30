@@ -16,16 +16,26 @@ opens CineForge in the default browser.
 The resulting product is:
 
 ```text
-dist/CineForge/CineForge.exe
+dist/CineForge-OneFile/CineForge.exe
 ```
 
-The EXE is self-contained for the bootstrap and starts the bundled Core without
-requiring Node.js on the target machine. Keep the adjacent `web/` and
-`runtime/` directories next to the EXE; together they form the portable app.
-An end user can then double-click `CineForge.exe` directly. The app binds only
-to `127.0.0.1` and opens the browser automatically. User data is stored under
+The one-file EXE embeds and authenticates the web bundle, Core, and self-contained
+Node runtime. An end user can double-click `CineForge.exe` directly; no Node.js,
+.NET SDK, `web/`, `runtime/`, or manifest is required beside it. On first launch
+the authenticated payload is extracted into a per-user rebuildable cache and the
+local Core/database starts behind a loopback web host. The app binds only to
+`127.0.0.1` and opens the browser automatically. User data is stored under
 `%LOCALAPPDATA%\CineForge\data` by default; pass `--data DIR` when a different
 data location is required.
+
+The portable layout remains available for diagnostics and controlled deployment:
+
+```text
+dist/CineForge/CineForge.exe
+dist/CineForge/web/
+dist/CineForge/runtime/
+dist/CineForge/build-manifest.json
+```
 
 ## Working vertical slice
 
@@ -68,19 +78,18 @@ From the repository root:
 ```powershell
 npm test --prefix core
 Push-Location app; npm test; npm run build; Pop-Location
-.\packaging\build_windows.ps1 -Mode Portable
+.\packaging\build_windows.ps1 -Mode SingleFile
 ```
 
-The packaging command is the release-shaped check: it rebuilds the artifact and
-must finish with `PACKAGING_SMOKE=PASS`. The manifest at
-`dist/CineForge/build-manifest.json` records the source head, bootstrap hash,
-the byte/hash inventory for the EXE, web bundle, and Core runtime, runtime mode,
-and signing status. The bootstrap and `packaging/launch_windows.ps1` verify that
-inventory before starting; the local build remains explicitly unsigned until a
-trusted release signer attaches authenticity.
+The packaging command is the release-shaped check: it rebuilds the one-file
+artifact and must finish with `SINGLE_FILE_SMOKE=PASS` and
+`SINGLE_FILE_TAMPER=PASS`. The embedded manifest records the source head, byte/
+hash inventory for the web bundle and Core runtime, runtime mode, and signing
+status. The bootstrap verifies that inventory before starting; the local build
+remains explicitly unsigned until a trusted release signer attaches authenticity.
 
 The Tauri 2 files under `app/src-tauri/` are a future native-shell scaffold.
 They are intentionally fail-closed in packaging until the shell packages and
-starts the Core sidecar; the verified product path is the portable EXE above.
+starts the Core sidecar; the verified product path is the one-file EXE above.
 The local artifact is unsigned and must be signed by the trusted release
 pipeline before distribution outside a controlled environment.
