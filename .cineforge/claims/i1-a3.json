@@ -1,0 +1,18 @@
+{
+  "event": "claim-intent-i1-a3-20260930",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 1,
+  "agent_instance_id": "cineforge-WORK-single-writer-fencing",
+  "slot_id": "WORK-single-writer-fencing",
+  "run_id": "WORK-single-writer-fencing-20260930-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:a7b8e8642da937b56f77202810a9214aa123d4c23b76dec95f67deac85f1584e",
+  "base_ref": "agent/i1-a2-closure-refresh",
+  "base_sha": "f6c6561",
+  "context_base_sha": "f6c6561",
+  "requested_state": "CLAIMED",
+  "contract_revision": "TASK_CONTRACT_REVISION_V1",
+  "scope": "implement bounded single-writer Core/process fencing with Windows bootstrap duplicate-launch guard; do not claim runtime or production closure"
+}
