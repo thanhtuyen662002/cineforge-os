@@ -1973,6 +1973,14 @@ Normal users:
 
 Advanced view may show hashes/storage objects/scrub evidence.
 
+The Settings surface may show the bounded `GET /v1/storage/scrub-health`
+projection as read-only evidence. It must show the returned PASS/FAIL/UNKNOWN
+state, checked objects/bytes, the explicit object/byte limit, and whether the
+scan is complete. When the limit stops the scan, the copy must say that the
+result is partial and UNKNOWN; it must not imply that the whole library was
+verified. The refresh action only reads Core evidence. It does not repair,
+quarantine or delete a managed object.
+
 Do not call a redundant copy “backup an toàn” until it has been independently verified.
 
 # UI-ENV-DRIFT-01. Environment drift UX

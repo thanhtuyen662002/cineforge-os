@@ -88,6 +88,125 @@ test('recovery status is read-only and fails closed when recovery epoch/external
   }
 });
 
+test('bounded managed CAS scrub health proves bytes without mutating storage evidence', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  try {
+    const sourcePath = path.join(directory, 'scrub-source.txt');
+    fs.writeFileSync(sourcePath, 'scrub bytes\n', 'utf8');
+    const imported = execute(core, 'ImportAsset', {
+      source_path: sourcePath, asset_type: 'DOCUMENT', storage_mode: 'COPY',
+    }, {}, 'scrub-import');
+    assert.equal(imported.ok, true);
+    const objectRow = core.db.prepare(`SELECT so.*, sol.relative_path
+      FROM storage_objects so JOIN storage_object_locations sol
+      ON sol.storage_object_id = so.id WHERE sol.location_role = 'PRIMARY'`).get();
+    assert.ok(objectRow);
+    const target = path.join(directory, 'asset-store', objectRow.relative_path);
+    const beforeProjection = core.handle(request('query.system.health', {}, 'scrub-before')).result.projection_seq;
+    const beforeVerifiedAt = objectRow.verified_at_utc_us;
+
+    const healthy = core.handle(request('query.storage.scrub_health', {}, 'scrub-health'));
+    assert.equal(healthy.ok, true);
+    assert.equal(healthy.result.status, 'PASS');
+    assert.equal(healthy.result.read_only, true);
+    assert.equal(healthy.result.scan.complete, true);
+    assert.equal(healthy.result.scan.truncated, false);
+    assert.equal(healthy.result.scan.checked_count, 1);
+    assert.equal(healthy.result.scan.checked_bytes, Buffer.byteLength('scrub bytes\n'));
+    assert.equal(healthy.result.objects[0].state, 'PASS');
+    assert.equal(healthy.result.objects[0].content_hash, objectRow.content_hash);
+    assert.equal(healthy.result.objects[0].observed_byte_size, objectRow.byte_size);
+    assert.equal(core.handle(request('query.system.health', {}, 'scrub-after')).result.projection_seq, beforeProjection);
+    assert.equal(core.db.prepare('SELECT verified_at_utc_us FROM storage_objects WHERE id = ?').get(objectRow.id).verified_at_utc_us, beforeVerifiedAt);
+
+    // Tampering is surfaced as FAIL; the read-only query does not quarantine
+    // or rewrite the damaged object.
+    fs.chmodSync(target, 0o644);
+    fs.writeFileSync(target, 'tampered', 'utf8');
+    const corrupted = core.handle(request('query.storage.scrub_health', {}, 'scrub-corrupt'));
+    assert.equal(corrupted.ok, true);
+    assert.equal(corrupted.result.status, 'FAIL');
+    assert.equal(corrupted.result.objects[0].state, 'FAIL');
+    assert.equal(corrupted.result.objects[0].code, 'SCRUB_BYTE_SIZE_MISMATCH');
+    assert.equal(core.db.prepare('SELECT state FROM storage_object_locations WHERE storage_object_id = ?').get(objectRow.id).state, 'AVAILABLE');
+
+  } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('managed CAS scrub health fails closed on explicit object and byte limits', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  try {
+    const sourcePath = path.join(directory, 'bounded.txt');
+    fs.writeFileSync(sourcePath, 'bounded scrub payload', 'utf8');
+    const imported = execute(core, 'ImportAsset', {
+      source_path: sourcePath, asset_type: 'DOCUMENT', storage_mode: 'COPY',
+    }, {}, 'bounded-import');
+    assert.equal(imported.ok, true);
+
+    const byteLimited = core.handle(request('query.storage.scrub_health', { max_bytes: 1 }, 'scrub-byte-limit'));
+    assert.equal(byteLimited.ok, true);
+    assert.equal(byteLimited.result.status, 'UNKNOWN');
+    assert.equal(byteLimited.result.read_only, true);
+    assert.equal(byteLimited.result.scan.complete, false);
+    assert.equal(byteLimited.result.scan.truncated, true);
+    assert.equal(byteLimited.result.scan.truncation_reason, 'MAX_BYTES');
+    assert.equal(byteLimited.result.objects[0].state, 'UNKNOWN');
+    assert.equal(byteLimited.result.objects[0].code, 'SCRUB_IO_BUDGET_EXCEEDED');
+    assert.equal(byteLimited.result.cursor.next_after, null);
+
+    const invalidLimit = core.handle(request('query.storage.scrub_health', { limit: 201 }, 'scrub-limit-invalid'));
+    assert.equal(invalidLimit.ok, false);
+    assert.equal(invalidLimit.error.code, 'INVALID_ARGUMENT');
+    const invalidBytes = core.handle(request('query.storage.scrub_health', { max_bytes: 0 }, 'scrub-bytes-invalid'));
+    assert.equal(invalidBytes.ok, false);
+    assert.equal(invalidBytes.error.code, 'INVALID_ARGUMENT');
+  } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('managed CAS scrub cursor advances past malformed registered hashes', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  try {
+    const now = Date.now() * 1000;
+    const firstHash = 'y'.repeat(64);
+    const secondHash = 'z'.repeat(64);
+    const insert = core.db.prepare(`INSERT INTO storage_objects
+      (id, hash_algorithm, content_hash, byte_size, storage_class, verified_at_utc_us, created_at_utc_us)
+      VALUES (?, 'SHA-256', ?, 0, 'LOCAL_MANAGED', ?, ?)`);
+    insert.run('scrub-malformed-y', firstHash, now, now);
+    insert.run('scrub-malformed-z', secondHash, now + 1, now + 1);
+
+    const first = core.handle(request('query.storage.scrub_health', { limit: 1 }, 'scrub-malformed-first'));
+    assert.equal(first.ok, true);
+    assert.equal(first.result.status, 'FAIL');
+    assert.equal(first.result.scan.truncated, true);
+    assert.equal(first.result.scan.truncation_reason, 'MAX_OBJECTS');
+    assert.equal(first.result.objects[0].code, 'SCRUB_CONTENT_HASH_INVALID');
+    assert.equal(first.result.cursor.next_after, firstHash);
+
+    const second = core.handle(request('query.storage.scrub_health', {
+      limit: 1, after: first.result.cursor.next_after,
+    }, 'scrub-malformed-second'));
+    assert.equal(second.ok, true);
+    assert.equal(second.result.status, 'FAIL');
+    assert.equal(second.result.scan.complete, true);
+    assert.equal(second.result.objects.length, 1);
+    assert.equal(second.result.objects[0].id, 'scrub-malformed-z');
+    assert.equal(second.result.objects[0].code, 'SCRUB_CONTENT_HASH_INVALID');
+  } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('single-writer ownership rejects a duplicate Core, fences stale epochs, and reclaims a dead owner', () => {
   const { dbPath, directory } = tempDb();
   const first = new CoreService({ dbPath, ownershipHeartbeatIntervalMs: 250 });

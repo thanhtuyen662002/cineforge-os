@@ -301,6 +301,7 @@ The desktop-facing routes are:
 | POST | `/v1/backups/{id}/verify` | Re-verify a registered backup artifact |
 | GET | `/v1/recovery/status` | Read-only recovery posture and fail-closed epoch/ledger checks |
 | GET | `/v1/storage/admission` | Estimate backup storage or return fail-closed pressure/profile errors |
+| GET | `/v1/storage/scrub-health` | Read-only bounded verification of managed CAS metadata, file size and SHA-256 (PASS/FAIL/UNKNOWN) |
 | GET | `/v1/storage/staging` | Inspect durable staging evidence (paths are redacted) |
 | POST | `/v1/storage/staging/reconcile` | Reconcile one staging row or bounded pending rows |
 | GET | `/v1/imports/{id}` | Read an import session and its item state |

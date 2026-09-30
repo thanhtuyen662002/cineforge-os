@@ -1751,6 +1751,12 @@ export function createCoreHttpServer(core, options = {}) {
           max_backup_bytes: url.searchParams.get('max_backup_bytes') ?? url.searchParams.get('maxBackupBytes') ?? undefined,
           reserve_bytes: url.searchParams.get('reserve_bytes') ?? url.searchParams.get('reserveBytes') ?? undefined,
         });
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'storage' && parts[2] === 'scrub-health' && parts.length === 3) {
+        result = query(core, request, 'query.storage.scrub_health', {
+          limit: url.searchParams.get('limit') ?? undefined,
+          max_bytes: url.searchParams.get('max_bytes') ?? url.searchParams.get('maxBytes') ?? undefined,
+          after: url.searchParams.get('after') ?? url.searchParams.get('after_content_hash') ?? undefined,
+        });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'storage' && parts[2] === 'staging' && parts.length === 3) {
         result = query(core, request, 'query.storage.staging_orphans', {
           state: url.searchParams.get('state') ?? undefined,

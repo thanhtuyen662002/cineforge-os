@@ -2523,6 +2523,25 @@ Queries:
 - `query.storage.corrupt_objects`
 - `query.environment.fingerprint`
 
+The V1 read-only projection is exposed as `GET /v1/storage/scrub-health`.
+It checks only `LOCAL_MANAGED` objects selected from the canonical
+`storage_objects` index and their single `PRIMARY` `asset-store` location. For
+each bounded item Core validates the registered SHA-256 algorithm/hash and
+byte size, deterministic CAS relative path, regular-file/non-reparse identity,
+and bytes read from a stable descriptor. It never updates a scrub row or
+verification timestamp, writes/replaces/quarantines bytes, or performs GC.
+
+Callers may provide `limit` (1–200, default 100), `max_bytes` (1–4 GiB,
+default 256 MiB), and a content-hash `after` cursor. The response includes
+`read_only: true`, the effective limits, checked/remaining counts and bytes,
+`complete`/`truncated` evidence, a resumable cursor, and per-object evidence.
+The top-level state is `PASS` only when the selected range is complete and all
+checked objects match; `FAIL` means registered metadata or bytes are known to
+be invalid; `UNKNOWN` means a read could not prove integrity or the explicit
+object/byte budget stopped the scan. A partial response is never promoted to
+`PASS`. Full/periodic scrub runs and repair/quarantine remain separate future
+commands requiring their own IO budget and verified alternate source.
+
 Commands:
 - RunStorageScrub
 - RepairCorruptObject

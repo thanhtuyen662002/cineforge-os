@@ -146,6 +146,49 @@ test('HTTP presentation adapter exposes dashboard, project and production-item f
   }
 });
 
+test('HTTP storage scrub health exposes bounded read-only CAS evidence', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-scrub-'));
+  const dbPath = path.join(directory, 'cineforge.sqlite');
+  const sourcePath = path.join(directory, 'source.txt');
+  fs.writeFileSync(sourcePath, 'http scrub bytes\n', 'utf8');
+  const core = new CoreService({ dbPath });
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  try {
+    const imported = await fetch(`${base}/v1/assets`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'http-scrub-import' },
+      body: JSON.stringify({ source_path: sourcePath, asset_type: 'DOCUMENT', storage_mode: 'COPY' }),
+    });
+    assert.equal(imported.status, 200);
+
+    const healthy = await fetch(`${base}/v1/storage/scrub-health?limit=1&max_bytes=1024`);
+    assert.equal(healthy.status, 200);
+    const healthyPayload = await healthy.json();
+    assert.equal(healthyPayload.ok, true);
+    assert.equal(healthyPayload.result.status, 'PASS');
+    assert.equal(healthyPayload.result.read_only, true);
+    assert.equal(healthyPayload.result.limits.max_objects, 1);
+    assert.equal(healthyPayload.result.scan.complete, true);
+    assert.equal(healthyPayload.result.objects[0].state, 'PASS');
+    assert.equal(Object.hasOwn(healthyPayload.result.objects[0], 'relative_path'), false);
+
+    const bounded = await fetch(`${base}/v1/storage/scrub-health?max_bytes=1`);
+    assert.equal(bounded.status, 200);
+    const boundedPayload = await bounded.json();
+    assert.equal(boundedPayload.result.status, 'UNKNOWN');
+    assert.equal(boundedPayload.result.scan.truncated, true);
+    assert.equal(boundedPayload.result.scan.truncation_reason, 'MAX_BYTES');
+
+    const invalid = await fetch(`${base}/v1/storage/scrub-health?limit=201`);
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json()).error.code, 'INVALID_ARGUMENT');
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('HTTP character routes preserve identity/package boundaries and command idempotency', async () => {
   const calls = [];
   const core = {
