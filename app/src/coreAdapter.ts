@@ -1431,6 +1431,7 @@ export class HttpCoreClient implements CoreClient {
       method: 'POST',
       headers: {
         'Content-Type': file.type || 'application/octet-stream',
+        'Idempotency-Key': crypto.randomUUID(),
         // HTTP header values are byte strings. Encode the browser filename as
         // bounded UTF-8 base64url so Vietnamese/CJK/emoji names survive the
         // local boundary without parser failures or mojibake.
@@ -1461,6 +1462,9 @@ export class HttpCoreClient implements CoreClient {
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': input.idempotencyKey ?? crypto.randomUUID() },
       body: JSON.stringify({
         ...(input.sourcePath ? { source_path: input.sourcePath } : {}),
+        // The packaged bootstrap owns the browser intake lease under the
+        // public source_handle contract. Core also accepts this alias and
+        // resolves it to its durable staging boundary for direct/dev mode.
         ...(input.sourceHandle ? { source_handle: input.sourceHandle } : {}),
         ...(input.projectId ? { project_id: input.projectId } : {}),
         ...(input.originalName ? { original_name: input.originalName } : {}),

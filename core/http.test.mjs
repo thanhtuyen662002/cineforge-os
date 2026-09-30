@@ -340,6 +340,63 @@ test('HTTP intake exposes durable staging evidence and keeps REFERENCE availabil
   }
 });
 
+test('HTTP desktop staging streams browser bytes, binds idempotency, and imports by opaque handle', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-desktop-stage-'));
+  const core = new CoreService({ dbPath: path.join(directory, 'cineforge.sqlite'), assetStorePath: path.join(directory, 'asset-store') });
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const filename = 'ảnh browser.txt';
+  const bytes = Buffer.from('desktop upload bytes ✓', 'utf8');
+  const headers = {
+    'content-type': 'text/plain',
+    'content-length': String(bytes.length),
+    'x-cineforge-filename-b64': Buffer.from(filename, 'utf8').toString('base64url'),
+    'idempotency-key': 'desktop-stage-1',
+  };
+  try {
+    const stagedResponse = await fetch(`${base}/v1/desktop/stage`, { method: 'POST', headers, body: bytes });
+    const staged = await stagedResponse.json();
+    assert.equal(stagedResponse.status, 200);
+    assert.equal(staged.ok, true);
+    assert.equal(staged.result.name, filename);
+    assert.equal(staged.result.byteSize, bytes.length);
+    assert.match(staged.result.contentHash, /^[a-f0-9]{64}$/);
+
+    const replayResponse = await fetch(`${base}/v1/desktop/stage`, { method: 'POST', headers, body: bytes });
+    const replay = await replayResponse.json();
+    assert.equal(replayResponse.status, 200);
+    assert.equal(replay.result.handle, staged.result.handle);
+    assert.equal(replay.result.idempotent_replay, true);
+
+    const changedBytes = Buffer.from('different');
+    const changedResponse = await fetch(`${base}/v1/desktop/stage`, { method: 'POST', headers: { ...headers, 'content-length': String(changedBytes.length) }, body: changedBytes });
+    const changed = await changedResponse.json();
+    assert.equal(changedResponse.status, 409);
+    assert.equal(changed.error.code, 'IDEMPOTENCY_KEY_REUSE_CONFLICT');
+
+    const importedResponse = await fetch(`${base}/v1/assets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'desktop-import-1' },
+      body: JSON.stringify({ staging_id: staged.result.handle, storage_mode: 'COPY', original_name: filename, mime_type: 'text/plain' }),
+    });
+    const imported = await importedResponse.json();
+    assert.equal(importedResponse.status, 200);
+    assert.equal(imported.contentHash, staged.result.contentHash);
+    assert.equal(imported.byteSize, bytes.length);
+
+    const stagingListResponse = await fetch(`${base}/v1/storage/staging?state=REGISTERED`);
+    const stagingList = await stagingListResponse.json();
+    assert.equal(stagingListResponse.status, 200);
+    assert.equal(stagingList.result.items.length, 1);
+    assert.equal(stagingList.result.items[0].id, staged.result.handle);
+    assert.equal(Object.hasOwn(stagingList.result.items[0], 'temp_path'), false);
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('HTTP rights routes expose UNKNOWN, ALLOWED and REVOKED states with auditable commands', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-http-rights-'));
   const core = new CoreService({ dbPath: path.join(directory, 'cineforge.sqlite'), assetStorePath: path.join(directory, 'asset-store') });
@@ -439,6 +496,9 @@ test('HTTP task, shot and note routes preserve scope, optimistic concurrency and
     const taskRead = await jsonRequest(`/v1/projects/${projectId}/tasks/${taskId}`);
     assert.equal(taskRead.response.status, 200);
     assert.equal(taskRead.payload.result.id, taskId);
+    const missingTaskRead = await jsonRequest(`/v1/projects/${projectId}/tasks/task-does-not-exist`);
+    assert.equal(missingTaskRead.response.status, 404);
+    assert.equal(missingTaskRead.payload.error.code, 'NOT_FOUND');
 
     const updatedTask = await jsonRequest(`/v1/projects/${projectId}/tasks/${taskId}`, {
       method: 'PATCH', body: JSON.stringify({ title: 'Plan scene v2', row_version: 1 }),
@@ -490,6 +550,9 @@ test('HTTP task, shot and note routes preserve scope, optimistic concurrency and
     const shotRead = await jsonRequest(`/v1/projects/${projectId}/shots/${shotId}`);
     assert.equal(shotRead.response.status, 200);
     assert.equal(shotRead.payload.result.id, shotId);
+    const missingShotRead = await jsonRequest(`/v1/projects/${projectId}/shots/shot-does-not-exist`);
+    assert.equal(missingShotRead.response.status, 404);
+    assert.equal(missingShotRead.payload.error.code, 'NOT_FOUND');
     const archivedShot = await jsonRequest(`/v1/projects/${projectId}/shots/${shotId}`, {
       method: 'PATCH', body: JSON.stringify({ lifecycle_state: 'ARCHIVED', row_version: 1 }),
     });

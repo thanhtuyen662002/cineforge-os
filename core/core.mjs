@@ -96,6 +96,13 @@ const LOCAL_PROBE_ATTEMPT_STATES = new Set(['CREATED', 'DISPATCHING', 'EXECUTING
 const LOCAL_PROBE_MAX_ATTEMPTS = 3;
 const LOCAL_PROBE_MAX_BYTES = 4 * 1024 * 1024 * 1024;
 const LOCAL_PROBE_DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+// Browser intake is a local-only upload boundary.  Keep the limit explicit so
+// a malformed/chunked request cannot consume unbounded disk space while the
+// stream is being verified.  Large production media can still be imported by
+// the path-based COPY flow, which uses the same durable staging lifecycle.
+const DESKTOP_STAGE_MAX_BYTES = 4 * 1024 * 1024 * 1024;
+const DESKTOP_STAGE_MAX_FILENAME_BYTES = 500;
+const DESKTOP_STAGE_MAX_MIME_BYTES = 200;
 const EXTERNAL_EDIT_MAX_BYTES = TIMELINE_INTERCHANGE_MAX_BYTES;
 const EXTERNAL_EDIT_MAX_DEPTH = 32;
 const EXTERNAL_EDIT_MAX_NODES = 50_000;
@@ -3312,6 +3319,193 @@ export class CoreService {
     }
   }
 
+  _useExistingImportStaging(payload) {
+    const stagingId = requiredString(payload.staging_id ?? payload.stagingId ?? payload.source_handle ?? payload.sourceHandle, 'staging_id', 200);
+    const row = this._stagingRow(stagingId);
+    if (!['COMPLETE', 'VERIFIED'].includes(String(row.state))) {
+      throw new CoreError('STAGING_NOT_READY', 'CONFLICT', 'errors.staging_not_ready', { staging_id: stagingId, state: row.state }, { needsUser: true });
+    }
+    if (row.import_item_id) {
+      throw new CoreError('STAGING_ALREADY_IMPORTED', 'CONFLICT', 'errors.staging_already_imported', { staging_id: stagingId }, { needsUser: true });
+    }
+    // Re-read and verify the private bytes before the import command is
+    // journaled as executing.  This catches tampering between the upload and
+    // the user's explicit Import action without widening the path boundary.
+    const verified = this._verifyStagingObject(stagingId);
+    if (!SHA256_HEX.test(String(verified.sha256 ?? '')) || !Number.isSafeInteger(Number(verified.expected_size ?? verified.current_size))) {
+      throw new CoreError('STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.staging_verify_failed', { staging_id: stagingId }, { needsUser: false });
+    }
+    return { id: stagingId, sourcePath: path.resolve(String(verified.temp_path)), digest: { content_hash: verified.sha256, byte_size: Number(verified.expected_size ?? verified.current_size) }, owned: false };
+  }
+
+  /**
+   * Stage bytes received from the local desktop browser boundary.
+   *
+   * The browser never receives a filesystem path.  Core owns the durable
+   * staging row, writes the request stream into a private O_EXCL file, fsyncs
+   * it, hashes it, and only then exposes the opaque staging id to the UI.
+   * ImportAsset consumes that id through the normal COPY materialization path.
+   */
+  async stageDesktopAsset({ stream, filename, mimeType, contentLength = null, idempotencyKey }) {
+    this._assertCoreOwner();
+    if (!stream || typeof stream[Symbol.asyncIterator] !== 'function') {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_upload_stream', {});
+    }
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0 || idempotencyKey.length > 200) {
+      throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', { command_type: 'StageDesktopAsset' }, { needsUser: true });
+    }
+    const normalizedName = String(filename ?? '').normalize('NFC').trim();
+    if (!normalizedName || normalizedName.includes('\0') || normalizedName.includes('/') || normalizedName.includes('\\')
+      || Buffer.byteLength(normalizedName, 'utf8') > DESKTOP_STAGE_MAX_FILENAME_BYTES) {
+      throw new CoreError('INVALID_FILENAME', 'VALIDATION', 'errors.invalid_filename', {}, { needsUser: true });
+    }
+    const normalizedMime = String(mimeType ?? 'application/octet-stream').split(';', 1)[0].trim().toLowerCase();
+    if (!normalizedMime || normalizedMime.includes('\0') || Buffer.byteLength(normalizedMime, 'utf8') > DESKTOP_STAGE_MAX_MIME_BYTES) {
+      throw new CoreError('INVALID_MIME_TYPE', 'VALIDATION', 'errors.invalid_mime_type', {}, { needsUser: true });
+    }
+    const expectedSize = contentLength === null || contentLength === undefined || contentLength === ''
+      ? null : Number(contentLength);
+    if (expectedSize !== null && (!Number.isSafeInteger(expectedSize) || expectedSize < 0 || expectedSize > DESKTOP_STAGE_MAX_BYTES)) {
+      throw new CoreError('UPLOAD_TOO_LARGE', 'VALIDATION', 'errors.upload_too_large', { max_bytes: DESKTOP_STAGE_MAX_BYTES }, { needsUser: true });
+    }
+    const fingerprint = idempotencyFingerprint({ original_name: normalizedName, mime_type: normalizedMime, expected_size: expectedSize }, {});
+    const previous = this._findIdempotent('StageDesktopAsset', idempotencyKey);
+    if (previous) {
+      this._assertIdempotencyBinding(previous, 'StageDesktopAsset', idempotencyKey, fingerprint);
+      if (previous.status === 'FAILED') {
+        const failure = parseJson(previous.error_details_json, {});
+        throw new CoreError(previous.error_code ?? 'COMMAND_FAILED', failure.category ?? 'INTERNAL', failure.user_message_key ?? 'errors.command_failed', failure.user_message_args ?? {}, {
+          retryable: failure.retryable, needsUser: failure.needs_user, technicalDetails: failure.technical_details,
+        });
+      }
+      if (previous.status !== 'SUCCEEDED') {
+        throw new CoreError('IDEMPOTENCY_IN_PROGRESS', 'CONFLICT', 'errors.idempotency_in_progress', { command_type: 'StageDesktopAsset' }, { retryable: true, needsUser: true });
+      }
+      const prior = parseJson(previous.result_json, null);
+      if (prior && typeof prior === 'object') {
+        // A retry must prove that the request body is the same.  Consume and
+        // hash the stream even on replay; metadata alone is not a safe
+        // idempotency binding for file uploads.
+        const priorSize = Number(prior.byte_size);
+        const priorHash = String(prior.content_hash ?? '').toLowerCase();
+        const retryHash = crypto.createHash('sha256');
+        let retrySize = 0;
+        for await (const chunk of stream) {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          retrySize += buffer.length;
+          if (retrySize > DESKTOP_STAGE_MAX_BYTES) {
+            throw new CoreError('UPLOAD_TOO_LARGE', 'VALIDATION', 'errors.upload_too_large', { max_bytes: DESKTOP_STAGE_MAX_BYTES }, { needsUser: true });
+          }
+          retryHash.update(buffer);
+        }
+        if (!Number.isSafeInteger(priorSize) || retrySize !== priorSize || retryHash.digest('hex') !== priorHash) {
+          throw new CoreError('IDEMPOTENCY_KEY_REUSE_CONFLICT', 'CONFLICT', 'errors.idempotency_key_reuse_conflict', { command_type: 'StageDesktopAsset' }, { needsUser: true });
+        }
+        return { ...prior, idempotent_replay: true, projection_seq: this._projectionSeq() };
+      }
+      throw new CoreError('IDEMPOTENCY_RESULT_MISSING', 'INTERNAL', 'errors.internal', {}, { needsUser: false });
+    }
+
+    const commandId = uuidv7();
+    const stagingId = uuidv7();
+    const created = nowUtcUs();
+    const { root, candidate } = this._stagingPath(stagingId);
+    fs.mkdirSync(root, { recursive: true });
+    const rootStat = fs.lstatSync(root);
+    if (rootStat.isSymbolicLink()) throw new CoreError('STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.staging_reparse_rejected', {}, { needsUser: false });
+    const sourceFingerprint = this._pathFingerprint(candidate);
+    const commandPayload = { original_name: normalizedName, mime_type: normalizedMime, expected_size: expectedSize };
+    try {
+      this._transaction(() => {
+        this._assertCoreOwner();
+        this.db.prepare(`INSERT INTO commands
+          (id, studio_id, actor_id, command_type, schema_version, scope_type, payload_json,
+           expected_versions_json, reversibility, status, idempotency_key, idempotency_fingerprint,
+           created_at_utc_us)
+          VALUES (?, ?, ?, 'StageDesktopAsset', 1, 'SYSTEM', ?, '{}', 'REVERSIBLE', 'EXECUTING', ?, ?, ?)`)
+          .run(commandId, this.studioId, this.actorId, json(commandPayload), idempotencyKey, fingerprint, created);
+        this.db.prepare(`INSERT INTO staging_objects
+          (id, command_id, temp_path, expected_size, current_size, hash_algorithm, source_path_fingerprint,
+           source_file_identity_json, reparse_state, state, row_version, created_at_utc_us, updated_at_utc_us)
+          VALUES (?, ?, ?, ?, 0, 'SHA-256', ?, ?, 'UNKNOWN', 'WRITING', 1, ?, ?)`)
+          .run(stagingId, commandId, candidate, expectedSize, sourceFingerprint,
+            json({ kind: 'DESKTOP_UPLOAD', original_name: normalizedName, mime_type: normalizedMime }), created, created);
+      });
+
+      let descriptor = null;
+      let byteSize = 0;
+      const hash = crypto.createHash('sha256');
+      try {
+        descriptor = fs.openSync(candidate, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+        for await (const chunk of stream) {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          byteSize += buffer.length;
+          if (byteSize > DESKTOP_STAGE_MAX_BYTES) {
+            throw new CoreError('UPLOAD_TOO_LARGE', 'VALIDATION', 'errors.upload_too_large', { max_bytes: DESKTOP_STAGE_MAX_BYTES }, { needsUser: true });
+          }
+          hash.update(buffer);
+          let offset = 0;
+          while (offset < buffer.length) offset += fs.writeSync(descriptor, buffer, offset, buffer.length - offset);
+        }
+        if (expectedSize !== null && byteSize !== expectedSize) {
+          throw new CoreError('UPLOAD_SIZE_MISMATCH', 'CONFLICT', 'errors.upload_size_mismatch', { expected_size: expectedSize, actual_size: byteSize }, { needsUser: true });
+        }
+        fs.fsyncSync(descriptor);
+        fs.closeSync(descriptor);
+        descriptor = null;
+        const stat = fs.lstatSync(candidate);
+        if (stat.isSymbolicLink() || !stat.isFile() || Number(stat.nlink ?? 1) !== 1) {
+          throw new CoreError('STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.staging_reparse_rejected', {}, { needsUser: false });
+        }
+        const identity = this._sourceIdentity(stat);
+        const contentHash = hash.digest('hex');
+        this._transaction(() => {
+          this._assertCoreOwner();
+          this._setStagingState(stagingId, 'COMPLETE', {
+            current_size: byteSize,
+            sha256: contentHash,
+            os_file_identity_json: json(identity),
+          });
+          const row = this._stagingRow(stagingId);
+          const result = {
+            handle: stagingId,
+            name: normalizedName,
+            mime_type: normalizedMime,
+            byte_size: byteSize,
+            content_hash: contentHash,
+            state: row.state,
+            command_id: commandId,
+          };
+          const eventSeq = this._insertEvent({
+            aggregateType: 'STAGING_OBJECT', aggregateId: stagingId, aggregateVersion: 1,
+            eventType: 'DESKTOP_ASSET_STAGED',
+            payload: { staging_id: stagingId, byte_size: byteSize, content_hash: contentHash, mime_type: normalizedMime },
+          }, commandId, this.actorId);
+          this._insertAudit({ actionType: 'asset.desktop_stage', targetType: 'STAGING_OBJECT', targetId: stagingId,
+            payload: { byte_size: byteSize, content_hash: contentHash, mime_type: normalizedMime } }, commandId, this.actorId, 'SUCCEEDED');
+          this.db.prepare(`UPDATE commands SET status = 'SUCCEEDED', finished_at_utc_us = ?, result_json = ? WHERE id = ?`)
+            .run(nowUtcUs(), json({ ...result, event_seq: eventSeq }), commandId);
+        });
+      } finally {
+        if (descriptor !== null) { try { fs.closeSync(descriptor); } catch { /* preserve primary error */ } }
+      }
+      const row = this._stagingRow(stagingId);
+      return { handle: stagingId, name: normalizedName, mimeType: normalizedMime, byteSize, contentHash: row.sha256, command_id: commandId, projection_seq: this._projectionSeq() };
+    } catch (error) {
+      const coreError = error instanceof CoreError ? error : new CoreError('DESKTOP_STAGE_FAILED', 'INTERNAL', 'errors.desktop_stage_failed', {}, { needsUser: false, technicalDetails: { message: String(error?.message ?? error) } });
+      try {
+        this._transaction(() => {
+          const row = this._stagingRow(stagingId);
+          if (row.state === 'WRITING') this._setStagingState(stagingId, 'FAILED');
+          this._insertAudit({ actionType: 'asset.desktop_stage', targetType: 'STAGING_OBJECT', targetId: stagingId, payload: { error_code: coreError.code } }, commandId, this.actorId, 'FAILED');
+          this.db.prepare(`UPDATE commands SET status = 'FAILED', finished_at_utc_us = ?, error_code = ?, error_details_json = ? WHERE id = ?`)
+            .run(nowUtcUs(), coreError.code, json(coreError.toEnvelope()), commandId);
+        });
+      } catch { /* preserve the original staging error and durable evidence */ }
+      throw coreError;
+    }
+  }
+
   _verifyStagingObject(stagingId) {
     const row = this._stagingRow(stagingId);
     if (!['COMPLETE', 'VERIFIED'].includes(row.state)) {
@@ -3339,7 +3533,7 @@ export class CoreService {
       throw new CoreError('STAGING_IDENTITY_CHANGED', 'CONFLICT', 'errors.staging_identity_changed', { staging_id: row.id }, { needsUser: true });
     }
     const digest = this._hashLocalFile(tempPath);
-    if (digest.content_hash !== row.sha256 || digest.byte_size !== Number(row.expected_size)) {
+    if (digest.content_hash !== row.sha256 || digest.byte_size !== Number(row.expected_size ?? row.current_size)) {
       this._setStagingState(row.id, 'QUARANTINED');
       throw new CoreError('STAGING_CONTENT_CHANGED', 'CONFLICT', 'errors.staging_content_changed', { staging_id: row.id }, { needsUser: true });
     }
@@ -3423,7 +3617,7 @@ export class CoreService {
           throw new CoreError('STAGING_IDENTITY_CHANGED', 'CONFLICT', 'errors.staging_identity_changed', { staging_id: row.id }, { needsUser: true });
         }
         const digest = this._hashLocalFile(tempPath);
-        if (Number(row.expected_size) !== digest.byte_size || (row.sha256 && row.sha256 !== digest.content_hash)) {
+        if (Number(row.expected_size ?? row.current_size) !== digest.byte_size || (row.sha256 && row.sha256 !== digest.content_hash)) {
           throw new CoreError('STAGING_CONTENT_CHANGED', 'CONFLICT', 'errors.staging_content_changed', { staging_id: row.id }, { needsUser: true });
         }
         const evidence = {
@@ -3698,7 +3892,12 @@ export class CoreService {
       // for explicit reconciliation instead of becoming an untracked orphan.
       const importCommand = ['ImportAsset', 'RegisterAsset', 'ImportLocalAsset'].includes(commandType);
       const storageMode = String(payload.storage_mode ?? payload.storageMode ?? 'COPY').trim().toUpperCase();
-      if (importCommand && storageMode === 'COPY') stagingReservation = this._reserveImportStaging(payload, commandId);
+      if (importCommand && storageMode === 'COPY') {
+        const existingStagingId = payload.staging_id ?? payload.stagingId ?? payload.source_handle ?? payload.sourceHandle;
+        stagingReservation = existingStagingId
+          ? this._useExistingImportStaging(payload)
+          : this._reserveImportStaging(payload, commandId);
+      }
       if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) stagingReservation = this._reserveGeneratedStaging(payload, expectedVersions, commandId);
       if (commandType === 'BuildTimelineInterchangeExport' && stagingReservation?.context) {
         // Materialize and hash the generated bytes before entering the command
@@ -3781,7 +3980,7 @@ export class CoreService {
         'INTERNAL_ERROR', 'INTERNAL', 'errors.internal', {}, { needsUser: false, technicalDetails: { message: String(error?.message ?? error) } },
       );
       if (isCoreOwnershipFailure(coreError)) throw coreError;
-      if (stagingReservation?.id) {
+      if (stagingReservation?.id && stagingReservation.owned !== false) {
         try {
           this._transaction(() => {
             const current = this._stagingRow(stagingReservation.id);
@@ -7805,11 +8004,18 @@ export class CoreService {
     if (storageMode === 'COPY') {
       if (!stagingId) throw new CoreError('STAGING_REQUIRED', 'CONFLICT', 'errors.staging_required', {}, { needsUser: true });
       staged = this._stagingRow(stagingId);
-      sourcePath = this._canonicalSourcePath(payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path);
+      const suppliedSourcePath = payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path;
+      // Browser intake only has the opaque staging handle.  Resolve its
+      // private candidate path inside Core; callers cannot rebind the handle
+      // to an arbitrary local path.  Path-based COPY keeps the original
+      // source path for provenance and compatibility with CLI imports.
+      sourcePath = suppliedSourcePath
+        ? this._canonicalSourcePath(suppliedSourcePath)
+        : path.resolve(String(staged.temp_path));
       file = {
         hash_algorithm: staged.hash_algorithm ?? 'SHA-256',
         content_hash: staged.sha256,
-        byte_size: Number(staged.expected_size),
+        byte_size: Number(staged.expected_size ?? staged.current_size),
         ...(parseJson(staged.source_file_identity_json, {}) ?? {}),
       };
       if (!SHA256_HEX.test(String(file.content_hash ?? ''))) {
@@ -7844,9 +8050,14 @@ export class CoreService {
     if (!/^[A-Z][A-Z0-9_.-]{0,63}$/.test(semanticRole)) {
       throw new CoreError('INVALID_SEMANTIC_ROLE', 'VALIDATION', 'errors.invalid_semantic_role', {});
     }
-    const sourceUri = pathToFileURL(sourcePath).href;
-    const sourceFingerprint = this._pathFingerprint(sourcePath);
-    if (staged && staged.source_path_fingerprint !== sourceFingerprint) {
+    const suppliedSourcePath = payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path;
+    const sourceUri = staged && !suppliedSourcePath
+      ? `cineforge://staging/${encodeURIComponent(stagingId)}`
+      : pathToFileURL(sourcePath).href;
+    const sourceFingerprint = staged && !suppliedSourcePath
+      ? staged.source_path_fingerprint
+      : this._pathFingerprint(sourcePath);
+    if (staged && suppliedSourcePath && staged.source_path_fingerprint !== sourceFingerprint) {
       throw new CoreError('STAGING_SOURCE_MISMATCH', 'CONFLICT', 'errors.staging_source_mismatch', {}, { needsUser: true });
     }
     const originalName = requiredString(payload.original_name ?? payload.originalName ?? path.basename(sourcePath), 'original_name', 500);
@@ -7943,7 +8154,8 @@ export class CoreService {
       this.db.prepare(`INSERT INTO import_sessions
         (id, project_id, actor_id, state, source_kind, source_root, intent_hint, created_at_utc_us, updated_at_utc_us, row_version)
         VALUES (?, ?, ?, 'COMMITTED', 'LOCAL_FILE', ?, ?, ?, ?, 1)`).run(
-        sessionId, project?.id ?? null, this.actorId, pathToFileURL(path.dirname(sourcePath)).href,
+        sessionId, project?.id ?? null, this.actorId,
+        staged && !suppliedSourcePath ? `cineforge://staging/${encodeURIComponent(stagingId)}` : pathToFileURL(path.dirname(sourcePath)).href,
         optionalString(payload.intent_hint ?? payload.intentHint, 'intent_hint', 500, null), now, now,
       );
       this.db.prepare(`INSERT INTO import_items
@@ -8873,7 +9085,27 @@ export class CoreService {
       );
       case 'query.project.activity': return this._activity(params.project_id ?? params.projectId, params);
       case 'query.task.list': return this._tasks(params.project_id ?? params.projectId);
+      case 'query.task.get': {
+        const task = this._task(params.task_id ?? params.taskId ?? params.id);
+        const projectId = params.project_id ?? params.projectId;
+        if (projectId !== undefined && projectId !== null && task.project_id !== projectId) {
+          throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+            entity_type: 'TASK', entity_id: task.id, project_id: projectId, actual_project_id: task.project_id,
+          }, { needsUser: true });
+        }
+        return publicTask(task);
+      }
       case 'query.shot.list': return this._shots(params.project_id ?? params.projectId);
+      case 'query.shot.get': {
+        const shot = this._shot(params.shot_id ?? params.shotId ?? params.id);
+        const projectId = params.project_id ?? params.projectId;
+        if (projectId !== undefined && projectId !== null && shot.project_id !== projectId) {
+          throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+            entity_type: 'SHOT', entity_id: shot.id, project_id: projectId, actual_project_id: shot.project_id,
+          }, { needsUser: true });
+        }
+        return publicShot(shot);
+      }
       case 'query.notes.list': return this._notes(params.project_id ?? params.projectId, params);
       case 'query.library.assets':
       case 'query.library.assets_page':

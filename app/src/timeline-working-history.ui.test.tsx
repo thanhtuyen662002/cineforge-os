@@ -45,9 +45,12 @@ describe('TimelineView working history', () => {
     const loadButton = await screen.findByRole('button', { name: 'Load history' })
     fireEvent.click(loadButton)
     await waitFor(() => expect(getTimelineWorkingHistory).toHaveBeenCalledWith('aurora', 'timeline-1', 'session-1', 0, 100, expect.any(AbortSignal)))
-    expect(await screen.findByText(/#1 · Add marker/)).toBeTruthy()
-    expect(screen.getByText(/Undo · #1/)).toBeTruthy()
-    expect(screen.getAllByText('bbbbbbbbbbbb')).toHaveLength(2)
+    // App.tsx is intentionally a large production surface.  Under a cold
+    // `npm ci`/Vite worker the first React commit can exceed Testing Library's
+    // one-second default even though the Core call has already resolved.
+    expect(await screen.findByText(/#1 · Add marker/, {}, { timeout: 5000 })).toBeTruthy()
+    await waitFor(() => expect(screen.getByText(/Undo · #1/)).toBeTruthy(), { timeout: 5000 })
+    await waitFor(() => expect(screen.getAllByText('bbbbbbbbbbbb')).toHaveLength(2), { timeout: 5000 })
     expect(screen.queryByText('provider')).toBeNull()
   })
 })

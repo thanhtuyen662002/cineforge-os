@@ -11,8 +11,9 @@ function statusFor(response) {
   if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'AUDIO_CUE_NOT_FOUND', 'AUDIO_CUE_REVISION_NOT_FOUND', 'SUBTITLE_TRACK_NOT_FOUND', 'SUBTITLE_TRACK_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND', 'EXPORT_SESSION_NOT_FOUND', 'RELEASE_CANDIDATE_NOT_FOUND', 'EXTERNAL_EDIT_NOT_FOUND'].includes(code)) return 404;
   if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'REVIEW_NOT_SUPPORTED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'AUDIO_CUE_STALE', 'AUDIO_CUE_REVIEW_REQUIRED', 'SUBTITLE_TRACK_STALE', 'SUBTITLE_TRACK_REVIEW_REQUIRED', 'TIMING_DEPENDENCY_HASH_REQUIRED', 'TIMING_DEPENDENCY_HASH_MISMATCH', 'AUDIO_ASSET_REQUIRED', 'TIMING_OUT_OF_BOUNDS', 'SUBTITLE_SEGMENT_OVERLAP', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE', 'RELEASE_READINESS_BLOCKED', 'RELEASE_CANDIDATE_ALREADY_EXISTS', 'RELEASE_CANDIDATE_NOT_CANCELLABLE', 'INVALID_RELEASE_CANDIDATE_STATE', 'EXTERNAL_EDIT_SCOPE_MISMATCH', 'EXTERNAL_EDIT_HANDOFF_NOT_VERIFIED', 'EXTERNAL_EDIT_ASSET_NOT_READY', 'EXTERNAL_EDIT_ASSET_CHANGED', 'EXTERNAL_EDIT_RIGHTS_BLOCKED', 'EXTERNAL_EDIT_ALREADY_REGISTERED', 'EXTERNAL_EDIT_LINEAGE_CLAIM_INVALID', 'EXTERNAL_EDIT_EXTERNAL_REFERENCE', 'JOB_NOT_CANCELLABLE', 'JOB_NOT_RETRYABLE', 'JOB_RETRY_LIMIT', 'PROBE_ASSET_NOT_MANAGED', 'PROBE_ASSET_METADATA_INVALID', 'PROBE_IO_BUDGET_TOO_SMALL', 'PROBE_IO_BUDGET_EXCEEDED'].includes(code)) return 409;
   if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED', 'PREVIEW_MIME_UNSUPPORTED', 'PREVIEW_PURPOSE_UNSUPPORTED', 'EXPORT_PROFILE_UNSUPPORTED', 'EXTERNAL_EDIT_PROFILE_UNSUPPORTED'].includes(code)) return 415;
-  if (code === 'EXTERNAL_EDIT_TOO_LARGE') return 413;
-  if (['EXTERNAL_EDIT_SCHEMA_INVALID', 'EXTERNAL_EDIT_INVALID_UTF8'].includes(code)) return 400;
+  if (['EXTERNAL_EDIT_TOO_LARGE', 'UPLOAD_TOO_LARGE'].includes(code)) return 413;
+  if (['EXTERNAL_EDIT_SCHEMA_INVALID', 'EXTERNAL_EDIT_INVALID_UTF8', 'INVALID_FILENAME', 'INVALID_MIME_TYPE', 'INVALID_UPLOAD_STREAM'].includes(code)) return 400;
+  if (['UPLOAD_SIZE_MISMATCH', 'IDEMPOTENCY_IN_PROGRESS', 'IDEMPOTENCY_RESULT_MISSING'].includes(code)) return 409;
   if (['PREVIEW_TOKEN_INVALID', 'PREVIEW_TOKEN_EXPIRED', 'PREVIEW_TOKEN_SCOPE', 'PREVIEW_SESSION_REQUIRED', 'EXPORT_DOWNLOAD_TOKEN_INVALID', 'EXPORT_DOWNLOAD_TOKEN_EXPIRED', 'EXPORT_DOWNLOAD_TOKEN_SCOPE', 'EXPORT_DOWNLOAD_SESSION_REQUIRED'].includes(code)) return 401;
   if (code === 'ORIGIN_NOT_ALLOWED' || code === 'LOCAL_ONLY') return 403;
   if (['PREVIEW_RANGE_INVALID', 'PREVIEW_RANGE_NOT_SATISFIABLE', 'PREVIEW_RANGE_TOO_LARGE', 'EXPORT_DOWNLOAD_RANGE_INVALID', 'EXPORT_DOWNLOAD_RANGE_NOT_SATISFIABLE', 'EXPORT_DOWNLOAD_RANGE_TOO_LARGE'].includes(code)) return 416;
@@ -30,7 +31,7 @@ function send(response, body, status = 200, extraHeaders = {}) {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(payload),
     'cache-control': 'no-store',
-    'access-control-allow-headers': 'content-type, authorization, idempotency-key, range, if-range, x-cineforge-preview, x-cineforge-download, x-cineforge-session, x-cineforge-core-epoch, x-request-id',
+    'access-control-allow-headers': 'content-type, authorization, idempotency-key, range, if-range, x-cineforge-preview, x-cineforge-download, x-cineforge-session, x-cineforge-core-epoch, x-cineforge-filename-b64, x-request-id',
     'access-control-allow-methods': 'GET,HEAD,POST,PATCH,OPTIONS',
     ...(corsOrigin ? { 'access-control-allow-origin': corsOrigin, vary: 'Origin' } : {}),
     ...extraHeaders,
@@ -66,6 +67,32 @@ async function readBody(request) {
   }
   if (bytes === 0) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function decodeUploadFilename(request) {
+  const encoded = request.headers['x-cineforge-filename-b64'];
+  if (typeof encoded !== 'string' || encoded.length === 0 || encoded.length > 4096) return 'upload.bin';
+  try {
+    const bytes = Buffer.from(encoded, 'base64url');
+    const name = bytes.toString('utf8');
+    // Reject malformed UTF-8 instead of allowing replacement characters to
+    // become a misleading original filename in provenance.
+    if (!name || Buffer.from(name, 'utf8').compare(bytes) !== 0) return 'upload.bin';
+    return name;
+  } catch {
+    return 'upload.bin';
+  }
+}
+
+function uploadErrorBody(error) {
+  const envelope = typeof error?.toEnvelope === 'function'
+    ? error.toEnvelope()
+    : {
+      code: 'DESKTOP_STAGE_FAILED', category: 'INTERNAL', user_message_key: 'errors.desktop_stage_failed',
+      user_message_args: {}, retryable: false, needs_user: false, decision_request_id: null,
+      technical_details: { message: String(error?.message ?? error) },
+    };
+  return { request_id: null, ok: false, error: envelope, warnings: [] };
 }
 
 function requestId(request) {
@@ -1684,6 +1711,24 @@ export function createCoreHttpServer(core, options = {}) {
       const parts = url.pathname.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
       let result;
       let body = {};
+      const isDesktopStage = request.method === 'POST'
+        && parts[0] === 'v1' && parts[1] === 'desktop' && parts[2] === 'stage' && parts.length === 3;
+      if (isDesktopStage) {
+        try {
+          const staged = await core.stageDesktopAsset({
+            stream: request,
+            filename: decodeUploadFilename(request),
+            mimeType: request.headers['content-type'] ?? 'application/octet-stream',
+            contentLength: request.headers['content-length'] ?? null,
+            idempotencyKey: commandKey(request) ?? crypto.randomUUID(),
+          });
+          result = { request_id: requestId(request), ok: true, result: staged, projection_seq: staged.projection_seq ?? 0, warnings: [] };
+        } catch (error) {
+          result = uploadErrorBody(error);
+        }
+        send(response, result, statusFor(result));
+        return;
+      }
       if (request.method === 'POST' || request.method === 'PATCH') body = await readBody(request);
 
       if (request.method === 'GET' && url.pathname === '/v1/health') {
@@ -2030,8 +2075,7 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts.length === 4) {
         result = query(core, request, 'query.task.list', { project_id: parts[2] });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts[4] && parts.length === 5) {
-        const scoped = listProjectEntities(core, request, 'query.task.list', parts[2], 'TASK', parts[4]);
-        result = scoped.ok ? { ...scoped, result: scoped.result.find((task) => task.id === parts[4]) } : scoped;
+        result = query(core, request, 'query.task.get', { project_id: parts[2], task_id: parts[4] });
       } else if (request.method === 'PATCH' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts[4] && parts.length === 5) {
         // Mutating nested routes always reach Core's command gate.  Scope
         // mismatches are rejected there and receive a Command/Audit record;
@@ -2042,7 +2086,7 @@ export function createCoreHttpServer(core, options = {}) {
         result = created;
 
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'tasks' && parts[4] && parts[5] === 'notes' && parts.length === 6) {
-        const scoped = listProjectEntities(core, request, 'query.task.list', parts[2], 'TASK', parts[4]);
+        const scoped = query(core, request, 'query.task.get', { project_id: parts[2], task_id: parts[4] });
         result = scoped.ok
           ? filteredNotes(query(core, request, 'query.notes.list', { project_id: parts[2] }), 'TASK', parts[4])
           : scoped;
@@ -2067,15 +2111,14 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts.length === 4) {
         result = query(core, request, 'query.shot.list', { project_id: parts[2] });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts[4] && parts.length === 5) {
-        const scoped = listProjectEntities(core, request, 'query.shot.list', parts[2], 'SHOT', parts[4]);
-        result = scoped.ok ? { ...scoped, result: scoped.result.find((shot) => shot.id === parts[4]) } : scoped;
+        result = query(core, request, 'query.shot.get', { project_id: parts[2], shot_id: parts[4] });
       } else if (request.method === 'PATCH' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts[4] && parts.length === 5) {
         result = command(core, request, 'UpdateShot', { ...body, project_id: parts[2], shot_id: parts[4] }, expectedVersions(body, 'SHOT'), commandKey(request, body));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts.length === 4) {
         result = command(core, request, 'CreateShot', { ...body, project_id: parts[2] }, {}, commandKey(request, body));
 
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'shots' && parts[4] && parts[5] === 'notes' && parts.length === 6) {
-        const scoped = listProjectEntities(core, request, 'query.shot.list', parts[2], 'SHOT', parts[4]);
+        const scoped = query(core, request, 'query.shot.get', { project_id: parts[2], shot_id: parts[4] });
         result = scoped.ok
           ? filteredNotes(query(core, request, 'query.notes.list', { project_id: parts[2] }), 'SHOT', parts[4])
           : scoped;

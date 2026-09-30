@@ -875,6 +875,10 @@ function JobQueuePanel({ locale, client }: { locale: Locale; client: CoreClient 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mutating, setMutating] = useState<string | null>(null)
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [selectedJob, setSelectedJob] = useState<ManagedAssetIntegrityJob | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!client.getJobs) return
@@ -906,6 +910,22 @@ function JobQueuePanel({ locale, client }: { locale: Locale; client: CoreClient 
 
   useEffect(() => { void load() }, [load])
 
+  const inspectJob = async (job: ManagedAssetIntegrityJob) => {
+    setSelectedJobId(job.id)
+    setSelectedJob(job)
+    if (!client.getJob) return
+    setDetailLoading(true)
+    setDetailError(null)
+    try {
+      const detail = await client.getJob(job.id, job.projectId ?? undefined)
+      setSelectedJob(detail)
+    } catch (cause) {
+      setDetailError(cause instanceof Error ? cause.message : (locale === 'vi' ? 'Không đọc được chi tiết job.' : 'Could not read the job details.'))
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
   const action = async (job: ManagedAssetIntegrityJob, operation: 'cancel' | 'retry') => {
     const handler = operation === 'cancel' ? client.cancelManagedAssetIntegrityProbe : client.retryManagedAssetIntegrityProbe
     if (!handler || !job.latestAttempt) return
@@ -935,7 +955,8 @@ function JobQueuePanel({ locale, client }: { locale: Locale; client: CoreClient 
   return <section className="dashboard-card job-queue-card" aria-labelledby="job-queue-title">
     <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><HardDrive size={16} /></span><div><h2 id="job-queue-title">{locale === 'vi' ? 'Hàng đợi kiểm tra dữ liệu' : 'Integrity job queue'}</h2><p>{locale === 'vi' ? 'Chỉ đọc managed asset local; trạng thái do Core ghi nhận.' : 'Reads local managed assets only; state comes from Core.'}</p></div></div><button className="subtle-button tiny" type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={13} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>
     {error && <div className="inline-state warning" role="alert"><AlertCircle size={14} />{error}</div>}
-    {!client.getJobs ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Bridge hiện tại chưa cung cấp hàng đợi job.' : 'This bridge does not expose the job queue yet.'} /> : jobs.length === 0 && !loading ? <EmptyInline icon={CheckCircle2} text={locale === 'vi' ? 'Chưa có job integrity nào.' : 'No integrity jobs have been queued.'} /> : <div className="job-queue-list">{jobs.map((job) => <article className="job-queue-row" key={job.id}><div className="job-queue-main"><div className={`job-state-dot ${job.state.toLowerCase()}`} aria-hidden="true" /><div><strong>{locale === 'vi' ? 'Kiểm tra managed asset' : 'Managed asset integrity probe'}</strong><small>{job.subjectAssetRevisionId} · {stateLabel(job.state)}</small><small>{job.nextStep ?? (locale === 'vi' ? 'Core đang xác định bước tiếp theo.' : 'Core is determining the next step.')}</small></div></div><div className="job-queue-actions">{job.evidence && <span className={`health-pill ${job.evidence.state === 'PASS' ? 'healthy' : job.evidence.state === 'FAIL' ? 'blocked' : 'attention'}`}><span />{job.evidence.state}</span>}{job.cancelable && client.cancelManagedAssetIntegrityProbe && <button type="button" className="subtle-button tiny" onClick={() => void action(job, 'cancel')} disabled={mutating === job.id}>{locale === 'vi' ? 'Huỷ' : 'Cancel'}</button>}{job.retryable && retryAllowed[job.id] === true && client.retryManagedAssetIntegrityProbe && <button type="button" className="subtle-button tiny" onClick={() => void action(job, 'retry')} disabled={mutating === job.id}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button>}</div></article>)}</div>}
+    {!client.getJobs ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Bridge hiện tại chưa cung cấp hàng đợi job.' : 'This bridge does not expose the job queue yet.'} /> : jobs.length === 0 && !loading ? <EmptyInline icon={CheckCircle2} text={locale === 'vi' ? 'Chưa có job integrity nào.' : 'No integrity jobs have been queued.'} /> : <div className="job-queue-list">{jobs.map((job) => <article className="job-queue-row" key={job.id}><div className="job-queue-main"><div className={`job-state-dot ${job.state.toLowerCase()}`} aria-hidden="true" /><div><strong>{locale === 'vi' ? 'Kiểm tra managed asset' : 'Managed asset integrity probe'}</strong><small>{job.subjectAssetRevisionId} · {stateLabel(job.state)}</small><small>{job.nextStep ?? (locale === 'vi' ? 'Core đang xác định bước tiếp theo.' : 'Core is determining the next step.')}</small></div></div><div className="job-queue-actions">{job.evidence && <span className={`health-pill ${job.evidence.state === 'PASS' ? 'healthy' : job.evidence.state === 'FAIL' ? 'blocked' : 'attention'}`}><span />{job.evidence.state}</span>}{client.getJob && <button type="button" className="subtle-button tiny" onClick={() => void inspectJob(job)} disabled={detailLoading && selectedJobId === job.id}>{locale === 'vi' ? 'Chi tiết' : 'Details'}</button>}{job.cancelable && client.cancelManagedAssetIntegrityProbe && <button type="button" className="subtle-button tiny" onClick={() => void action(job, 'cancel')} disabled={mutating === job.id}>{locale === 'vi' ? 'Huỷ' : 'Cancel'}</button>}{job.retryable && retryAllowed[job.id] === true && client.retryManagedAssetIntegrityProbe && <button type="button" className="subtle-button tiny" onClick={() => void action(job, 'retry')} disabled={mutating === job.id}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button>}</div></article>)}</div>}
+    {client.getJob && selectedJobId && <section className="job-detail-card" aria-live="polite">{detailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết job…' : 'Reading job details…'} /> : detailError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{detailError}</span><button type="button" className="subtle-button tiny" onClick={() => { const current = jobs.find((job) => job.id === selectedJobId); if (current) void inspectJob(current) }}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : selectedJob ? <><div className="card-heading"><div><strong>{locale === 'vi' ? 'Chi tiết integrity job' : 'Integrity job details'}</strong><small>{selectedJob.id} · row v{selectedJob.rowVersion}</small></div><span className={`health-pill ${selectedJob.state === 'COMPLETED' ? 'healthy' : selectedJob.state.startsWith('FAILED') ? 'blocked' : 'attention'}`}><span />{stateLabel(selectedJob.state)}</span></div><div className="system-facts"><div><span>{locale === 'vi' ? 'Asset revision' : 'Asset revision'}</span><strong>{selectedJob.subjectAssetRevisionId}</strong></div><div><span>{locale === 'vi' ? 'Capability' : 'Capability'}</span><strong>{selectedJob.semanticCapability}</strong></div><div><span>{locale === 'vi' ? 'Attempt' : 'Attempt'}</span><strong>{selectedJob.latestAttempt ? `#${selectedJob.latestAttempt.attemptNo} · ${selectedJob.latestAttempt.state}` : '—'}</strong></div><div><span>{locale === 'vi' ? 'Evidence' : 'Evidence'}</span><strong>{selectedJob.evidence?.state ?? 'UNKNOWN'}{selectedJob.evidence?.code ? ` · ${selectedJob.evidence.code}` : ''}</strong></div><div><span>{locale === 'vi' ? 'Bytes đã đọc' : 'Bytes read'}</span><strong>{selectedJob.evidence?.bytesRead ?? selectedJob.latestAttempt?.bytesRead ?? '—'}</strong></div></div><p className="readonly-note"><Info size={14} />{selectedJob.nextStep ?? (locale === 'vi' ? 'Core chưa cung cấp bước tiếp theo.' : 'Core has not supplied a next step.')}</p></> : null}</section>}
   </section>
 }
 
@@ -3260,6 +3281,10 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
   const [error, setError] = useState<string | null>(null)
   const [candidateError, setCandidateError] = useState<string | null>(null)
   const [mutating, setMutating] = useState<string | null>(null)
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
+  const [selectedCandidate, setSelectedCandidate] = useState<ReleaseCandidate | null>(null)
+  const [candidateDetailLoading, setCandidateDetailLoading] = useState(false)
+  const [candidateDetailError, setCandidateDetailError] = useState<string | null>(null)
   const generationRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
   const candidateIntentSequenceRef = useRef(0)
@@ -3300,6 +3325,9 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
       abortRef.current?.abort()
       setReadiness(null)
       setCandidates([])
+      setSelectedCandidateId(null)
+      setSelectedCandidate(null)
+      setCandidateDetailError(null)
       setError(null)
       setCandidateError(null)
       setMutating(null)
@@ -3314,6 +3342,9 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     abortRef.current = controller
     setReadiness(null)
     setCandidates([])
+    setSelectedCandidateId(null)
+    setSelectedCandidate(null)
+    setCandidateDetailError(null)
     setError(null)
     setCandidateError(null)
     // A project change or manual refresh invalidates any in-flight mutation as
@@ -3353,6 +3384,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
             if (candidate.state === 'CANCELLED' && candidate.readinessDigest) clearCandidateIntents(projectId, candidate.readinessDigest)
           }
           setCandidates(scoped)
+          setSelectedCandidateId((current) => current && scoped.some((candidate) => candidate.id === current) ? current : scoped[0]?.id ?? null)
         }
       }
     } catch (cause) {
@@ -3378,11 +3410,35 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     // candidate can be mistaken for evidence belonging to it.
     setReadiness(null)
     setCandidates([])
+    setSelectedCandidateId(null)
+    setSelectedCandidate(null)
+    setCandidateDetailError(null)
     setError(null)
     setCandidateError(null)
     setMutating(null)
     setLoading(false)
   }
+
+  const inspectCandidate = useCallback(async (candidate: ReleaseCandidate) => {
+    setSelectedCandidateId(candidate.id ?? null)
+    setSelectedCandidate(candidate)
+    setCandidateDetailError(null)
+    if (!candidate.id || !client.getReleaseCandidate) return
+    setCandidateDetailLoading(true)
+    try {
+      const detail = await client.getReleaseCandidate(projectId, candidate.id)
+      const normalized = normalizeReleaseCandidate(detail)
+      if (!normalized || normalized.projectId !== projectId || normalized.id !== candidate.id) {
+        setCandidateDetailError(locale === 'vi' ? 'Core trả về candidate không đúng project; chi tiết bị ẩn.' : 'Core returned a candidate outside the selected project; details are hidden.')
+        return
+      }
+      setSelectedCandidate(normalized)
+    } catch (cause) {
+      setCandidateDetailError(workspaceErrorMessage(cause, locale))
+    } finally {
+      setCandidateDetailLoading(false)
+    }
+  }, [client, locale, projectId])
 
   const createCandidate = useCallback(async () => {
     if (!connected || !project || !readiness || readiness.projectId !== projectId || readiness.overallState !== 'READY' || !projectId || !candidateListSupported || !candidateCreateSupported || !client.createReleaseCandidateDraft || mutating) return
@@ -3459,7 +3515,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     {!loading && !error && !readiness && !project && <EmptyState icon={ShieldCheck} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi kiểm tra readiness.' : 'Create a project before checking readiness.'} />}
     {readiness && <>
       <section className="release-overview-card"><div><p className="eyebrow">{locale === 'vi' ? 'KẾT LUẬN HIỆN TẠI' : 'CURRENT CONCLUSION'}</p><div className="release-overview-heading"><span className={`release-status ${releaseStateClass(overallState)}`}><span />{releaseStateLabel(overallState, locale)}</span><strong>{readiness.projectTitle ?? project?.name ?? projectId}</strong></div><p>{readiness.nextStep ?? (locale === 'vi' ? 'Refresh sau khi xử lý blocker.' : 'Refresh after resolving the blocker.')}</p></div><div className="release-overview-facts"><div><span>{locale === 'vi' ? 'Gate chặn' : 'Blocking gates'}</span><strong>{readiness.blockingCount}</strong></div><div><span>UNKNOWN</span><strong>{readiness.unknownCount}</strong></div><div><span>Manifest hash</span><strong title={readiness.gateManifestHash}>{readiness.gateManifestHash?.slice(0, 12) ?? '—'}</strong></div></div></section>
-      <section className="release-candidates-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><PackageOpen size={16} /></span><div><h2>{locale === 'vi' ? 'Metadata release candidate' : 'Release candidate metadata'}</h2><p>{locale === 'vi' ? 'Bản nháp giữ exact refs và digest; chưa có master bytes hoặc thao tác publish.' : 'Drafts keep exact refs and digests; no master bytes or publish action exists here.'}</p></div></div><button type="button" className="primary-button small" onClick={() => void createCandidate()} disabled={!canCreate} title={candidateBlocker ?? undefined}>{mutating === 'create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Tạo candidate' : 'Create candidate'}</button></div>{candidateBlocker && <p className="readonly-note"><Info size={14} />{candidateBlocker}</p>}{!connected && <p className="readonly-note"><CloudOff size={14} />{locale === 'vi' ? 'Core offline; tạo và huỷ candidate bị khoá.' : 'Core is offline; candidate creation and cancellation are disabled.'}</p>}{!candidateListSupported && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ danh sách release candidate.' : 'This bridge does not expose the release candidate list yet.'}</p>}{candidateError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateError}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Tải lại' : 'Retry'}</button></div>}{candidateListSupported && candidates.length === 0 && <div className="empty-inline"><PackageOpen size={16} /><span>{locale === 'vi' ? 'Chưa có candidate metadata.' : 'No release candidate metadata yet.'}</span></div>}{candidateListSupported && candidates.length > 0 && <div className="release-candidate-list">{candidates.map((candidate) => <article className="release-candidate-row" key={candidate.id ?? `${candidate.timelineRevisionId}-${candidate.readinessDigest}`}><div className="release-candidate-main"><div className="release-candidate-heading"><strong>{candidate.id ?? (locale === 'vi' ? 'Candidate không tên' : 'Unnamed candidate')}</strong><span className={`release-status ${releaseCandidateStateClass(candidate.state)}`}><span />{releaseCandidateStateLabel(candidate.state, locale)}</span></div><small>{locale === 'vi' ? 'Timeline revision' : 'Timeline revision'}: {candidate.timelineRevisionId ?? '—'} · v{candidate.rowVersion}</small><div className="release-candidate-facts"><span>{locale === 'vi' ? 'Media profile' : 'Media profile'}: {candidate.mediaProfileRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'QC review' : 'QC review'}: {candidate.reviewSessionId ?? '—'}</span><span>{locale === 'vi' ? 'Readiness digest' : 'Readiness digest'}: {candidate.readinessDigest?.slice(0, 12) ?? '—'}</span><span>{locale === 'vi' ? 'Rights hash' : 'Rights hash'}: {candidate.rightsSnapshotHash?.slice(0, 12) ?? '—'}</span></div><p className="release-next-step">{candidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; chưa có master.' : 'Metadata-only; no master exists.')}</p></div>{candidate.state === 'DRAFT' && candidate.id && candidate.projectId === projectId && Number.isSafeInteger(candidate.rowVersion) && candidate.rowVersion >= 1 && <button type="button" className="subtle-button tiny" onClick={() => void cancelCandidate(candidate)} disabled={!connected || !candidateCancelSupported || mutating !== null}>{mutating === `cancel:${candidate.id}` ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}{locale === 'vi' ? 'Huỷ draft' : 'Cancel draft'}</button>}</article>)}</div>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Candidate là metadata immutable có cancel audit. Render, export, sign và publish chưa được bật.' : 'A candidate is immutable metadata with an audited cancel transition. Render, export, signing and publish are not enabled.'}</p></section>
+      <section className="release-candidates-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><PackageOpen size={16} /></span><div><h2>{locale === 'vi' ? 'Metadata release candidate' : 'Release candidate metadata'}</h2><p>{locale === 'vi' ? 'Bản nháp giữ exact refs và digest; chưa có master bytes hoặc thao tác publish.' : 'Drafts keep exact refs and digests; no master bytes or publish action exists here.'}</p></div></div><button type="button" className="primary-button small" onClick={() => void createCandidate()} disabled={!canCreate} title={candidateBlocker ?? undefined}>{mutating === 'create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Tạo candidate' : 'Create candidate'}</button></div>{candidateBlocker && <p className="readonly-note"><Info size={14} />{candidateBlocker}</p>}{!connected && <p className="readonly-note"><CloudOff size={14} />{locale === 'vi' ? 'Core offline; tạo và huỷ candidate bị khoá.' : 'Core is offline; candidate creation and cancellation are disabled.'}</p>}{!candidateListSupported && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ danh sách release candidate.' : 'This bridge does not expose the release candidate list yet.'}</p>}{candidateError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateError}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Tải lại' : 'Retry'}</button></div>}{candidateListSupported && candidates.length === 0 && <div className="empty-inline"><PackageOpen size={16} /><span>{locale === 'vi' ? 'Chưa có candidate metadata.' : 'No release candidate metadata yet.'}</span></div>}{candidateListSupported && candidates.length > 0 && <div className="release-candidate-list">{candidates.map((candidate) => <article className={`release-candidate-row ${selectedCandidateId === candidate.id ? 'active' : ''}`} key={candidate.id ?? `${candidate.timelineRevisionId}-${candidate.readinessDigest}`}><div className="release-candidate-main"><div className="release-candidate-heading"><strong>{candidate.id ?? (locale === 'vi' ? 'Candidate không tên' : 'Unnamed candidate')}</strong><span className={`release-status ${releaseCandidateStateClass(candidate.state)}`}><span />{releaseCandidateStateLabel(candidate.state, locale)}</span></div><small>{locale === 'vi' ? 'Timeline revision' : 'Timeline revision'}: {candidate.timelineRevisionId ?? '—'} · v{candidate.rowVersion}</small><div className="release-candidate-facts"><span>{locale === 'vi' ? 'Media profile' : 'Media profile'}: {candidate.mediaProfileRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'QC review' : 'QC review'}: {candidate.reviewSessionId ?? '—'}</span><span>{locale === 'vi' ? 'Readiness digest' : 'Readiness digest'}: {candidate.readinessDigest?.slice(0, 12) ?? '—'}</span><span>{locale === 'vi' ? 'Rights hash' : 'Rights hash'}: {candidate.rightsSnapshotHash?.slice(0, 12) ?? '—'}</span></div><p className="release-next-step">{candidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; chưa có master.' : 'Metadata-only; no master exists.')}</p></div><div className="release-candidate-actions">{client.getReleaseCandidate && candidate.id && <button type="button" className="subtle-button tiny" onClick={() => void inspectCandidate(candidate)} disabled={candidateDetailLoading && selectedCandidateId === candidate.id}>{candidateDetailLoading && selectedCandidateId === candidate.id ? <RefreshCw size={12} className="spin" /> : <Info size={12} />}{locale === 'vi' ? 'Chi tiết' : 'Details'}</button>}{candidate.state === 'DRAFT' && candidate.id && candidate.projectId === projectId && Number.isSafeInteger(candidate.rowVersion) && candidate.rowVersion >= 1 && <button type="button" className="subtle-button tiny" onClick={() => void cancelCandidate(candidate)} disabled={!connected || !candidateCancelSupported || mutating !== null}>{mutating === `cancel:${candidate.id}` ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}{locale === 'vi' ? 'Huỷ draft' : 'Cancel draft'}</button>}</div></article>)}</div>}{client.getReleaseCandidate && selectedCandidateId && <section className="release-candidate-detail" aria-live="polite">{candidateDetailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết candidate…' : 'Reading candidate details…'} /> : candidateDetailError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateDetailError}</span><button type="button" className="subtle-button tiny" onClick={() => { const current = candidates.find((candidate) => candidate.id === selectedCandidateId); if (current) void inspectCandidate(current) }}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : selectedCandidate ? <><div className="card-heading"><div><strong>{locale === 'vi' ? 'Chi tiết release candidate' : 'Release candidate details'}</strong><small>{selectedCandidate.id} · row v{selectedCandidate.rowVersion}</small></div><span className={`release-status ${releaseCandidateStateClass(selectedCandidate.state)}`}><span />{releaseCandidateStateLabel(selectedCandidate.state, locale)}</span></div><div className="release-candidate-facts release-candidate-detail-facts"><span><small>Timeline revision</small><strong>{selectedCandidate.timelineRevisionId ?? '—'}</strong></span><span><small>Media profile</small><strong>{selectedCandidate.mediaProfileRevisionId ?? '—'}</strong></span><span><small>Review session</small><strong>{selectedCandidate.reviewSessionId ?? '—'}</strong></span><span><small>Readiness digest</small><strong title={selectedCandidate.readinessDigest}>{selectedCandidate.readinessDigest?.slice(0, 16) ?? '—'}</strong></span><span><small>Rights snapshot</small><strong title={selectedCandidate.rightsSnapshotHash}>{selectedCandidate.rightsSnapshotHash?.slice(0, 16) ?? '—'}</strong></span></div><p className="readonly-note"><Info size={14} />{selectedCandidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; master/export/publish chưa được bật.' : 'Metadata-only; mastering/export/publish are not enabled.')}</p></> : null}</section>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Candidate là metadata immutable có cancel audit. Render, export, sign và publish chưa được bật.' : 'A candidate is immutable metadata with an audited cancel transition. Render, export, signing and publish are not enabled.'}</p></section>
       <div className="release-gate-list">{RELEASE_GATE_ORDER.map((key) => { const gate = releaseGateFor(readiness, key); const facts = releaseEvidenceFacts(gate, locale); return <section className={`release-gate-card ${releaseStateClass(gate.state)}`} key={key}><div className="release-gate-heading"><div><p className="eyebrow">{key}</p><h2>{releaseGateLabel(key, locale)}</h2></div><span className={`release-status ${releaseStateClass(gate.state)}`}><span />{releaseStateLabel(gate.state, locale)}</span></div>{gate.reason && <p className="release-gate-reason">{gate.reason}</p>}{facts.length > 0 && <div className="release-evidence-facts">{facts.map((fact) => <span key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong title={fact.value}>{fact.value}</strong></span>)}</div>}{gate.nextStep && <p className="release-next-step"><Info size={13} />{gate.nextStep}</p>}</section> })}</div>
       <section className="release-boundary-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Boundary tiếp theo' : 'Next boundary'}</h2><p>{locale === 'vi' ? 'Readiness và candidate không tự tạo master, export hay công bố nội dung.' : 'Readiness and candidates never create a master, export bytes or publish content.'}</p></div></div></div><div className="release-boundary-actions"><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Export master — chưa mở' : 'Export master — unavailable'}</button><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Publish — cần release manifest' : 'Publish — requires release manifest'}</button></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Export và Publish là boundary riêng, cần contract và confirmation riêng.' : 'Export and Publish are separate boundaries with separate contracts and confirmation.'}</p></section>
     </>}
