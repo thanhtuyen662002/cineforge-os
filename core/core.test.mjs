@@ -845,9 +845,28 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(detail.result.verifications.length, 1);
   assert.equal(JSON.stringify(detail.result).includes(backupRoot), false);
 
+  const beforePreflight = core.db.prepare('SELECT state, row_version FROM backups WHERE id = ?').get(created.result.backup.id);
+  const preflight = core.handle(request('query.backup.restore_estimate', { backup_id: created.result.backup.id }, 'backup-restore-preflight'));
+  assert.equal(preflight.ok, true, JSON.stringify(preflight));
+  assert.equal(preflight.result.restore_estimate.preflight_state, 'PASS');
+  assert.equal(preflight.result.restore_estimate.restore_allowed, false);
+  assert.equal(preflight.result.restore_estimate.activation_state, 'NOT_IMPLEMENTED');
+  assert.equal(preflight.result.restore_estimate.artifact.object_count, 1);
+  assert.ok(Number(preflight.result.restore_estimate.estimated_restore_bytes) > 0);
+  assert.equal(preflight.result.restore_estimate.target.schema_state, 'PASS');
+  assert.equal(preflight.result.restore_estimate.target.installation_state, 'PASS');
+  const afterPreflight = core.db.prepare('SELECT state, row_version FROM backups WHERE id = ?').get(created.result.backup.id);
+  assert.deepEqual(afterPreflight, beforePreflight);
+
   // A changed manifest must never be accepted as a valid backup. VerifyBackup
   // records a failed verification and keeps the append-only audit trail.
   fs.appendFileSync(persisted.manifest_path, '\n', 'utf8');
+  const tamperedPreflight = core.handle(request('query.backup.restore_estimate', { backup_id: created.result.backup.id }, 'backup-restore-preflight-tampered'));
+  assert.equal(tamperedPreflight.ok, true, JSON.stringify(tamperedPreflight));
+  assert.equal(tamperedPreflight.result.restore_estimate.preflight_state, 'FAIL');
+  assert.equal(tamperedPreflight.result.restore_estimate.restore_allowed, false);
+  assert.equal(tamperedPreflight.result.restore_estimate.verification_error_code, 'BACKUP_MANIFEST_TAMPERED');
+  assert.equal(core.db.prepare('SELECT state FROM backups WHERE id = ?').get(created.result.backup.id).state, 'VERIFIED');
   const tampered = execute(core, 'VerifyBackup', { backup_id: created.result.backup.id }, {}, 'backup-verify-tamper');
   assert.equal(tampered.ok, true, JSON.stringify(tampered));
   assert.equal(tampered.result.verification.outcome, 'FAILED');

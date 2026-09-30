@@ -2,7 +2,7 @@ import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SettingsView } from '../src/App'
-import type { BackupSummary, BackupWorkspace, CoreClient, DashboardSnapshot, StagingEvidence, StagingWorkspace, StorageAdmission } from '../src/types'
+import type { BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CoreClient, DashboardSnapshot, StagingEvidence, StagingWorkspace, StorageAdmission } from '../src/types'
 
 const snapshot: DashboardSnapshot = {
   generatedAt: '2026-09-29T08:00:00.000Z',
@@ -21,6 +21,21 @@ const backup: BackupSummary = {
 const workspace: BackupWorkspace = {
   backup,
   verifications: [{ id: 'verification-1', backupId: backup.id, outcome: 'VERIFIED', integrityState: 'PASS', createdAt: backup.completedAt }],
+}
+const restorePlan: BackupRestoreWorkspace = {
+  backup,
+  restoreEstimate: {
+    schemaVersion: 1,
+    preflightState: 'PASS',
+    restoreAllowed: false,
+    activationState: 'NOT_IMPLEMENTED',
+    checks: [{ id: 'ARTIFACT_INTEGRITY', state: 'PASS' }, { id: 'TARGET_SCHEMA', state: 'PASS' }],
+    artifact: { byteSize: 2048, objectCount: 2 },
+    target: { currentSchemaVersion: 18, schemaState: 'PASS' },
+    estimatedRestoreBytes: 2048,
+    estimatedRestoreDurationMs: 1,
+    durationEstimateMethod: 'THEORETICAL_IO_ONLY_64_MIB_PER_SECOND',
+  },
 }
 const admission: StorageAdmission = {
   destinationName: 'backups', durabilityClass: 'LOCAL_WRITABLE', failureDomain: 'LOCAL_MACHINE',
@@ -44,6 +59,7 @@ function client(overrides: Partial<CoreClient> = {}): CoreClient {
     addProductionItem: vi.fn(async () => ({ id: 'item', title: 'item', detail: '', state: 'todo' as const })),
     getBackups: vi.fn(async () => [backup]),
     getBackup: vi.fn(async () => workspace),
+    getBackupRestoreEstimate: vi.fn(async () => restorePlan),
     getStorageAdmission: vi.fn(async () => admission),
     createBackup: vi.fn(async () => ({ backup, verification: workspace.verifications[0] })),
     verifyBackup: vi.fn(async () => ({ backup: { ...backup, rowVersion: 2 }, verification: { ...workspace.verifications[0], id: 'verification-2' } })),
@@ -68,6 +84,11 @@ describe('SettingsView backup workspace', () => {
     const verifyButton = await screen.findByRole('button', { name: 'Verify again' })
     fireEvent.click(verifyButton)
     await waitFor(() => expect(core.verifyBackup).toHaveBeenCalledWith('backup-1', expect.any(String)))
+    const restoreButton = await screen.findByRole('button', { name: 'Inspect restore plan' })
+    fireEvent.click(restoreButton)
+    await waitFor(() => expect(core.getBackupRestoreEstimate).toHaveBeenCalledWith('backup-1'))
+    expect(await screen.findByText('Restore preflight (read-only)')).toBeTruthy()
+    expect(await screen.findByText('NOT_IMPLEMENTED')).toBeTruthy()
     expect(screen.queryByText(/destination_path/i)).toBeNull()
     expect(screen.queryByText(/C:\\|file:\/\//i)).toBeNull()
   })

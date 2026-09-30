@@ -944,6 +944,63 @@ export interface BackupWorkspace {
   generatedAt?: string
 }
 
+export type BackupRestoreCheckState = 'PASS' | 'FAIL' | 'UNKNOWN' | string
+
+export interface BackupRestoreCheck {
+  id: string
+  state: BackupRestoreCheckState
+  code?: string | null
+  details?: Record<string, unknown>
+}
+
+export interface BackupRestoreEstimate {
+  schemaVersion?: number
+  preflightState: BackupRestoreCheckState
+  restoreAllowed: boolean
+  activationState?: string
+  recoveryEpochState?: string
+  forwardPolicyReconciliationState?: string
+  nextStepCode?: string
+  checks: BackupRestoreCheck[]
+  artifact: {
+    formatVersion?: number | null
+    backupType?: string | null
+    durabilityClass?: string | null
+    failureDomain?: string | null
+    schemaVersion?: number | null
+    eventSeqCheckpoint?: number | null
+    databaseBytes?: number | null
+    copiedObjectBytes?: number | null
+    copiedObjectCount?: number | null
+    externalObjectCount?: number | null
+    objectCount?: number | null
+    byteSize?: number | null
+    manifestSha256?: string | null
+    databaseSha256?: string | null
+  }
+  target: {
+    currentSchemaVersion?: number
+    currentEventSeq?: number
+    installationState?: string
+    schemaState?: string
+    checkpointState?: string
+    forwardEventCount?: number | null
+  }
+  estimatedRestoreBytes?: number | null
+  estimatedRestoreDurationMs?: number | null
+  durationEstimateMethod?: string
+  observedRestoreDurationMs?: number | null
+  verificationErrorCode?: string | null
+  generatedAt?: string
+}
+
+export interface BackupRestoreWorkspace {
+  backup: BackupSummary | null
+  restoreEstimate: BackupRestoreEstimate | null
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface BackupCommandResult {
   backup: BackupSummary | null
   verification: BackupVerification | null
@@ -1078,6 +1135,7 @@ export interface CoreClient {
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
   getBackups?(signal?: AbortSignal): Promise<BackupSummary[]>
   getBackup?(backupId: string, signal?: AbortSignal): Promise<BackupWorkspace>
+  getBackupRestoreEstimate?(backupId: string, signal?: AbortSignal): Promise<BackupRestoreWorkspace>
   getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>

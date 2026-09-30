@@ -164,6 +164,13 @@ const BACKUP_DURABILITY_CLASSES = new Set(['LOCAL_WRITABLE', 'SEPARATE_VOLUME', 
 const BACKUP_STATES = new Set(['CREATED', 'VERIFIED', 'FAILED', 'QUARANTINED']);
 const BACKUP_FORMAT_VERSION = 1;
 const DEFAULT_BACKUP_RESERVE_BYTES = 64 * 1024 * 1024;
+// Restore activation is intentionally outside the V1 local backup slice.  The
+// read-only estimate still needs a deterministic, explicitly labelled timing
+// model so the desktop can distinguish a useful byte estimate from observed
+// recovery evidence.  This is an IO-only planning rate, never a progress claim.
+const BACKUP_RESTORE_ESTIMATE_THROUGHPUT_BYTES_PER_SECOND = 64 * 1024 * 1024;
+const BACKUP_RESTORE_ESTIMATE_SCHEMA_VERSION = 1;
+const BACKUP_MAX_MANIFEST_OBJECTS = 200_000;
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 const MAX_ASSET_METADATA_BYTES = 64 * 1024;
 // Media preview is deliberately a narrow inspection capability.  It never
@@ -2469,8 +2476,13 @@ export class CoreService {
       || manifest.backup_type !== 'FULL_LOCAL'
       || (spec.expectedBackupId && String(manifest.backup_id) !== String(spec.expectedBackupId))
       || manifest.database?.file !== 'cineforge.sqlite'
-      || !Number.isSafeInteger(Number(manifest.schema_version))
-      || !SHA256_HEX.test(String(manifest.database?.sha256 ?? ''))) {
+      || !Number.isSafeInteger(manifest.schema_version)
+      || typeof manifest.database?.byte_size !== 'number'
+      || !Number.isSafeInteger(manifest.database.byte_size)
+      || manifest.database.byte_size < 0
+      || !SHA256_HEX.test(String(manifest.database?.sha256 ?? ''))
+      || !Array.isArray(manifest.objects)
+      || manifest.objects.length > BACKUP_MAX_MANIFEST_OBJECTS) {
       throw new CoreError('BACKUP_MANIFEST_INVALID', 'CONFLICT', 'errors.backup_manifest_invalid', {}, { needsUser: true });
     }
     const dbHash = this._hashBackupFile(snapshotAbsolute, manifest.database.byte_size);
@@ -2490,14 +2502,24 @@ export class CoreService {
     const seen = new Set();
     let copiedCount = 0;
     let externalCount = 0;
-    for (const object of Array.isArray(manifest.objects) ? manifest.objects : []) {
+    for (const object of manifest.objects) {
+      if (!object || typeof object !== 'object' || Array.isArray(object)) {
+        throw new CoreError('BACKUP_MANIFEST_INVALID', 'CONFLICT', 'errors.backup_manifest_invalid', {}, { needsUser: true });
+      }
       const relative = String(object.relative_path ?? '');
       // External references intentionally have no copied path.  Use the
       // immutable object id for duplicate detection so multiple external
       // objects do not collapse into the same empty-string key.
       const seenKey = object.materialization === 'EXTERNAL_REFERENCE'
         ? `external:${String(object.id ?? '')}` : relative;
-      if (!String(object.id ?? '').trim() || seen.has(seenKey)) {
+      if (!String(object.id ?? '').trim()
+        || String(object.id).length > 200
+        || typeof object.byte_size !== 'number'
+        || !Number.isSafeInteger(object.byte_size)
+        || object.byte_size < 0
+        || !SHA256_HEX.test(String(object.content_hash ?? ''))
+        || (object.materialization === 'COPIED' && !SHA256_HEX.test(String(object.sha256 ?? '')))
+        || seen.has(seenKey)) {
         throw new CoreError('BACKUP_MANIFEST_INVALID', 'CONFLICT', 'errors.backup_manifest_invalid', {}, { needsUser: true });
       }
       seen.add(seenKey);
@@ -8440,6 +8462,7 @@ export class CoreService {
       case 'query.storage.summary': return this._storageSummary();
       case 'query.backup.list': return this._backups(params);
       case 'query.backup.get': return this._backupDetails(params.backup_id ?? params.backupId ?? params.id);
+      case 'query.backup.restore_estimate': return this._backupRestoreEstimate(params.backup_id ?? params.backupId ?? params.id);
       case 'query.storage.admission': return this._backupAdmissionQuery(params);
       case 'query.storage.staging_orphans': return this._stagingObjects(params);
       case 'query.needs_you.list': return this._needsYou(params);
@@ -9430,6 +9453,167 @@ export class CoreService {
       backup: publicBackup(row),
       verifications: verifications.map(publicBackupVerification),
       projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Read-only recovery planning boundary.
+   *
+   * This deliberately verifies the registered artifact in place, but never
+   * copies bytes, opens the snapshot as the live database, mutates backup
+   * rows, advances a recovery epoch, or activates a restored installation.
+   * The response separates evidence we can prove locally from the recovery
+   * controls that are still unavailable in this V1 slice.
+   */
+  _backupRestoreEstimate(backupId) {
+    const row = this._backupRow(backupId);
+    const checks = [];
+    const addCheck = (id, state, code = null, details = {}) => {
+      checks.push({ id, state, ...(code ? { code } : {}), ...(Object.keys(details).length > 0 ? { details } : {}) });
+    };
+    const safeNonNegativeInteger = (value) => {
+      const number = typeof value === 'number' ? value : Number(value);
+      return Number.isSafeInteger(number) && number >= 0 ? number : null;
+    };
+
+    const recordState = String(row.state ?? '').toUpperCase();
+    if (recordState === 'VERIFIED') addCheck('BACKUP_RECORD', 'PASS');
+    else if (recordState === 'FAILED' || recordState === 'QUARANTINED') addCheck('BACKUP_RECORD', 'FAIL', 'BACKUP_RECORD_NOT_VERIFIED');
+    else addCheck('BACKUP_RECORD', 'UNKNOWN', 'BACKUP_RECORD_STATE_UNKNOWN');
+
+    let verification = null;
+    let verificationError = null;
+    try {
+      verification = this._verifyBackupArtifact({
+        root: row.destination_path,
+        snapshotPath: row.snapshot_path,
+        manifestPath: row.manifest_path,
+        manifestSha256: row.manifest_sha256,
+        expectedBackupId: row.id,
+      });
+      addCheck('ARTIFACT_INTEGRITY', 'PASS');
+    } catch (error) {
+      verificationError = error;
+      addCheck('ARTIFACT_INTEGRITY', 'FAIL', error?.code ?? 'BACKUP_VERIFY_FAILED');
+    }
+
+    const manifest = verification?.manifest ?? null;
+    const currentSchemaVersion = SCHEMA_VERSION;
+    const currentInstallationId = this._getMeta('installation_id');
+    const currentEventSeq = safeNonNegativeInteger(this._projectionSeq()) ?? 0;
+    const manifestSchemaVersion = safeNonNegativeInteger(manifest?.schema_version);
+    const eventSeqCheckpoint = safeNonNegativeInteger(manifest?.event_seq_checkpoint);
+    const databaseByteSize = safeNonNegativeInteger(manifest?.database?.byte_size);
+    const copiedObjectBytes = manifest && Array.isArray(manifest.objects)
+      ? manifest.objects.reduce((total, object) => {
+        if (object?.materialization !== 'COPIED') return total;
+        const size = safeNonNegativeInteger(object.byte_size);
+        return size === null || total === null || size > Number.MAX_SAFE_INTEGER - total ? null : total + size;
+      }, 0)
+      : null;
+    const externalObjectCount = manifest && Array.isArray(manifest.objects)
+      ? manifest.objects.filter((object) => object?.materialization === 'EXTERNAL_REFERENCE').length
+      : null;
+    const verifiedByteSize = safeNonNegativeInteger(verification?.byteSize);
+    const rowByteSize = safeNonNegativeInteger(row.byte_size);
+    const estimatedRestoreBytes = verifiedByteSize ?? rowByteSize;
+    const estimatedRestoreDurationMs = estimatedRestoreBytes === null || estimatedRestoreBytes > Math.floor(Number.MAX_SAFE_INTEGER / 1000)
+      ? null
+      : Math.max(1, Math.ceil((estimatedRestoreBytes * 1000) / BACKUP_RESTORE_ESTIMATE_THROUGHPUT_BYTES_PER_SECOND));
+
+    let installationState = 'UNKNOWN';
+    if (manifest && typeof manifest.installation_id === 'string' && typeof currentInstallationId === 'string') {
+      installationState = manifest.installation_id === currentInstallationId ? 'PASS' : 'UNKNOWN';
+      addCheck('TARGET_INSTALLATION', installationState, installationState === 'UNKNOWN' ? 'BACKUP_INSTALLATION_RECONCILIATION_REQUIRED' : null);
+    } else {
+      addCheck('TARGET_INSTALLATION', 'UNKNOWN', 'BACKUP_INSTALLATION_UNKNOWN');
+    }
+
+    let schemaState = 'UNKNOWN';
+    if (manifestSchemaVersion !== null) {
+      if (manifestSchemaVersion === currentSchemaVersion) schemaState = 'PASS';
+      else if (manifestSchemaVersion < currentSchemaVersion) schemaState = 'UNKNOWN';
+      else schemaState = 'FAIL';
+      addCheck('TARGET_SCHEMA', schemaState,
+        schemaState === 'UNKNOWN' ? 'BACKUP_SCHEMA_MIGRATION_REQUIRED' : schemaState === 'FAIL' ? 'BACKUP_SCHEMA_NEWER_THAN_RUNTIME' : null,
+        { backup_schema_version: manifestSchemaVersion, current_schema_version: currentSchemaVersion });
+    } else {
+      addCheck('TARGET_SCHEMA', 'UNKNOWN', 'BACKUP_SCHEMA_UNKNOWN');
+    }
+
+    let checkpointState = 'UNKNOWN';
+    let forwardEventCount = null;
+    if (eventSeqCheckpoint !== null) {
+      if (eventSeqCheckpoint > currentEventSeq) {
+        checkpointState = 'FAIL';
+        addCheck('EVENT_CHECKPOINT', checkpointState, 'BACKUP_EVENT_CHECKPOINT_AHEAD', {
+          backup_event_seq: eventSeqCheckpoint, current_event_seq: currentEventSeq,
+        });
+      } else {
+        forwardEventCount = currentEventSeq - eventSeqCheckpoint;
+        checkpointState = 'PASS';
+        addCheck('EVENT_CHECKPOINT', checkpointState, null, { forward_event_count: forwardEventCount });
+      }
+    } else {
+      addCheck('EVENT_CHECKPOINT', checkpointState, 'BACKUP_EVENT_CHECKPOINT_UNKNOWN');
+    }
+
+    if (externalObjectCount === 0) addCheck('EXTERNAL_REFERENCES', 'PASS');
+    else if (externalObjectCount !== null) addCheck('EXTERNAL_REFERENCES', 'UNKNOWN', 'BACKUP_EXTERNAL_REFERENCES_REQUIRE_RECONCILIATION', { count: externalObjectCount });
+    else addCheck('EXTERNAL_REFERENCES', 'UNKNOWN', 'BACKUP_EXTERNAL_REFERENCES_UNKNOWN');
+
+    const hasFailure = checks.some((check) => check.state === 'FAIL');
+    const hasUnknown = checks.some((check) => check.state === 'UNKNOWN');
+    const preflightState = hasFailure ? 'FAIL' : hasUnknown ? 'UNKNOWN' : 'PASS';
+    const nextStepCode = preflightState === 'FAIL'
+      ? 'REPAIR_OR_RECREATE_BACKUP'
+      : preflightState === 'UNKNOWN'
+        ? 'RECONCILE_TARGET_AND_FORWARD_POLICY'
+        : 'RECOVERY_ACTIVATION_NOT_IMPLEMENTED';
+    return {
+      backup: publicBackup(row),
+      restore_estimate: {
+        schema_version: BACKUP_RESTORE_ESTIMATE_SCHEMA_VERSION,
+        preflight_state: preflightState,
+        restore_allowed: false,
+        activation_state: 'NOT_IMPLEMENTED',
+        recovery_epoch_state: 'REQUIRED',
+        forward_policy_reconciliation_state: 'UNKNOWN',
+        next_step_code: nextStepCode,
+        checks,
+        artifact: {
+          format_version: manifest?.format_version ?? null,
+          backup_type: manifest?.backup_type ?? null,
+          durability_class: manifest?.durability_class ?? row.durability_class ?? null,
+          failure_domain: manifest?.failure_domain ?? row.failure_domain ?? null,
+          schema_version: manifestSchemaVersion,
+          event_seq_checkpoint: eventSeqCheckpoint,
+          database_bytes: databaseByteSize,
+          copied_object_bytes: copiedObjectBytes,
+          copied_object_count: verification?.copiedCount ?? null,
+          external_object_count: externalObjectCount,
+          object_count: verification?.objectCount ?? null,
+          byte_size: verifiedByteSize,
+          manifest_sha256: verification?.manifestSha256 ?? null,
+          database_sha256: verification?.dbSha256 ?? null,
+        },
+        target: {
+          current_schema_version: currentSchemaVersion,
+          current_event_seq: currentEventSeq,
+          installation_state: installationState,
+          schema_state: schemaState,
+          checkpoint_state: checkpointState,
+          forward_event_count: forwardEventCount,
+        },
+        estimated_restore_bytes: estimatedRestoreBytes,
+        estimated_restore_duration_ms: estimatedRestoreDurationMs,
+        duration_estimate_method: 'THEORETICAL_IO_ONLY_64_MIB_PER_SECOND',
+        observed_restore_duration_ms: null,
+        verification_error_code: verificationError?.code ?? null,
+        generated_at: new Date().toISOString(),
+      },
+      projection_seq: currentEventSeq,
       generated_at: new Date().toISOString(),
     };
   }

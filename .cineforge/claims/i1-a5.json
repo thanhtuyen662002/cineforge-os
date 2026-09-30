@@ -1,0 +1,38 @@
+{
+  "event": "claim-intent-i1-a5-20260930",
+  "event_type": "TASK_CLAIM_INTENT_V1",
+  "task": 1,
+  "agent_instance_id": "cineforge-WORK-backup-restore-preflight",
+  "slot_id": "WORK-backup-restore-preflight",
+  "run_id": "WORK-backup-restore-preflight-20260930-A1",
+  "owner": "thanhtuyen662002",
+  "authorized_by": "thanhtuyen662002",
+  "contract_version": 1,
+  "contract_hash": "sha256:a7b8e8642da937b56f77202810a9214aa123d4c23b76dec95f67deac85f1584e",
+  "base_ref": "agent/i1-a4-control-event-chain",
+  "base_sha": "e8f9bac",
+  "context_base_sha": "e8f9bac",
+  "requested_state": "CLAIMED",
+  "scope": [
+    "core/core.mjs",
+    "core/http.mjs",
+    "core/core.test.mjs",
+    "core/http.test.mjs",
+    "app/src/types.ts",
+    "app/src/coreAdapter.ts",
+    "app/src/App.tsx",
+    "app/tests/coreAdapter.test.ts",
+    "app/tests/settingsView.test.tsx",
+    "core/README.md",
+    "docs/design/API_CONTRACTS.md",
+    ".cineforge/claims/i1-a5.json"
+  ],
+  "forbidden_scope": [
+    "destructive_restore_activation",
+    "recovery_epoch_activation",
+    "forward_revocation_replay",
+    "remote_backup",
+    "automatic_gc",
+    "production_closure"
+  ]
+}
