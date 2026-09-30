@@ -273,6 +273,101 @@ def main() -> int:
     if not any("producer identity" in error for error in producer_errors):
         raise AssertionError(f"wrong CI producer was not rejected: {producer_errors}")
 
+    # Exact predecessor-chain reconciliation uses external GitHub comment IDs;
+    # CONTROL_EVENT_ID is intentionally not treated as a comment identifier.
+    chain_root = event(
+        "AGENT_STATE_V1",
+        "event-chain-root",
+        {
+            "AGENT_INSTANCE_ID": "cineforge-chain",
+            "RUN_ID": "run-chain-001",
+            "SLOT_ID": "S03",
+            "HEAD_SHA": SHA_A,
+            "BASE_SHA": SHA_B,
+            "STATE": "ACTIVE",
+            "BLOCKER": "none",
+            "NEXT_ACTION": "append child",
+        },
+    )
+    chain_root_hash = cel.parse_event_text(chain_root, schema).canonical_hash
+    chain_child = event(
+        "AGENT_STATE_V1",
+        "event-chain-child",
+        {
+            "AGENT_INSTANCE_ID": "cineforge-chain",
+            "RUN_ID": "run-chain-001",
+            "SLOT_ID": "S03",
+            "HEAD_SHA": SHA_A,
+            "BASE_SHA": SHA_B,
+            "STATE": "READY_FOR_REVIEW",
+            "BLOCKER": "none",
+            "NEXT_ACTION": "await review",
+        },
+        PREV_EVENT_COMMENT_ID="100001",
+        PREV_EVENT_HASH=chain_root_hash,
+    )
+    chain_events, chain_errors = cel.validate_event_stream(
+        [chain_root, chain_child], schema, comment_ids=["100001", "100002"]
+    )
+    if chain_errors or len(chain_events) != 2:
+        raise AssertionError(f"valid predecessor chain was rejected: {chain_errors}")
+
+    _, missing_predecessor_errors = cel.validate_event_stream(
+        [chain_child], schema, comment_ids=["100002"]
+    )
+    if not any("missing or deleted" in error for error in missing_predecessor_errors):
+        raise AssertionError(
+            f"missing predecessor was not rejected: {missing_predecessor_errors}"
+        )
+
+    tampered_child = rehash(chain_child, PREV_EVENT_HASH=HASH_A)
+    _, tampered_predecessor_errors = cel.validate_event_stream(
+        [chain_root, tampered_child], schema, comment_ids=["100001", "100003"]
+    )
+    if not any("hash does not match" in error for error in tampered_predecessor_errors):
+        raise AssertionError(
+            f"predecessor hash drift was not rejected: {tampered_predecessor_errors}"
+        )
+
+    stale_epoch_child = rehash(
+        chain_child,
+        CONTROL_EPOCH="8",
+        PREV_EVENT_HASH=chain_root_hash,
+    )
+    _, stale_epoch_errors = cel.validate_event_stream(
+        [chain_root, stale_epoch_child], schema, comment_ids=["100001", "100004"]
+    )
+    if not any("stale control epoch" in error for error in stale_epoch_errors):
+        raise AssertionError(f"stale epoch was not rejected: {stale_epoch_errors}")
+
+    fork_child = event(
+        "AGENT_STATE_V1",
+        "event-chain-fork",
+        {
+            "AGENT_INSTANCE_ID": "cineforge-chain",
+            "RUN_ID": "run-chain-001",
+            "SLOT_ID": "S03",
+            "HEAD_SHA": SHA_A,
+            "BASE_SHA": SHA_B,
+            "STATE": "PARKED_WAITING_REVIEW",
+            "BLOCKER": "review queue",
+            "NEXT_ACTION": "wait",
+        },
+        PREV_EVENT_COMMENT_ID="100001",
+        PREV_EVENT_HASH=chain_root_hash,
+    )
+    _, fork_errors = cel.validate_event_stream(
+        [chain_root, chain_child, fork_child],
+        schema,
+        comment_ids=["100001", "100002", "100005"],
+    )
+    if not any("multiple children" in error or "chain fork" in error for error in fork_errors):
+        raise AssertionError(f"chain fork was not rejected: {fork_errors}")
+
+    _, unanchored_errors = cel.validate_event_stream([chain_root, chain_child], schema)
+    if not any("external comment IDs" in error for error in unanchored_errors):
+        raise AssertionError(f"unanchored linked chain was accepted: {unanchored_errors}")
+
     unknown_outcome = event(
         "MERGE_OUTCOME_V1",
         "event-outcome-unknown",
@@ -308,7 +403,7 @@ def main() -> int:
     if not any("fenced after UNKNOWN_OUTCOME" in error for error in fence_errors):
         raise AssertionError(f"unknown outcome did not fence mutation: {fence_errors}")
 
-    print(f"CONTROL_EVENT_SELFTEST=PASS cases={len(fixtures) + 19}")
+    print(f"CONTROL_EVENT_SELFTEST=PASS cases={len(fixtures) + 25}")
     return 0
 
 

@@ -17,6 +17,12 @@ Multiple files are interpreted in stream order.  An identical retry with the
 same CONTROL_EVENT_ID is idempotent; a different payload with that ID fails.
 An UNKNOWN_OUTCOME merge event fences later acquire/takeover mutations for the
 same merge operation until a direct reconciliation event is supplied.
+
+Passing ``--comment-id`` once per input file enables exact predecessor-chain
+reconciliation.  Without those external GitHub comment IDs the validator can
+check the embedded hash fields but cannot prove that a predecessor exists or
+that two events did not fork from the same comment; linked events therefore
+fail closed instead of being treated as a verified chain.
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_SCHEMA = HERE / "CONTROL_EVENT_CONTRACTS.json"
 MACHINE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+COMMENT_ID_RE = re.compile(r"^[1-9][0-9]{0,19}$")
 
 REQUIRED_EVENT_SCHEMAS = {
     "AGENT_STATE_V1",
@@ -392,12 +399,32 @@ def validate_event_stream(
     expected_head: str | None = None,
     expected_base: str | None = None,
     expected_producer: str | None = None,
+    comment_ids: Sequence[str] | None = None,
+    require_chain: bool = False,
 ) -> tuple[list[ParsedEvent], list[str]]:
-    """Validate events in order and reconcile retry/idempotency semantics."""
+    """Validate events and, when requested, reconcile their predecessor chain.
+
+    ``PREV_EVENT_COMMENT_ID`` is an external GitHub identifier and is
+    intentionally absent from the canonical event payload.  Callers that have
+    fetched the corresponding comments must pass one ``comment_ids`` value per
+    input text.  The chain check then proves predecessor existence, same-epoch
+    continuity, exact predecessor hash and single-child (no-fork) semantics.
+    A missing predecessor is reported as an anomaly; it is never inferred from
+    stream position or ``CONTROL_EVENT_ID``.
+    """
     parsed: list[ParsedEvent] = []
     errors: list[str] = []
     by_id: dict[str, ParsedEvent] = {}
+    accepted_indices: list[int] = []
     merge_outcomes: dict[str, str] = {}
+    if comment_ids is not None and len(comment_ids) != len(texts):
+        errors.append(
+            "exact chain reconciliation requires one comment ID per input event"
+        )
+    if require_chain and comment_ids is None:
+        errors.append(
+            "exact chain reconciliation requires comment IDs; pass --comment-id once per event"
+        )
     for index, text in enumerate(texts, 1):
         try:
             event = parse_event_text(text, schema)
@@ -422,6 +449,7 @@ def validate_event_stream(
             continue
         by_id[event.event_id] = event
         parsed.append(event)
+        accepted_indices.append(index - 1)
         if event.event_schema == "MERGE_OUTCOME_V1":
             merge_outcomes[event.values["MERGE_OPERATION_ID"]] = event.values["OUTCOME"]
         elif (
@@ -432,7 +460,121 @@ def validate_event_stream(
             errors.append(
                 f"event {index}: merge mutation is fenced after UNKNOWN_OUTCOME; reconcile first"
             )
+
+    # A linked event without the external comment-ID list is not chain
+    # evidence.  Reject it explicitly rather than silently accepting a
+    # predecessor that may have been deleted, edited or replaced.
+    linked = [
+        (index, event)
+        for index, event in zip(accepted_indices, parsed)
+        if event.values["PREV_EVENT_COMMENT_ID"] != "none"
+    ]
+    if comment_ids is None and linked:
+        for index, _event in linked:
+            errors.append(
+                f"event {index + 1}: PREV_EVENT_COMMENT_ID requires external comment IDs for exact chain reconciliation"
+            )
+
+    if comment_ids is not None and len(comment_ids) == len(texts):
+        _validate_predecessor_chain(
+            parsed,
+            accepted_indices,
+            comment_ids,
+            errors,
+        )
     return parsed, errors
+
+
+def _validate_predecessor_chain(
+    parsed: Sequence[ParsedEvent],
+    accepted_indices: Sequence[int],
+    comment_ids: Sequence[str],
+    errors: list[str],
+) -> None:
+    """Validate the externally anchored predecessor graph for one stream.
+
+    The input order is authoritative for control transitions.  A predecessor
+    must occur earlier in the supplied stream, must carry the same control
+    epoch, and must have the exact hash named by the child.  Multiple distinct
+    children from one predecessor are a fork and are reported as an anomaly.
+    Exact idempotent retries are already removed from ``parsed`` before this
+    function runs.
+    """
+    records = list(zip(parsed, accepted_indices))
+    seen_comment: dict[str, tuple[ParsedEvent, int]] = {}
+    for event, input_index in records:
+        comment_id = comment_ids[input_index]
+        if not isinstance(comment_id, str) or not COMMENT_ID_RE.fullmatch(comment_id):
+            errors.append(
+                f"event {input_index + 1}: supplied comment ID {comment_id!r} is invalid"
+            )
+            continue
+        previous = seen_comment.get(comment_id)
+        if previous is not None:
+            prior_event, prior_index = previous
+            if prior_event.event_id != event.event_id:
+                errors.append(
+                    f"event {input_index + 1}: comment ID {comment_id} is reused by distinct control events"
+                )
+            # Same event ID with the same external comment is an idempotent
+            # retry.  It is safe to ignore the duplicate map entry.
+            continue
+        seen_comment[comment_id] = (event, input_index)
+
+    children: dict[tuple[str, str, str], tuple[ParsedEvent, int]] = {}
+    roots_by_epoch: dict[str, tuple[ParsedEvent, int]] = {}
+    highest_epoch = 0
+    for event, input_index in records:
+        values = event.values
+        epoch = int(values["CONTROL_EPOCH"])
+        prior_highest_epoch = highest_epoch
+        previous_comment = values["PREV_EVENT_COMMENT_ID"]
+        previous_hash = values["PREV_EVENT_HASH"]
+        if epoch < prior_highest_epoch:
+            errors.append(
+                f"event {input_index + 1}: stale control epoch {epoch} follows epoch {prior_highest_epoch}"
+            )
+        if previous_comment == "none":
+            prior_root = roots_by_epoch.get(values["CONTROL_EPOCH"])
+            if prior_root is not None and prior_root[0].event_id != event.event_id:
+                errors.append(
+                    f"event {input_index + 1}: control epoch {epoch} has multiple roots (chain fork)"
+                )
+            else:
+                roots_by_epoch[values["CONTROL_EPOCH"]] = (event, input_index)
+            highest_epoch = max(highest_epoch, epoch)
+            continue
+
+        highest_epoch = max(highest_epoch, epoch)
+
+        predecessor = seen_comment.get(previous_comment)
+        if predecessor is None:
+            errors.append(
+                f"event {input_index + 1}: predecessor comment {previous_comment} is missing or deleted"
+            )
+            continue
+        prior_event, prior_index = predecessor
+        if prior_index >= input_index:
+            errors.append(
+                f"event {input_index + 1}: predecessor comment {previous_comment} is not earlier in the stream"
+            )
+        if prior_event.values["CONTROL_EPOCH"] != values["CONTROL_EPOCH"]:
+            errors.append(
+                f"event {input_index + 1}: predecessor comment {previous_comment} belongs to stale control epoch "
+                f"{prior_event.values['CONTROL_EPOCH']} (current {epoch})"
+            )
+        if prior_event.canonical_hash != previous_hash:
+            errors.append(
+                f"event {input_index + 1}: predecessor comment {previous_comment} hash does not match its content"
+            )
+        edge = (previous_comment, previous_hash, values["CONTROL_EPOCH"])
+        prior_child = children.get(edge)
+        if prior_child is not None and prior_child[0].event_id != event.event_id:
+            errors.append(
+                f"event {input_index + 1}: predecessor comment {previous_comment} has multiple children (chain fork)"
+            )
+        else:
+            children[edge] = (event, input_index)
 
 
 def _read_path(path: str) -> str:
@@ -451,16 +593,33 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--expected-head", help="optional live PR HEAD SHA binding")
     parser.add_argument("--expected-base", help="optional live main/base SHA binding")
     parser.add_argument("--expected-producer", help="optional expected CI producer identity")
+    parser.add_argument(
+        "--comment-id",
+        dest="comment_ids",
+        action="append",
+        help="external GitHub comment ID for each input event, in the same order; enables exact chain reconciliation",
+    )
+    parser.add_argument(
+        "--require-chain",
+        action="store_true",
+        help="fail unless exact predecessor-chain reconciliation is enabled",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
         schema = load_schema(args.schema)
         texts = [_read_path(path) for path in args.paths]
+        if args.comment_ids is not None and len(args.comment_ids) != len(texts):
+            raise EventValidationError(
+                "--comment-id must be supplied exactly once per input event"
+            )
         events, errors = validate_event_stream(
             texts,
             schema,
             expected_head=args.expected_head,
             expected_base=args.expected_base,
             expected_producer=args.expected_producer,
+            comment_ids=args.comment_ids,
+            require_chain=args.require_chain,
         )
     except EventValidationError as exc:
         print("CONTROL_EVENT_LINT=FAIL")
