@@ -72,6 +72,17 @@ UI never bypasses this path for canonical mutation.
 
 # 4. User action coverage matrix
 
+# DESIGN-TECHNICAL-METADATA-NAMING. Canonical derived-media metadata owner
+
+The canonical relational entity is `technical_metadata`, as defined in
+`SCHEMA.md`. `asset_technical_metadata` is not a second table, compatibility
+alias or runtime projection. Any future typed media-probe job must reference
+an exact `asset_revision_id` and immutable `technical_metadata.id`, pin its
+source content hash and toolchain/probe schema evidence, and preserve earlier
+results as stale history when the source or toolchain changes. This section
+resolves the former architecture-inventory naming ambiguity before executable
+media probing is designed or implemented.
+
 | ID | User action | Canonical owner | Critical safeguards | UI owner |
 |---|---|---|---|---|
 | A01 | Create/duplicate project | Project + MediaProfile + Command | copy-on-write assets, explicit defaults | Project Creation |

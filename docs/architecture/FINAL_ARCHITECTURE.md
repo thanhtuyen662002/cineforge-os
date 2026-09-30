@@ -1144,7 +1144,7 @@ Logical domains/tables include:
 - asset_locations
 - asset_dependencies
 - asset_lineage
-- asset_technical_metadata
+- technical_metadata
 - asset_rights_bindings
 
 ### Editorial

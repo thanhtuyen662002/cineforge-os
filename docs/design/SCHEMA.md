@@ -855,6 +855,15 @@ UNIQUE(storage_object_id, storage_root_id, relative_path)
 - last_verified_at_utc_us
 
 ## technical_metadata
+
+`technical_metadata` is the single canonical relational name for immutable,
+derived media-technical evidence. The architecture inventory, implementation
+schema and future API references must use this name; `asset_technical_metadata`
+is not a second table or an alias. A future executable media-probe migration
+must add the source revision/content hash, exact toolchain and probe-schema
+pins, raw-evidence identity and append-only stream inventory without mutating
+the original asset bytes or silently replacing an earlier result.
+
 - id PK
 - media_kind
 - container
