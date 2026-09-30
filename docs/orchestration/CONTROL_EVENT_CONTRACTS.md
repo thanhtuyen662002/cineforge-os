@@ -95,6 +95,17 @@ corruption.  It preserves stream order for merge-operation fencing: after a
 external-verifier reconciliation supplies a new outcome.  A timeout is never
 silently converted to failure or success.
 
+When the caller has the external GitHub comment IDs, it must pass one
+`--comment-id` value per event to `control_event_lint.py`.  Exact chain mode
+then binds each `PREV_EVENT_COMMENT_ID` to an earlier supplied comment and
+checks all of the following before accepting the stream: predecessor existence,
+same `CONTROL_EPOCH`, predecessor content hash, stream order, one root per
+epoch, and one child per predecessor.  A missing/deleted predecessor, edited
+content, stale epoch, or fork is reported as a governance anomaly.  The
+validator refuses to treat linked events as a verified chain when the external
+comment-ID list is absent.  Schema/hash validation without that list remains
+useful for local fixtures but is not live GitHub evidence.
+
 An external reconciler may bind events to live facts with the validator's
 `--expected-head`, `--expected-base` and `--expected-producer` options.  Those
 options are comparison hooks; the validator itself does not call GitHub and
@@ -107,6 +118,13 @@ Run the executable checks with:
 ```text
 python docs/orchestration/control_event_lint.py <event-file>
 python docs/orchestration/control_event_selftest.py
+```
+
+For an externally reconciled chain, provide IDs in input order:
+
+```text
+python docs/orchestration/control_event_lint.py \
+  --comment-id 100001 --comment-id 100002 first.txt second.txt
 ```
 
 Passing these commands proves grammar/schema/hash/reconciliation behavior for
