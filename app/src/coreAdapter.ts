@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -74,6 +74,9 @@ export interface CoreBridge {
   submitReview?(projectId: string, reviewSessionId: string, decision: HumanReviewDecision, expectedVersion: number, notes?: string, reasonCodes?: string[], idempotencyKey?: string): Promise<ReviewWorkspace>
   getHandoffs?(projectId: string, state?: string, signal?: AbortSignal): Promise<HandoffListItem[]>
   getHandoff?(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace>
+  getExternalEdits?(projectId: string, state?: string, signal?: AbortSignal): Promise<ExternalEditList>
+  getExternalEdit?(projectId: string, externalEditId: string, signal?: AbortSignal): Promise<ExternalEdit>
+  registerExternalEdit?(projectId: string, input: { handoffManifestId: string; exportSessionId: string; returnedAssetRevisionId: string; expectedVersion: number; lineageConfidence?: ExternalEditLineageConfidence }, idempotencyKey?: string): Promise<ExternalEdit>
   createHandoffManifest?(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey?: string): Promise<HandoffWorkspace>
   buildTimelineInterchangeExport?(projectId: string, exportSessionId: string, dependencySnapshotHash: string, expectedVersion: number, idempotencyKey?: string): Promise<HandoffWorkspace>
   resolveTimelineInterchangeDownload?(projectId: string, exportSessionId: string, signal?: AbortSignal): Promise<TimelineInterchangeDownload>
@@ -1143,6 +1146,43 @@ export class HttpCoreClient implements CoreClient {
     if (!handoffId.trim()) throw new CoreClientError('A handoff id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoffId)}`, { signal, headers: { Accept: 'application/json' } })
     return mapHandoffWorkspaceRecord(await readCorePayload(response, 'handoff details'))
+  }
+
+  async getExternalEdits(projectId: string, state?: string, signal?: AbortSignal): Promise<ExternalEditList> {
+    if (!this.baseUrl) throw new CoreClientError('Returned interchange registration requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const query = state ? `?validation_state=${encodeURIComponent(state)}` : ''
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/external-edits${query}`, { signal, headers: { Accept: 'application/json' } })
+    const payload = asRecord(await readCorePayload(response, 'returned interchanges'))
+    return mapExternalEditListRecord(payload.result ?? payload)
+  }
+
+  async getExternalEdit(projectId: string, externalEditId: string, signal?: AbortSignal): Promise<ExternalEdit> {
+    if (!this.baseUrl) throw new CoreClientError('Returned interchange details require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!externalEditId.trim()) throw new CoreClientError('An external edit id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/external-edits/${encodeURIComponent(externalEditId)}`, { signal, headers: { Accept: 'application/json' } })
+    const payload = asRecord(await readCorePayload(response, 'returned interchange details'))
+    const result = asRecord(payload.result ?? payload)
+    return mapExternalEditRecord(result.external_edit ?? result.externalEdit ?? result)
+  }
+
+  async registerExternalEdit(projectId: string, input: { handoffManifestId: string; exportSessionId: string; returnedAssetRevisionId: string; expectedVersion: number; lineageConfidence?: ExternalEditLineageConfidence }, idempotencyKey: string = crypto.randomUUID()): Promise<ExternalEdit> {
+    if (!this.baseUrl) throw new CoreClientError('Registering a returned interchange requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!input.handoffManifestId.trim() || !input.exportSessionId.trim() || !input.returnedAssetRevisionId.trim() || !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1) throw new CoreClientError('The exact handoff, export, returned asset and current export version are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    if (input.lineageConfidence && !['EXACT', 'PARTIAL', 'FLATTENED', 'UNKNOWN'].includes(input.lineageConfidence)) throw new CoreClientError('The lineage confidence is invalid.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/external-edits`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({
+        handoff_manifest_id: input.handoffManifestId,
+        export_session_id: input.exportSessionId,
+        returned_asset_revision_id: input.returnedAssetRevisionId,
+        expected_version: input.expectedVersion,
+        ...(input.lineageConfidence ? { lineage_confidence: input.lineageConfidence } : {}),
+      }),
+    })
+    const payload = asRecord(await readCorePayload(response, 'returned interchange registration'))
+    const result = asRecord(payload.result ?? payload)
+    return mapExternalEditRecord(result.external_edit ?? result.externalEdit ?? result)
   }
 
   async createHandoffManifest(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey: string = crypto.randomUUID()): Promise<HandoffWorkspace> {
@@ -2648,6 +2688,61 @@ function mapHandoffListItemRecord(value: unknown): HandoffListItem {
   return {
     exportSession: mapHandoffSessionRecord(source.export_session ?? source.exportSession ?? source.session),
     handoffManifest: mapHandoffManifestRecord(source.handoff_manifest ?? source.handoffManifest ?? source.manifest),
+  }
+}
+
+function mapExternalEditRecord(value: unknown): ExternalEdit {
+  const source = asRecord(value)
+  const diffs = arrayValue(source.contract_diffs ?? source.contractDiffs).map((raw) => {
+    const item = asRecord(raw)
+    return {
+      id: stringValue(item.id),
+      externalEditId: stringValue(item.external_edit_id ?? item.externalEditId),
+      projectId: stringValue(item.project_id ?? item.projectId),
+      diffType: stringValue(item.diff_type ?? item.diffType),
+      severity: stringValue(item.severity),
+      before: asRecord(item.before),
+      after: asRecord(item.after),
+      resolutionState: stringValue(item.resolution_state ?? item.resolutionState),
+      createdByActorId: stringValue(item.created_by_actor_id ?? item.createdByActorId),
+      createdAt: stringValue(item.created_at ?? item.createdAt),
+    }
+  })
+  const rawConfidence = stringValue(source.lineage_confidence ?? source.lineageConfidence) ?? 'UNKNOWN'
+  const lineageConfidence: ExternalEditLineageConfidence = ['EXACT', 'PARTIAL', 'FLATTENED', 'UNKNOWN'].includes(rawConfidence.toUpperCase()) ? rawConfidence.toUpperCase() as ExternalEditLineageConfidence : 'UNKNOWN'
+  return {
+    id: stringValue(source.id ?? source.external_edit_id ?? source.externalEditId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    handoffManifestId: stringValue(source.handoff_manifest_id ?? source.handoffManifestId),
+    exportSessionId: stringValue(source.export_session_id ?? source.exportSessionId),
+    timelineRevisionId: stringValue(source.timeline_revision_id ?? source.timelineRevisionId),
+    returnedAssetRevisionId: stringValue(source.returned_asset_revision_id ?? source.returnedAssetRevisionId),
+    returnedInterchangeAssetRevisionId: stringValue(source.returned_interchange_asset_revision_id ?? source.returnedInterchangeAssetRevisionId),
+    lineageConfidence,
+    validationState: stringValue(source.validation_state ?? source.validationState) ?? 'UNKNOWN',
+    sourceDocumentHash: stringValue(source.source_document_hash ?? source.sourceDocumentHash),
+    sourceDocumentByteSize: numberValue(source.source_document_byte_size ?? source.sourceDocumentByteSize, 0),
+    sourceManifestHash: stringValue(source.source_manifest_hash ?? source.sourceManifestHash),
+    sourceRevisionContentHash: stringValue(source.source_revision_content_hash ?? source.sourceRevisionContentHash),
+    sourceDependencySnapshotHash: stringValue(source.source_dependency_snapshot_hash ?? source.sourceDependencySnapshotHash),
+    sourceReviewSessionId: stringValue(source.source_review_session_id ?? source.sourceReviewSessionId),
+    returnedRightsStatus: (stringValue(source.returned_rights_status ?? source.returnedRightsStatus) ?? 'UNKNOWN') as RightsState,
+    validationSnapshot: asRecord(source.validation_snapshot ?? source.validationSnapshot),
+    contractDiffCount: numberValue(source.contract_diff_count ?? source.contractDiffCount, diffs.length),
+    contractDiffs: diffs,
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    commandId: stringValue(source.command_id ?? source.commandId),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapExternalEditListRecord(value: unknown): ExternalEditList {
+  const source = asRecord(value)
+  return {
+    items: arrayValue(source.items ?? source.external_edits ?? source.externalEdits).map(mapExternalEditRecord),
+    projectionSeq: numberValue(source.projection_seq ?? source.projectionSeq, 0),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }
 }
 

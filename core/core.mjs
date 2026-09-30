@@ -65,6 +65,22 @@ const TIMELINE_INTERCHANGE_DOWNLOAD_MAX_RANGE_BYTES = 16 * 1024 * 1024;
 const TIMELINE_INTERCHANGE_DOWNLOAD_MAX_FULL_BYTES = 32 * 1024 * 1024;
 const TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE = 'LOCAL_TIMELINE_INTERCHANGE_DOWNLOAD';
 const TIMELINE_INTERCHANGE_MUTATING_COMMANDS = new Set(['BuildTimelineInterchangeExport']);
+const EXTERNAL_EDIT_MUTATING_COMMANDS = new Set(['RegisterExternalEdit']);
+const EXTERNAL_EDIT_MAX_BYTES = TIMELINE_INTERCHANGE_MAX_BYTES;
+const EXTERNAL_EDIT_MAX_DEPTH = 32;
+const EXTERNAL_EDIT_MAX_NODES = 50_000;
+const EXTERNAL_EDIT_MAX_KEYS_PER_OBJECT = 2_000;
+const EXTERNAL_EDIT_MAX_STRING_BYTES = 128 * 1024;
+const EXTERNAL_EDIT_ALLOWED_TOP_LEVEL_KEYS = new Set([
+  'manifest_type', 'manifest_schema_version', 'export_profile', 'deliverable_type', 'source', 'artifact_allowlist', 'sanitization',
+]);
+const EXTERNAL_EDIT_ALLOWED_SOURCE_KEYS = new Set([
+  'project_id', 'timeline_id', 'timeline_revision_id', 'revision_number', 'content_hash', 'duration', 'media_profile', 'review', 'tracks', 'markers',
+]);
+const EXTERNAL_EDIT_ALLOWED_MEDIA_PROFILE_KEYS = new Set([
+  'revision_id', 'timeline_rate', 'time_base', 'pixel_aspect', 'width', 'height', 'working_color_space', 'transfer_function', 'hdr_policy', 'audio_sample_rate', 'audio_channel_layout',
+]);
+const EXTERNAL_EDIT_ALLOWED_REVIEW_KEYS = new Set(['session_id', 'decision', 'dependency_snapshot_hash', 'subject_content_hash']);
 const RELEASE_CANDIDATE_EVIDENCE_KEYS = new Set([
   'asset_revision_id', 'asset_count', 'availability_state', 'availability_evidence_state', 'review_state',
   'asset_lifecycle_state', 'storage_class', 'location_state', 'rights_status', 'cue_count', 'track_count',
@@ -229,6 +245,122 @@ function json(value) {
 function parseJson(value, fallback = {}) {
   if (value === null || value === undefined || value === '') return fallback;
   try { return JSON.parse(value); } catch { return fallback; }
+}
+
+/**
+ * Parse a returned interchange with duplicate-key and resource bounds.  A
+ * plain JSON.parse accepts duplicate object keys (last value wins), which
+ * would make a signed/hashed document ambiguous.  This small recursive
+ * descent parser is intentionally only used for the bounded interchange
+ * profile; all values are still required to round-trip through canonicalJson.
+ */
+function parseStrictCanonicalJson(text, limits = {}) {
+  if (typeof text !== 'string') throw new Error('JSON_TEXT_REQUIRED');
+  const maxDepth = limits.maxDepth ?? EXTERNAL_EDIT_MAX_DEPTH;
+  const maxNodes = limits.maxNodes ?? EXTERNAL_EDIT_MAX_NODES;
+  const maxKeys = limits.maxKeys ?? EXTERNAL_EDIT_MAX_KEYS_PER_OBJECT;
+  const maxStringBytes = limits.maxStringBytes ?? EXTERNAL_EDIT_MAX_STRING_BYTES;
+  if (Buffer.byteLength(text, 'utf8') > (limits.maxBytes ?? EXTERNAL_EDIT_MAX_BYTES)) throw new Error('JSON_TOO_LARGE');
+  let valueText;
+  try {
+    valueText = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(text, 'utf8'));
+  } catch { throw new Error('JSON_INVALID_UTF8'); }
+  if (valueText !== text) throw new Error('JSON_INVALID_UTF8');
+  let index = 0;
+  let nodes = 0;
+  const fail = (code) => { throw new Error(code); };
+  const skip = () => { while (index < text.length && /\s/.test(text[index])) index += 1; };
+  const countNode = (depth) => {
+    nodes += 1;
+    if (nodes > maxNodes) fail('JSON_TOO_MANY_NODES');
+    if (depth > maxDepth) fail('JSON_TOO_DEEP');
+  };
+  const parseString = () => {
+    const start = index;
+    if (text[index] !== '"') fail('JSON_STRING_EXPECTED');
+    index += 1;
+    let escaped = false;
+    while (index < text.length) {
+      const char = text[index];
+      if (char === '"' && !escaped) {
+        index += 1;
+        const raw = text.slice(start, index);
+        let parsed;
+        try { parsed = JSON.parse(raw); } catch { fail('JSON_STRING_INVALID'); }
+        if (Buffer.byteLength(parsed, 'utf8') > maxStringBytes) fail('JSON_STRING_TOO_LARGE');
+        return parsed;
+      }
+      if (char.charCodeAt(0) < 0x20 && !escaped) fail('JSON_CONTROL_CHARACTER');
+      if (char === '\\' && !escaped) escaped = true;
+      else escaped = false;
+      index += 1;
+    }
+    fail('JSON_STRING_UNTERMINATED');
+  };
+  const parseNumber = () => {
+    const match = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(text.slice(index));
+    if (!match) fail('JSON_NUMBER_INVALID');
+    index += match[0].length;
+    const number = Number(match[0]);
+    if (!Number.isFinite(number)) fail('JSON_NUMBER_INVALID');
+    return number;
+  };
+  const parseValue = (depth) => {
+    skip();
+    countNode(depth);
+    const char = text[index];
+    if (char === '"') return parseString();
+    if (char === '{') {
+      index += 1;
+      const object = {};
+      const keys = new Set();
+      skip();
+      if (text[index] === '}') { index += 1; return object; }
+      while (index < text.length) {
+        skip();
+        if (text[index] !== '"') fail('JSON_OBJECT_KEY_EXPECTED');
+        const key = parseString();
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') fail('JSON_UNSAFE_KEY');
+        if (keys.has(key)) fail('JSON_DUPLICATE_KEY');
+        keys.add(key);
+        if (keys.size > maxKeys) fail('JSON_TOO_MANY_KEYS');
+        skip();
+        if (text[index] !== ':') fail('JSON_COLON_EXPECTED');
+        index += 1;
+        object[key] = parseValue(depth + 1);
+        skip();
+        if (text[index] === '}') { index += 1; return object; }
+        if (text[index] !== ',') fail('JSON_COMMA_EXPECTED');
+        index += 1;
+      }
+      fail('JSON_OBJECT_UNTERMINATED');
+    }
+    if (char === '[') {
+      index += 1;
+      const array = [];
+      skip();
+      if (text[index] === ']') { index += 1; return array; }
+      while (index < text.length) {
+        array.push(parseValue(depth + 1));
+        skip();
+        if (text[index] === ']') { index += 1; return array; }
+        if (text[index] !== ',') fail('JSON_COMMA_EXPECTED');
+        index += 1;
+      }
+      fail('JSON_ARRAY_UNTERMINATED');
+    }
+    if (text.startsWith('true', index)) { index += 4; return true; }
+    if (text.startsWith('false', index)) { index += 5; return false; }
+    if (text.startsWith('null', index)) { index += 4; return null; }
+    if (char === '-' || /\d/.test(char ?? '')) return parseNumber();
+    fail('JSON_VALUE_INVALID');
+  };
+  skip();
+  const value = parseValue(0);
+  skip();
+  if (index !== text.length) fail('JSON_TRAILING_DATA');
+  if (canonicalJson(value) !== text) fail('JSON_NOT_CANONICAL');
+  return value;
 }
 
 function rowObject(row) {
@@ -1006,6 +1138,34 @@ function publicHandoffManifest(row, options = {}) {
   delete out.compatibility_report_json;
   delete out.sanitization_report_json;
   if (options.includeManifestJson === true) out.manifest_json = canonicalJson(out.manifest);
+  return out;
+}
+
+function publicExternalEdit(row, diffs = []) {
+  if (!row) return null;
+  const out = {};
+  for (const field of [
+    'id', 'project_id', 'handoff_manifest_id', 'export_session_id', 'timeline_revision_id',
+    'returned_asset_revision_id', 'returned_interchange_asset_revision_id', 'lineage_confidence',
+    'validation_state', 'source_document_hash', 'source_document_byte_size', 'source_manifest_hash',
+    'source_revision_content_hash', 'source_dependency_snapshot_hash', 'source_review_session_id',
+    'returned_rights_status', 'contract_diff_count', 'next_step', 'row_version', 'command_id',
+  ]) if (Object.prototype.hasOwnProperty.call(row, field)) out[field] = row[field];
+  out.validation_snapshot = sanitizePublicMetadata(parseJson(row.validation_snapshot_json, {}));
+  out.contract_diffs = diffs.map((diff) => ({
+    id: diff.id,
+    external_edit_id: diff.external_edit_id,
+    project_id: diff.project_id,
+    diff_type: diff.diff_type,
+    severity: diff.severity,
+    before: sanitizePublicMetadata(parseJson(diff.before_json, {})),
+    after: sanitizePublicMetadata(parseJson(diff.after_json, {})),
+    resolution_state: diff.resolution_state,
+    created_by_actor_id: diff.created_by_actor_id,
+    created_at: diff.created_at_utc_us ? rfc3339FromUs(diff.created_at_utc_us) : null,
+  }));
+  if (row.created_at_utc_us !== undefined && row.created_at_utc_us !== null) out.created_at = rfc3339FromUs(row.created_at_utc_us);
+  delete out.validation_snapshot_json;
   return out;
 }
 
@@ -2705,6 +2865,20 @@ export class CoreService {
   }
 
   _commandPayloadForStorage(commandType, payload) {
+    if (commandType === 'RegisterExternalEdit') {
+      const projectId = payload.project_id ?? payload.projectId;
+      const handoffManifestId = payload.handoff_manifest_id ?? payload.handoffManifestId;
+      const exportSessionId = payload.export_session_id ?? payload.exportSessionId;
+      const returnedAssetRevisionId = payload.returned_asset_revision_id ?? payload.returnedAssetRevisionId;
+      const lineageConfidence = payload.lineage_confidence ?? payload.lineageConfidence;
+      return {
+        project_id: typeof projectId === 'string' ? projectId.slice(0, 200) : null,
+        handoff_manifest_id: typeof handoffManifestId === 'string' ? handoffManifestId.slice(0, 200) : null,
+        export_session_id: typeof exportSessionId === 'string' ? exportSessionId.slice(0, 200) : null,
+        returned_asset_revision_id: typeof returnedAssetRevisionId === 'string' ? returnedAssetRevisionId.slice(0, 200) : null,
+        ...(lineageConfidence === undefined ? {} : { lineage_confidence: String(lineageConfidence).slice(0, 32) }),
+      };
+    }
     if (commandType === 'CreateReleaseCandidateDraft') {
       // Candidate commands are intentionally metadata-only. Do not persist
       // arbitrary caller fields (paths, provider URIs or generated content)
@@ -2794,7 +2968,7 @@ export class CoreService {
     if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 200)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_idempotency_key', {});
     }
-    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType) || TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType))
+    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType) || TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType) || EXTERNAL_EDIT_MUTATING_COMMANDS.has(commandType))
       && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0)) {
       throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', {
         command_type: commandType,
@@ -2998,6 +3172,16 @@ export class CoreService {
     if (commandType === 'BuildTimelineInterchangeExport') {
       const exportSessionId = payload.export_session_id ?? payload.exportSessionId ?? payload.handoff_id ?? payload.handoffId;
       if (typeof exportSessionId === 'string' && exportSessionId.trim()) return this.db.prepare('SELECT project_id FROM export_sessions WHERE id = ?').get(exportSessionId)?.project_id ?? null;
+    }
+    if (commandType === 'RegisterExternalEdit') {
+      const returnedRevisionId = payload.returned_asset_revision_id ?? payload.returnedAssetRevisionId;
+      if (typeof returnedRevisionId === 'string' && returnedRevisionId.trim()) {
+        return this.db.prepare(`SELECT a.project_id FROM asset_revisions r JOIN assets a ON a.id = r.asset_id WHERE r.id = ?`).get(returnedRevisionId)?.project_id ?? null;
+      }
+      const handoffId = payload.handoff_manifest_id ?? payload.handoffManifestId;
+      if (typeof handoffId === 'string' && handoffId.trim()) {
+        return this.db.prepare('SELECT project_id FROM handoff_manifests WHERE id = ?').get(handoffId)?.project_id ?? null;
+      }
       if (typeof explicitProjectId === 'string' && explicitProjectId.trim()) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
       return null;
     }
@@ -3104,6 +3288,7 @@ export class CoreService {
     if (['OpenReview', 'SubmitReview'].includes(commandType)) return 'COMPENSATABLE';
     if (RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
     if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
+    if (EXTERNAL_EDIT_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
     if (['CreateHandoffManifest', 'BeginTimelineWorkingSession', 'ApplyTimelineEditOp', 'UndoTimelineEditOp', 'RedoTimelineEditOp',
       'AutosaveTimelineWorkingSession', 'CheckpointTimelineWorkingSession', 'CloseTimelineWorkingSession'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateAudioCueRevision', 'TransitionAudioCueRevision', 'CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision'].includes(commandType)) return 'COMPENSATABLE';
@@ -3142,6 +3327,7 @@ export class CoreService {
       case 'CancelReleaseCandidateDraft': return this._cancelReleaseCandidateDraft(payload, expectedVersions);
       case 'BuildTimelineInterchangeExport': return this._buildTimelineInterchangeExport(payload, expectedVersions, commandId);
       case 'CreateHandoffManifest': return this._createHandoffManifest(payload, expectedVersions, commandId);
+      case 'RegisterExternalEdit': return this._registerExternalEdit(payload, expectedVersions, commandId);
       case 'BeginTimelineWorkingSession': return this._beginTimelineWorkingSession(payload, expectedVersions);
       case 'ApplyTimelineEditOp': return this._applyTimelineEditOp(payload, expectedVersions);
       case 'UndoTimelineEditOp': return this._undoTimelineEditOp(payload, expectedVersions);
@@ -7887,6 +8073,8 @@ export class CoreService {
       case 'query.handoff.get': return this._handoffGet(params.handoff_id ?? params.handoffId ?? params.export_session_id ?? params.exportSessionId ?? params.id, params.project_id ?? params.projectId ?? null);
       case 'query.export.list': return this._exportList(params);
       case 'query.export.get': return this._exportGet(params.export_session_id ?? params.exportSessionId ?? params.handoff_id ?? params.handoffId ?? params.id, params.project_id ?? params.projectId ?? null);
+      case 'query.external_edit.list': return this._externalEditList(params);
+      case 'query.external_edit.get': return this._externalEditGet(params.external_edit_id ?? params.externalEditId ?? params.id, params.project_id ?? params.projectId ?? null);
       case 'query.export.download': return this.resolveTimelineInterchangeDownload(params);
       case 'query.asset.rights': return this._rightsForAsset(params.asset_id ?? params.assetId, params);
       case 'query.media.resolve_preview': return this.resolveMediaPreview(params);
@@ -8367,6 +8555,324 @@ export class CoreService {
       projection_seq: this._projectionSeq(),
       generated_at: new Date().toISOString(),
     };
+  }
+
+  _externalEditError(code, messageKey = 'errors.external_edit_schema_invalid', args = {}, options = {}) {
+    return new CoreError(code, options.category ?? 'CONFLICT', messageKey, args, {
+      needsUser: options.needsUser === undefined ? true : options.needsUser,
+      retryable: options.retryable,
+      technicalDetails: options.technicalDetails,
+    });
+  }
+
+  _externalEditManagedDocument(revision) {
+    const byteSize = Number(revision.byte_size);
+    if (revision.storage_class !== 'LOCAL_MANAGED' || revision.availability_state !== 'AVAILABLE'
+      || revision.availability_evidence_state !== 'VERIFIED' || !Number.isSafeInteger(byteSize)
+      || byteSize <= 0 || byteSize > EXTERNAL_EDIT_MAX_BYTES) {
+      throw this._externalEditError('EXTERNAL_EDIT_ASSET_NOT_READY', 'errors.external_edit_asset_not_ready', { asset_revision_id: revision.id });
+    }
+    const location = this.db.prepare(`SELECT * FROM storage_object_locations
+      WHERE storage_object_id = ? AND storage_root = 'asset-store' AND location_role = 'PRIMARY' AND state = 'AVAILABLE'
+      ORDER BY created_at_utc_us ASC, id ASC LIMIT 1`).get(revision.storage_object_id);
+    if (!location || typeof location.relative_path !== 'string' || location.relative_path.trim() === '') {
+      throw this._externalEditError('EXTERNAL_EDIT_ASSET_NOT_READY', 'errors.external_edit_asset_not_ready', { asset_revision_id: revision.id });
+    }
+    const relativePath = location.relative_path.replaceAll('\\', '/');
+    const segments = relativePath.split('/');
+    if (path.isAbsolute(relativePath) || segments.some((segment) => segment === '..' || segment === '')) {
+      throw this._externalEditError('EXTERNAL_EDIT_PATH_ESCAPE', 'errors.external_edit_path_escape', {}, { category: 'INTERNAL', needsUser: false });
+    }
+    const absolute = path.resolve(this.assetStorePath, relativePath);
+    if (!pathIsWithin(absolute, this.assetStorePath) || pathKey(absolute) === pathKey(this.assetStorePath)) {
+      throw this._externalEditError('EXTERNAL_EDIT_PATH_ESCAPE', 'errors.external_edit_path_escape', {}, { category: 'INTERNAL', needsUser: false });
+    }
+    let stable;
+    try {
+      stable = this._openStableSource(absolute);
+      if (stable.stat.size !== byteSize || Number(stable.stat.nlink ?? 1) !== 1) {
+        throw this._externalEditError('EXTERNAL_EDIT_ASSET_CHANGED', 'errors.external_edit_asset_changed', { asset_revision_id: revision.id }, { retryable: true });
+      }
+      const digest = this._hashDescriptor(stable.descriptor, byteSize, path.basename(absolute));
+      const bytes = Buffer.alloc(byteSize);
+      let offset = 0;
+      while (offset < byteSize) {
+        const read = fs.readSync(stable.descriptor, bytes, offset, byteSize - offset, offset);
+        if (read <= 0) throw this._externalEditError('EXTERNAL_EDIT_ASSET_CHANGED', 'errors.external_edit_asset_changed', { asset_revision_id: revision.id }, { retryable: true });
+        offset += read;
+      }
+      const after = fs.fstatSync(stable.descriptor);
+      if (!this._sameSourceIdentity(stable.identity, this._sourceIdentity(after))) {
+        throw this._externalEditError('EXTERNAL_EDIT_ASSET_CHANGED', 'errors.external_edit_asset_changed', { asset_revision_id: revision.id }, { retryable: true });
+      }
+      if (digest.content_hash !== String(revision.content_hash).toLowerCase() || digest.byte_size !== byteSize) {
+        throw this._externalEditError('EXTERNAL_EDIT_ASSET_CHANGED', 'errors.external_edit_asset_changed', { asset_revision_id: revision.id }, { retryable: true });
+      }
+      let text;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
+        throw this._externalEditError('EXTERNAL_EDIT_INVALID_UTF8', 'errors.external_edit_invalid_utf8', {});
+      }
+      return { text, contentHash: digest.content_hash, byteSize, absolute };
+    } finally {
+      if (stable?.descriptor !== undefined && stable?.descriptor !== null) {
+        try { fs.closeSync(stable.descriptor); } catch { /* preserve primary validation error */ }
+      }
+    }
+  }
+
+  _externalEditAssertSafeMetadata(value, key = '', depth = 0) {
+    if (depth > EXTERNAL_EDIT_MAX_DEPTH) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'depth' });
+    if (typeof value === 'string') {
+      if (Buffer.byteLength(value, 'utf8') > EXTERNAL_EDIT_MAX_STRING_BYTES) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'string_size' });
+      const suspiciousKey = /(?:^|_)(?:path|uri|url|provider|prompt|secret|credential|token|endpoint|shell|command|binary|file)(?:_|$)/i.test(key);
+      const suspiciousValue = /^(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?|s3|gs|ftp|data):|\/\/)/i.test(value.trim());
+      if (suspiciousKey || suspiciousValue) throw this._externalEditError('EXTERNAL_EDIT_EXTERNAL_REFERENCE', 'errors.external_edit_external_reference', { field: key || 'document' });
+      return;
+    }
+    if (Array.isArray(value)) {
+      if (value.length > EXTERNAL_EDIT_MAX_NODES) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'array_size' });
+      value.forEach((item) => this._externalEditAssertSafeMetadata(item, key, depth + 1));
+      return;
+    }
+    if (value && typeof value === 'object') {
+      for (const [childKey, childValue] of Object.entries(value)) this._externalEditAssertSafeMetadata(childValue, childKey, depth + 1);
+    }
+  }
+
+  _externalEditValidateDocument(document, binding) {
+    if (!document || typeof document !== 'object' || Array.isArray(document)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID');
+    const unknownTop = Object.keys(document).filter((key) => !EXTERNAL_EDIT_ALLOWED_TOP_LEVEL_KEYS.has(key));
+    if (unknownTop.length) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `top_level:${unknownTop[0]}` });
+    if (document.manifest_type !== 'CINEFORGE_TIMELINE_INTERCHANGE'
+      || document.manifest_schema_version !== TIMELINE_INTERCHANGE_SCHEMA_VERSION
+      || document.export_profile !== TIMELINE_INTERCHANGE_PROFILE
+      || document.deliverable_type !== 'TIMELINE_INTERCHANGE') {
+      throw this._externalEditError('EXTERNAL_EDIT_PROFILE_UNSUPPORTED', 'errors.external_edit_profile_unsupported', {});
+    }
+    const source = document.source;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID');
+    const unknownSource = Object.keys(source).filter((key) => !EXTERNAL_EDIT_ALLOWED_SOURCE_KEYS.has(key));
+    if (unknownSource.length) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `source:${unknownSource[0]}` });
+    const requiredText = (value, field, max = 512) => {
+      if (typeof value !== 'string' || value.trim() === '' || value.length > max) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: field });
+      return value;
+    };
+    if (requiredText(source.project_id, 'source.project_id') !== binding.project.id
+      || requiredText(source.timeline_id, 'source.timeline_id') !== binding.revision.timeline_id
+      || requiredText(source.timeline_revision_id, 'source.timeline_revision_id') !== binding.revision.id) {
+      throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'source_identity' });
+    }
+    if (!Number.isSafeInteger(source.revision_number) || source.revision_number !== Number(binding.revision.revision_number)) {
+      throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'revision_number' });
+    }
+    if (!SHA256_HEX.test(String(source.content_hash ?? '')) || String(source.content_hash).toLowerCase() !== String(binding.revision.content_hash).toLowerCase()) {
+      throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'source_content_hash' });
+    }
+    this._interchangeRational(source.duration, 'returned.duration', { allowZero: true });
+    const profile = source.media_profile;
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'media_profile' });
+    const unknownProfile = Object.keys(profile).filter((key) => !EXTERNAL_EDIT_ALLOWED_MEDIA_PROFILE_KEYS.has(key));
+    if (unknownProfile.length) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `media_profile:${unknownProfile[0]}` });
+    if (requiredText(profile.revision_id, 'media_profile.revision_id') !== binding.session.media_profile_revision_id) {
+      throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'media_profile_revision' });
+    }
+    for (const field of ['timeline_rate', 'time_base', 'pixel_aspect']) this._interchangeRational(profile[field], `returned.media_profile.${field}`, { allowZero: false });
+    for (const field of ['width', 'height', 'audio_sample_rate']) {
+      if (!Number.isSafeInteger(profile[field]) || profile[field] < 0 || profile[field] > MAX_RATIONAL_COMPONENT) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `media_profile.${field}` });
+    }
+    for (const field of ['working_color_space', 'transfer_function', 'hdr_policy', 'audio_channel_layout']) requiredText(profile[field], `media_profile.${field}`, 120);
+    const review = source.review;
+    if (!review || typeof review !== 'object' || Array.isArray(review)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'review' });
+    const unknownReview = Object.keys(review).filter((key) => !EXTERNAL_EDIT_ALLOWED_REVIEW_KEYS.has(key));
+    if (unknownReview.length) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `review:${unknownReview[0]}` });
+    if (requiredText(review.session_id, 'review.session_id') !== binding.session.review_session_id
+      || review.decision !== 'APPROVE'
+      || !SHA256_HEX.test(String(review.dependency_snapshot_hash ?? ''))
+      || String(review.dependency_snapshot_hash).toLowerCase() !== String(binding.session.dependency_snapshot_hash).toLowerCase()
+      || !SHA256_HEX.test(String(review.subject_content_hash ?? ''))
+      || String(review.subject_content_hash).toLowerCase() !== String(binding.session.subject_content_hash).toLowerCase()) {
+      throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'review_binding' });
+    }
+    if (!Array.isArray(source.tracks) || source.tracks.length > TIMELINE_INTERCHANGE_MAX_TRACKS || !Array.isArray(source.markers) || source.markers.length > TIMELINE_INTERCHANGE_MAX_MARKERS) {
+      throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'tracks_or_markers' });
+    }
+    let clipCount = 0;
+    source.tracks.forEach((track, trackIndex) => {
+      if (!track || typeof track !== 'object' || Array.isArray(track)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `track:${trackIndex}` });
+      const allowed = new Set(['id', 'track_type', 'order_index', 'name', 'enabled', 'clips']);
+      if (Object.keys(track).some((key) => !allowed.has(key))) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `track_keys:${trackIndex}` });
+      requiredText(track.id, `track.${trackIndex}.id`, 160); requiredText(track.track_type, `track.${trackIndex}.track_type`, 32); requiredText(track.name, `track.${trackIndex}.name`, 500);
+      if (!Number.isSafeInteger(track.order_index) || track.order_index < 0 || typeof track.enabled !== 'boolean' || !Array.isArray(track.clips)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `track_shape:${trackIndex}` });
+      clipCount += track.clips.length;
+      if (clipCount > TIMELINE_INTERCHANGE_MAX_CLIPS) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'clip_count' });
+      track.clips.forEach((clip, clipIndex) => {
+        if (!clip || typeof clip !== 'object' || Array.isArray(clip)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `clip:${trackIndex}:${clipIndex}` });
+        const clipAllowed = new Set(['id', 'asset_revision_id', 'source_in', 'source_out', 'timeline_in', 'timeline_out', 'speed']);
+        if (Object.keys(clip).some((key) => !clipAllowed.has(key))) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `clip_keys:${trackIndex}:${clipIndex}` });
+        requiredText(clip.id, `clip.${trackIndex}.${clipIndex}.id`, 160);
+        if (clip.asset_revision_id !== null) requiredText(clip.asset_revision_id, `clip.${trackIndex}.${clipIndex}.asset_revision_id`, 200);
+        if (clip.source_in !== null) this._interchangeRational(clip.source_in, 'returned.clip.source_in', { allowZero: true });
+        if (clip.source_out !== null) this._interchangeRational(clip.source_out, 'returned.clip.source_out', { allowZero: true });
+        this._interchangeRational(clip.timeline_in, 'returned.clip.timeline_in', { allowZero: true });
+        this._interchangeRational(clip.timeline_out, 'returned.clip.timeline_out', { allowZero: true });
+        this._interchangeRational(clip.speed, 'returned.clip.speed', { allowZero: false });
+      });
+    });
+    source.markers.forEach((marker, markerIndex) => {
+      if (!marker || typeof marker !== 'object' || Array.isArray(marker)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `marker:${markerIndex}` });
+      const allowed = new Set(['id', 'time', 'marker_type', 'label']);
+      if (Object.keys(marker).some((key) => !allowed.has(key))) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `marker_keys:${markerIndex}` });
+      requiredText(marker.id, `marker.${markerIndex}.id`, 160); requiredText(marker.marker_type, `marker.${markerIndex}.marker_type`, 120); requiredText(marker.label, `marker.${markerIndex}.label`, 500);
+      this._interchangeRational(marker.time, 'returned.marker.time', { allowZero: true });
+    });
+    if (!Array.isArray(document.artifact_allowlist) || document.artifact_allowlist.length > TIMELINE_INTERCHANGE_MAX_ARTIFACTS) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'artifact_allowlist' });
+    document.artifact_allowlist.forEach((artifact, artifactIndex) => {
+      if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `artifact:${artifactIndex}` });
+      const allowed = new Set(['asset_revision_id', 'asset_id', 'semantic_role', 'rebuildability', 'hash_algorithm', 'content_hash', 'byte_size']);
+      if (Object.keys(artifact).some((key) => !allowed.has(key))) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `artifact_keys:${artifactIndex}` });
+      requiredText(artifact.asset_revision_id, `artifact.${artifactIndex}.asset_revision_id`, 200); requiredText(artifact.asset_id, `artifact.${artifactIndex}.asset_id`, 200); requiredText(artifact.semantic_role, `artifact.${artifactIndex}.semantic_role`, 120); requiredText(artifact.rebuildability, `artifact.${artifactIndex}.rebuildability`, 40);
+      if (artifact.hash_algorithm !== 'SHA-256' || !SHA256_HEX.test(String(artifact.content_hash ?? '')) || !Number.isSafeInteger(artifact.byte_size) || artifact.byte_size < 0) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: `artifact_identity:${artifactIndex}` });
+    });
+    if (document.sanitization !== undefined) {
+      if (!document.sanitization || typeof document.sanitization !== 'object' || Array.isArray(document.sanitization)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'sanitization' });
+      const allowed = new Set(['policy', 'recorded', 'removed_fields']);
+      if (Object.keys(document.sanitization).some((key) => !allowed.has(key)) || document.sanitization.recorded !== true || !Array.isArray(document.sanitization.removed_fields)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'sanitization_shape' });
+    }
+    this._externalEditAssertSafeMetadata(document);
+    return { source, clipCount };
+  }
+
+  _registerExternalEdit(payload, expectedVersions, commandId) {
+    const projectId = requiredString(payload.project_id ?? payload.projectId, 'project_id');
+    const project = this._project(projectId);
+    this._assertProjectWritable(project);
+    const handoffManifestId = requiredString(payload.handoff_manifest_id ?? payload.handoffManifestId, 'handoff_manifest_id');
+    const exportSessionId = requiredString(payload.export_session_id ?? payload.exportSessionId, 'export_session_id');
+    const returnedRevisionId = requiredString(payload.returned_asset_revision_id ?? payload.returnedAssetRevisionId, 'returned_asset_revision_id');
+    const joined = this.db.prepare(`SELECT e.*, h.id AS handoff_id, h.manifest_hash, h.manifest_json,
+        h.project_id AS handoff_project_id, h.export_session_id AS handoff_export_session_id
+      FROM export_sessions e JOIN handoff_manifests h ON h.export_session_id = e.id
+      WHERE h.id = ? AND e.id = ?`).get(handoffManifestId, exportSessionId);
+    if (!joined) throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'handoff_or_export' });
+    if (joined.project_id !== projectId || joined.handoff_project_id !== projectId) throw this._externalEditError('EXTERNAL_EDIT_SCOPE_MISMATCH', 'errors.external_edit_scope_mismatch', { reason: 'project' });
+    this._expectedVersion(expectedVersions, 'EXPORT_SESSION', joined.id, joined.row_version);
+    if (joined.state !== 'COMPLETED' || joined.output_manifest_id !== handoffManifestId || !joined.output_asset_revision_id || !SHA256_HEX.test(String(joined.output_content_hash ?? '')) || !Number.isSafeInteger(Number(joined.output_byte_size)) || Number(joined.output_byte_size) <= 0 || Number(joined.output_byte_size) > EXTERNAL_EDIT_MAX_BYTES) {
+      throw this._externalEditError('EXTERNAL_EDIT_HANDOFF_NOT_VERIFIED', 'errors.external_edit_handoff_not_verified', { export_session_id: joined.id });
+    }
+    let manifestDocument;
+    try { manifestDocument = parseStrictCanonicalJson(String(joined.manifest_json), { maxBytes: 2 * 1024 * 1024 }); } catch {
+      throw this._externalEditError('EXTERNAL_EDIT_HANDOFF_NOT_VERIFIED', 'errors.external_edit_handoff_not_verified', { export_session_id: joined.id });
+    }
+    const manifestHash = crypto.createHash('sha256').update(canonicalJson(manifestDocument), 'utf8').digest('hex');
+    if (manifestHash !== String(joined.manifest_hash).toLowerCase()) throw this._externalEditError('EXTERNAL_EDIT_HANDOFF_NOT_VERIFIED', 'errors.external_edit_handoff_not_verified', { export_session_id: joined.id });
+    const revision = this.db.prepare(`SELECT r.*, a.project_id, a.asset_type, a.origin_type, a.lifecycle_state AS asset_lifecycle_state,
+        a.rights_identity_id, so.hash_algorithm, so.content_hash, so.byte_size, so.storage_class
+      FROM asset_revisions r JOIN assets a ON a.id = r.asset_id
+      JOIN storage_objects so ON so.id = r.storage_object_id WHERE r.id = ?`).get(returnedRevisionId);
+    if (!revision || revision.project_id !== projectId || revision.asset_type !== 'TIMELINE_INTERCHANGE'
+      || !['IMPORTED', 'EXTERNAL_EDIT', 'HANDOFF_RETURN'].includes(revision.origin_type)
+      || revision.asset_lifecycle_state !== 'ACTIVE' || revision.semantic_role !== 'TIMELINE_INTERCHANGE'
+      || revision.rebuildability !== 'ORIGINAL') {
+      throw this._externalEditError('EXTERNAL_EDIT_ASSET_NOT_READY', 'errors.external_edit_asset_not_ready', { asset_revision_id: returnedRevisionId });
+    }
+    const rights = this._rightsForAsset(revision.asset_id, { purpose: 'EXTERNAL_EDIT_REGISTRATION' });
+    if (!rights.eligible || rights.status !== 'ALLOWED') {
+      throw this._externalEditError('EXTERNAL_EDIT_RIGHTS_BLOCKED', 'errors.external_edit_rights_blocked', { status: rights.status ?? 'UNKNOWN' });
+    }
+    const materialized = this._externalEditManagedDocument(revision);
+    let document;
+    try { document = parseStrictCanonicalJson(materialized.text); } catch (error) {
+      const code = String(error?.message ?? 'JSON_INVALID');
+      const errorCode = code === 'JSON_TOO_LARGE' ? 'EXTERNAL_EDIT_TOO_LARGE' : 'EXTERNAL_EDIT_SCHEMA_INVALID';
+      throw this._externalEditError(errorCode, errorCode === 'EXTERNAL_EDIT_TOO_LARGE' ? 'errors.external_edit_too_large' : 'errors.external_edit_schema_invalid', { reason: code });
+    }
+    const timelineRevision = this._timelineRevision(joined.timeline_revision_id);
+    const validated = this._externalEditValidateDocument(document, { project, session: joined, revision: timelineRevision });
+    const suppliedConfidence = payload.lineage_confidence ?? payload.lineageConfidence;
+    const confidence = suppliedConfidence === undefined || suppliedConfidence === null || suppliedConfidence === ''
+      ? (materialized.contentHash === String(joined.output_content_hash).toLowerCase() && materialized.byteSize === Number(joined.output_byte_size) ? 'EXACT' : 'PARTIAL')
+      : String(suppliedConfidence).trim().toUpperCase();
+    if (!['EXACT', 'PARTIAL', 'FLATTENED', 'UNKNOWN'].includes(confidence)) throw this._externalEditError('EXTERNAL_EDIT_SCHEMA_INVALID', 'errors.external_edit_schema_invalid', { reason: 'lineage_confidence' });
+    if (confidence === 'EXACT' && (materialized.contentHash !== String(joined.output_content_hash).toLowerCase() || materialized.byteSize !== Number(joined.output_byte_size))) {
+      throw this._externalEditError('EXTERNAL_EDIT_LINEAGE_CLAIM_INVALID', 'errors.external_edit_lineage_claim_invalid', { lineage_confidence: confidence });
+    }
+    const existing = this.db.prepare(`SELECT * FROM external_edits WHERE project_id = ? AND handoff_manifest_id = ? AND returned_asset_revision_id = ? AND source_document_hash = ?`).get(projectId, handoffManifestId, returnedRevisionId, materialized.contentHash);
+    if (existing) throw this._externalEditError('EXTERNAL_EDIT_ALREADY_REGISTERED', 'errors.external_edit_already_registered', { external_edit_id: existing.id }, { category: 'CONFLICT', needsUser: false });
+    const diffs = [];
+    const profile = this._mediaProfileRevision(joined.media_profile_revision_id);
+    const equivalent = (left, right) => canonicalJson(left) === canonicalJson(right);
+    const expectedDuration = { num: Number(timelineRevision.duration_num), den: Number(timelineRevision.duration_den) };
+    if (!equivalent(document.source.duration, expectedDuration)) diffs.push({ diff_type: 'DURATION', severity: 'WARNING', before: expectedDuration, after: document.source.duration });
+    const expectedRates = {
+      timeline_rate: { num: Number(profile.timeline_rate_num), den: Number(profile.timeline_rate_den) },
+      time_base: { num: Number(profile.time_base_num), den: Number(profile.time_base_den) },
+      pixel_aspect: { num: Number(profile.pixel_aspect_num), den: Number(profile.pixel_aspect_den) },
+    };
+    for (const key of Object.keys(expectedRates)) if (!equivalent(document.source.media_profile[key], expectedRates[key])) diffs.push({ diff_type: key === 'timeline_rate' || key === 'time_base' ? 'FPS_TIMEBASE' : 'MEDIA_PROFILE', severity: 'WARNING', before: expectedRates[key], after: document.source.media_profile[key] });
+    const expectedArtifactRows = this._handoffAssetRows(timelineRevision, document.source.tracks ?? []);
+    const expectedArtifactHashes = new Map(expectedArtifactRows.map((artifact) => [artifact.asset_revision_id, String(artifact.content_hash).toLowerCase()]));
+    for (const artifact of document.artifact_allowlist) if (expectedArtifactHashes.get(artifact.asset_revision_id) !== String(artifact.content_hash).toLowerCase()) diffs.push({ diff_type: 'MEDIA_IDENTITY', severity: 'WARNING', before: { asset_revision_id: artifact.asset_revision_id, content_hash: expectedArtifactHashes.get(artifact.asset_revision_id) ?? null }, after: { asset_revision_id: artifact.asset_revision_id, content_hash: String(artifact.content_hash).toLowerCase() } });
+    const validationSnapshot = {
+      schema_version: TIMELINE_INTERCHANGE_SCHEMA_VERSION,
+      export_profile: TIMELINE_INTERCHANGE_PROFILE,
+      source_manifest_hash: String(joined.manifest_hash).toLowerCase(),
+      source_timeline_revision_id: timelineRevision.id,
+      source_content_hash: String(joined.subject_content_hash).toLowerCase(),
+      source_dependency_snapshot_hash: String(joined.dependency_snapshot_hash).toLowerCase(),
+      returned_document_hash: materialized.contentHash,
+      returned_byte_size: materialized.byteSize,
+      output_document_hash: String(joined.output_content_hash).toLowerCase(),
+      output_byte_size: Number(joined.output_byte_size),
+      clip_count: validated.clipCount,
+      contract_diff_count: diffs.length,
+      rights_status: rights.status,
+    };
+    const externalEditId = uuidv7();
+    const created = nowUtcUs();
+    this.db.prepare(`INSERT INTO external_edits
+      (id, project_id, handoff_manifest_id, export_session_id, timeline_revision_id, returned_asset_revision_id,
+       returned_interchange_asset_revision_id, lineage_confidence, validation_state, source_document_hash,
+       source_document_byte_size, source_manifest_hash, source_revision_content_hash, source_dependency_snapshot_hash,
+       source_review_session_id, returned_rights_status, validation_snapshot_json, contract_diff_count, next_step,
+       row_version, command_id, created_by_actor_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'REGISTERED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`).run(
+      externalEditId, projectId, handoffManifestId, joined.id, timelineRevision.id, returnedRevisionId,
+      returnedRevisionId, confidence, materialized.contentHash, materialized.byteSize, String(joined.manifest_hash).toLowerCase(),
+      String(joined.subject_content_hash).toLowerCase(), String(joined.dependency_snapshot_hash).toLowerCase(), joined.review_session_id,
+      rights.status, json(validationSnapshot), diffs.length, diffs.length ? 'Review contract differences before applying any edit.' : 'Returned interchange is registered for explicit human review.', commandId, this.actorId, created,
+    );
+    const insertDiff = this.db.prepare(`INSERT INTO external_edit_contract_diffs
+      (id, external_edit_id, project_id, diff_type, severity, before_json, after_json, resolution_state, created_by_actor_id, created_at_utc_us)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'UNRESOLVED', ?, ?)`);
+    for (const diff of diffs) insertDiff.run(uuidv7(), externalEditId, projectId, diff.diff_type, diff.severity, json(diff.before), json(diff.after), this.actorId, created);
+    const row = this.db.prepare('SELECT * FROM external_edits WHERE id = ?').get(externalEditId);
+    const publicRow = publicExternalEdit(row, this.db.prepare('SELECT * FROM external_edit_contract_diffs WHERE external_edit_id = ? ORDER BY created_at_utc_us ASC, id ASC').all(externalEditId));
+    return {
+      projectId,
+      result: { external_edit: publicRow, ...publicRow },
+      event: { aggregateType: 'EXTERNAL_EDIT', aggregateId: externalEditId, aggregateVersion: 1, eventType: 'EXTERNAL_EDIT_REGISTERED', payload: { external_edit_id: externalEditId, project_id: projectId, handoff_manifest_id: handoffManifestId, export_session_id: joined.id, returned_asset_revision_id: returnedRevisionId, lineage_confidence: confidence, validation_state: 'REGISTERED', source_document_hash: materialized.contentHash, source_document_byte_size: materialized.byteSize, contract_diff_count: diffs.length } },
+      audit: { actionType: 'external_edit.register', targetType: 'EXTERNAL_EDIT', targetId: externalEditId, payload: { project_id: projectId, handoff_manifest_id: handoffManifestId, export_session_id: joined.id, returned_asset_revision_id: returnedRevisionId, lineage_confidence: confidence, source_document_hash: materialized.contentHash, source_document_byte_size: materialized.byteSize, contract_diff_count: diffs.length, rights_status: rights.status } },
+    };
+  }
+
+  _externalEditList(params = {}) {
+    const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
+    this._project(projectId);
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const stateInput = params.validation_state ?? params.validationState ?? null;
+    const state = stateInput === null || stateInput === '' ? null : String(stateInput).trim().toUpperCase();
+    if (state !== null && !['RECEIVED', 'VALIDATING', 'REGISTERED', 'BLOCKED_SCHEMA', 'BLOCKED_SCOPE', 'BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'FAILED'].includes(state)) throw this._externalEditError('INVALID_ARGUMENT', 'errors.invalid_field', { field: 'validation_state' });
+    const rows = this.db.prepare(`SELECT * FROM external_edits WHERE project_id = ? AND (? IS NULL OR validation_state = ?) ORDER BY created_at_utc_us DESC, id DESC LIMIT ?`).all(projectId, state, state, limit);
+    return { items: rows.map((row) => publicExternalEdit(row, this.db.prepare('SELECT * FROM external_edit_contract_diffs WHERE external_edit_id = ? ORDER BY created_at_utc_us ASC, id ASC').all(row.id))), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _externalEditGet(id, projectIdValue = null) {
+    const externalEditId = requiredString(id, 'external_edit_id');
+    const row = this.db.prepare('SELECT * FROM external_edits WHERE id = ?').get(externalEditId);
+    if (!row) throw this._externalEditError('EXTERNAL_EDIT_NOT_FOUND', 'errors.external_edit_not_found', { external_edit_id: externalEditId });
+    if (projectIdValue !== null && projectIdValue !== undefined && row.project_id !== projectIdValue) throw this._externalEditError('ENTITY_SCOPE_MISMATCH', 'errors.entity_scope_mismatch', { entity_type: 'EXTERNAL_EDIT', entity_id: externalEditId, project_id: projectIdValue, actual_project_id: row.project_id });
+    const diffs = this.db.prepare('SELECT * FROM external_edit_contract_diffs WHERE external_edit_id = ? ORDER BY created_at_utc_us ASC, id ASC').all(externalEditId);
+    return { external_edit: publicExternalEdit(row, diffs), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
   _importSession(sessionId) {

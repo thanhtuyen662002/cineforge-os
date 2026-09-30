@@ -608,6 +608,49 @@ try {
         $rightsAllowed = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/v1/assets/{1}/rights?territory=VN" -f $webPort, [Uri]::EscapeDataString([string]$asset.id)) -TimeoutSec 5
         if ([string]$rightsAllowed.result.status -ne 'ALLOWED' -or -not $rightsAllowed.result.eligible) { throw 'Packaged rights evaluation did not become ALLOWED after consent.' }
 
+        # Register the verified interchange as a returned external-edit
+        # artifact through the same one-click boundary. This proves that a
+        # returned managed asset is bound to the exact completed export and
+        # remains a lineage record; registration must never mutate the
+        # canonical timeline.
+        $returnedAsset = Invoke-RestMethod -Uri $assetUri -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-returned-interchange'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            source_path = $downloadFile
+            asset_type = 'TIMELINE_INTERCHANGE'
+            origin_type = 'EXTERNAL_EDIT'
+            semantic_role = 'TIMELINE_INTERCHANGE'
+            storage_mode = 'COPY'
+            display_name = 'Packaged returned interchange'
+            mime_type = 'application/json'
+        } | ConvertTo-Json) -TimeoutSec 5
+        if ([string]$returnedAsset.assetType -ne 'TIMELINE_INTERCHANGE' -or [string]$returnedAsset.originType -ne 'EXTERNAL_EDIT' -or [string]::IsNullOrWhiteSpace([string]$returnedAsset.revisionId)) { throw 'Packaged returned interchange import did not preserve the bounded asset contract.' }
+        $returnedRightsIdentity = [string]$returnedAsset.rights.rights_identity_id
+        if ([string]::IsNullOrWhiteSpace($returnedRightsIdentity)) { throw 'Packaged returned interchange import returned no rights identity.' }
+        $returnedRights = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-returned-rights'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            command_type = 'CreateRightsRecord'
+            payload = @{ rights_identity_id = $returnedRightsIdentity; right_type = 'SOURCE_USE'; status = 'ALLOWED'; purpose = @{ allowed = @('EXTERNAL_EDIT_REGISTRATION') } }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        if (-not $returnedRights.ok -or [string]$returnedRights.result.record.status -ne 'ALLOWED') { throw 'Packaged returned interchange rights record failed.' }
+        $returnedConsent = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/commands" -Method Post -Headers @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-returned-consent'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' } -ContentType 'application/json' -Body (@{
+            command_type = 'RecordConsent'
+            payload = @{ rights_identity_id = $returnedRightsIdentity; consent_type = 'SOURCE_USE'; granted_by = 'packaging-smoke'; evidence_asset_revision_id = [string]$returnedAsset.revisionId }
+        } | ConvertTo-Json -Depth 10) -TimeoutSec 5
+        if (-not $returnedConsent.ok) { throw 'Packaged returned interchange consent failed.' }
+        $externalEditUri = "http://127.0.0.1:{0}/v1/projects/{1}/external-edits" -f $webPort, [Uri]::EscapeDataString([string]$project.id)
+        $externalEditHeaders = @{ 'Idempotency-Key' = 'cineforge-packaging-smoke-external-edit'; Origin = "http://127.0.0.1:$webPort"; 'Sec-Fetch-Site' = 'same-origin' }
+        $externalEditBody = @{ handoff_manifest_id = [string]$handoffManifest.id; export_session_id = [string]$handoffSession.id; returned_asset_revision_id = [string]$returnedAsset.revisionId; expected_version = [int]$builtSession.rowVersion } | ConvertTo-Json -Depth 10
+        $externalEditEnvelope = Invoke-RestMethod -Uri $externalEditUri -Method Post -Headers $externalEditHeaders -ContentType 'application/json' -Body $externalEditBody -TimeoutSec 10
+        $externalEdit = Get-OptionalProperty $externalEditEnvelope.result 'externalEdit'
+        if ($null -eq $externalEdit) { $externalEdit = Get-OptionalProperty $externalEditEnvelope.result 'external_edit' }
+        if ($null -eq $externalEdit -or [string]$externalEdit.validationState -ne 'REGISTERED' -or [string]$externalEdit.lineageConfidence -ne 'EXACT') { throw 'Packaged returned interchange registration did not produce exact registered lineage.' }
+        $externalEditReplay = Invoke-RestMethod -Uri $externalEditUri -Method Post -Headers $externalEditHeaders -ContentType 'application/json' -Body $externalEditBody -TimeoutSec 10
+        $externalEditReplayRecord = Get-OptionalProperty $externalEditReplay.result 'externalEdit'
+        if ($null -eq $externalEditReplayRecord) { $externalEditReplayRecord = Get-OptionalProperty $externalEditReplay.result 'external_edit' }
+        if ([string]$externalEditReplayRecord.id -ne [string]$externalEdit.id) { throw 'Returned interchange registration retry returned a different lineage record.' }
+        $externalEditList = Invoke-RestMethod -Uri "${externalEditUri}?validation_state=REGISTERED" -TimeoutSec 5
+        if (@($externalEditList.result.items | Where-Object { $_.id -eq $externalEdit.id -and $_.returnedAssetRevisionId -eq $returnedAsset.revisionId }).Count -ne 1) { throw 'Packaged returned interchange list did not expose the registered lineage.' }
+        $externalEditDetail = Invoke-RestMethod -Uri "$externalEditUri/$([Uri]::EscapeDataString([string]$externalEdit.id))" -TimeoutSec 5
+        if ([string]$externalEditDetail.result.externalEdit.handoffManifestId -ne [string]$handoffManifest.id -or [string]$externalEditDetail.result.externalEdit.returnedRightsStatus -ne 'ALLOWED') { throw 'Packaged returned interchange detail lost exact scope or rights evidence.' }
+
         # Preview is a scoped inspection capability, not a filesystem proxy.
         # Resolve through the same bootstrap origin, then verify HEAD/range
         # streaming and the absence of local paths or opaque bytes in JSON.

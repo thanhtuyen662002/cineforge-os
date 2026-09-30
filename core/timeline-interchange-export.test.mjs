@@ -355,6 +355,114 @@ test('fails closed on cross-project export claims and tampered or missing output
   }
 });
 
+test('registers a managed returned interchange with exact lineage, rights evidence and append-only contract diffs', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  try {
+    const fixture = createApprovedHandoff(core, 'external-edit-registration-film');
+    const built = execute(core, 'BuildTimelineInterchangeExport', {
+      project_id: fixture.projectId,
+      export_session_id: fixture.session.id,
+      dependency_snapshot_hash: fixture.session.dependency_snapshot_hash,
+    }, { EXPORT_SESSION: fixture.session.row_version }, 'external-edit-build');
+    assert.equal(built.ok, true, JSON.stringify(built));
+    const outputLocation = core.db.prepare(`SELECT l.relative_path FROM storage_object_locations l
+      JOIN storage_objects o ON o.id = l.storage_object_id WHERE o.content_hash = ? AND l.location_role = 'PRIMARY'`).get(built.result.output_content_hash);
+    const outputPath = path.join(core.assetStorePath, outputLocation.relative_path);
+    const imported = execute(core, 'ImportAsset', {
+      project_id: fixture.projectId,
+      source_path: outputPath,
+      storage_mode: 'COPY',
+      asset_type: 'TIMELINE_INTERCHANGE',
+      origin_type: 'EXTERNAL_EDIT',
+      semantic_role: 'TIMELINE_INTERCHANGE',
+      display_name: 'Returned interchange',
+    }, {}, 'external-edit-import');
+    assert.equal(imported.ok, true, JSON.stringify(imported));
+    const returnedAsset = imported.result.asset;
+    const rightsIdentityId = returnedAsset.rights.identity.id;
+    assert.equal(execute(core, 'CreateRightsRecord', {
+      rights_identity_id: rightsIdentityId,
+      right_type: 'SOURCE_USE',
+      status: 'ALLOWED',
+      purpose: { allowed: ['EXTERNAL_EDIT_REGISTRATION'] },
+      evidence_summary: { source: 'local creator' },
+    }, {}, 'external-edit-rights').ok, true);
+    assert.equal(execute(core, 'RecordConsent', {
+      rights_identity_id: rightsIdentityId,
+      consent_type: 'SOURCE_USE',
+      granted_by: 'local creator',
+      evidence_asset_revision_id: returnedAsset.latest_revision.id,
+    }, {}, 'external-edit-consent').ok, true);
+
+    const registerPayload = {
+      project_id: fixture.projectId,
+      handoff_manifest_id: fixture.session.output_manifest_id,
+      export_session_id: fixture.session.id,
+      returned_asset_revision_id: returnedAsset.latest_revision.id,
+    };
+    const registered = execute(core, 'RegisterExternalEdit', registerPayload, { EXPORT_SESSION: built.result.export_session.row_version }, 'external-edit-register');
+    assert.equal(registered.ok, true, JSON.stringify(registered));
+    assert.equal(registered.result.external_edit.validation_state, 'REGISTERED');
+    assert.equal(registered.result.external_edit.lineage_confidence, 'EXACT');
+    assert.equal(registered.result.external_edit.source_document_hash, built.result.output_content_hash);
+    assert.equal(registered.result.external_edit.contract_diff_count, 0);
+    assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM timeline_revisions WHERE timeline_id = (SELECT timeline_id FROM timeline_revisions WHERE id = ?)').get(fixture.revisionId).count, 1);
+    assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM external_edit_contract_diffs WHERE external_edit_id = ?').get(registered.result.external_edit.id).count, 0);
+
+    const replay = execute(core, 'RegisterExternalEdit', registerPayload, { EXPORT_SESSION: built.result.export_session.row_version }, 'external-edit-register');
+    assert.equal(replay.ok, true, JSON.stringify(replay));
+    assert.equal(replay.result.idempotent_replay, true);
+    const duplicate = execute(core, 'RegisterExternalEdit', registerPayload, { EXPORT_SESSION: built.result.export_session.row_version }, 'external-edit-register-duplicate');
+    assert.equal(duplicate.ok, false, JSON.stringify(duplicate));
+    assert.equal(duplicate.error.code, 'EXTERNAL_EDIT_ALREADY_REGISTERED');
+    const listed = core.handle(request('query.external_edit.list', { project_id: fixture.projectId }, 'external-edit-list'));
+    assert.equal(listed.ok, true, JSON.stringify(listed));
+    assert.equal(listed.result.items.length, 1);
+    const details = core.handle(request('query.external_edit.get', { project_id: fixture.projectId, external_edit_id: registered.result.external_edit.id }, 'external-edit-get'));
+    assert.equal(details.ok, true, JSON.stringify(details));
+    assert.equal(details.result.external_edit.id, registered.result.external_edit.id);
+    assert.throws(() => core.db.prepare('UPDATE external_edits SET lineage_confidence = ? WHERE id = ?').run('UNKNOWN', registered.result.external_edit.id), /external_edits are append-only/);
+    assert.throws(() => core.db.prepare('DELETE FROM external_edits WHERE id = ?').run(registered.result.external_edit.id), /external_edits are retained for audit/);
+  } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('rejects duplicate-key and external-reference returned documents before registration', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  try {
+    const fixture = createApprovedHandoff(core, 'external-edit-rejection-film');
+    const built = execute(core, 'BuildTimelineInterchangeExport', {
+      project_id: fixture.projectId,
+      export_session_id: fixture.session.id,
+      dependency_snapshot_hash: fixture.session.dependency_snapshot_hash,
+    }, { EXPORT_SESSION: fixture.session.row_version }, 'external-edit-rejection-build');
+    assert.equal(built.ok, true, JSON.stringify(built));
+    const duplicatePath = path.join(directory, 'duplicate.json');
+    fs.writeFileSync(duplicatePath, '{"manifest_type":"CINEFORGE_TIMELINE_INTERCHANGE","manifest_type":"CINEFORGE_TIMELINE_INTERCHANGE"}', 'utf8');
+    const imported = execute(core, 'ImportAsset', {
+      project_id: fixture.projectId, source_path: duplicatePath, storage_mode: 'COPY', asset_type: 'TIMELINE_INTERCHANGE', origin_type: 'EXTERNAL_EDIT', semantic_role: 'TIMELINE_INTERCHANGE',
+    }, {}, 'external-edit-duplicate-import');
+    assert.equal(imported.ok, true, JSON.stringify(imported));
+    const identityId = imported.result.asset.rights.identity.id;
+    assert.equal(execute(core, 'CreateRightsRecord', { rights_identity_id: identityId, right_type: 'SOURCE_USE', status: 'ALLOWED', purpose: { allowed: ['EXTERNAL_EDIT_REGISTRATION'] } }, {}, 'external-edit-duplicate-rights').ok, true);
+    assert.equal(execute(core, 'RecordConsent', { rights_identity_id: identityId, consent_type: 'SOURCE_USE', granted_by: 'local creator' }, {}, 'external-edit-duplicate-consent').ok, true);
+    const rejected = execute(core, 'RegisterExternalEdit', {
+      project_id: fixture.projectId, handoff_manifest_id: fixture.session.output_manifest_id, export_session_id: fixture.session.id,
+      returned_asset_revision_id: imported.result.asset.latest_revision.id,
+    }, { EXPORT_SESSION: built.result.export_session.row_version }, 'external-edit-duplicate-register');
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    assert.equal(rejected.error.code, 'EXTERNAL_EDIT_SCHEMA_INVALID');
+    assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM external_edits').get().count, 0);
+  } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('records a conservative retryable export failure state with bounded evidence', () => {
   const { dbPath, directory } = tempDb();
   const core = new CoreService({ dbPath });
