@@ -1303,6 +1303,41 @@ export interface ReleaseBuildPlanList {
   generatedAt?: string
 }
 
+export type RendererToolchainPreflightState = 'READY' | 'BLOCKED' | 'UNKNOWN'
+/** Evidence describes the exact local files only; it never authorizes execution. */
+export type RendererToolchainVerificationState = 'ARTIFACT_VERIFIED' | 'FAIL' | 'UNKNOWN'
+
+export interface RendererToolchainBinaryEvidence {
+  state: 'VERIFIED' | 'FAIL' | 'UNKNOWN'
+  sha256?: string
+  byteSize?: number
+  version?: string
+}
+
+export interface RendererToolchainPreflight {
+  capability?: string
+  state: RendererToolchainPreflightState
+  overallState: RendererToolchainPreflightState
+  verificationState: RendererToolchainVerificationState
+  executionState?: 'DISABLED'
+  toolchainId?: string
+  toolchainVersion?: string
+  manifestSchemaVersion?: number
+  manifestSha256?: string
+  manifestByteSize?: number
+  networkPolicy?: string
+  shellExecution?: string
+  checks: Array<{ id: string; state: string; code?: string }>
+  reasonCodes: string[]
+  binaries: {
+    ffmpeg: RendererToolchainBinaryEvidence
+    ffprobe: RendererToolchainBinaryEvidence
+  }
+  nextStep?: string
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
@@ -1344,6 +1379,7 @@ export interface CoreClient {
   getReleaseBuildPlans?(projectId: string, signal?: AbortSignal): Promise<ReleaseBuildPlanList>
   getReleaseBuildPlan?(projectId: string, planId: string, signal?: AbortSignal): Promise<ReleaseBuildPlan>
   createReleaseBuildPlan?(projectId: string, input: { releaseCandidateId: string; expectedVersion: number }, idempotencyKey?: string): Promise<ReleaseBuildPlan>
+  getRendererToolchainPreflight?(signal?: AbortSignal): Promise<RendererToolchainPreflight>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>

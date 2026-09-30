@@ -2,7 +2,7 @@ import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ReleaseView } from '../src/App'
-import type { CoreClient, DashboardSnapshot, ProjectSummary, ReleaseBuildPlan, ReleaseCandidate, ReleaseReadiness } from '../src/types'
+import type { CoreClient, DashboardSnapshot, ProjectSummary, ReleaseBuildPlan, ReleaseCandidate, ReleaseReadiness, RendererToolchainPreflight } from '../src/types'
 
 const projectOne: ProjectSummary = {
   id: 'project-1', name: 'Phim thử', kind: 'Project', updatedAt: 'Vừa cập nhật', stage: 'ACTIVE', stageDetail: 'test',
@@ -73,6 +73,24 @@ describe('ReleaseView', () => {
     expect(screen.getByRole('button', { name: /Export master/ })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: /Publish/ })).toHaveProperty('disabled', true)
     expect(core.getReleaseReadiness).toHaveBeenCalledWith(projectOne.id, expect.any(AbortSignal))
+  })
+
+  it('shows renderer toolchain preflight evidence while keeping render unavailable', async () => {
+    const preflight: RendererToolchainPreflight = {
+      state: 'BLOCKED', overallState: 'BLOCKED', verificationState: 'UNKNOWN',
+      capability: 'LOCAL_RENDERER_TOOLCHAIN_PREFLIGHT', reasonCodes: ['NO_CERTIFIED_TOOLCHAIN'], checks: [], executionState: 'DISABLED',
+      binaries: { ffmpeg: { state: 'UNKNOWN' }, ffprobe: { state: 'UNKNOWN' } },
+      networkPolicy: 'DISABLED_REQUIRED', nextStep: 'Materialize an approved local renderer toolchain.',
+    }
+    const getRendererToolchainPreflight = vi.fn(async () => preflight)
+    const core = client({ getRendererToolchainPreflight })
+    render(<ReleaseView snapshot={snapshot} locale="en" client={core} />)
+
+    expect(await screen.findByText('Local renderer toolchain')).toBeTruthy()
+    expect((await screen.findAllByText('Blocked')).length).toBeGreaterThan(0)
+    expect(screen.getByText('Materialize an approved local renderer toolchain.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Export master/ })).toHaveProperty('disabled', true)
+    expect(getRendererToolchainPreflight).toHaveBeenCalledWith(expect.any(AbortSignal))
   })
 
   it('rebinds the exact project and ignores a stale response after switching', async () => {

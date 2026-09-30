@@ -1,4 +1,4 @@
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, ManagedAssetIntegrityJob, ManagedJobList, ManagedJobRetryPlan, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseBuildPlan, ReleaseBuildPlanList, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, ManagedAssetIntegrityJob, ManagedJobList, ManagedJobRetryPlan, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseBuildPlan, ReleaseBuildPlanList, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, RendererToolchainPreflight, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 // Keep the bounded local adapter available for development and tests without
 // shipping its demo project data in a production bundle. Vite replaces
@@ -54,6 +54,7 @@ export interface CoreBridge {
   getReleaseBuildPlans?(projectId: string, signal?: AbortSignal): Promise<ReleaseBuildPlanList>
   getReleaseBuildPlan?(projectId: string, planId: string, signal?: AbortSignal): Promise<ReleaseBuildPlan>
   createReleaseBuildPlan?(projectId: string, input: { releaseCandidateId: string; expectedVersion: number }, idempotencyKey?: string): Promise<ReleaseBuildPlan>
+  getRendererToolchainPreflight?(signal?: AbortSignal): Promise<RendererToolchainPreflight>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
@@ -901,6 +902,12 @@ export class HttpCoreClient implements CoreClient {
     if (!projectId.trim()) throw new CoreClientError('A project id is required to read release readiness.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/readiness`, { signal, headers: { Accept: 'application/json' } })
     return mapReleaseReadinessRecord(await readCorePayload(response, 'release readiness'))
+  }
+
+  async getRendererToolchainPreflight(signal?: AbortSignal): Promise<RendererToolchainPreflight> {
+    if (!this.baseUrl) throw new CoreClientError('Renderer toolchain preflight requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/release/renderer/preflight`, { signal, headers: { Accept: 'application/json' } })
+    return mapRendererToolchainPreflightRecord(await readCorePayload(response, 'renderer toolchain preflight'))
   }
 
   async getReleaseCandidates(projectId: string, signal?: AbortSignal): Promise<ReleaseCandidateList> {
@@ -2281,6 +2288,67 @@ function mapReleaseEvidence(value: unknown): Record<string, unknown> {
     }
   }
   return output
+}
+
+const RENDERER_TOOLCHAIN_STATES = new Set(['READY', 'BLOCKED', 'UNKNOWN'])
+const RENDERER_TOOLCHAIN_VERIFICATION_STATES = new Set(['ARTIFACT_VERIFIED', 'FAIL', 'UNKNOWN'])
+const RENDERER_TOOLCHAIN_BINARY_STATES = new Set(['VERIFIED', 'FAIL', 'UNKNOWN'])
+
+function mapRendererToolchainBinary(value: unknown): RendererToolchainPreflight['binaries']['ffmpeg'] {
+  const source = asRecord(value)
+  const rawState = String(source.state ?? 'UNKNOWN').trim().toUpperCase()
+  const hash = stringValue(source.sha256)
+  const rawBytes = numberValue(source.byte_size ?? source.byteSize, 0)
+  return {
+    state: (RENDERER_TOOLCHAIN_BINARY_STATES.has(rawState) ? rawState : 'UNKNOWN') as RendererToolchainPreflight['binaries']['ffmpeg']['state'],
+    sha256: hash && /^[a-f0-9]{64}$/i.test(hash) ? hash.toLowerCase() : undefined,
+    byteSize: Number.isSafeInteger(rawBytes) && rawBytes >= 1 ? rawBytes : undefined,
+    version: stringValue(source.version),
+  }
+}
+
+function mapRendererToolchainPreflightRecord(value: unknown): RendererToolchainPreflight {
+  const source = asRecord(value)
+  const result = asRecord(source.result ?? value)
+  const rawState = String(result.state ?? 'UNKNOWN').trim().toUpperCase()
+  const rawOverall = String(result.overall_state ?? result.overallState ?? rawState).trim().toUpperCase()
+  const rawVerification = String(result.verification_state ?? result.verificationState ?? 'UNKNOWN').trim().toUpperCase()
+  const rawChecks = arrayValue(result.checks).map((item) => {
+    const check = asRecord(item)
+    return {
+      id: stringValue(check.id) ?? 'UNKNOWN',
+      state: stringValue(check.state) ?? 'UNKNOWN',
+      code: stringValue(check.code),
+    }
+  })
+  const rawReasons = arrayValue(result.reason_codes ?? result.reasonCodes).map((item) => String(item).trim().toUpperCase()).filter(Boolean).slice(0, 32)
+  const hash = (key: string, camel: string) => {
+    const candidate = stringValue(result[key] ?? result[camel])
+    return candidate && /^[a-f0-9]{64}$/i.test(candidate) ? candidate.toLowerCase() : undefined
+  }
+  return {
+    capability: stringValue(result.capability),
+    state: (RENDERER_TOOLCHAIN_STATES.has(rawState) ? rawState : 'UNKNOWN') as RendererToolchainPreflight['state'],
+    overallState: (RENDERER_TOOLCHAIN_STATES.has(rawOverall) ? rawOverall : 'UNKNOWN') as RendererToolchainPreflight['overallState'],
+    verificationState: (RENDERER_TOOLCHAIN_VERIFICATION_STATES.has(rawVerification) ? rawVerification : 'UNKNOWN') as RendererToolchainPreflight['verificationState'],
+    executionState: 'DISABLED',
+    toolchainId: stringValue(result.toolchain_id ?? result.toolchainId),
+    toolchainVersion: stringValue(result.toolchain_version ?? result.toolchainVersion),
+    manifestSchemaVersion: integerValue(result.manifest_schema_version ?? result.manifestSchemaVersion, 0, 1, 100),
+    manifestSha256: hash('manifest_sha256', 'manifestSha256'),
+    manifestByteSize: (() => { const bytes = numberValue(result.manifest_byte_size ?? result.manifestByteSize, 0); return Number.isSafeInteger(bytes) && bytes >= 1 ? bytes : undefined })(),
+    networkPolicy: stringValue(result.network_policy ?? result.networkPolicy),
+    shellExecution: stringValue(result.shell_execution ?? result.shellExecution),
+    checks: rawChecks,
+    reasonCodes: rawReasons,
+    binaries: {
+      ffmpeg: mapRendererToolchainBinary(asRecord(result.binaries).ffmpeg),
+      ffprobe: mapRendererToolchainBinary(asRecord(result.binaries).ffprobe),
+    },
+    nextStep: stringValue(result.next_step ?? result.nextStep),
+    projectionSeq: integerValue(result.projection_seq ?? result.projectionSeq, 0, 0, Number.MAX_SAFE_INTEGER),
+    generatedAt: stringValue(result.generated_at ?? result.generatedAt),
+  }
 }
 
 function mapReleaseReadinessRecord(value: unknown): ReleaseReadiness {

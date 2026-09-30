@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initializeDatabase, SCHEMA_VERSION } from './schema.mjs';
 import { isUuid, nowUtcUs, rfc3339FromUs, uuidv7 } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
+import { preflightRendererToolchain } from './renderer-toolchain.mjs';
 
 export const API_VERSION = '1';
 export const CORE_VERSION = '0.1.0';
@@ -1592,6 +1593,13 @@ export class CoreService {
       : null;
     this.assetStorePath = path.resolve(options.assetStorePath
       ?? (dbPath === ':memory:' ? path.join(process.cwd(), '.cineforge', 'asset-store') : path.join(path.dirname(path.resolve(dbPath)), 'asset-store')));
+    // Renderer toolchain configuration is input-only.  The preflight query
+    // returns hashes/version metadata, never these paths.  No default is
+    // inferred from PATH or the host installation.
+    this.rendererToolchainRoot = options.rendererToolchainRoot ?? null;
+    this.rendererToolchainManifest = options.rendererToolchainManifest
+      ?? options.rendererToolchainManifestPath
+      ?? null;
     this.maxAssetBytes = Number.isSafeInteger(options.maxAssetBytes) && options.maxAssetBytes >= 0
       ? options.maxAssetBytes : 8 * 1024 * 1024 * 1024;
     const requestedPreviewTtl = Number(options.previewTokenTtlMs);
@@ -9187,6 +9195,27 @@ export class CoreService {
     return { build_plan: publicReleaseBuildPlan(row), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
+  _releaseRendererToolchainPreflight(params = {}) {
+    // A query is observational and must not become a local-file probing
+    // primitive.  Renderer paths are configured at Core startup only; caller
+    // supplied path fields are intentionally ignored.
+    const root = this.rendererToolchainRoot;
+    const configuredManifest = this.rendererToolchainManifest;
+    const result = preflightRendererToolchain({
+      rendererToolchainRoot: root,
+      rendererToolchainManifest: configuredManifest,
+      // Production Core accepts only a canonical manifest file.  The pure
+      // function keeps object input for bounded unit fixtures/bootstrap tests,
+      // but a live query must never accept a caller-constructed manifest.
+      allowObjectManifest: false,
+    });
+    return {
+      ...result,
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
   _systemHealth() {
     const journalMode = String(this.db.prepare('PRAGMA journal_mode').get().journal_mode ?? '').toUpperCase();
     const synchronousValue = Number(this.db.prepare('PRAGMA synchronous').get().synchronous ?? -1);
@@ -9304,6 +9333,7 @@ export class CoreService {
         params.release_build_plan_id ?? params.releaseBuildPlanId ?? params.build_plan_id ?? params.buildPlanId ?? params.id,
         params.project_id ?? params.projectId,
       );
+      case 'query.release.renderer.preflight': return this._releaseRendererToolchainPreflight(params);
       case 'query.project.activity': return this._activity(params.project_id ?? params.projectId, params);
       case 'query.task.list': return this._tasks(params.project_id ?? params.projectId);
       case 'query.task.get': {

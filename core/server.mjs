@@ -19,6 +19,8 @@ function parseArgs(argv) {
     else if (arg === '--host') options.host = argv[++index];
     else if (arg === '--port') options.port = Number(argv[++index]);
     else if (arg === '--token') options.token = argv[++index];
+    else if (arg === '--renderer-toolchain-root') options.rendererToolchainRoot = argv[++index];
+    else if (arg === '--renderer-toolchain-manifest') options.rendererToolchainManifest = argv[++index];
     else if (arg === '--health') options.mode = 'health';
     else if (arg === '--help' || arg === '-h') options.mode = 'help';
   }
@@ -34,6 +36,8 @@ function help() {
     '  node core/server.mjs [--db PATH]          # one JSON request per line on stdin',
     '  node core/server.mjs --http [--port PORT] # loopback HTTP API',
     '  node core/server.mjs --health [--db PATH] # one health response and exit',
+    '  --renderer-toolchain-root PATH          # startup-bound local preflight root',
+    '  --renderer-toolchain-manifest PATH      # startup-bound canonical manifest',
     '',
     'The server writes no protocol output until it receives a request. This makes',
     'it safe to launch as a child process from the desktop shell.',

@@ -239,6 +239,33 @@ describe('local Core adapter', () => {
     }
   })
 
+  it('reads the startup-bound renderer toolchain preflight without exposing paths', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('http://core/v1/release/renderer/preflight')
+      return new Response(JSON.stringify({ ok: true, result: {
+        state: 'READY', overall_state: 'READY', verification_state: 'ARTIFACT_VERIFIED', execution_state: 'DISABLED',
+        capability: 'LOCAL_RENDERER_TOOLCHAIN_PREFLIGHT', toolchain_id: 'ffmpeg-9.0.2', toolchain_version: '9.0.2',
+        manifest_schema_version: 1, manifest_sha256: 'a'.repeat(64), manifest_byte_size: 256,
+        network_policy: 'DENY', shell_execution: 'NOT_USED',
+        binaries: {
+          ffmpeg: { state: 'VERIFIED', sha256: 'b'.repeat(64), byte_size: 100, version: '9.0.2', path: 'C:\\secret\\ffmpeg.exe' },
+          ffprobe: { state: 'VERIFIED', sha256: 'c'.repeat(64), byte_size: 101, version: '9.0.2', path: 'C:\\secret\\ffprobe.exe' },
+        },
+        checks: [{ id: 'MANIFEST', state: 'PASS', code: 'MANIFEST_VERIFIED' }],
+        reason_codes: [], next_step: 'Render contract/QC remains separate.', projection_seq: 9,
+      } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const preflight = await new HttpCoreClient('http://core').getRendererToolchainPreflight!()
+      expect(preflight).toMatchObject({ state: 'READY', overallState: 'READY', verificationState: 'ARTIFACT_VERIFIED', executionState: 'DISABLED', toolchainId: 'ffmpeg-9.0.2' })
+      expect(preflight.binaries.ffmpeg).toMatchObject({ state: 'VERIFIED', sha256: 'b'.repeat(64), byteSize: 100 })
+      expect(JSON.stringify(preflight)).not.toContain('secret')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('reads, creates, and cancels release candidate metadata with safe mapping and stale-safe inputs', async () => {
     const candidate = {
       id: 'candidate-1', project_id: 'project-1', timeline_revision_id: 'revision-1',

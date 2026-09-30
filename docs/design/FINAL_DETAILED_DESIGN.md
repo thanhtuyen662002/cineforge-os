@@ -402,6 +402,16 @@ render, transcode, create a master, sign, publish or create a release
 manifest. A real master requires a separate pinned local renderer/toolchain,
 durability and QC contract before that boundary can be opened.
 
+The next bounded implementation is `query.release.renderer.preflight`. It
+checks an explicitly materialized local connector manifest and exact binary
+digests without executing a process. The query is deliberately useful for the
+desktop release surface: it distinguishes a missing/untrusted toolchain from
+an approved plan while keeping rendering controls disabled. It must never
+fall back to a machine `PATH`, auto-download `latest`, expose a private path,
+or turn a successful preflight into release authority. Process execution,
+staging, media probing, final-byte QC, durable activation and publication
+remain separate contracts with their own schema and restart tests.
+
 ## Slice 7 — First real film
 Produce a 3–5 minute film with:
 - at least two speaking characters;

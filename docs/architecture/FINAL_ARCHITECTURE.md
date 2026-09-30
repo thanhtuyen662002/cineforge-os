@@ -554,6 +554,14 @@ CLI tools use typed manifests:
 
 No raw LLM-generated shell string reaches a production shell.
 
+Before a local media connector can be selected, Core may expose a read-only
+preflight for an explicitly materialized toolchain pack. The preflight checks
+the typed manifest, exact binary hashes, stable regular-file identity and
+network policy without resolving `PATH` or invoking a process. A successful
+preflight is artifact evidence only and keeps execution disabled; missing or
+changed toolchain evidence remains blocked and never grants render, release or
+publish authority.
+
 MCP access goes through a broker:
 - explicit server identity;
 - explicit tool allowlist;

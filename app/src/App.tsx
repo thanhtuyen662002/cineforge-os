@@ -51,7 +51,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, ManagedAssetIntegrityJob, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryStatus, ReleaseBuildPlan, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, ManagedAssetIntegrityJob, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryStatus, ReleaseBuildPlan, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, RendererToolchainPreflight, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'release' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -3210,6 +3210,27 @@ function releaseBuildPlanStateClass(state: ReleaseBuildPlan['state']): string {
   return state === 'PLANNED' ? 'pass' : 'fail'
 }
 
+function rendererPreflightStateLabel(state: RendererToolchainPreflight['state'], locale: Locale): string {
+  if (state === 'READY') return locale === 'vi' ? 'Preflight đã xác minh' : 'Preflight verified'
+  if (state === 'BLOCKED') return locale === 'vi' ? 'Đang chặn' : 'Blocked'
+  return locale === 'vi' ? 'Chưa xác định' : 'Unknown'
+}
+
+function rendererPreflightStateClass(state: RendererToolchainPreflight['state']): string {
+  return state === 'READY' ? 'pass' : 'fail'
+}
+
+function RendererToolchainPanel({ preflight, error, loading, supported, locale, onRefresh }: {
+  preflight: RendererToolchainPreflight | null
+  error: string | null
+  loading: boolean
+  supported: boolean
+  locale: Locale
+  onRefresh: () => void
+}) {
+  return <section className="release-renderer-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon blue"><Film size={16} /></span><div><h2>{locale === 'vi' ? 'Toolchain renderer local' : 'Local renderer toolchain'}</h2><p>{locale === 'vi' ? 'Preflight chỉ xác minh manifest và digest; chưa chạy FFmpeg, chưa tạo master bytes.' : 'Preflight verifies the manifest and digests only; it does not run FFmpeg or create master bytes.'}</p></div></div><button type="button" className="subtle-button tiny" onClick={onRefresh} disabled={loading || !supported}><RefreshCw size={13} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>{!supported && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ kiểm tra toolchain renderer.' : 'This bridge does not expose renderer toolchain preflight yet.'}</p>}{error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button type="button" className="subtle-button tiny" onClick={onRefresh} disabled={loading}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{preflight && <><div className="release-overview-heading"><span className={`release-status ${rendererPreflightStateClass(preflight.state)}`}><span />{rendererPreflightStateLabel(preflight.state, locale)}</span><strong>{preflight.toolchainId ?? 'LOCAL_RENDERER_TOOLCHAIN_PREFLIGHT'}</strong></div><div className="release-candidate-facts release-candidate-detail-facts"><span><small>{locale === 'vi' ? 'Phiên bản' : 'Version'}</small><strong>{preflight.toolchainVersion ?? '—'}</strong></span><span><small>Manifest SHA-256</small><strong title={preflight.manifestSha256}>{preflight.manifestSha256?.slice(0, 16) ?? '—'}</strong></span><span><small>ffmpeg</small><strong>{preflight.binaries.ffmpeg.state} · {preflight.binaries.ffmpeg.sha256?.slice(0, 12) ?? '—'}</strong></span><span><small>ffprobe</small><strong>{preflight.binaries.ffprobe.state} · {preflight.binaries.ffprobe.sha256?.slice(0, 12) ?? '—'}</strong></span><span><small>Network</small><strong>{preflight.networkPolicy ?? 'UNKNOWN'}</strong></span><span><small>{locale === 'vi' ? 'Thực thi' : 'Execution'}</small><strong>{preflight.executionState ?? 'DISABLED'}</strong></span></div><p className="readonly-note"><Info size={14} />{preflight.nextStep ?? (locale === 'vi' ? 'Cần renderer/QC contract riêng trước khi tạo master.' : 'A separate renderer/QC contract is required before creating a master.')}</p></>}</section>
+}
+
 const RELEASE_CANDIDATE_HASH = /^[a-f0-9]{64}$/i
 
 function safeReleaseCandidateText(value: unknown, maxLength = 512): string | undefined {
@@ -3324,10 +3345,12 @@ function releaseCandidateKey(readiness: ReleaseReadiness, projectId: string, int
 export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient }) {
   const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
   const [readiness, setReadiness] = useState<ReleaseReadiness | null>(null)
+  const [rendererPreflight, setRendererPreflight] = useState<RendererToolchainPreflight | null>(null)
   const [candidates, setCandidates] = useState<ReleaseCandidate[]>([])
   const [buildPlans, setBuildPlans] = useState<ReleaseBuildPlan[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [rendererPreflightError, setRendererPreflightError] = useState<string | null>(null)
   const [candidateError, setCandidateError] = useState<string | null>(null)
   const [buildPlanError, setBuildPlanError] = useState<string | null>(null)
   const [mutating, setMutating] = useState<string | null>(null)
@@ -3346,6 +3369,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
   const project = snapshot.projects.find((candidate) => candidate.id === projectId)
   const connected = Boolean(snapshot.system.connected && !snapshot.system.offline && (client.isLive?.() ?? true))
   const supported = typeof client.getReleaseReadiness === 'function'
+  const rendererPreflightSupported = typeof client.getRendererToolchainPreflight === 'function'
   const candidateListSupported = typeof client.getReleaseCandidates === 'function'
   const candidateCreateSupported = typeof client.createReleaseCandidateDraft === 'function'
   const candidateCancelSupported = typeof client.cancelReleaseCandidateDraft === 'function'
@@ -3381,6 +3405,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
       generationRef.current += 1
       abortRef.current?.abort()
       setReadiness(null)
+      setRendererPreflight(null)
       setCandidates([])
       setBuildPlans([])
       setSelectedCandidateId(null)
@@ -3391,6 +3416,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
       setBuildPlanDetailLoading(false)
       setBuildPlanDetailError(null)
       setError(null)
+      setRendererPreflightError(null)
       setCandidateError(null)
       setBuildPlanError(null)
       setMutating(null)
@@ -3404,6 +3430,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     const controller = new AbortController()
     abortRef.current = controller
     setReadiness(null)
+    setRendererPreflight(null)
     setCandidates([])
     setBuildPlans([])
     setSelectedCandidateId(null)
@@ -3414,6 +3441,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     setBuildPlanDetailLoading(false)
     setBuildPlanDetailError(null)
     setError(null)
+    setRendererPreflightError(null)
     setCandidateError(null)
     setBuildPlanError(null)
     // A project change or manual refresh invalidates any in-flight mutation as
@@ -3437,14 +3465,26 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     const buildPlanRequest = buildPlanListSupported
       ? client.getReleaseBuildPlans!(projectId, controller.signal).then((value) => ({ value, error: null as unknown })).catch((cause: unknown) => ({ value: null, error: cause }))
       : Promise.resolve({ value: null, error: null as unknown })
+    const rendererPreflightRequest = rendererPreflightSupported
+      ? client.getRendererToolchainPreflight!(controller.signal).then((value) => ({ value, error: null as unknown })).catch((cause: unknown) => ({ value: null, error: cause }))
+      : Promise.resolve({ value: null, error: null as unknown })
     try {
-      const [next, candidateResult, buildPlanResult] = await Promise.all([client.getReleaseReadiness!(projectId, controller.signal), candidateRequest, buildPlanRequest])
+      const [next, candidateResult, buildPlanResult, rendererResult] = await Promise.all([client.getReleaseReadiness!(projectId, controller.signal), candidateRequest, buildPlanRequest, rendererPreflightRequest])
       if (generation !== generationRef.current || controller.signal.aborted) return
       if (next.projectId !== projectId) {
         setError(locale === 'vi' ? 'Core trả về readiness không thuộc project đang chọn; không thể kết luận an toàn.' : 'Core returned readiness for a different project; no safe conclusion can be shown.')
         return
       }
       setReadiness(next)
+      if (rendererResult.error) setRendererPreflightError(workspaceErrorMessage(rendererResult.error, locale))
+      else if (rendererResult.value) {
+        const value = rendererResult.value
+        if (!value || !['READY', 'BLOCKED', 'UNKNOWN'].includes(value.state) || !value.binaries?.ffmpeg || !value.binaries?.ffprobe) {
+          setRendererPreflightError(locale === 'vi' ? 'Core trả về preflight renderer không hợp lệ; dữ liệu chưa xác minh bị ẩn.' : 'Core returned an invalid renderer preflight; unverified data is hidden.')
+        } else {
+          setRendererPreflight(value)
+        }
+      }
       if (candidateResult.error) setCandidateError(workspaceErrorMessage(candidateResult.error, locale))
       else if (candidateResult.value) {
         const items = candidateResult.value.items
@@ -3480,7 +3520,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     } finally {
       if (generation === generationRef.current && !controller.signal.aborted) setLoading(false)
     }
-  }, [buildPlanListSupported, candidateListSupported, client, connected, locale, projectId, supported])
+  }, [buildPlanListSupported, candidateListSupported, client, connected, locale, projectId, rendererPreflightSupported, supported])
 
   useEffect(() => {
     void load()
@@ -3496,6 +3536,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     // next effect will load the new project; until then no old readiness or
     // candidate can be mistaken for evidence belonging to it.
     setReadiness(null)
+    setRendererPreflight(null)
     setCandidates([])
     setBuildPlans([])
     setSelectedCandidateId(null)
@@ -3506,6 +3547,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     setBuildPlanDetailLoading(false)
     setBuildPlanDetailError(null)
     setError(null)
+    setRendererPreflightError(null)
     setCandidateError(null)
     setBuildPlanError(null)
     setMutating(null)
@@ -3678,6 +3720,7 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     {!loading && !error && !readiness && !project && <EmptyState icon={ShieldCheck} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi kiểm tra readiness.' : 'Create a project before checking readiness.'} />}
     {readiness && <>
       <section className="release-overview-card"><div><p className="eyebrow">{locale === 'vi' ? 'KẾT LUẬN HIỆN TẠI' : 'CURRENT CONCLUSION'}</p><div className="release-overview-heading"><span className={`release-status ${releaseStateClass(overallState)}`}><span />{releaseStateLabel(overallState, locale)}</span><strong>{readiness.projectTitle ?? project?.name ?? projectId}</strong></div><p>{readiness.nextStep ?? (locale === 'vi' ? 'Refresh sau khi xử lý blocker.' : 'Refresh after resolving the blocker.')}</p></div><div className="release-overview-facts"><div><span>{locale === 'vi' ? 'Gate chặn' : 'Blocking gates'}</span><strong>{readiness.blockingCount}</strong></div><div><span>UNKNOWN</span><strong>{readiness.unknownCount}</strong></div><div><span>Manifest hash</span><strong title={readiness.gateManifestHash}>{readiness.gateManifestHash?.slice(0, 12) ?? '—'}</strong></div></div></section>
+      <RendererToolchainPanel preflight={rendererPreflight} error={rendererPreflightError} loading={loading} supported={rendererPreflightSupported} locale={locale} onRefresh={() => void load()} />
       <section className="release-candidates-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><PackageOpen size={16} /></span><div><h2>{locale === 'vi' ? 'Metadata release candidate' : 'Release candidate metadata'}</h2><p>{locale === 'vi' ? 'Bản nháp giữ exact refs và digest; chưa có master bytes hoặc thao tác publish.' : 'Drafts keep exact refs and digests; no master bytes or publish action exists here.'}</p></div></div><button type="button" className="primary-button small" onClick={() => void createCandidate()} disabled={!canCreate} title={candidateBlocker ?? undefined}>{mutating === 'create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Tạo candidate' : 'Create candidate'}</button></div>{candidateBlocker && <p className="readonly-note"><Info size={14} />{candidateBlocker}</p>}{!connected && <p className="readonly-note"><CloudOff size={14} />{locale === 'vi' ? 'Core offline; tạo và huỷ candidate bị khoá.' : 'Core is offline; candidate creation and cancellation are disabled.'}</p>}{!candidateListSupported && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ danh sách release candidate.' : 'This bridge does not expose the release candidate list yet.'}</p>}{candidateError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateError}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Tải lại' : 'Retry'}</button></div>}{candidateListSupported && candidates.length === 0 && <div className="empty-inline"><PackageOpen size={16} /><span>{locale === 'vi' ? 'Chưa có candidate metadata.' : 'No release candidate metadata yet.'}</span></div>}{candidateListSupported && candidates.length > 0 && <div className="release-candidate-list">{candidates.map((candidate) => <article className={`release-candidate-row ${selectedCandidateId === candidate.id ? 'active' : ''}`} key={candidate.id ?? `${candidate.timelineRevisionId}-${candidate.readinessDigest}`}><div className="release-candidate-main"><div className="release-candidate-heading"><strong>{candidate.id ?? (locale === 'vi' ? 'Candidate không tên' : 'Unnamed candidate')}</strong><span className={`release-status ${releaseCandidateStateClass(candidate.state)}`}><span />{releaseCandidateStateLabel(candidate.state, locale)}</span></div><small>{locale === 'vi' ? 'Timeline revision' : 'Timeline revision'}: {candidate.timelineRevisionId ?? '—'} · v{candidate.rowVersion}</small><div className="release-candidate-facts"><span>{locale === 'vi' ? 'Media profile' : 'Media profile'}: {candidate.mediaProfileRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'QC review' : 'QC review'}: {candidate.reviewSessionId ?? '—'}</span><span>{locale === 'vi' ? 'Readiness digest' : 'Readiness digest'}: {candidate.readinessDigest?.slice(0, 12) ?? '—'}</span><span>{locale === 'vi' ? 'Rights hash' : 'Rights hash'}: {candidate.rightsSnapshotHash?.slice(0, 12) ?? '—'}</span></div><p className="release-next-step">{candidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; chưa có master.' : 'Metadata-only; no master exists.')}</p></div><div className="release-candidate-actions">{client.getReleaseCandidate && candidate.id && <button type="button" className="subtle-button tiny" onClick={() => void inspectCandidate(candidate)} disabled={candidateDetailLoading && selectedCandidateId === candidate.id}>{candidateDetailLoading && selectedCandidateId === candidate.id ? <RefreshCw size={12} className="spin" /> : <Info size={12} />}{locale === 'vi' ? 'Chi tiết' : 'Details'}</button>}{(buildPlanListSupported || buildPlanCreateSupported) && candidate.id && <button type="button" className="subtle-button tiny" onClick={() => void createBuildPlan(candidate)} disabled={Boolean(buildPlanBlockerFor(candidate)) || mutating !== null} title={buildPlanBlockerFor(candidate) ?? undefined}>{mutating === `build-plan:${candidate.id}` ? <RefreshCw size={12} className="spin" /> : <Layers3 size={12} />}{plannedBuildFor(candidate) ? (locale === 'vi' ? 'Đã lập plan' : 'Planned') : (locale === 'vi' ? 'Lập build plan' : 'Plan build')}</button>}{candidate.state === 'DRAFT' && candidate.id && candidate.projectId === projectId && Number.isSafeInteger(candidate.rowVersion) && candidate.rowVersion >= 1 && <button type="button" className="subtle-button tiny" onClick={() => void cancelCandidate(candidate)} disabled={!connected || !candidateCancelSupported || mutating !== null}>{mutating === `cancel:${candidate.id}` ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}{locale === 'vi' ? 'Huỷ draft' : 'Cancel draft'}</button>}</div></article>)}</div>}{client.getReleaseCandidate && selectedCandidateId && <section className="release-candidate-detail" aria-live="polite">{candidateDetailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết candidate…' : 'Reading candidate details…'} /> : candidateDetailError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateDetailError}</span><button type="button" className="subtle-button tiny" onClick={() => { const current = candidates.find((candidate) => candidate.id === selectedCandidateId); if (current) void inspectCandidate(current) }}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : selectedCandidate ? <><div className="card-heading"><div><strong>{locale === 'vi' ? 'Chi tiết release candidate' : 'Release candidate details'}</strong><small>{selectedCandidate.id} · row v{selectedCandidate.rowVersion}</small></div><span className={`release-status ${releaseCandidateStateClass(selectedCandidate.state)}`}><span />{releaseCandidateStateLabel(selectedCandidate.state, locale)}</span></div><div className="release-candidate-facts release-candidate-detail-facts"><span><small>Timeline revision</small><strong>{selectedCandidate.timelineRevisionId ?? '—'}</strong></span><span><small>Media profile</small><strong>{selectedCandidate.mediaProfileRevisionId ?? '—'}</strong></span><span><small>Review session</small><strong>{selectedCandidate.reviewSessionId ?? '—'}</strong></span><span><small>Readiness digest</small><strong title={selectedCandidate.readinessDigest}>{selectedCandidate.readinessDigest?.slice(0, 16) ?? '—'}</strong></span><span><small>Rights snapshot</small><strong title={selectedCandidate.rightsSnapshotHash}>{selectedCandidate.rightsSnapshotHash?.slice(0, 16) ?? '—'}</strong></span></div><p className="readonly-note"><Info size={14} />{selectedCandidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; master/export/publish chưa được bật.' : 'Metadata-only; mastering/export/publish are not enabled.')}</p></> : null}</section>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Candidate là metadata immutable có cancel audit. Render, export, sign và publish chưa được bật.' : 'A candidate is immutable metadata with an audited cancel transition. Render, export, signing and publish are not enabled.'}</p></section>
       <section className="release-build-plans-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon blue"><Layers3 size={16} /></span><div><h2>{locale === 'vi' ? 'Release Build Plan metadata' : 'Release Build Plan metadata'}</h2><p>{locale === 'vi' ? 'Kế hoạch chỉ pin candidate và exact dependency hashes; chưa render, chưa tạo master bytes, chưa export hoặc publish.' : 'The plan pins a candidate and exact dependency hashes only; it does not render, create master bytes, export, or publish.'}</p></div></div><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading || !projectId || !buildPlanListSupported}><RefreshCw size={13} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>{buildPlanPanelBlocker && <p className="readonly-note"><Info size={14} />{buildPlanPanelBlocker}</p>}{buildPlanError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{buildPlanError}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading || !buildPlanListSupported}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{buildPlanListSupported && !buildPlanError && buildPlans.length === 0 && <div className="empty-inline"><Layers3 size={16} /><span>{locale === 'vi' ? 'Chưa có build plan metadata.' : 'No build plan metadata yet.'}</span></div>}{buildPlanListSupported && buildPlans.length > 0 && <div className="release-build-plan-list">{buildPlans.map((plan) => <article className={`release-build-plan-row ${selectedBuildPlanId === plan.id ? 'active' : ''}`} key={plan.id ?? `${plan.releaseCandidateId}-${plan.planHash}`}><div className="release-build-plan-main"><div className="release-candidate-heading"><strong>{plan.id ?? (locale === 'vi' ? 'Build plan không tên' : 'Unnamed build plan')}</strong><span className={`release-status ${releaseBuildPlanStateClass(plan.state)}`}><span />{releaseBuildPlanStateLabel(plan.state, locale)}</span></div><small>{locale === 'vi' ? 'Candidate' : 'Candidate'}: {plan.releaseCandidateId ?? '—'} · v{plan.rowVersion}</small><div className="release-candidate-facts"><span>{locale === 'vi' ? 'Timeline revision' : 'Timeline revision'}: {plan.timelineRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'Media profile' : 'Media profile'}: {plan.mediaProfileRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'Plan hash' : 'Plan hash'}: {plan.planHash?.slice(0, 12) ?? '—'}</span><span>{locale === 'vi' ? 'Rights hash' : 'Rights hash'}: {plan.rightsSnapshotHash?.slice(0, 12) ?? '—'}</span></div><p className="release-next-step">{plan.nextStep ?? (locale === 'vi' ? 'Metadata-only; chưa có master bytes.' : 'Metadata-only; no master bytes exist.')}</p></div>{buildPlanDetailSupported && plan.id && <button type="button" className="subtle-button tiny" onClick={() => void inspectBuildPlan(plan)} disabled={buildPlanDetailLoading && selectedBuildPlanId === plan.id}>{buildPlanDetailLoading && selectedBuildPlanId === plan.id ? <RefreshCw size={12} className="spin" /> : <Info size={12} />}{locale === 'vi' ? 'Chi tiết' : 'Details'}</button>}</article>)}</div>}{buildPlanDetailSupported && selectedBuildPlanId && <section className="release-build-plan-detail" aria-live="polite">{buildPlanDetailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết build plan…' : 'Reading build plan details…'} /> : buildPlanDetailError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{buildPlanDetailError}</span><button type="button" className="subtle-button tiny" onClick={() => { const current = buildPlans.find((plan) => plan.id === selectedBuildPlanId); if (current) void inspectBuildPlan(current) }}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : selectedBuildPlan ? <><div className="card-heading"><div><strong>{locale === 'vi' ? 'Chi tiết build plan' : 'Build plan details'}</strong><small>{selectedBuildPlan.id} · row v{selectedBuildPlan.rowVersion}</small></div><span className={`release-status ${releaseBuildPlanStateClass(selectedBuildPlan.state)}`}><span />{releaseBuildPlanStateLabel(selectedBuildPlan.state, locale)}</span></div><div className="release-candidate-facts release-candidate-detail-facts"><span><small>Release candidate</small><strong>{selectedBuildPlan.releaseCandidateId ?? '—'}</strong></span><span><small>Timeline revision</small><strong>{selectedBuildPlan.timelineRevisionId ?? '—'}</strong></span><span><small>Media profile</small><strong>{selectedBuildPlan.mediaProfileRevisionId ?? '—'}</strong></span><span><small>Plan hash</small><strong title={selectedBuildPlan.planHash}>{selectedBuildPlan.planHash?.slice(0, 16) ?? '—'}</strong></span><span><small>Readiness hash</small><strong title={selectedBuildPlan.readinessDigest}>{selectedBuildPlan.readinessDigest?.slice(0, 16) ?? '—'}</strong></span></div><p className="readonly-note"><Info size={14} />{selectedBuildPlan.nextStep ?? (locale === 'vi' ? 'Metadata-only; master/render/export/publish chưa được bật.' : 'Metadata-only; mastering/render/export/publish are not enabled.')}</p></> : null}</section>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Build Plan không phải master và không tự chạy render. Mọi output bytes và publish cần boundary/confirmation riêng.' : 'A Build Plan is not a master and never starts rendering. Output bytes and publish require separate boundaries and confirmation.'}</p></section>
       <div className="release-gate-list">{RELEASE_GATE_ORDER.map((key) => { const gate = releaseGateFor(readiness, key); const facts = releaseEvidenceFacts(gate, locale); return <section className={`release-gate-card ${releaseStateClass(gate.state)}`} key={key}><div className="release-gate-heading"><div><p className="eyebrow">{key}</p><h2>{releaseGateLabel(key, locale)}</h2></div><span className={`release-status ${releaseStateClass(gate.state)}`}><span />{releaseStateLabel(gate.state, locale)}</span></div>{gate.reason && <p className="release-gate-reason">{gate.reason}</p>}{facts.length > 0 && <div className="release-evidence-facts">{facts.map((fact) => <span key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong title={fact.value}>{fact.value}</strong></span>)}</div>}{gate.nextStep && <p className="release-next-step"><Info size={13} />{gate.nextStep}</p>}</section> })}</div>

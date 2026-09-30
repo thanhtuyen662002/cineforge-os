@@ -1783,6 +1783,12 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'GET' && url.pathname === '/v1/dashboard') {
         const dashboard = query(core, request, 'query.home', {});
         result = dashboard.ok ? mapDashboard(dashboard.result) : dashboard;
+      } else if (request.method === 'GET' && url.pathname === '/v1/release/renderer/preflight') {
+        // This is deliberately a global, read-only capability projection.
+        // Core ignores caller-supplied filesystem paths and uses only the
+        // startup-bound toolchain configuration, so the route cannot become
+        // a local-file probing primitive.
+        result = query(core, request, 'query.release.renderer.preflight', {});
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'jobs' && parts.length === 2) {
         result = query(core, request, 'query.jobs.list', {
           project_id: url.searchParams.get('project_id') ?? url.searchParams.get('projectId') ?? undefined,

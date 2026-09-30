@@ -1257,6 +1257,53 @@ not `BUILDING`, `VERIFIED`, `RELEASE_ACTIVATED` or `PUBLISHED`; the UI must
 keep master/export/sign/publish controls disabled until a separate renderer,
 durability, QC, release-manifest and publication contract exists.
 
+## 19.3 Local renderer toolchain preflight
+
+`query.release.renderer.preflight` (HTTP `GET /v1/release/renderer/preflight`)
+is a read-only artifact-evidence check for the next boundary. It may inspect only an
+explicitly configured, local toolchain manifest and the two declared media
+binaries. It never searches `PATH`,
+downloads a runtime, runs a shell, changes the database, or creates media
+bytes. The projection is redacted and contains no absolute path:
+
+```json
+{
+  "capability": "LOCAL_RENDERER_TOOLCHAIN_PREFLIGHT",
+  "state": "BLOCKED",
+  "overall_state": "BLOCKED",
+  "verification_state": "UNKNOWN",
+  "execution_state": "DISABLED",
+  "toolchain_id": null,
+  "toolchain_version": null,
+  "manifest_schema_version": null,
+  "manifest_sha256": null,
+  "manifest_byte_size": null,
+  "network_policy": "DISABLED_REQUIRED",
+  "shell_execution": "NOT_USED",
+  "checks": [
+    { "id": "TOOLCHAIN", "state": "UNKNOWN", "code": "NO_CERTIFIED_TOOLCHAIN" }
+  ],
+  "reason_codes": ["NO_CERTIFIED_TOOLCHAIN"],
+  "binaries": {
+    "ffmpeg": { "state": "UNKNOWN", "sha256": null, "byte_size": null, "version": null },
+    "ffprobe": { "state": "UNKNOWN", "sha256": null, "byte_size": null, "version": null }
+  },
+  "next_step": "Cài đặt và chứng thực đúng local renderer toolchain manifest trước khi render."
+}
+```
+
+`READY` is returned only when the manifest schema, semantic version, exact
+binary digests, stable regular-file identity and declared network policy all
+verify. `verification_state=ARTIFACT_VERIFIED` describes those files only;
+`execution_state` remains `DISABLED` until a separate typed connector proves
+argv, sandbox, input/output scopes, timeout, cancellation, output durability,
+independent probe/QC and recovery semantics. `UNKNOWN` is never promoted to
+`READY`; missing, malformed, stale, reparse or tampered inputs remain
+`BLOCKED` with a human-readable next step. This query does not certify a
+renderer, authorize a build plan, or enable a master, release manifest or
+publish transition. Binary verification is bounded at 512 MiB per declared
+file; larger packs require a separate cancellable verification job.
+
 # 20. Connector host interface
 
 Every connector implementation exposes a versioned host contract.

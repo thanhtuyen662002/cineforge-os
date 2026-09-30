@@ -829,6 +829,31 @@ bounded resources, durable output verification and a separate release-manifest
 approval boundary. A plan cannot be cancelled or edited in place; a changed
 candidate/readiness source requires a new exact candidate and plan.
 
+## 25B. Renderer toolchain preflight
+
+The first executable step toward mastering is a read-only local toolchain
+preflight:
+
+```text
+NO_CERTIFIED_TOOLCHAIN
+→ BLOCKED
+MANIFEST_AND_BINARY_EVIDENCE_VERIFIED
+→ READY
+READY
+→ STALE
+```
+
+`READY` requires an explicit versioned manifest, exact SHA-256 for both the
+declared `ffmpeg` and `ffprobe` binaries, stable regular-file/non-reparse
+identity, and network `DENY`. The preflight never invokes the binaries,
+resolves a machine `PATH`, downloads or updates a runtime, or creates output
+bytes. A `READY` result is only artifact evidence that the next typed
+connector invocation may be evaluated; its `execution_state` remains
+`DISABLED`. `verification_state=ARTIFACT_VERIFIED` is not a renderer trust
+attestation, master, QC pass, release manifest or publish authorization. Any
+digest, version, file-identity or manifest change returns `STALE`/`BLOCKED` and
+invalidates dependent work.
+
 ```text
 DRAFT
 → PICTURE_LOCKED
