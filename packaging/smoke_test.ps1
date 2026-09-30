@@ -111,20 +111,32 @@ try {
     # data root and reports a deterministic already-running exit code.
     $duplicateStdout = Join-Path $dataRoot 'bootstrap.duplicate.stdout.log'
     $duplicateStderr = Join-Path $dataRoot 'bootstrap.duplicate.stderr.log'
-    # Route the short-lived child through cmd.exe so the wrapper reliably
-    # exposes the native process exit code on Windows single-file hosts.
-    $duplicateCommand = '{0} {1} > {2} 2> {3}' -f (& $quote $exe), $arguments, (& $quote $duplicateStdout), (& $quote $duplicateStderr)
-    $duplicate = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\cmd.exe') -ArgumentList @('/d', '/s', '/c', ('"' + $duplicateCommand + '"')) -WorkingDirectory $resolvedRoot -WindowStyle Hidden -PassThru
+    # Start the executable directly instead of routing through cmd.exe.  The
+    # latter reparses paths and arguments, so a checkout/data path containing
+    # cmd metacharacters (for example `%` or `&`) could change the duplicate
+    # probe command. Use ProcessStartInfo rather than Start-Process here so the
+    # native single-file host's exit code remains available after WaitForExit.
+    $duplicateStart = [System.Diagnostics.ProcessStartInfo]::new()
+    $duplicateStart.FileName = $exe
+    $duplicateStart.Arguments = $arguments
+    $duplicateStart.WorkingDirectory = $resolvedRoot
+    $duplicateStart.CreateNoWindow = $true
+    $duplicateStart.UseShellExecute = $false
+    $duplicateStart.RedirectStandardOutput = $true
+    $duplicateStart.RedirectStandardError = $true
+    $duplicate = [System.Diagnostics.Process]::Start($duplicateStart)
     try {
         if (-not $duplicate.WaitForExit(10000)) {
             throw 'A second CineForge bootstrap did not exit after detecting the active data-root owner.'
         }
         $duplicate.Refresh()
+        $duplicateOutput = $duplicate.StandardOutput.ReadToEnd()
+        $duplicateError = $duplicate.StandardError.ReadToEnd()
+        Set-Content -LiteralPath $duplicateStdout -Value $duplicateOutput -Encoding UTF8
+        Set-Content -LiteralPath $duplicateStderr -Value $duplicateError -Encoding UTF8
         if ($duplicate.ExitCode -ne 6) {
-            $duplicateError = if (Test-Path -LiteralPath $duplicateStderr) { Get-Content -LiteralPath $duplicateStderr -Raw } else { '' }
             throw "A second CineForge bootstrap returned exit code $($duplicate.ExitCode), expected 6. $duplicateError"
         }
-        $duplicateError = if (Test-Path -LiteralPath $duplicateStderr) { Get-Content -LiteralPath $duplicateStderr -Raw } else { '' }
         if ($duplicateError -notmatch '(?i)already running') {
             throw "A second CineForge bootstrap did not report an already-running error. $duplicateError"
         }
@@ -165,6 +177,17 @@ try {
         $scrubScan = Get-OptionalProperty $scrubResult 'scan'
         if ($null -eq $scrubScan -or $null -eq (Get-OptionalProperty $scrubScan 'complete')) {
             throw 'Packaged storage scrub endpoint returned no bounded scan evidence.'
+        }
+        $jobs = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/jobs?limit=1" -TimeoutSec 5
+        $jobsResult = Get-OptionalProperty $jobs 'result'
+        if ($null -eq $jobsResult) { $jobsResult = $jobs }
+        # PowerShell unwraps an empty JSON array to `$null` in some versions;
+        # inspect property presence rather than treating an empty queue as a
+        # malformed projection.
+        $jobsProperty = if ($null -ne $jobsResult) { $jobsResult.PSObject.Properties['jobs'] } else { $null }
+        if ($null -eq $jobsProperty) { $jobsProperty = if ($null -ne $jobsResult) { $jobsResult.PSObject.Properties['items'] } else { $null } }
+        if ($null -eq $jobsProperty) {
+            throw 'Packaged jobs endpoint returned no bounded job list projection.'
         }
         $dashboard = Invoke-RestMethod -Uri "http://127.0.0.1:$webPort/v1/dashboard" -TimeoutSec 5
         if ($null -eq $dashboard) { throw 'Core dashboard response was empty.' }

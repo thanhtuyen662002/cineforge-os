@@ -112,8 +112,18 @@ if ($null -eq $dotnet) {
     throw '.NET 8 SDK is required to produce the portable CineForge.exe bootstrap.'
 }
 
+# The final artifact must always be rebuilt from an empty package root.  A
+# previous `-KeepBuildFiles` run used to leave stale web/runtime files in
+# `dist/CineForge`, which then made the inventory depend on build history (and
+# could ship deleted source files).  `-KeepBuildFiles` only preserves the
+# intermediate staging directory for diagnostics; it must never weaken the
+# reproducibility boundary of the delivered package.
+Remove-KnownPath $packageRoot $distRoot
+# A previous Tauri build may have left an installer beside the portable
+# artifact. Remove it before every run so a later Portable/Auto build cannot
+# expose a stale installer that is absent from the current manifest.
+Remove-KnownPath (Join-Path $distRoot 'installer') $distRoot
 if (-not $KeepBuildFiles) {
-    Remove-KnownPath $packageRoot $distRoot
     Remove-KnownPath $buildRoot $repoRoot
 }
 New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null

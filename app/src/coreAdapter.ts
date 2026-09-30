@@ -1,5 +1,5 @@
 import { mockSnapshot } from './data/mockSnapshot'
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, ManagedAssetIntegrityJob, ManagedJobList, ManagedJobRetryPlan, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 declare global {
   interface Window {
@@ -30,6 +30,12 @@ export interface CoreBridge {
   getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
+  getJobs?(projectId?: string, state?: string, limit?: number, signal?: AbortSignal): Promise<ManagedJobList>
+  getJob?(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedAssetIntegrityJob>
+  getJobRetryPlan?(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedJobRetryPlan>
+  runManagedAssetIntegrityProbe?(projectId: string, assetRevisionId: string, contentHash: string, maxBytes?: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
+  cancelManagedAssetIntegrityProbe?(jobId: string, expectedVersion: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
+  retryManagedAssetIntegrityProbe?(jobId: string, expectedVersion: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
   getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
   reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
   getReleaseReadiness?(projectId: string, signal?: AbortSignal): Promise<ReleaseReadiness>
@@ -741,6 +747,67 @@ export class HttpCoreClient implements CoreClient {
     const suffix = query.toString() ? `?${query.toString()}` : ''
     const response = await fetch(`${this.baseUrl}/v1/storage/scrub-health${suffix}`, { signal, headers: { Accept: 'application/json' } })
     return mapStorageScrubHealthRecord(await readCorePayload(response, 'storage integrity evidence'))
+  }
+
+  async getJobs(projectId?: string, state?: string, limit = 100, signal?: AbortSignal): Promise<ManagedJobList> {
+    if (!this.baseUrl) throw new CoreClientError('The integrity job queue requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const query = new URLSearchParams({ limit: String(integerValue(limit, 100, 1, 200)) })
+    if (projectId?.trim()) query.set('project_id', projectId.trim())
+    if (state?.trim()) query.set('state', state.trim().toUpperCase())
+    const response = await fetch(`${this.baseUrl}/v1/jobs?${query.toString()}`, { signal, headers: { Accept: 'application/json' } })
+    return mapManagedJobListRecord(await readCorePayload(response, 'jobs'))
+  }
+
+  async getJob(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedAssetIntegrityJob> {
+    if (!this.baseUrl) throw new CoreClientError('Job details require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!jobId.trim()) throw new CoreClientError('A job id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const suffix = projectId?.trim() ? `?project_id=${encodeURIComponent(projectId.trim())}` : ''
+    const response = await fetch(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}${suffix}`, { signal, headers: { Accept: 'application/json' } })
+    const payload = asRecord(await readCorePayload(response, 'job'))
+    return mapManagedJobRecord(payload.job ?? payload)
+  }
+
+  async getJobRetryPlan(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedJobRetryPlan> {
+    if (!this.baseUrl) throw new CoreClientError('Job retry planning requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!jobId.trim()) throw new CoreClientError('A job id is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION' })
+    const suffix = projectId?.trim() ? `?project_id=${encodeURIComponent(projectId.trim())}` : ''
+    const response = await fetch(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/retry-plan${suffix}`, { signal, headers: { Accept: 'application/json' } })
+    return mapManagedJobRetryPlanRecord(await readCorePayload(response, 'job retry plan'))
+  }
+
+  async runManagedAssetIntegrityProbe(projectId: string, assetRevisionId: string, contentHash: string, maxBytes = 256 * 1024 * 1024, idempotencyKey = crypto.randomUUID()): Promise<ManagedAssetIntegrityJob> {
+    if (!this.baseUrl) throw new CoreClientError('Asset integrity probing requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !assetRevisionId.trim() || !/^[a-f0-9]{64}$/i.test(contentHash.trim())) throw new CoreClientError('A project, revision and SHA-256 content hash are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const boundedMaxBytes = integerValue(maxBytes, 256 * 1024 * 1024, 1, 4 * 1024 * 1024 * 1024)
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetRevisionId)}/integrity-probe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ content_hash: contentHash.trim().toLowerCase(), max_bytes: boundedMaxBytes }),
+    })
+    const payload = asRecord(await readCorePayload(response, 'asset integrity probe'))
+    return mapManagedJobRecord(payload.job ?? asRecord(payload.result).job ?? payload.result ?? payload)
+  }
+
+  async cancelManagedAssetIntegrityProbe(jobId: string, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<ManagedAssetIntegrityJob> {
+    if (!this.baseUrl) throw new CoreClientError('Cancelling a job requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ expected_version: expectedVersion }),
+    })
+    const payload = asRecord(await readCorePayload(response, 'job cancellation'))
+    return mapManagedJobRecord(payload.job ?? asRecord(payload.result).job ?? payload.result ?? payload)
+  }
+
+  async retryManagedAssetIntegrityProbe(jobId: string, expectedVersion: number, idempotencyKey = crypto.randomUUID()): Promise<ManagedAssetIntegrityJob> {
+    if (!this.baseUrl) throw new CoreClientError('Retrying a job requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ expected_version: expectedVersion }),
+    })
+    const payload = asRecord(await readCorePayload(response, 'job retry'))
+    return mapManagedJobRecord(payload.job ?? asRecord(payload.result).job ?? payload.result ?? payload)
   }
 
   async createBackup(input: { durabilityClass?: string } = {}, idempotencyKey: string = crypto.randomUUID()): Promise<BackupCommandResult> {
@@ -1927,6 +1994,111 @@ function mapStorageScrubHealthRecord(value: unknown): StorageScrubHealth {
       : undefined,
     projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
     checkedAt: stringValue(source.checked_at ?? source.checkedAt),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapManagedJobAttemptRecord(value: unknown): ManagedAssetIntegrityJob['latestAttempt'] {
+  const source = asRecord(value)
+  if (Object.keys(source).length === 0) return null
+  return {
+    id: stringValue(source.id),
+    jobId: stringValue(source.job_id ?? source.jobId),
+    attemptNo: numberValue(source.attempt_no ?? source.attemptNo, 0),
+    retryKind: stringValue(source.retry_kind ?? source.retryKind),
+    state: stringValue(source.state) ?? 'UNKNOWN',
+    startedAt: stringValue(source.started_at ?? source.startedAt),
+    finishedAt: stringValue(source.finished_at ?? source.finishedAt),
+    bytesRead: optionalNumberValue(source.bytes_read ?? source.bytesRead),
+    errorCode: stringValue(source.error_code ?? source.errorCode),
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapManagedJobEvidenceRecord(value: unknown): ManagedAssetIntegrityJob['evidence'] {
+  const source = asRecord(value)
+  if (Object.keys(source).length === 0) return null
+  const rawEvidence = source.evidence
+  const safeEvidence: Record<string, unknown> = {}
+  if (rawEvidence && typeof rawEvidence === 'object' && !Array.isArray(rawEvidence)) {
+    const evidenceRecord = rawEvidence as Record<string, unknown>
+    if (typeof evidenceRecord.late_after_cancel === 'boolean') safeEvidence.late_after_cancel = evidenceRecord.late_after_cancel
+    if (typeof evidenceRecord.connector_version === 'string' && evidenceRecord.connector_version.length <= 120) safeEvidence.connector_version = evidenceRecord.connector_version
+  }
+  return {
+    id: stringValue(source.id),
+    jobAttemptId: stringValue(source.job_attempt_id ?? source.jobAttemptId),
+    projectId: stringValue(source.project_id ?? source.projectId),
+    assetRevisionId: stringValue(source.asset_revision_id ?? source.assetRevisionId),
+    state: stringValue(source.state) ?? 'UNKNOWN',
+    code: stringValue(source.code),
+    contentHash: stringValue(source.content_hash ?? source.contentHash),
+    expectedByteSize: optionalNumberValue(source.expected_byte_size ?? source.expectedByteSize),
+    observedHash: stringValue(source.observed_hash ?? source.observedHash),
+    observedByteSize: optionalNumberValue(source.observed_byte_size ?? source.observedByteSize),
+    bytesRead: optionalNumberValue(source.bytes_read ?? source.bytesRead),
+    evidence: safeEvidence,
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+  }
+}
+
+function mapManagedJobRecord(value: unknown): ManagedAssetIntegrityJob {
+  const source = asRecord(value)
+  const attempt = source.latest_attempt ?? source.latestAttempt
+  const evidence = source.evidence
+  const usage = source.usage && typeof source.usage === 'object' && !Array.isArray(source.usage) ? asRecord(source.usage) : null
+  const id = stringValue(source.id ?? source.job_id ?? source.jobId)
+  if (!id) throw new CoreClientError('Core returned a job projection without a stable id.', { code: 'CORE_INVALID_RESPONSE', category: 'INTERNAL', needsUser: true })
+  return {
+    id,
+    projectId: stringValue(source.project_id ?? source.projectId),
+    jobType: stringValue(source.job_type ?? source.jobType) ?? 'STORAGE_OBJECT_INTEGRITY_PROBE',
+    semanticCapability: stringValue(source.semantic_capability ?? source.semanticCapability) ?? 'STORAGE_OBJECT_INTEGRITY_PROBE',
+    priority: numberValue(source.priority, 50),
+    state: stringValue(source.state) ?? 'UNKNOWN',
+    subjectAssetRevisionId: stringValue(source.subject_asset_revision_id ?? source.subjectAssetRevisionId) ?? '',
+    subjectContentHash: stringValue(source.subject_content_hash ?? source.subjectContentHash) ?? '',
+    requestedMaxBytes: numberValue(source.requested_max_bytes ?? source.requestedMaxBytes, 0),
+    pinnedManifestHash: stringValue(source.pinned_manifest_hash ?? source.pinnedManifestHash) ?? '',
+    connectorVersion: stringValue(source.connector_version ?? source.connectorVersion) ?? 'UNKNOWN',
+    needsUser: source.needs_user === true || source.needsUser === true,
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+    rowVersion: numberValue(source.row_version ?? source.rowVersion, 1),
+    cancelable: source.cancelable === true,
+    retryable: source.retryable === true,
+    createdAt: stringValue(source.created_at ?? source.createdAt),
+    updatedAt: stringValue(source.updated_at ?? source.updatedAt),
+    latestAttempt: attempt ? mapManagedJobAttemptRecord(attempt) : null,
+    evidence: evidence ? mapManagedJobEvidenceRecord(evidence) : null,
+    usage: usage ? {
+      resourceType: stringValue(usage.resource_type ?? usage.resourceType),
+      reservedAmount: optionalNumberValue(usage.reserved_amount ?? usage.reservedAmount),
+      actualAmount: optionalNumberValue(usage.actual_amount ?? usage.actualAmount),
+      state: stringValue(usage.state),
+    } : null,
+  }
+}
+
+function mapManagedJobListRecord(value: unknown): ManagedJobList {
+  const source = asRecord(value)
+  return {
+    jobs: arrayValue(source.jobs ?? source.items ?? value).map(mapManagedJobRecord),
+    projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
+    generatedAt: stringValue(source.generated_at ?? source.generatedAt),
+  }
+}
+
+function mapManagedJobRetryPlanRecord(value: unknown): ManagedJobRetryPlan {
+  const source = asRecord(value)
+  return {
+    jobId: stringValue(source.job_id ?? source.jobId) ?? '',
+    allowed: source.allowed === true,
+    retryKind: stringValue(source.retry_kind ?? source.retryKind) ?? 'EXACT',
+    nextAttemptNo: numberValue(source.next_attempt_no ?? source.nextAttemptNo, 0),
+    maxAttempts: numberValue(source.max_attempts ?? source.maxAttempts, 0),
+    reasonCode: stringValue(source.reason_code ?? source.reasonCode),
+    nextStep: stringValue(source.next_step ?? source.nextStep),
+    projectionSeq: optionalNumberValue(source.projection_seq ?? source.projectionSeq),
     generatedAt: stringValue(source.generated_at ?? source.generatedAt),
   }
 }

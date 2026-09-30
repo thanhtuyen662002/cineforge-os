@@ -4168,3 +4168,55 @@ forward revocation replay, remote/offline immutable durability, update
 signing/anti-rollback, disaster recovery, garbage collection, or multi-user
 backup authority.  Callers must not present a verified local backup as proof of
 those properties.
+
+# API-SLICE-3A-LOCAL-INTEGRITY-JOB. Bounded managed-asset integrity job
+
+Slice 3A implements one local capability only: a read-only integrity probe
+for an exact, project-scoped managed asset revision. It is a durable Core job,
+not a connector framework or a generation surface. The built-in connector
+identity is `LOCAL_ASSET_PROBE_V1` and the semantic capability is
+`STORAGE_OBJECT_INTEGRITY_PROBE`.
+
+The command contract is:
+
+- `RunManagedAssetIntegrityProbe({project_id, asset_revision_id,
+  content_hash, max_bytes?})` — requires an `Idempotency-Key`, pins the exact
+  revision/hash and a canonical manifest hash, reserves the bounded read
+  budget and returns `QUEUED`;
+- `CancelManagedAssetIntegrityProbe({job_id})` — requires the current
+  `expected_versions.JOB` value. `QUEUED`/`CLAIMED` jobs become
+  `CANCELLED_CONFIRMED`; a `RUNNING` job becomes
+  `CANCELLATION_REQUESTED` and its final read is recorded as
+  `COMPLETED_AFTER_CANCEL` if it finishes;
+- `RetryManagedAssetIntegrityProbe({job_id})` — requires the current job row
+  version and is allowed only for `FAILED_RETRYABLE`. It creates a fresh
+  `EXACT` attempt for the same pinned revision/hash, at most three attempts in
+  total. A changed source identity is a stale conflict, never an implicit
+  retry against a newer revision.
+
+The query contract is:
+
+- `query.jobs.list({project_id?, state?, limit?})`;
+- `query.jobs.get({job_id, project_id?})`; and
+- `query.jobs.retry_plan({job_id, project_id?})`.
+
+The loopback adapter maps these to `GET /v1/jobs`, `GET /v1/jobs/{id}`,
+`GET /v1/jobs/{id}/retry-plan`,
+`POST /v1/projects/{id}/assets/{revisionId}/integrity-probe`,
+`POST /v1/jobs/{id}/cancel` and `POST /v1/jobs/{id}/retry`. Every mutating
+route is an audited command and requires idempotency. Reads are bounded and
+scoped by exact job identity; mutating cancel/retry operations fail closed on
+a stale job row version.
+
+The probe validates one available `LOCAL_MANAGED` primary CAS location,
+rejects reparse/symlink/hardlink/path escapes, binds the file descriptor to a
+stable identity, and compares observed size/hash with the pinned values. It
+records evidence as `PASS`, `FAIL` or `UNKNOWN`; `UNKNOWN` is never promoted
+to `PASS`. Public responses contain no absolute paths, fencing tokens,
+provider IDs, raw diagnostics or credentials. Restart reconciliation abandons
+an in-flight attempt, fences its token, creates a new exact attempt and
+requeues the same job (or confirms cancellation), so a job cannot be stranded.
+
+This bounded contract explicitly excludes network/provider/CLI dispatch,
+generation, media decode/technical metadata, automatic repair or quarantine,
+destructive cleanup/GC, restore activation and recovery-epoch machinery.

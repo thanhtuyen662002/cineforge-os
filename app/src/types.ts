@@ -1091,6 +1091,91 @@ export interface StorageScrubHealth {
   generatedAt?: string
 }
 
+export type ManagedJobState = 'QUEUED' | 'CLAIMED' | 'RUNNING' | 'CANCELLATION_REQUESTED' | 'CANCELLED_CONFIRMED' | 'CANNOT_CANCEL' | 'COMPLETED' | 'COMPLETED_AFTER_CANCEL' | 'FAILED_RETRYABLE' | 'FAILED_FINAL' | string
+export type ManagedJobEvidenceState = 'PASS' | 'FAIL' | 'UNKNOWN' | string
+
+/**
+ * Redacted local execution evidence. Provider ids, fencing tokens, absolute
+ * paths and raw error details never cross this UI boundary.
+ */
+export interface ManagedJobAttempt {
+  id?: string
+  jobId?: string
+  attemptNo: number
+  retryKind?: string
+  state: string
+  startedAt?: string | null
+  finishedAt?: string | null
+  bytesRead?: number | null
+  errorCode?: string | null
+  createdAt?: string
+}
+
+export interface ManagedJobEvidence {
+  id?: string
+  jobAttemptId?: string
+  projectId?: string | null
+  assetRevisionId?: string
+  state: ManagedJobEvidenceState
+  code?: string | null
+  contentHash?: string
+  expectedByteSize?: number
+  observedHash?: string | null
+  observedByteSize?: number | null
+  bytesRead?: number
+  evidence?: Record<string, unknown>
+  createdAt?: string
+}
+
+export interface ManagedJobUsage {
+  resourceType?: string
+  reservedAmount?: number
+  actualAmount?: number | null
+  state?: string
+}
+
+export interface ManagedAssetIntegrityJob {
+  id: string
+  projectId?: string | null
+  jobType: string
+  semanticCapability: string
+  priority: number
+  state: ManagedJobState
+  subjectAssetRevisionId: string
+  subjectContentHash: string
+  requestedMaxBytes: number
+  pinnedManifestHash: string
+  connectorVersion: string
+  needsUser: boolean
+  nextStep?: string | null
+  rowVersion: number
+  cancelable: boolean
+  retryable: boolean
+  createdAt?: string
+  updatedAt?: string
+  latestAttempt?: ManagedJobAttempt | null
+  evidence?: ManagedJobEvidence | null
+  usage?: ManagedJobUsage | null
+}
+
+export interface ManagedJobList {
+  jobs: ManagedAssetIntegrityJob[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export interface ManagedJobRetryPlan {
+  jobId: string
+  allowed: boolean
+  retryKind: string
+  nextAttemptNo: number
+  maxAttempts: number
+  reasonCode?: string | null
+  nextStep?: string
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 /**
  * Redacted evidence for a durable import staging row.
  *
@@ -1211,6 +1296,12 @@ export interface CoreClient {
   getStorageScrubHealth?(options?: { limit?: number; maxBytes?: number; after?: string }, signal?: AbortSignal): Promise<StorageScrubHealth>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
+  getJobs?(projectId?: string, state?: string, limit?: number, signal?: AbortSignal): Promise<ManagedJobList>
+  getJob?(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedAssetIntegrityJob>
+  getJobRetryPlan?(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedJobRetryPlan>
+  runManagedAssetIntegrityProbe?(projectId: string, assetRevisionId: string, contentHash: string, maxBytes?: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
+  cancelManagedAssetIntegrityProbe?(jobId: string, expectedVersion: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
+  retryManagedAssetIntegrityProbe?(jobId: string, expectedVersion: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
   getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
   reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
   getReleaseReadiness?(projectId: string, signal?: AbortSignal): Promise<ReleaseReadiness>

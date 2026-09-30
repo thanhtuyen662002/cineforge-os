@@ -420,3 +420,89 @@ h3 { font-size: 13px; font-weight: 600; }
 .external-edit-form { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 @media (max-width: 950px) { .handoff-grid { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .handoff-grid .timeline-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.handoff-evidence span { align-items: flex-start; flex-direction: column; gap: 4px; }.handoff-detail-actions { align-items: stretch; flex-direction: column; gap: 6px; }.handoff-detail-actions .subtle-button { justify-content: center; }.compatibility-row { grid-template-columns: 1fr auto; }.compatibility-row small { grid-column: 1 / -1; white-space: normal; }.artifact-row { grid-template-columns: 1fr; }.external-edit-facts { grid-template-columns: 1fr; }.external-edit-card-heading { align-items: flex-start; flex-direction: column; } }
+.job-queue-card {
+  margin-top: 20px;
+}
+
+.asset-integrity-action {
+  display: inline-flex;
+  min-width: 116px;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.asset-integrity-action .asset-preview-hint {
+  max-width: 150px;
+  text-align: right;
+}
+
+.job-queue-list {
+  display: grid;
+  gap: 8px;
+}
+
+.job-queue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, .08));
+  border-radius: 12px;
+  background: var(--surface-raised, rgba(255, 255, 255, .025));
+}
+
+.job-queue-main {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.job-queue-main > div:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.job-queue-main strong,
+.job-queue-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-queue-main small {
+  color: var(--text-muted, #9aa1b5);
+}
+
+.job-state-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #9aa1b5;
+  box-shadow: 0 0 0 3px rgba(154, 161, 181, .12);
+}
+
+.job-state-dot.running,
+.job-state-dot.claimed,
+.job-state-dot.queued,
+.job-state-dot.cancellation_requested { background: #d6a85b; box-shadow: 0 0 0 3px rgba(214, 168, 91, .15); }
+.job-state-dot.completed,
+.job-state-dot.completed_after_cancel { background: #65c38a; box-shadow: 0 0 0 3px rgba(101, 195, 138, .15); }
+.job-state-dot.failed_final { background: #e57777; box-shadow: 0 0 0 3px rgba(229, 119, 119, .15); }
+
+.job-queue-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .job-queue-row { align-items: flex-start; flex-direction: column; }
+  .job-queue-actions { width: 100%; justify-content: flex-end; }
+}

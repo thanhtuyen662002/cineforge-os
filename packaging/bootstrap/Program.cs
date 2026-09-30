@@ -40,6 +40,22 @@ internal static class Program
         var dataRoot = Path.GetFullPath(options.DataRoot ??
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CineForge", "data"));
 
+        // Validate the immutable package boundary before creating or pruning
+        // anything under the user data root. A tampered package must fail
+        // without changing the user's data, logs, or staged-upload state.
+        var webRoot = ResolveWebRoot(root);
+        if (!Directory.Exists(webRoot))
+        {
+            Console.Error.WriteLine($"CineForge web bundle is missing: {webRoot}");
+            Console.Error.WriteLine("Run packaging\\build_windows.ps1 first, or copy the Vite dist folder to web\\.");
+            return 2;
+        }
+        if (!ValidateArtifactManifest(root, out var manifestError))
+        {
+            Console.Error.WriteLine($"CineForge package integrity verification failed: {manifestError}");
+            return 7;
+        }
+
         // Port probing is intentionally not the ownership mechanism: a second
         // launch can otherwise choose a different port and open the same
         // SQLite database concurrently. Acquire a stable, data-root-scoped
@@ -67,23 +83,6 @@ internal static class Program
         var bootstrapLog = Path.Combine(logsRoot, "bootstrap.log");
         RotateLog(bootstrapLog);
         Log(bootstrapLog, $"startup root={root}; data={dataRoot}; offline={options.AllowOffline}");
-
-        var webRoot = ResolveWebRoot(root);
-        if (!Directory.Exists(webRoot))
-        {
-            var message = $"CineForge web bundle is missing: {webRoot}";
-            Log(bootstrapLog, message);
-            Console.Error.WriteLine(message);
-            Console.Error.WriteLine("Run packaging\\build_windows.ps1 first, or copy the Vite dist folder to web\\.");
-            return 2;
-        }
-        if (!ValidateArtifactManifest(root, out var manifestError))
-        {
-            var message = $"CineForge package integrity verification failed: {manifestError}";
-            Log(bootstrapLog, message);
-            Console.Error.WriteLine(message);
-            return 7;
-        }
 
         using var lifetime = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>
@@ -244,9 +243,30 @@ internal static class Program
                 return false;
             }
 
+            // The inventory is the bootstrap's release boundary.  Require the
+            // count and the explicit bootstrap digest as well as each file
+            // entry so a malformed or hand-edited manifest cannot silently
+            // omit the executable from direct EXE launches (the PowerShell
+            // launcher performs the same checks before delegation).
+            if (!document.RootElement.TryGetProperty("artifact_file_count", out var countValue)
+                || !countValue.TryGetInt32(out var declaredCount)
+                || declaredCount != files.GetArrayLength())
+            {
+                error = "build-manifest.json has an invalid artifact file count.";
+                return false;
+            }
+            if (!document.RootElement.TryGetProperty("bootstrap_sha256", out var bootstrapHashValue)
+                || bootstrapHashValue.ValueKind != JsonValueKind.String
+                || !System.Text.RegularExpressions.Regex.IsMatch(bootstrapHashValue.GetString() ?? string.Empty, "^[0-9a-fA-F]{64}$"))
+            {
+                error = "build-manifest.json has no valid bootstrap_sha256.";
+                return false;
+            }
+
             var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 + Path.DirectorySeparatorChar;
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string? inventoryBootstrapHash = null;
             foreach (var entry in files.EnumerateArray())
             {
                 if (entry.ValueKind != JsonValueKind.Object
@@ -303,6 +323,10 @@ internal static class Program
                     error = $"build-manifest.json contains an invalid artifact hash for '{relative}'.";
                     return false;
                 }
+                if (string.Equals(relative, "CineForge.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    inventoryBootstrapHash = expectedHash;
+                }
                 using var stream = File.OpenRead(candidate);
                 var actualHash = Convert.ToHexString(SHA256.HashData(stream));
                 if (!actualHash.Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
@@ -310,6 +334,13 @@ internal static class Program
                     error = $"Packaged artifact hash mismatch: {relative}.";
                     return false;
                 }
+            }
+
+            if (inventoryBootstrapHash is null
+                || !inventoryBootstrapHash.Equals(bootstrapHashValue.GetString(), StringComparison.OrdinalIgnoreCase))
+            {
+                error = "build-manifest.json bootstrap_sha256 does not match the CineForge.exe inventory entry.";
+                return false;
             }
 
             return true;

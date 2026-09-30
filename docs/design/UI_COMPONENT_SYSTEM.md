@@ -2905,3 +2905,37 @@ Preview does not imply content approval, readiness promotion, rendering,
 waveform generation, export or publish. The browser uses no-store media URLs,
 `Referrer-Policy: no-referrer`, and cannot request arbitrary paths or unsafe
 HTML/JavaScript/SVG content.
+
+# UI-JOB-QUEUE-SLICE-3A. Local integrity queue and asset action
+
+The Activity surface owns the Slice 3A queue. It reads the Core job projection
+and displays the exact project, asset revision, durable state, next step,
+bounded evidence code and read-byte usage. It may show a compact `Đang kiểm
+tra…` label while Core reports `RUNNING`; it must not synthesize a percentage,
+ETA or completion state without backend evidence.
+
+The Library asset row may expose `Kiểm tra toàn vẹn` only when it has the exact
+immutable revision and SHA-256 content hash. The action queues
+`LOCAL_ASSET_PROBE_V1` for that revision. Activity exposes `Huỷ` for a queued,
+claimed or running job and `Thử lại` only when the retry-plan query says that
+an exact retry is allowed. Both actions send the latest `row_version` and
+render a stale-version conflict as a refresh/review action.
+
+Visible states remain distinct and human-readable:
+
+- `QUEUED`/`CLAIMED`: `Đang chờ kiểm tra`;
+- `RUNNING`: `Đang đọc và xác minh object local`;
+- `CANCELLATION_REQUESTED`: `Đang chờ huỷ an toàn`;
+- `CANCELLED_CONFIRMED`: `Đã huỷ`;
+- `COMPLETED`: `Đã kiểm tra — PASS`;
+- `COMPLETED_AFTER_CANCEL`: `Đã ghi nhận sau yêu cầu huỷ`;
+- `FAILED_FINAL`: `Không khớp — xem bằng chứng`;
+- `FAILED_RETRYABLE`: `Chưa xác định — có thể thử lại`;
+- `CANNOT_CANCEL`: `Không thể huỷ — xem bước tiếp theo`.
+
+The queue renders `PASS`, `FAIL` and `UNKNOWN` as separate evidence outcomes;
+`UNKNOWN` always includes a user-facing next step. Public data contains no
+absolute path, fencing token, provider job ID or raw diagnostic. The action
+does not edit asset bytes, approve content, trigger generation, dispatch a
+provider, run a network/CLI command, repair/quarantine data, delete/GC data,
+activate a restore or change a recovery epoch.

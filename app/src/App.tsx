@@ -51,7 +51,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryStatus, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, ManagedAssetIntegrityJob, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryStatus, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'release' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -379,7 +379,7 @@ function App() {
       {activeNav === 'needs' && (
         <NeedsView snapshot={snapshot} t={t} locale={locale} onOpenDecision={openDecision} onResolve={resolveDecision} onDismiss={dismissDecision} pendingId={decisionPendingId} decisionError={decisionError} onRefresh={() => void loadDashboard()} />
       )}
-      {activeNav === 'activity' && <ActivityView snapshot={snapshot} locale={locale} onOpenProject={openProject} />}
+      {activeNav === 'activity' && <ActivityView snapshot={snapshot} locale={locale} client={client} onOpenProject={openProject} />}
       {activeNav === 'library' && <LibraryView snapshot={snapshot} locale={locale} client={client} onOpenProject={openProject} />}
       {activeNav === 'settings' && <SettingsView snapshot={snapshot} locale={locale} client={client} theme={theme} onThemeChange={setTheme} onLocaleChange={setLocale} onRefresh={() => void loadDashboard()} refreshLabel={t.refresh} onToast={setToast} />}
     </>
@@ -782,7 +782,7 @@ export function ProjectPlanningView({ snapshot, projectId, locale, client, onBac
   </> : activeTab === 'notes' ? <>
     <form className="workspace-form" onSubmit={addNote}><label htmlFor="workspace-note-target">{locale === 'vi' ? 'Gắn ghi chú vào' : 'Attach note to'}<select id="workspace-note-target" value={noteTarget} onChange={(event) => setNoteTarget(event.target.value)}><option value={`PROJECT:${project.id}`}>{locale === 'vi' ? 'Dự án' : 'Project'} · {project.name}</option>{tasks.map((task) => <option key={`TASK:${task.id}`} value={`TASK:${task.id}`}>{locale === 'vi' ? 'Công việc' : 'Task'} · {task.title}</option>)}{shots.map((shot) => <option key={`SHOT:${shot.id}`} value={`SHOT:${shot.id}`}>{locale === 'vi' ? 'Shot' : 'Shot'} · {shot.code}</option>)}</select></label><label htmlFor="workspace-note-body">{locale === 'vi' ? 'Ghi chú' : 'Note'}<textarea id="workspace-note-body" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} maxLength={50000} rows={4} placeholder={locale === 'vi' ? 'Ghi lại điều cần nhớ…' : 'Capture what should be remembered…'} /></label><button className="primary-button small" disabled={!noteBody.trim() || !client.addNote || Boolean(mutating) || loading || !workspace}>{mutating?.startsWith('add-note:') ? '…' : <><Plus size={14} />{locale === 'vi' ? 'Thêm ghi chú' : 'Add note'}</>}</button></form>
     {notes.length === 0 ? <EmptyInline icon={BookOpen} text={locale === 'vi' ? 'Chưa có ghi chú. Ghi chú được giữ nguyên và không thể sửa xoá trong slice này.' : 'No notes yet. Notes are append-only in this slice.'} /> : <div className="workspace-note-list">{notes.map((note) => <NoteRecord key={note.id} note={note} tasks={tasks} shots={shots} locale={locale} />)}</div>}
-  </> : activeTab === 'activity' ? <div className="workspace-activity-list"><ActivityView snapshot={{ ...snapshot, activity: snapshot.activity.filter((item) => item.projectId === project.id || item.projectName === project.name) }} locale={locale} onOpenProject={() => undefined} /></div> : <div className="workspace-context"><div><span>Project ID</span><code>{project.id}</code></div><div><span>{locale === 'vi' ? 'Công việc' : 'Tasks'}</span><strong>{tasks.length}</strong></div><div><span>{locale === 'vi' ? 'Shot kế hoạch' : 'Planning shots'}</span><strong>{shots.length}</strong></div><div><span>{locale === 'vi' ? 'Ghi chú' : 'Notes'}</span><strong>{notes.length}</strong></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Workspace đọc từ Core. Mọi thay đổi đi qua command và giữ row version để phát hiện xung đột.' : 'Workspace is read from Core. Mutations go through commands and carry row versions for conflict detection.'}</p></div>
+  </> : activeTab === 'activity' ? <div className="workspace-activity-list"><ActivityView snapshot={{ ...snapshot, activity: snapshot.activity.filter((item) => item.projectId === project.id || item.projectName === project.name) }} locale={locale} client={client} onOpenProject={() => undefined} /></div> : <div className="workspace-context"><div><span>Project ID</span><code>{project.id}</code></div><div><span>{locale === 'vi' ? 'Công việc' : 'Tasks'}</span><strong>{tasks.length}</strong></div><div><span>{locale === 'vi' ? 'Shot kế hoạch' : 'Planning shots'}</span><strong>{shots.length}</strong></div><div><span>{locale === 'vi' ? 'Ghi chú' : 'Notes'}</span><strong>{notes.length}</strong></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Workspace đọc từ Core. Mọi thay đổi đi qua command và giữ row version để phát hiện xung đột.' : 'Workspace is read from Core. Mutations go through commands and carry row versions for conflict detection.'}</p></div>
 
   return <div className="page project-detail-page"><button className="back-link" onClick={onBack}><ArrowRight size={15} className="back-arrow" />{locale === 'vi' ? 'Tất cả dự án' : 'All projects'}</button><div className="project-detail-heading"><div><p className="eyebrow">{project.kind}</p><h1>{project.name}</h1><p className="page-subtitle">{project.stage} · {project.stageDetail}</p></div><span className={`health-pill ${workspaceHealth}`}><span />{workspaceHealth === 'healthy' ? (locale === 'vi' ? 'Ổn định' : 'Healthy') : workspaceHealth === 'blocked' ? (locale === 'vi' ? 'Đang chặn' : 'Blocked') : (locale === 'vi' ? 'Cần chú ý' : 'Needs attention')}</span></div><div className="project-detail-grid"><section className="detail-summary-card"><div className="detail-cover" style={{ background: project.cover }}><div className="cover-noise" /><span className="cover-type">{project.kind}</span></div><div className="detail-summary-body"><div className="detail-stat"><span>{locale === 'vi' ? 'Công việc' : 'Tasks'}</span><strong>{tasks.length}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Shot kế hoạch' : 'Planning shots'}</span><strong>{shots.length}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Ghi chú' : 'Notes'}</span><strong>{notes.length}</strong></div><div className="detail-stat"><span>{locale === 'vi' ? 'Dung lượng' : 'Storage'}</span><strong>{project.storage}</strong></div></div></section><section className="production-card"><div className="production-card-heading"><div><h2>{locale === 'vi' ? 'Workspace sản xuất' : 'Production workspace'}</h2><p>{locale === 'vi' ? 'Task, shot kế hoạch và ghi chú là các bản ghi riêng biệt.' : 'Tasks, planning shots, and notes are separate records.'}</p></div><span className="state-label"><ShieldCheck size={13} />{locale === 'vi' ? 'Do Core quản lý' : 'Core-owned'}</span></div><div className="project-tabs" role="tablist" aria-label={locale === 'vi' ? 'Các phần của workspace' : 'Workspace sections'}>{tabs.map(({ key, label, icon: Icon }, index) => <button key={key} ref={(element) => { tabRefs.current[index] = element }} id={`workspace-tab-${key}`} className={activeTab === key ? 'active' : ''} onClick={() => setActiveTab(key)} onKeyDown={(event) => onTabKeyDown(event, index)} role="tab" aria-selected={activeTab === key} aria-controls={activeTab === key ? `workspace-panel-${key}` : undefined} tabIndex={activeTab === key ? 0 : -1}><Icon size={14} />{label}</button>)}</div>{loading && <div className="inline-state" aria-live="polite"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc workspace từ Core…' : 'Reading workspace from Core…'}</div>}{staleMessage && <div className="inline-state warning stale-panel" role="alert" tabIndex={-1}><AlertCircle size={14} /><span>{staleMessage}</span><button className="subtle-button tiny" onClick={refresh}>{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>}{error && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{error}</span><button className="subtle-button tiny" onClick={refresh}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}<div id={`workspace-panel-${activeTab}`} role="tabpanel" aria-labelledby={`workspace-tab-${activeTab}`} aria-busy={loading} className="workspace-panel">{loading && !workspace ? <div className="inline-state" aria-live="polite">{locale === 'vi' ? 'Đang chuẩn bị workspace…' : 'Preparing workspace…'}</div> : tabPanel}</div></section></div></div>
 }
@@ -798,7 +798,77 @@ export function NeedsView({ snapshot, t, locale, onOpenDecision, onResolve, onDi
   return <div className="page"><div className="page-heading"><div><p className="eyebrow">{t.needs}</p><h1>{t.needsYou}</h1><p className="page-subtitle">{t.needsHint}</p></div><div className="page-heading-actions"><button type="button" className="subtle-button tiny" onClick={onRefresh}><RefreshCw size={13} />{t.refresh}</button><span className="count-chip"><Inbox size={15} />{snapshot.decisions.length}</span></div></div><section className="needs-page-list">{snapshot.decisions.length === 0 ? <EmptyState icon={CheckCircle2} title={t.noDecisions} detail="" /> : snapshot.decisions.map((decision) => <DecisionCard key={decision.id} decision={decision} locale={locale} copy={t} onOpen={() => onOpenDecision(decision)} onResolve={(choiceId) => onResolve(decision, choiceId)} onDismiss={() => onDismiss(decision)} pending={pendingId === decision.id} error={decisionError?.id === decision.id ? decisionError.message : undefined} onRefresh={onRefresh} />)}</section></div>
 }
 
-function ActivityView({ snapshot, locale, onOpenProject }: { snapshot: DashboardSnapshot; locale: Locale; onOpenProject: (project: ProjectSummary) => void }) {
+function JobQueuePanel({ locale, client }: { locale: Locale; client: CoreClient }) {
+  const [jobs, setJobs] = useState<ManagedAssetIntegrityJob[]>([])
+  const [retryAllowed, setRetryAllowed] = useState<Record<string, boolean>>({})
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [mutating, setMutating] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!client.getJobs) return
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await client.getJobs(undefined, undefined, 100)
+      setJobs(result.jobs)
+      setRetryAllowed({})
+      if (client.getJobRetryPlan) {
+        const retryPlans = await Promise.all(result.jobs.filter((job) => job.retryable).map(async (job) => {
+          try {
+            const plan = await client.getJobRetryPlan!(job.id, job.projectId ?? undefined)
+            return [job.id, plan.allowed] as const
+          } catch {
+            return [job.id, false] as const
+          }
+        }))
+        setRetryAllowed(Object.fromEntries(retryPlans))
+      } else {
+        setRetryAllowed({})
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : (locale === 'vi' ? 'Không đọc được hàng đợi Core.' : 'Could not read the Core queue.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [client, locale])
+
+  useEffect(() => { void load() }, [load])
+
+  const action = async (job: ManagedAssetIntegrityJob, operation: 'cancel' | 'retry') => {
+    const handler = operation === 'cancel' ? client.cancelManagedAssetIntegrityProbe : client.retryManagedAssetIntegrityProbe
+    if (!handler || !job.latestAttempt) return
+    setMutating(job.id)
+    setError(null)
+    try {
+      const next = await handler(job.id, job.rowVersion)
+      setJobs((current) => current.map((item) => item.id === next.id ? next : item))
+      if (operation === 'retry') setRetryAllowed((current) => ({ ...current, [job.id]: false }))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : (locale === 'vi' ? 'Thao tác job thất bại.' : 'The job action failed.'))
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const stateLabel = (state: string) => {
+    const labels: Record<string, [string, string]> = {
+      QUEUED: ['Đang chờ', 'Queued'], CLAIMED: ['Đã nhận', 'Claimed'], RUNNING: ['Đang kiểm tra', 'Running'],
+      CANCELLATION_REQUESTED: ['Đang huỷ', 'Cancelling'], CANCELLED_CONFIRMED: ['Đã huỷ', 'Cancelled'],
+      COMPLETED: ['Đã xong', 'Complete'], COMPLETED_AFTER_CANCEL: ['Xong sau yêu cầu huỷ', 'Completed after cancel'],
+      FAILED_RETRYABLE: ['Có thể thử lại', 'Retryable failure'], FAILED_FINAL: ['Không đạt', 'Failed'], CANNOT_CANCEL: ['Không thể huỷ', 'Cannot cancel'],
+    }
+    return labels[state]?.[locale === 'vi' ? 0 : 1] ?? state
+  }
+
+  return <section className="dashboard-card job-queue-card" aria-labelledby="job-queue-title">
+    <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><HardDrive size={16} /></span><div><h2 id="job-queue-title">{locale === 'vi' ? 'Hàng đợi kiểm tra dữ liệu' : 'Integrity job queue'}</h2><p>{locale === 'vi' ? 'Chỉ đọc managed asset local; trạng thái do Core ghi nhận.' : 'Reads local managed assets only; state comes from Core.'}</p></div></div><button className="subtle-button tiny" type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={13} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>
+    {error && <div className="inline-state warning" role="alert"><AlertCircle size={14} />{error}</div>}
+    {!client.getJobs ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Bridge hiện tại chưa cung cấp hàng đợi job.' : 'This bridge does not expose the job queue yet.'} /> : jobs.length === 0 && !loading ? <EmptyInline icon={CheckCircle2} text={locale === 'vi' ? 'Chưa có job integrity nào.' : 'No integrity jobs have been queued.'} /> : <div className="job-queue-list">{jobs.map((job) => <article className="job-queue-row" key={job.id}><div className="job-queue-main"><div className={`job-state-dot ${job.state.toLowerCase()}`} aria-hidden="true" /><div><strong>{locale === 'vi' ? 'Kiểm tra managed asset' : 'Managed asset integrity probe'}</strong><small>{job.subjectAssetRevisionId} · {stateLabel(job.state)}</small><small>{job.nextStep ?? (locale === 'vi' ? 'Core đang xác định bước tiếp theo.' : 'Core is determining the next step.')}</small></div></div><div className="job-queue-actions">{job.evidence && <span className={`health-pill ${job.evidence.state === 'PASS' ? 'healthy' : job.evidence.state === 'FAIL' ? 'blocked' : 'attention'}`}><span />{job.evidence.state}</span>}{job.cancelable && client.cancelManagedAssetIntegrityProbe && <button type="button" className="subtle-button tiny" onClick={() => void action(job, 'cancel')} disabled={mutating === job.id}>{locale === 'vi' ? 'Huỷ' : 'Cancel'}</button>}{job.retryable && retryAllowed[job.id] === true && client.retryManagedAssetIntegrityProbe && <button type="button" className="subtle-button tiny" onClick={() => void action(job, 'retry')} disabled={mutating === job.id}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button>}</div></article>)}</div>}
+  </section>
+}
+
+function ActivityView({ snapshot, locale, client, onOpenProject }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; onOpenProject: (project: ProjectSummary) => void }) {
   const [filter, setFilter] = useState<'all' | WorkState>('all')
   const filters: Array<{ key: 'all' | WorkState; vi: string; en: string }> = [
     { key: 'all', vi: 'Tất cả', en: 'All' },
@@ -808,7 +878,7 @@ function ActivityView({ snapshot, locale, onOpenProject }: { snapshot: Dashboard
     { key: 'blocked', vi: 'Đang chặn', en: 'Blocked' },
   ]
   const visible = filter === 'all' ? snapshot.activity : snapshot.activity.filter((item) => item.state === filter)
-  return <div className="page activity-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'THEO DÕI' : 'MONITORING'}</p><h1>{locale === 'vi' ? 'Hoạt động' : 'Activity'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Trạng thái đọc từ Core, theo từng project. Không có tiến độ được dựng trong giao diện.' : 'State read from Core, grouped by project. The interface never invents progress.'}</p></div><span className="count-chip"><Activity size={15} />{snapshot.activity.length}</span></div><div className="activity-filter-row" role="tablist" aria-label={locale === 'vi' ? 'Lọc hoạt động' : 'Activity filters'}>{filters.map((item) => <button key={item.key} className={`filter-chip ${filter === item.key ? 'active' : ''}`} onClick={() => setFilter(item.key)} role="tab" aria-selected={filter === item.key}><Filter size={13} />{locale === 'vi' ? item.vi : item.en}</button>)}</div><section className="activity-page-list">{visible.length === 0 ? <EmptyState icon={CheckCircle2} title={locale === 'vi' ? 'Không có activity phù hợp' : 'No matching activity'} detail={locale === 'vi' ? 'Core chưa ghi nhận trạng thái trong bộ lọc này.' : 'Core has not recorded a state in this filter yet.'} /> : visible.map((item) => { const project = snapshot.projects.find((candidate) => candidate.id === item.projectId || candidate.name === item.projectName); return <ActivityRow key={item.id} item={item} locale={locale} onOpen={project ? () => onOpenProject(project) : undefined} /> })}</section></div>
+  return <div className="page activity-page"><div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'THEO DÕI' : 'MONITORING'}</p><h1>{locale === 'vi' ? 'Hoạt động' : 'Activity'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Trạng thái đọc từ Core, theo từng project. Không có tiến độ được dựng trong giao diện.' : 'State read from Core, grouped by project. The interface never invents progress.'}</p></div><span className="count-chip"><Activity size={15} />{snapshot.activity.length}</span></div><div className="activity-filter-row" role="tablist" aria-label={locale === 'vi' ? 'Lọc hoạt động' : 'Activity filters'}>{filters.map((item) => <button key={item.key} className={`filter-chip ${filter === item.key ? 'active' : ''}`} onClick={() => setFilter(item.key)} role="tab" aria-selected={filter === item.key}><Filter size={13} />{locale === 'vi' ? item.vi : item.en}</button>)}</div><section className="activity-page-list">{visible.length === 0 ? <EmptyState icon={CheckCircle2} title={locale === 'vi' ? 'Không có activity phù hợp' : 'No matching activity'} detail={locale === 'vi' ? 'Core chưa ghi nhận trạng thái trong bộ lọc này.' : 'Core has not recorded a state in this filter yet.'} /> : visible.map((item) => { const project = snapshot.projects.find((candidate) => candidate.id === item.projectId || candidate.name === item.projectName); return <ActivityRow key={item.id} item={item} locale={locale} onOpen={project ? () => onOpenProject(project) : undefined} /> })}</section><JobQueuePanel locale={locale} client={client} /></div>
 }
 
 type IntakeFile = {
@@ -869,10 +939,26 @@ function AssetPreview({ asset, locale, client, purpose = 'LIBRARY_PREVIEW' }: { 
 }
 
 function AssetRecord({ asset, projectName, locale, client }: { asset: AssetSummary; projectName: string; locale: Locale; client: CoreClient }) {
+  const [probeLoading, setProbeLoading] = useState(false)
+  const [probeMessage, setProbeMessage] = useState<string | null>(null)
   const readinessLabel = asset.readinessState === 'READY' ? (locale === 'vi' ? 'Đã kiểm tra' : 'Verified') : asset.readinessState === 'REVIEW_REQUIRED' ? (locale === 'vi' ? 'Cần review' : 'Review required') : (locale === 'vi' ? 'Chờ kiểm tra' : 'Readiness unknown')
   const rightsStatus = asset.rights?.status ?? 'UNKNOWN'
   const rightsLabel = rightsStatus === 'ALLOWED' ? (locale === 'vi' ? 'Quyền đã cho phép' : 'Rights allowed') : rightsStatus === 'RESTRICTED' ? (locale === 'vi' ? 'Quyền bị giới hạn' : 'Rights restricted') : rightsStatus === 'REVOKED' ? (locale === 'vi' ? 'Quyền đã thu hồi' : 'Rights revoked') : rightsStatus === 'EXPIRED' ? (locale === 'vi' ? 'Quyền hết hạn' : 'Rights expired') : (locale === 'vi' ? 'Quyền chưa xác minh' : 'Rights unknown')
-  return <div className="library-record asset-record" key={asset.id}><span className="record-state done"><FileIcon size={14} /></span><span className="library-record-main"><strong>{asset.name}</strong><small>{projectName} · {asset.assetType} · {formatBytes(asset.byteSize)} · {asset.contentHash?.slice(0, 12) ?? 'hash—'}</small></span><span className={`item-state ${asset.readinessState === 'READY' ? 'ready' : 'attention'}`} title={asset.availability === 'AVAILABLE' ? (locale === 'vi' ? 'Object đã lưu; readiness vẫn cần bằng chứng verifier.' : 'Object is stored; readiness still requires verifier evidence.') : asset.availability}>{readinessLabel}</span><span className={`item-state ${rightsStatus === 'ALLOWED' ? 'ready' : 'attention'}`} title={asset.rights?.blockers?.map((blocker) => String(blocker.code ?? '')).filter(Boolean).join(', ') || rightsLabel}>{rightsLabel}</span><AssetPreview asset={asset} locale={locale} client={client} /></div>
+  const canProbe = Boolean(client.runManagedAssetIntegrityProbe && asset.projectId && asset.revisionId && asset.contentHash && /^[a-f0-9]{64}$/i.test(asset.contentHash))
+  const runProbe = async () => {
+    if (!canProbe || !client.runManagedAssetIntegrityProbe || !asset.projectId || !asset.revisionId || !asset.contentHash || probeLoading) return
+    setProbeLoading(true)
+    setProbeMessage(null)
+    try {
+      await client.runManagedAssetIntegrityProbe(asset.projectId, asset.revisionId, asset.contentHash)
+      setProbeMessage(locale === 'vi' ? 'Đã xếp hàng kiểm tra.' : 'Integrity check queued.')
+    } catch (error) {
+      setProbeMessage(error instanceof Error ? error.message : (locale === 'vi' ? 'Không xếp hàng được job.' : 'Could not queue the job.'))
+    } finally {
+      setProbeLoading(false)
+    }
+  }
+  return <div className="library-record asset-record" key={asset.id}><span className="record-state done"><FileIcon size={14} /></span><span className="library-record-main"><strong>{asset.name}</strong><small>{projectName} · {asset.assetType} · {formatBytes(asset.byteSize)} · {asset.contentHash?.slice(0, 12) ?? 'hash—'}</small></span><span className={`item-state ${asset.readinessState === 'READY' ? 'ready' : 'attention'}`} title={asset.availability === 'AVAILABLE' ? (locale === 'vi' ? 'Object đã lưu; readiness vẫn cần bằng chứng verifier.' : 'Object is stored; readiness still requires verifier evidence.') : asset.availability}>{readinessLabel}</span><span className={`item-state ${rightsStatus === 'ALLOWED' ? 'ready' : 'attention'}`} title={asset.rights?.blockers?.map((blocker) => String(blocker.code ?? '')).filter(Boolean).join(', ') || rightsLabel}>{rightsLabel}</span><AssetPreview asset={asset} locale={locale} client={client} /><span className="asset-integrity-action"><button type="button" className="subtle-button tiny" disabled={!canProbe || probeLoading} title={!canProbe ? (locale === 'vi' ? 'Cần asset revision và SHA-256 exact.' : 'An exact asset revision and SHA-256 are required.') : undefined} onClick={() => void runProbe}><ShieldCheck size={13} />{probeLoading ? '…' : locale === 'vi' ? 'Kiểm tra dữ liệu' : 'Check data'}</button>{probeMessage && <small className="asset-preview-hint">{probeMessage}</small>}</span></div>
 }
 
 function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: DashboardSnapshot; locale: Locale; client: CoreClient; onOpenProject: (project: ProjectSummary) => void }) {

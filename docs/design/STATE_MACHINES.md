@@ -2900,3 +2900,60 @@ Terminal/reset:
 - RESET_REQUIRED
 
 A numeric sequence by itself is never enough to determine validity after restore/redeployment.
+
+# STATE-LOCAL-INTEGRITY-JOB-SLICE-3A. Local managed-object probe lifecycle
+
+The Slice 3A job lifecycle is durable in Core and is scoped to one exact asset
+revision and pinned content hash. The normal path is:
+
+```text
+QUEUED
+  → RUNNING
+  → COMPLETED | FAILED_FINAL | FAILED_RETRYABLE
+```
+
+The queue may expose `CLAIMED` while a runner owns the durable row. A queued
+or claimed job can be cancelled before bytes are read:
+
+```text
+QUEUED | CLAIMED → CANCELLED_CONFIRMED
+```
+
+Cancellation while the local read is already running is a request, not a fake
+interrupt. Core records:
+
+```text
+RUNNING → CANCELLATION_REQUESTED
+CANCELLATION_REQUESTED → COMPLETED_AFTER_CANCEL
+```
+
+The completed-after-cancel evidence is retained as a measurement and never
+changes canonical asset bytes or approval state. `CANNOT_CANCEL` is reserved
+for a future explicit cancellation blocker; the V1 local runner does not
+silently convert it to success.
+
+Without a pending cancellation, an `UNKNOWN` measurement terminates the job
+as `FAILED_RETRYABLE`; `FAIL` terminates it as `FAILED_FINAL`; `PASS`
+terminates it as `COMPLETED`. A pending cancellation records
+`COMPLETED_AFTER_CANCEL` after the read, while retaining the actual evidence
+outcome. None of these transitions promote an asset or imply approval. An
+explicit retry is allowed only from `FAILED_RETRYABLE`, creates the next
+`EXACT` attempt for the same pinned revision/hash, and is bounded to three
+attempts. A stale source identity or a stale optimistic `row_version` blocks
+the retry.
+
+Attempt state is separately durable:
+
+```text
+CREATED → DISPATCHING → EXECUTING → VERIFYING → SUCCEEDED | FAILED
+```
+
+`DISPATCHING` is a local runner bookkeeping state, not an external provider
+dispatch. On startup, Core fences and marks any in-flight attempt
+`ABANDONED`, then creates a fresh exact attempt and requeues the same job (or
+confirms a pending cancellation). An old fencing token cannot finalize the
+new attempt. Reconciliation itself is audited and emits a domain event.
+
+The state machine contains no provider callback, network effect, shell command,
+generation output, automatic repair/quarantine transition, restore activation
+or recovery-epoch transition.

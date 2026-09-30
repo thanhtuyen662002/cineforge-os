@@ -1,9 +1,9 @@
 # CineForge Windows packaging
 
-`CineForge-OneClick.cmd` is the shortest path for a Windows development machine:
+`CineForge-OneClick.cmd` is the shortest path for a Windows user:
 
 1. Double-click `CineForge-OneClick.cmd`.
-2. The script installs the pinned UI dependencies, runs the UI/Core checks, builds the Vite bundle, packages the Core, publishes a self-contained `CineForge.exe`, runs a loopback smoke test, and opens the result in the default browser.
+2. If `dist/CineForge/` already contains a verified package, the self-contained executable opens immediately and needs no Node, npm, Rust or .NET installation. A source checkout without an artifact takes the developer build path: install pinned UI dependencies, run the UI/Core checks, build the Vite bundle, package the Core, publish a self-contained `CineForge.exe`, run a loopback smoke test, and open the result.
 
 The output is placed under `dist/CineForge/`:
 
@@ -48,9 +48,10 @@ The portable build is the reliable fallback when the Rust toolchain is absent. W
 ```powershell
 .\packaging\launch_windows.ps1
 .\packaging\smoke_test.ps1 -ArtifactRoot .\dist\CineForge
+.\packaging\tamper_test.ps1 -ArtifactRoot .\dist\CineForge
 ```
 
-The launcher verifies the manifest hash and the adjacent web/Core runtime before starting the exact executable. The smoke test starts that artifact, checks `/healthz`, verifies that the root document is HTML, exercises project/item CRUD, stages a raw browser-style upload through `/v1/desktop/stage`, imports the opaque handle through Core, creates and verifies a local backup (including idempotent replay, redacted metadata, tamper detection, and storage-pressure admission), exercises exact-pin audio/subtitle timing metadata (invalid rational bounds, overlap, idempotent replay, stale projection after a checkpoint and redaction), builds and downloads a verified timeline interchange, registers a managed returned interchange with rights/consent and idempotent replay, and verifies all durable records after a bootstrap restart. Offline/demo mode is accepted only when the test is explicitly called with `-AllowOffline`; a production packaging run must have a ready Core. If a launch fails, inspect `%LOCALAPPDATA%\CineForge\data\logs\bootstrap.log` and `core.log`.
+The launcher verifies the manifest hash and the adjacent web/Core runtime before starting the exact executable. The smoke test starts that artifact, checks `/healthz`, verifies that the root document is HTML, exercises the redacted local integrity job list, project/item CRUD, stages a raw browser-style upload through `/v1/desktop/stage`, imports the opaque handle through Core, creates and verifies a local backup (including idempotent replay, redacted metadata, tamper detection, and storage-pressure admission), exercises exact-pin audio/subtitle timing metadata (invalid rational bounds, overlap, idempotent replay, stale projection after a checkpoint and redaction), builds and downloads a verified timeline interchange, registers a managed returned interchange with rights/consent and idempotent replay, and verifies all durable records after a bootstrap restart. `tamper_test.ps1` copies the artifact to a verified temp directory, changes a manifest-bound web byte, and proves the bootstrap exits with code 7 before creating user data. Offline/demo mode is accepted only when the test is explicitly called with `-AllowOffline`; a production packaging run must have a ready Core. If a launch fails, inspect `%LOCALAPPDATA%\CineForge\data\logs\bootstrap.log` and `core.log`.
 
 ## Release boundary
 

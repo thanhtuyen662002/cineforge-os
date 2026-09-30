@@ -456,4 +456,63 @@ describe('local Core adapter', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('maps durable integrity jobs and keeps mutating controls idempotent', async () => {
+    const hash = 'a'.repeat(64)
+    const job = {
+      id: 'job-1', project_id: 'project-1', job_type: 'STORAGE_OBJECT_INTEGRITY_PROBE', semantic_capability: 'STORAGE_OBJECT_INTEGRITY_PROBE',
+      priority: 50, state: 'QUEUED', subject_asset_revision_id: 'revision-1', subject_content_hash: hash,
+      requested_max_bytes: 4096, pinned_manifest_hash: 'b'.repeat(64), connector_version: 'local-probe-v1',
+      needs_user: false, next_step: 'The local verifier will read the pinned object.', row_version: 2, cancelable: true, retryable: false,
+      latest_attempt: { id: 'attempt-1', job_id: 'job-1', attempt_no: 1, retry_kind: 'INITIAL', state: 'CREATED', fencing_token: 'private-token', absolute_path: 'C:\\private\\object', bytes_read: 0 },
+      evidence: { id: 'evidence-1', job_attempt_id: 'attempt-1', project_id: 'project-1', asset_revision_id: 'revision-1', state: 'UNKNOWN', code: 'NOT_RUN', content_hash: hash, evidence: { private_path: 'C:\\private\\object' } },
+      usage: { resource_type: 'READ_BYTES', reserved_amount: 4096, state: 'RESERVED', private_path: 'C:\\private\\object' },
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('http://core/v1/jobs?')) {
+        const parsed = new URL(url)
+        expect(parsed.searchParams.get('limit')).toBe('25')
+        expect(parsed.searchParams.get('project_id')).toBe('project-1')
+        expect(parsed.searchParams.get('state')).toBe('QUEUED')
+        return new Response(JSON.stringify({ ok: true, result: { jobs: [job], projection_seq: 11 } }), { status: 200 })
+      }
+      expect(init?.method).toBe('POST')
+      const headers = init?.headers as Record<string, string>
+      expect(headers['Idempotency-Key']).toMatch(/^job-/)
+      if (url.endsWith('/assets/revision-1/integrity-probe')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ content_hash: hash, max_bytes: 4096 })
+      } else {
+        expect(JSON.parse(String(init?.body))).toEqual({ expected_version: 2 })
+      }
+      return new Response(JSON.stringify({ ok: true, result: { job: { ...job, state: url.endsWith('/cancel') ? 'CANCELLED_CONFIRMED' : 'COMPLETED', cancelable: false } } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const listed = await client.getJobs?.('project-1', 'queued', 25)
+      expect(listed?.jobs[0]).toMatchObject({ id: 'job-1', state: 'QUEUED', subjectContentHash: hash, rowVersion: 2 })
+      expect(listed?.jobs[0].latestAttempt).toMatchObject({ attemptNo: 1, state: 'CREATED' })
+      expect((listed?.jobs[0].latestAttempt as Record<string, unknown>).absolutePath).toBeUndefined()
+      expect((listed?.jobs[0].usage as Record<string, unknown>).privatePath).toBeUndefined()
+      expect(listed?.jobs[0].evidence?.evidence?.private_path).toBeUndefined()
+      const queued = await client.runManagedAssetIntegrityProbe?.('project-1', 'revision-1', hash.toUpperCase(), 4096, 'job-run-1')
+      expect(queued?.id).toBe('job-1')
+      const cancelled = await client.cancelManagedAssetIntegrityProbe?.('job-1', 2, 'job-cancel-1')
+      expect(cancelled?.state).toBe('CANCELLED_CONFIRMED')
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('fails closed when Core returns an integrity job without a stable identity', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true, result: { jobs: [{ state: 'QUEUED' }] } }), { status: 200 })))
+    try {
+      const client = new HttpCoreClient('http://core')
+      await expect(client.getJobs?.()).rejects.toMatchObject({ code: 'CORE_INVALID_RESPONSE' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
