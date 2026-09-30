@@ -1212,6 +1212,51 @@ commands fail closed with a scope conflict. `UNKNOWN` is never promoted to
 `PASS`, and a missing or malformed public state maps to `UNKNOWN` in an
 adapter rather than to a terminal success.
 
+## 19.2 Release build-plan metadata preflight
+
+The next bounded release boundary is an immutable **build plan**, not a media
+master. It gives a future certified renderer one exact, auditable input closure
+without pretending that bytes have been rendered. The project-scoped routes are:
+
+- `GET /v1/projects/{project_id}/release/build-plans`
+- `GET /v1/projects/{project_id}/release/build-plans/{build_plan_id}`
+- `POST /v1/projects/{project_id}/release/build-plans`
+
+The POST body is deliberately small:
+
+```json
+{
+  "release_candidate_id": "<draft-candidate>",
+  "expected_version": 1
+}
+```
+
+`CreateReleaseBuildPlan` requires an idempotency key and the current
+`RELEASE_CANDIDATE` row version. Core re-evaluates release readiness in the
+same command boundary and requires the candidate to remain `DRAFT`, to bind to
+the one exact approved timeline/profile/review source, and to have the same
+readiness and rights digests that were stored on the candidate. Any changed,
+stale, missing, restricted or `UNKNOWN` evidence fails closed with no plan
+row. The command never resolves `latest` and accepts no path, URI, provider
+identifier, generated payload or renderer-specific option.
+
+On success Core stores one immutable `release_build_plans` row in state
+`PLANNED`. Its redacted snapshot contains only the exact candidate, timeline,
+profile, review, readiness, rights and bounded audio/subtitle evidence needed
+to compile a later master request. The plan has a deterministic SHA-256
+`plan_hash`, append-only command/event/audit evidence and a human-readable
+`next_step` stating that a certified local master renderer is still required.
+It contains no output asset, media bytes, storage path, signing state or
+publication destination. Repeating the same immutable plan through another
+command is an explicit conflict; repeating the same idempotency key replays the
+same result.
+
+List/get projections are project-scoped and redact the stored snapshot. They
+return exact IDs, hashes, state, row version and next step only. `PLANNED` is
+not `BUILDING`, `VERIFIED`, `RELEASE_ACTIVATED` or `PUBLISHED`; the UI must
+keep master/export/sign/publish controls disabled until a separate renderer,
+durability, QC, release-manifest and publication contract exists.
+
 # 20. Connector host interface
 
 Every connector implementation exposes a versioned host contract.

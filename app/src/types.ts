@@ -1271,6 +1271,38 @@ export interface ReleaseCandidateList {
   generatedAt?: string
 }
 
+/**
+ * Metadata-only instructions for a future release build.  This record pins
+ * the candidate and every exact dependency identity/hash, but it never
+ * contains master bytes, a render capability, or a publish decision.
+ */
+export type ReleaseBuildPlanState = 'PLANNED' | 'UNKNOWN'
+
+export interface ReleaseBuildPlan {
+  id?: string
+  projectId?: string
+  releaseCandidateId?: string
+  timelineRevisionId?: string
+  mediaProfileRevisionId?: string
+  reviewSessionId?: string
+  readinessDigest?: string
+  rightsSnapshotHash?: string
+  planHash?: string
+  state: ReleaseBuildPlanState
+  nextStep?: string
+  rowVersion: number
+  snapshotSchemaVersion: number
+  createdAt?: string
+  updatedAt?: string
+  idempotentReplay?: boolean
+}
+
+export interface ReleaseBuildPlanList {
+  items: ReleaseBuildPlan[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
@@ -1309,6 +1341,9 @@ export interface CoreClient {
   getReleaseCandidate?(projectId: string, candidateId: string, signal?: AbortSignal): Promise<ReleaseCandidate>
   createReleaseCandidateDraft?(projectId: string, idempotencyKey?: string): Promise<ReleaseCandidate>
   cancelReleaseCandidateDraft?(projectId: string, candidateId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReleaseCandidate>
+  getReleaseBuildPlans?(projectId: string, signal?: AbortSignal): Promise<ReleaseBuildPlanList>
+  getReleaseBuildPlan?(projectId: string, planId: string, signal?: AbortSignal): Promise<ReleaseBuildPlan>
+  createReleaseBuildPlan?(projectId: string, input: { releaseCandidateId: string; expectedVersion: number }, idempotencyKey?: string): Promise<ReleaseBuildPlan>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>

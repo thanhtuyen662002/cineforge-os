@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -1634,6 +1634,65 @@ export function initializeDatabase(db) {
       BEFORE UPDATE ON release_candidates
       WHEN OLD.state = 'CANCELLED' AND NEW.state <> 'CANCELLED'
       BEGIN SELECT RAISE(ABORT, 'cancelled release_candidates are terminal'); END;
+  `);
+
+  // v20 immutable release-build-plan metadata preflight.  A plan pins the
+  // exact release-candidate evidence that a future certified renderer will
+  // consume; it contains no media bytes, output asset, path, provider or
+  // publication authority.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS release_build_plans (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      release_candidate_id TEXT NOT NULL REFERENCES release_candidates(id),
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      media_profile_revision_id TEXT NOT NULL REFERENCES project_media_profile_revisions(id),
+      review_session_id TEXT NOT NULL REFERENCES review_sessions(id),
+      readiness_digest TEXT NOT NULL CHECK (length(readiness_digest) = 64 AND readiness_digest NOT GLOB '*[^0-9a-fA-F]*'),
+      rights_snapshot_hash TEXT NOT NULL CHECK (length(rights_snapshot_hash) = 64 AND rights_snapshot_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      plan_hash TEXT NOT NULL UNIQUE CHECK (length(plan_hash) = 64 AND plan_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      plan_snapshot_json TEXT NOT NULL DEFAULT '{}',
+      plan_snapshot_schema_version INTEGER NOT NULL DEFAULT 1 CHECK (plan_snapshot_schema_version >= 1),
+      state TEXT NOT NULL CHECK (state IN ('PLANNED')),
+      next_step TEXT NOT NULL DEFAULT '',
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      command_id TEXT NOT NULL REFERENCES commands(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS release_build_plans_project_idx
+      ON release_build_plans(project_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS release_build_plans_candidate_idx
+      ON release_build_plans(release_candidate_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS release_build_plans_command_idx
+      ON release_build_plans(command_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS release_build_plans_candidate_uq
+      ON release_build_plans(project_id, release_candidate_id);
+    CREATE TRIGGER IF NOT EXISTS release_build_plans_no_delete
+      BEFORE DELETE ON release_build_plans
+      BEGIN SELECT RAISE(ABORT, 'release_build_plans are retained for audit'); END;
+    CREATE TRIGGER IF NOT EXISTS release_build_plans_identity_no_update
+      BEFORE UPDATE ON release_build_plans
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.release_candidate_id IS NOT OLD.release_candidate_id
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.review_session_id IS NOT OLD.review_session_id
+        OR NEW.readiness_digest IS NOT OLD.readiness_digest
+        OR NEW.rights_snapshot_hash IS NOT OLD.rights_snapshot_hash
+        OR NEW.plan_hash IS NOT OLD.plan_hash
+        OR NEW.plan_snapshot_json IS NOT OLD.plan_snapshot_json
+        OR NEW.plan_snapshot_schema_version IS NOT OLD.plan_snapshot_schema_version
+        OR NEW.state IS NOT OLD.state
+        OR NEW.next_step IS NOT OLD.next_step
+        OR NEW.row_version IS NOT OLD.row_version
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+        OR NEW.updated_at_utc_us IS NOT OLD.updated_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'release_build_plan identity is immutable'); END;
   `);
 
   // v7 backup metadata is created after the command/audit tables so its

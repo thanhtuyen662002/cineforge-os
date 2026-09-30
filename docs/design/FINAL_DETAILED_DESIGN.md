@@ -395,6 +395,13 @@ Deliver:
 - GC dry-run;
 - backup/restore.
 
+The current executable continuation after the metadata-only release candidate
+is the `CreateReleaseBuildPlan` preflight. It freezes the exact input closure
+for a future renderer and records a deterministic plan hash, but it does not
+render, transcode, create a master, sign, publish or create a release
+manifest. A real master requires a separate pinned local renderer/toolchain,
+durability and QC contract before that boundary can be opened.
+
 ## Slice 7 — First real film
 Produce a 3–5 minute film with:
 - at least two speaking characters;

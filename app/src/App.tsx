@@ -51,7 +51,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, ManagedAssetIntegrityJob, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryStatus, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, ManagedAssetIntegrityJob, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryStatus, ReleaseBuildPlan, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'release' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -609,6 +609,12 @@ function workspaceErrorMessage(cause: unknown, locale: Locale) {
     RELEASE_CANDIDATE_ALREADY_EXISTS: { vi: 'Candidate đã tồn tại cho exact source và readiness digest này; hãy dùng bản đang có.', en: 'A candidate already exists for this exact source and readiness digest; use the existing draft.' },
     RELEASE_CANDIDATE_NOT_FOUND: { vi: 'Release candidate không còn tồn tại trong Core.', en: 'The release candidate no longer exists in Core.' },
     RELEASE_CANDIDATE_NOT_CANCELLABLE: { vi: 'Candidate đã ở trạng thái terminal và không thể huỷ thêm.', en: 'This candidate is terminal and cannot be cancelled again.' },
+    RELEASE_BUILD_PLAN_NOT_FOUND: { vi: 'Build plan không còn tồn tại trong Core; hãy tải lại danh sách plan.', en: 'The build plan no longer exists in Core; refresh the plan list.' },
+    RELEASE_BUILD_PLAN_ALREADY_EXISTS: { vi: 'Candidate này đã có build plan; hãy dùng plan hiện có hoặc tải lại.', en: 'This candidate already has a build plan; use the existing plan or refresh.' },
+    RELEASE_BUILD_PLAN_CANDIDATE_INVALID: { vi: 'Candidate chưa ở trạng thái DRAFT hợp lệ trên readiness READY; hãy tải lại readiness và candidate.', en: 'The candidate is not a valid DRAFT on READY readiness; refresh readiness and candidates.' },
+    RELEASE_BUILD_PLAN_MASTER_ALREADY_BOUND: { vi: 'Candidate đã gắn với master; không thể tạo thêm build plan metadata.', en: 'The candidate is already bound to a master; another metadata build plan cannot be created.' },
+    RELEASE_BUILD_PLAN_STALE: { vi: 'Candidate hoặc dependency đã thay đổi; hãy tải lại rồi lập plan từ row version mới.', en: 'The candidate or dependency changed; refresh and plan again from the current row version.' },
+    INVALID_RELEASE_BUILD_PLAN_STATE: { vi: 'Trạng thái build plan không hợp lệ; không thể tiếp tục.', en: 'The build plan state is invalid; the action cannot continue.' },
     HANDOFF_MEDIA_PROFILE_NOT_APPROVED: { vi: 'Media Profile của timeline chưa được approve.', en: 'The timeline media profile is not approved.' },
     STORAGE_PRESSURE: { vi: 'Dung lượng trống không đủ cho backup này; hãy giải phóng dung lượng rồi thử lại.', en: 'There is not enough free storage for this backup; free space and try again.' },
     STORAGE_CAPACITY_UNKNOWN: { vi: 'Core chưa xác minh được dung lượng trống. Không thể tạo backup an toàn.', en: 'Core could not verify free storage. A safe backup cannot be created.' },
@@ -3195,6 +3201,15 @@ function releaseCandidateStateClass(state: ReleaseCandidate['state']): string {
   return 'fail'
 }
 
+function releaseBuildPlanStateLabel(state: ReleaseBuildPlan['state'], locale: Locale): string {
+  if (state === 'PLANNED') return locale === 'vi' ? 'Đã lập kế hoạch' : 'Planned'
+  return locale === 'vi' ? 'Không xác định' : 'Unknown'
+}
+
+function releaseBuildPlanStateClass(state: ReleaseBuildPlan['state']): string {
+  return state === 'PLANNED' ? 'pass' : 'fail'
+}
+
 const RELEASE_CANDIDATE_HASH = /^[a-f0-9]{64}$/i
 
 function safeReleaseCandidateText(value: unknown, maxLength = 512): string | undefined {
@@ -3238,6 +3253,39 @@ function normalizeReleaseCandidate(value: unknown): ReleaseCandidate | null {
   }
 }
 
+const RELEASE_BUILD_PLAN_HASH = /^[a-f0-9]{64}$/i
+
+function normalizeReleaseBuildPlan(value: unknown): ReleaseBuildPlan | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const source = value as Record<string, unknown>
+  const rawState = typeof source.state === 'string' ? source.state.toUpperCase() : 'UNKNOWN'
+  const rawVersion = Number(source.rowVersion ?? source.row_version)
+  const rawSnapshotVersion = Number(source.snapshotSchemaVersion ?? source.planSnapshotSchemaVersion ?? source.plan_snapshot_schema_version ?? source.snapshot_schema_version)
+  const safeId = (input: unknown, maxLength = 160) => safeReleaseCandidateText(input, maxLength)
+  const hash = (camel: string, snake: string) => {
+    const candidate = safeReleaseCandidateText(source[camel] ?? source[snake], 64)
+    return candidate && RELEASE_BUILD_PLAN_HASH.test(candidate) ? candidate.toLowerCase() : undefined
+  }
+  return {
+    id: safeId(source.id ?? source.buildPlanId ?? source.build_plan_id),
+    projectId: safeId(source.projectId ?? source.project_id),
+    releaseCandidateId: safeId(source.releaseCandidateId ?? source.release_candidate_id),
+    timelineRevisionId: safeId(source.timelineRevisionId ?? source.timeline_revision_id),
+    mediaProfileRevisionId: safeId(source.mediaProfileRevisionId ?? source.media_profile_revision_id),
+    reviewSessionId: safeId(source.reviewSessionId ?? source.review_session_id),
+    readinessDigest: hash('readinessDigest', 'readiness_digest'),
+    rightsSnapshotHash: hash('rightsSnapshotHash', 'rights_snapshot_hash'),
+    planHash: hash('planHash', 'plan_hash'),
+    state: rawState === 'PLANNED' ? 'PLANNED' : 'UNKNOWN',
+    nextStep: safeReleaseCandidateText(source.nextStep ?? source.next_step),
+    rowVersion: Number.isSafeInteger(rawVersion) && rawVersion >= 1 ? rawVersion : 0,
+    snapshotSchemaVersion: Number.isSafeInteger(rawSnapshotVersion) && rawSnapshotVersion >= 1 && rawSnapshotVersion <= 100 ? rawSnapshotVersion : 0,
+    createdAt: safeReleaseCandidateText(source.createdAt ?? source.created_at, 80),
+    updatedAt: safeReleaseCandidateText(source.updatedAt ?? source.updated_at, 80),
+    idempotentReplay: source.idempotentReplay === true || source.idempotent_replay === true,
+  }
+}
+
 function releaseCandidateFingerprint(readiness: ReleaseReadiness, projectId: string): string {
   const sourceEntries = Object.entries(readiness.exactSource ?? {})
     .filter(([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
@@ -3277,14 +3325,20 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
   const [projectId, setProjectId] = useState(() => snapshot.projects[0]?.id ?? '')
   const [readiness, setReadiness] = useState<ReleaseReadiness | null>(null)
   const [candidates, setCandidates] = useState<ReleaseCandidate[]>([])
+  const [buildPlans, setBuildPlans] = useState<ReleaseBuildPlan[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [candidateError, setCandidateError] = useState<string | null>(null)
+  const [buildPlanError, setBuildPlanError] = useState<string | null>(null)
   const [mutating, setMutating] = useState<string | null>(null)
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
   const [selectedCandidate, setSelectedCandidate] = useState<ReleaseCandidate | null>(null)
   const [candidateDetailLoading, setCandidateDetailLoading] = useState(false)
   const [candidateDetailError, setCandidateDetailError] = useState<string | null>(null)
+  const [selectedBuildPlanId, setSelectedBuildPlanId] = useState<string | null>(null)
+  const [selectedBuildPlan, setSelectedBuildPlan] = useState<ReleaseBuildPlan | null>(null)
+  const [buildPlanDetailLoading, setBuildPlanDetailLoading] = useState(false)
+  const [buildPlanDetailError, setBuildPlanDetailError] = useState<string | null>(null)
   const generationRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
   const candidateIntentSequenceRef = useRef(0)
@@ -3295,6 +3349,9 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
   const candidateListSupported = typeof client.getReleaseCandidates === 'function'
   const candidateCreateSupported = typeof client.createReleaseCandidateDraft === 'function'
   const candidateCancelSupported = typeof client.cancelReleaseCandidateDraft === 'function'
+  const buildPlanListSupported = typeof client.getReleaseBuildPlans === 'function'
+  const buildPlanDetailSupported = typeof client.getReleaseBuildPlan === 'function'
+  const buildPlanCreateSupported = typeof client.createReleaseBuildPlan === 'function'
 
   const candidateIntent = (currentReadiness: ReleaseReadiness, currentProjectId: string) => {
     const fingerprint = releaseCandidateFingerprint(currentReadiness, currentProjectId)
@@ -3325,11 +3382,17 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
       abortRef.current?.abort()
       setReadiness(null)
       setCandidates([])
+      setBuildPlans([])
       setSelectedCandidateId(null)
       setSelectedCandidate(null)
       setCandidateDetailError(null)
+      setSelectedBuildPlanId(null)
+      setSelectedBuildPlan(null)
+      setBuildPlanDetailLoading(false)
+      setBuildPlanDetailError(null)
       setError(null)
       setCandidateError(null)
+      setBuildPlanError(null)
       setMutating(null)
       setProjectId(snapshot.projects[0]?.id ?? '')
     }
@@ -3342,11 +3405,17 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     abortRef.current = controller
     setReadiness(null)
     setCandidates([])
+    setBuildPlans([])
     setSelectedCandidateId(null)
     setSelectedCandidate(null)
     setCandidateDetailError(null)
+    setSelectedBuildPlanId(null)
+    setSelectedBuildPlan(null)
+    setBuildPlanDetailLoading(false)
+    setBuildPlanDetailError(null)
     setError(null)
     setCandidateError(null)
+    setBuildPlanError(null)
     // A project change or manual refresh invalidates any in-flight mutation as
     // well as its read models. Otherwise a stale promise could leave the new
     // project permanently disabled after its generation has moved on.
@@ -3365,8 +3434,11 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     const candidateRequest = candidateListSupported
       ? client.getReleaseCandidates!(projectId, controller.signal).then((value) => ({ value, error: null as unknown })).catch((cause: unknown) => ({ value: null, error: cause }))
       : Promise.resolve({ value: null, error: null as unknown })
+    const buildPlanRequest = buildPlanListSupported
+      ? client.getReleaseBuildPlans!(projectId, controller.signal).then((value) => ({ value, error: null as unknown })).catch((cause: unknown) => ({ value: null, error: cause }))
+      : Promise.resolve({ value: null, error: null as unknown })
     try {
-      const [next, candidateResult] = await Promise.all([client.getReleaseReadiness!(projectId, controller.signal), candidateRequest])
+      const [next, candidateResult, buildPlanResult] = await Promise.all([client.getReleaseReadiness!(projectId, controller.signal), candidateRequest, buildPlanRequest])
       if (generation !== generationRef.current || controller.signal.aborted) return
       if (next.projectId !== projectId) {
         setError(locale === 'vi' ? 'Core trả về readiness không thuộc project đang chọn; không thể kết luận an toàn.' : 'Core returned readiness for a different project; no safe conclusion can be shown.')
@@ -3387,13 +3459,28 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
           setSelectedCandidateId((current) => current && scoped.some((candidate) => candidate.id === current) ? current : scoped[0]?.id ?? null)
         }
       }
+      if (buildPlanResult.error) setBuildPlanError(workspaceErrorMessage(buildPlanResult.error, locale))
+      else if (buildPlanResult.value) {
+        const items = buildPlanResult.value.items
+        if (!Array.isArray(items)) {
+          setBuildPlanError(locale === 'vi' ? 'Core trả về danh sách build plan không hợp lệ; dữ liệu chưa xác minh bị ẩn.' : 'Core returned an invalid build plan list; unverified data is hidden.')
+        } else {
+          const normalized = items.map(normalizeReleaseBuildPlan).filter((plan): plan is ReleaseBuildPlan => Boolean(plan))
+          const scoped = normalized.filter((plan) => plan.projectId === projectId && Boolean(plan.id && plan.releaseCandidateId && plan.planHash))
+          if (normalized.length !== items.length || scoped.length !== normalized.length) {
+            setBuildPlanError(locale === 'vi' ? 'Core trả về build plan thiếu project, candidate, identity hoặc plan hash; bản ghi chưa xác minh bị ẩn.' : 'Core returned a build plan without a project, candidate, identity, or plan hash; unverified records are hidden.')
+          }
+          setBuildPlans(scoped)
+          setSelectedBuildPlanId((current) => current && scoped.some((plan) => plan.id === current) ? current : scoped[0]?.id ?? null)
+        }
+      }
     } catch (cause) {
       if (controller.signal.aborted || (cause instanceof DOMException && cause.name === 'AbortError')) return
       if (generation === generationRef.current) setError(workspaceErrorMessage(cause, locale))
     } finally {
       if (generation === generationRef.current && !controller.signal.aborted) setLoading(false)
     }
-  }, [candidateListSupported, client, connected, locale, projectId, supported])
+  }, [buildPlanListSupported, candidateListSupported, client, connected, locale, projectId, supported])
 
   useEffect(() => {
     void load()
@@ -3410,11 +3497,17 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     // candidate can be mistaken for evidence belonging to it.
     setReadiness(null)
     setCandidates([])
+    setBuildPlans([])
     setSelectedCandidateId(null)
     setSelectedCandidate(null)
     setCandidateDetailError(null)
+    setSelectedBuildPlanId(null)
+    setSelectedBuildPlan(null)
+    setBuildPlanDetailLoading(false)
+    setBuildPlanDetailError(null)
     setError(null)
     setCandidateError(null)
+    setBuildPlanError(null)
     setMutating(null)
     setLoading(false)
   }
@@ -3439,6 +3532,59 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
       setCandidateDetailLoading(false)
     }
   }, [client, locale, projectId])
+
+  const inspectBuildPlan = useCallback(async (plan: ReleaseBuildPlan) => {
+    const generation = generationRef.current
+    setSelectedBuildPlanId(plan.id ?? null)
+    setSelectedBuildPlan(plan)
+    setBuildPlanDetailError(null)
+    if (!plan.id || !client.getReleaseBuildPlan) return
+    setBuildPlanDetailLoading(true)
+    try {
+      const detail = await client.getReleaseBuildPlan(projectId, plan.id)
+      const normalized = normalizeReleaseBuildPlan(detail)
+      if (generation !== generationRef.current) return
+      if (!normalized || normalized.projectId !== projectId || normalized.id !== plan.id) {
+        setBuildPlanDetailError(locale === 'vi' ? 'Core trả về build plan không đúng project; chi tiết bị ẩn.' : 'Core returned a build plan outside the selected project; details are hidden.')
+        return
+      }
+      setSelectedBuildPlan(normalized)
+    } catch (cause) {
+      if (generation === generationRef.current) setBuildPlanDetailError(workspaceErrorMessage(cause, locale))
+    } finally {
+      if (generation === generationRef.current) setBuildPlanDetailLoading(false)
+    }
+  }, [client, locale, projectId])
+
+  const createBuildPlan = useCallback(async (candidate: ReleaseCandidate) => {
+    if (!connected || !project || !projectId || !buildPlanListSupported || !buildPlanCreateSupported || !client.createReleaseBuildPlan
+      || !readiness || readiness.projectId !== projectId || readiness.overallState !== 'READY'
+      || !candidate.id || candidate.projectId !== projectId || candidate.state !== 'DRAFT'
+      || !Number.isSafeInteger(candidate.rowVersion) || candidate.rowVersion < 1 || mutating) return
+    if (buildPlans.some((plan) => plan.projectId === projectId && plan.releaseCandidateId === candidate.id && plan.state === 'PLANNED')) return
+    const generation = generationRef.current
+    const expectedVersion = candidate.rowVersion
+    setMutating(`build-plan:${candidate.id}`)
+    setBuildPlanError(null)
+    try {
+      const planned = await client.createReleaseBuildPlan(projectId, { releaseCandidateId: candidate.id, expectedVersion }, `release-build-plan:${candidate.id}:v${expectedVersion}`)
+      if (generation !== generationRef.current) return
+      const normalized = normalizeReleaseBuildPlan(planned)
+      const valid = Boolean(normalized && normalized.projectId === projectId && normalized.releaseCandidateId === candidate.id
+        && normalized.id && normalized.state === 'PLANNED' && normalized.planHash && Number.isSafeInteger(normalized.rowVersion) && normalized.rowVersion >= 1)
+      if (!valid || !normalized) {
+        setBuildPlanError(locale === 'vi' ? 'Core trả về build plan thiếu identity, trạng thái PLANNED hoặc plan hash; bản ghi bị ẩn.' : 'Core returned a build plan without an exact identity, PLANNED state, or plan hash; the record was hidden.')
+      } else {
+        setBuildPlans((current) => [normalized, ...current.filter((item) => item.id !== normalized.id)])
+        setSelectedBuildPlanId(normalized.id ?? null)
+        setSelectedBuildPlan(normalized)
+      }
+    } catch (cause) {
+      if (generation === generationRef.current) setBuildPlanError(workspaceErrorMessage(cause, locale))
+    } finally {
+      if (generation === generationRef.current) setMutating(null)
+    }
+  }, [buildPlanCreateSupported, buildPlanListSupported, buildPlans, client, connected, locale, mutating, project, projectId, readiness])
 
   const createCandidate = useCallback(async () => {
     if (!connected || !project || !readiness || readiness.projectId !== projectId || readiness.overallState !== 'READY' || !projectId || !candidateListSupported || !candidateCreateSupported || !client.createReleaseCandidateDraft || mutating) return
@@ -3507,6 +3653,23 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
             : readiness && readiness.overallState !== 'READY'
               ? (locale === 'vi' ? 'Chỉ tạo candidate khi readiness là READY. FAIL và UNKNOWN đều chặn.' : 'A candidate can be created only when readiness is READY. FAIL and UNKNOWN both block it.')
               : null
+  const plannedBuildFor = (candidate: ReleaseCandidate) => buildPlans.find((plan) => plan.projectId === projectId && plan.releaseCandidateId === candidate.id && plan.state === 'PLANNED')
+  const buildPlanBlockerFor = (candidate: ReleaseCandidate): string | null => {
+    if (!connected) return locale === 'vi' ? 'Core offline; build plan cần dữ liệu canonical hiện tại.' : 'Core is offline; a build plan requires current canonical data.'
+    if (!buildPlanListSupported) return locale === 'vi' ? 'Bridge chưa hỗ trợ danh sách build plan.' : 'This bridge does not expose build plans yet.'
+    if (!buildPlanCreateSupported) return locale === 'vi' ? 'Bridge chưa hỗ trợ lập build plan.' : 'This bridge does not expose build plan creation yet.'
+    if (!candidate.id || candidate.projectId !== projectId) return locale === 'vi' ? 'Candidate không thuộc project đang chọn.' : 'The candidate is outside the selected project.'
+    if (!readiness || readiness.projectId !== projectId || readiness.overallState !== 'READY') return locale === 'vi' ? 'Readiness phải READY trước khi lập build plan.' : 'Readiness must be READY before creating a build plan.'
+    if (candidate.state !== 'DRAFT') return locale === 'vi' ? 'Chỉ candidate DRAFT trên readiness READY mới được lập build plan.' : 'Only a DRAFT candidate on READY readiness can receive a build plan.'
+    if (!Number.isSafeInteger(candidate.rowVersion) || candidate.rowVersion < 1) return locale === 'vi' ? 'Candidate thiếu row version hợp lệ.' : 'The candidate has no valid row version.'
+    if (plannedBuildFor(candidate)) return locale === 'vi' ? 'Candidate này đã có build plan PLANNED.' : 'This candidate already has a PLANNED build plan.'
+    return null
+  }
+  const buildPlanPanelBlocker = !connected
+    ? (locale === 'vi' ? 'Core offline; build plan chỉ đọc được khi có canonical data.' : 'Core is offline; build plans require current canonical data.')
+    : !buildPlanListSupported
+      ? (locale === 'vi' ? 'Bridge hiện tại chưa cung cấp Release Build Plan.' : 'This bridge does not expose Release Build Plans yet.')
+      : null
   return <div className="page release-page">
     <div className="page-heading"><div><p className="eyebrow">{locale === 'vi' ? 'SẴN SÀNG PHÁT HÀNH' : 'RELEASE READINESS'}</p><h1>{locale === 'vi' ? 'Kiểm tra readiness' : 'Release readiness'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Core kiểm tra đúng revision trước khi lưu một candidate metadata-only. Master, export và publish là boundary riêng.' : 'Core checks exact revisions before saving a metadata-only candidate. Mastering, export and publish are separate boundaries.'}</p></div><button className="subtle-button" onClick={() => void load()} disabled={loading || !projectId}><RefreshCw size={15} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>
     <div className="release-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="release-project-select" value={projectId} onChange={(event) => switchProject(event.target.value)} aria-label={locale === 'vi' ? 'Project readiness' : 'Readiness project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className="state-label"><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>
@@ -3515,7 +3678,8 @@ export function ReleaseView({ snapshot, locale, client }: { snapshot: DashboardS
     {!loading && !error && !readiness && !project && <EmptyState icon={ShieldCheck} title={locale === 'vi' ? 'Chưa có project' : 'No project selected'} detail={locale === 'vi' ? 'Tạo project trước khi kiểm tra readiness.' : 'Create a project before checking readiness.'} />}
     {readiness && <>
       <section className="release-overview-card"><div><p className="eyebrow">{locale === 'vi' ? 'KẾT LUẬN HIỆN TẠI' : 'CURRENT CONCLUSION'}</p><div className="release-overview-heading"><span className={`release-status ${releaseStateClass(overallState)}`}><span />{releaseStateLabel(overallState, locale)}</span><strong>{readiness.projectTitle ?? project?.name ?? projectId}</strong></div><p>{readiness.nextStep ?? (locale === 'vi' ? 'Refresh sau khi xử lý blocker.' : 'Refresh after resolving the blocker.')}</p></div><div className="release-overview-facts"><div><span>{locale === 'vi' ? 'Gate chặn' : 'Blocking gates'}</span><strong>{readiness.blockingCount}</strong></div><div><span>UNKNOWN</span><strong>{readiness.unknownCount}</strong></div><div><span>Manifest hash</span><strong title={readiness.gateManifestHash}>{readiness.gateManifestHash?.slice(0, 12) ?? '—'}</strong></div></div></section>
-      <section className="release-candidates-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><PackageOpen size={16} /></span><div><h2>{locale === 'vi' ? 'Metadata release candidate' : 'Release candidate metadata'}</h2><p>{locale === 'vi' ? 'Bản nháp giữ exact refs và digest; chưa có master bytes hoặc thao tác publish.' : 'Drafts keep exact refs and digests; no master bytes or publish action exists here.'}</p></div></div><button type="button" className="primary-button small" onClick={() => void createCandidate()} disabled={!canCreate} title={candidateBlocker ?? undefined}>{mutating === 'create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Tạo candidate' : 'Create candidate'}</button></div>{candidateBlocker && <p className="readonly-note"><Info size={14} />{candidateBlocker}</p>}{!connected && <p className="readonly-note"><CloudOff size={14} />{locale === 'vi' ? 'Core offline; tạo và huỷ candidate bị khoá.' : 'Core is offline; candidate creation and cancellation are disabled.'}</p>}{!candidateListSupported && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ danh sách release candidate.' : 'This bridge does not expose the release candidate list yet.'}</p>}{candidateError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateError}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Tải lại' : 'Retry'}</button></div>}{candidateListSupported && candidates.length === 0 && <div className="empty-inline"><PackageOpen size={16} /><span>{locale === 'vi' ? 'Chưa có candidate metadata.' : 'No release candidate metadata yet.'}</span></div>}{candidateListSupported && candidates.length > 0 && <div className="release-candidate-list">{candidates.map((candidate) => <article className={`release-candidate-row ${selectedCandidateId === candidate.id ? 'active' : ''}`} key={candidate.id ?? `${candidate.timelineRevisionId}-${candidate.readinessDigest}`}><div className="release-candidate-main"><div className="release-candidate-heading"><strong>{candidate.id ?? (locale === 'vi' ? 'Candidate không tên' : 'Unnamed candidate')}</strong><span className={`release-status ${releaseCandidateStateClass(candidate.state)}`}><span />{releaseCandidateStateLabel(candidate.state, locale)}</span></div><small>{locale === 'vi' ? 'Timeline revision' : 'Timeline revision'}: {candidate.timelineRevisionId ?? '—'} · v{candidate.rowVersion}</small><div className="release-candidate-facts"><span>{locale === 'vi' ? 'Media profile' : 'Media profile'}: {candidate.mediaProfileRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'QC review' : 'QC review'}: {candidate.reviewSessionId ?? '—'}</span><span>{locale === 'vi' ? 'Readiness digest' : 'Readiness digest'}: {candidate.readinessDigest?.slice(0, 12) ?? '—'}</span><span>{locale === 'vi' ? 'Rights hash' : 'Rights hash'}: {candidate.rightsSnapshotHash?.slice(0, 12) ?? '—'}</span></div><p className="release-next-step">{candidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; chưa có master.' : 'Metadata-only; no master exists.')}</p></div><div className="release-candidate-actions">{client.getReleaseCandidate && candidate.id && <button type="button" className="subtle-button tiny" onClick={() => void inspectCandidate(candidate)} disabled={candidateDetailLoading && selectedCandidateId === candidate.id}>{candidateDetailLoading && selectedCandidateId === candidate.id ? <RefreshCw size={12} className="spin" /> : <Info size={12} />}{locale === 'vi' ? 'Chi tiết' : 'Details'}</button>}{candidate.state === 'DRAFT' && candidate.id && candidate.projectId === projectId && Number.isSafeInteger(candidate.rowVersion) && candidate.rowVersion >= 1 && <button type="button" className="subtle-button tiny" onClick={() => void cancelCandidate(candidate)} disabled={!connected || !candidateCancelSupported || mutating !== null}>{mutating === `cancel:${candidate.id}` ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}{locale === 'vi' ? 'Huỷ draft' : 'Cancel draft'}</button>}</div></article>)}</div>}{client.getReleaseCandidate && selectedCandidateId && <section className="release-candidate-detail" aria-live="polite">{candidateDetailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết candidate…' : 'Reading candidate details…'} /> : candidateDetailError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateDetailError}</span><button type="button" className="subtle-button tiny" onClick={() => { const current = candidates.find((candidate) => candidate.id === selectedCandidateId); if (current) void inspectCandidate(current) }}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : selectedCandidate ? <><div className="card-heading"><div><strong>{locale === 'vi' ? 'Chi tiết release candidate' : 'Release candidate details'}</strong><small>{selectedCandidate.id} · row v{selectedCandidate.rowVersion}</small></div><span className={`release-status ${releaseCandidateStateClass(selectedCandidate.state)}`}><span />{releaseCandidateStateLabel(selectedCandidate.state, locale)}</span></div><div className="release-candidate-facts release-candidate-detail-facts"><span><small>Timeline revision</small><strong>{selectedCandidate.timelineRevisionId ?? '—'}</strong></span><span><small>Media profile</small><strong>{selectedCandidate.mediaProfileRevisionId ?? '—'}</strong></span><span><small>Review session</small><strong>{selectedCandidate.reviewSessionId ?? '—'}</strong></span><span><small>Readiness digest</small><strong title={selectedCandidate.readinessDigest}>{selectedCandidate.readinessDigest?.slice(0, 16) ?? '—'}</strong></span><span><small>Rights snapshot</small><strong title={selectedCandidate.rightsSnapshotHash}>{selectedCandidate.rightsSnapshotHash?.slice(0, 16) ?? '—'}</strong></span></div><p className="readonly-note"><Info size={14} />{selectedCandidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; master/export/publish chưa được bật.' : 'Metadata-only; mastering/export/publish are not enabled.')}</p></> : null}</section>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Candidate là metadata immutable có cancel audit. Render, export, sign và publish chưa được bật.' : 'A candidate is immutable metadata with an audited cancel transition. Render, export, signing and publish are not enabled.'}</p></section>
+      <section className="release-candidates-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><PackageOpen size={16} /></span><div><h2>{locale === 'vi' ? 'Metadata release candidate' : 'Release candidate metadata'}</h2><p>{locale === 'vi' ? 'Bản nháp giữ exact refs và digest; chưa có master bytes hoặc thao tác publish.' : 'Drafts keep exact refs and digests; no master bytes or publish action exists here.'}</p></div></div><button type="button" className="primary-button small" onClick={() => void createCandidate()} disabled={!canCreate} title={candidateBlocker ?? undefined}>{mutating === 'create' ? <RefreshCw size={14} className="spin" /> : <Plus size={14} />}{locale === 'vi' ? 'Tạo candidate' : 'Create candidate'}</button></div>{candidateBlocker && <p className="readonly-note"><Info size={14} />{candidateBlocker}</p>}{!connected && <p className="readonly-note"><CloudOff size={14} />{locale === 'vi' ? 'Core offline; tạo và huỷ candidate bị khoá.' : 'Core is offline; candidate creation and cancellation are disabled.'}</p>}{!candidateListSupported && <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chưa hỗ trợ danh sách release candidate.' : 'This bridge does not expose the release candidate list yet.'}</p>}{candidateError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateError}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading}>{locale === 'vi' ? 'Tải lại' : 'Retry'}</button></div>}{candidateListSupported && candidates.length === 0 && <div className="empty-inline"><PackageOpen size={16} /><span>{locale === 'vi' ? 'Chưa có candidate metadata.' : 'No release candidate metadata yet.'}</span></div>}{candidateListSupported && candidates.length > 0 && <div className="release-candidate-list">{candidates.map((candidate) => <article className={`release-candidate-row ${selectedCandidateId === candidate.id ? 'active' : ''}`} key={candidate.id ?? `${candidate.timelineRevisionId}-${candidate.readinessDigest}`}><div className="release-candidate-main"><div className="release-candidate-heading"><strong>{candidate.id ?? (locale === 'vi' ? 'Candidate không tên' : 'Unnamed candidate')}</strong><span className={`release-status ${releaseCandidateStateClass(candidate.state)}`}><span />{releaseCandidateStateLabel(candidate.state, locale)}</span></div><small>{locale === 'vi' ? 'Timeline revision' : 'Timeline revision'}: {candidate.timelineRevisionId ?? '—'} · v{candidate.rowVersion}</small><div className="release-candidate-facts"><span>{locale === 'vi' ? 'Media profile' : 'Media profile'}: {candidate.mediaProfileRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'QC review' : 'QC review'}: {candidate.reviewSessionId ?? '—'}</span><span>{locale === 'vi' ? 'Readiness digest' : 'Readiness digest'}: {candidate.readinessDigest?.slice(0, 12) ?? '—'}</span><span>{locale === 'vi' ? 'Rights hash' : 'Rights hash'}: {candidate.rightsSnapshotHash?.slice(0, 12) ?? '—'}</span></div><p className="release-next-step">{candidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; chưa có master.' : 'Metadata-only; no master exists.')}</p></div><div className="release-candidate-actions">{client.getReleaseCandidate && candidate.id && <button type="button" className="subtle-button tiny" onClick={() => void inspectCandidate(candidate)} disabled={candidateDetailLoading && selectedCandidateId === candidate.id}>{candidateDetailLoading && selectedCandidateId === candidate.id ? <RefreshCw size={12} className="spin" /> : <Info size={12} />}{locale === 'vi' ? 'Chi tiết' : 'Details'}</button>}{(buildPlanListSupported || buildPlanCreateSupported) && candidate.id && <button type="button" className="subtle-button tiny" onClick={() => void createBuildPlan(candidate)} disabled={Boolean(buildPlanBlockerFor(candidate)) || mutating !== null} title={buildPlanBlockerFor(candidate) ?? undefined}>{mutating === `build-plan:${candidate.id}` ? <RefreshCw size={12} className="spin" /> : <Layers3 size={12} />}{plannedBuildFor(candidate) ? (locale === 'vi' ? 'Đã lập plan' : 'Planned') : (locale === 'vi' ? 'Lập build plan' : 'Plan build')}</button>}{candidate.state === 'DRAFT' && candidate.id && candidate.projectId === projectId && Number.isSafeInteger(candidate.rowVersion) && candidate.rowVersion >= 1 && <button type="button" className="subtle-button tiny" onClick={() => void cancelCandidate(candidate)} disabled={!connected || !candidateCancelSupported || mutating !== null}>{mutating === `cancel:${candidate.id}` ? <RefreshCw size={12} className="spin" /> : <XCircle size={12} />}{locale === 'vi' ? 'Huỷ draft' : 'Cancel draft'}</button>}</div></article>)}</div>}{client.getReleaseCandidate && selectedCandidateId && <section className="release-candidate-detail" aria-live="polite">{candidateDetailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết candidate…' : 'Reading candidate details…'} /> : candidateDetailError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{candidateDetailError}</span><button type="button" className="subtle-button tiny" onClick={() => { const current = candidates.find((candidate) => candidate.id === selectedCandidateId); if (current) void inspectCandidate(current) }}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : selectedCandidate ? <><div className="card-heading"><div><strong>{locale === 'vi' ? 'Chi tiết release candidate' : 'Release candidate details'}</strong><small>{selectedCandidate.id} · row v{selectedCandidate.rowVersion}</small></div><span className={`release-status ${releaseCandidateStateClass(selectedCandidate.state)}`}><span />{releaseCandidateStateLabel(selectedCandidate.state, locale)}</span></div><div className="release-candidate-facts release-candidate-detail-facts"><span><small>Timeline revision</small><strong>{selectedCandidate.timelineRevisionId ?? '—'}</strong></span><span><small>Media profile</small><strong>{selectedCandidate.mediaProfileRevisionId ?? '—'}</strong></span><span><small>Review session</small><strong>{selectedCandidate.reviewSessionId ?? '—'}</strong></span><span><small>Readiness digest</small><strong title={selectedCandidate.readinessDigest}>{selectedCandidate.readinessDigest?.slice(0, 16) ?? '—'}</strong></span><span><small>Rights snapshot</small><strong title={selectedCandidate.rightsSnapshotHash}>{selectedCandidate.rightsSnapshotHash?.slice(0, 16) ?? '—'}</strong></span></div><p className="readonly-note"><Info size={14} />{selectedCandidate.nextStep ?? (locale === 'vi' ? 'Metadata-only; master/export/publish chưa được bật.' : 'Metadata-only; mastering/export/publish are not enabled.')}</p></> : null}</section>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Candidate là metadata immutable có cancel audit. Render, export, sign và publish chưa được bật.' : 'A candidate is immutable metadata with an audited cancel transition. Render, export, signing and publish are not enabled.'}</p></section>
+      <section className="release-build-plans-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon blue"><Layers3 size={16} /></span><div><h2>{locale === 'vi' ? 'Release Build Plan metadata' : 'Release Build Plan metadata'}</h2><p>{locale === 'vi' ? 'Kế hoạch chỉ pin candidate và exact dependency hashes; chưa render, chưa tạo master bytes, chưa export hoặc publish.' : 'The plan pins a candidate and exact dependency hashes only; it does not render, create master bytes, export, or publish.'}</p></div></div><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading || !projectId || !buildPlanListSupported}><RefreshCw size={13} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button></div>{buildPlanPanelBlocker && <p className="readonly-note"><Info size={14} />{buildPlanPanelBlocker}</p>}{buildPlanError && <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{buildPlanError}</span><button type="button" className="subtle-button tiny" onClick={() => void load()} disabled={loading || !buildPlanListSupported}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div>}{buildPlanListSupported && !buildPlanError && buildPlans.length === 0 && <div className="empty-inline"><Layers3 size={16} /><span>{locale === 'vi' ? 'Chưa có build plan metadata.' : 'No build plan metadata yet.'}</span></div>}{buildPlanListSupported && buildPlans.length > 0 && <div className="release-build-plan-list">{buildPlans.map((plan) => <article className={`release-build-plan-row ${selectedBuildPlanId === plan.id ? 'active' : ''}`} key={plan.id ?? `${plan.releaseCandidateId}-${plan.planHash}`}><div className="release-build-plan-main"><div className="release-candidate-heading"><strong>{plan.id ?? (locale === 'vi' ? 'Build plan không tên' : 'Unnamed build plan')}</strong><span className={`release-status ${releaseBuildPlanStateClass(plan.state)}`}><span />{releaseBuildPlanStateLabel(plan.state, locale)}</span></div><small>{locale === 'vi' ? 'Candidate' : 'Candidate'}: {plan.releaseCandidateId ?? '—'} · v{plan.rowVersion}</small><div className="release-candidate-facts"><span>{locale === 'vi' ? 'Timeline revision' : 'Timeline revision'}: {plan.timelineRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'Media profile' : 'Media profile'}: {plan.mediaProfileRevisionId ?? '—'}</span><span>{locale === 'vi' ? 'Plan hash' : 'Plan hash'}: {plan.planHash?.slice(0, 12) ?? '—'}</span><span>{locale === 'vi' ? 'Rights hash' : 'Rights hash'}: {plan.rightsSnapshotHash?.slice(0, 12) ?? '—'}</span></div><p className="release-next-step">{plan.nextStep ?? (locale === 'vi' ? 'Metadata-only; chưa có master bytes.' : 'Metadata-only; no master bytes exist.')}</p></div>{buildPlanDetailSupported && plan.id && <button type="button" className="subtle-button tiny" onClick={() => void inspectBuildPlan(plan)} disabled={buildPlanDetailLoading && selectedBuildPlanId === plan.id}>{buildPlanDetailLoading && selectedBuildPlanId === plan.id ? <RefreshCw size={12} className="spin" /> : <Info size={12} />}{locale === 'vi' ? 'Chi tiết' : 'Details'}</button>}</article>)}</div>}{buildPlanDetailSupported && selectedBuildPlanId && <section className="release-build-plan-detail" aria-live="polite">{buildPlanDetailLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc chi tiết build plan…' : 'Reading build plan details…'} /> : buildPlanDetailError ? <div className="inline-state warning" role="alert"><AlertCircle size={14} /><span>{buildPlanDetailError}</span><button type="button" className="subtle-button tiny" onClick={() => { const current = buildPlans.find((plan) => plan.id === selectedBuildPlanId); if (current) void inspectBuildPlan(current) }}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</button></div> : selectedBuildPlan ? <><div className="card-heading"><div><strong>{locale === 'vi' ? 'Chi tiết build plan' : 'Build plan details'}</strong><small>{selectedBuildPlan.id} · row v{selectedBuildPlan.rowVersion}</small></div><span className={`release-status ${releaseBuildPlanStateClass(selectedBuildPlan.state)}`}><span />{releaseBuildPlanStateLabel(selectedBuildPlan.state, locale)}</span></div><div className="release-candidate-facts release-candidate-detail-facts"><span><small>Release candidate</small><strong>{selectedBuildPlan.releaseCandidateId ?? '—'}</strong></span><span><small>Timeline revision</small><strong>{selectedBuildPlan.timelineRevisionId ?? '—'}</strong></span><span><small>Media profile</small><strong>{selectedBuildPlan.mediaProfileRevisionId ?? '—'}</strong></span><span><small>Plan hash</small><strong title={selectedBuildPlan.planHash}>{selectedBuildPlan.planHash?.slice(0, 16) ?? '—'}</strong></span><span><small>Readiness hash</small><strong title={selectedBuildPlan.readinessDigest}>{selectedBuildPlan.readinessDigest?.slice(0, 16) ?? '—'}</strong></span></div><p className="readonly-note"><Info size={14} />{selectedBuildPlan.nextStep ?? (locale === 'vi' ? 'Metadata-only; master/render/export/publish chưa được bật.' : 'Metadata-only; mastering/render/export/publish are not enabled.')}</p></> : null}</section>}<p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Build Plan không phải master và không tự chạy render. Mọi output bytes và publish cần boundary/confirmation riêng.' : 'A Build Plan is not a master and never starts rendering. Output bytes and publish require separate boundaries and confirmation.'}</p></section>
       <div className="release-gate-list">{RELEASE_GATE_ORDER.map((key) => { const gate = releaseGateFor(readiness, key); const facts = releaseEvidenceFacts(gate, locale); return <section className={`release-gate-card ${releaseStateClass(gate.state)}`} key={key}><div className="release-gate-heading"><div><p className="eyebrow">{key}</p><h2>{releaseGateLabel(key, locale)}</h2></div><span className={`release-status ${releaseStateClass(gate.state)}`}><span />{releaseStateLabel(gate.state, locale)}</span></div>{gate.reason && <p className="release-gate-reason">{gate.reason}</p>}{facts.length > 0 && <div className="release-evidence-facts">{facts.map((fact) => <span key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong title={fact.value}>{fact.value}</strong></span>)}</div>}{gate.nextStep && <p className="release-next-step"><Info size={13} />{gate.nextStep}</p>}</section> })}</div>
       <section className="release-boundary-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ShieldCheck size={16} /></span><div><h2>{locale === 'vi' ? 'Boundary tiếp theo' : 'Next boundary'}</h2><p>{locale === 'vi' ? 'Readiness và candidate không tự tạo master, export hay công bố nội dung.' : 'Readiness and candidates never create a master, export bytes or publish content.'}</p></div></div></div><div className="release-boundary-actions"><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Export master — chưa mở' : 'Export master — unavailable'}</button><button type="button" className="subtle-button" disabled>{locale === 'vi' ? 'Publish — cần release manifest' : 'Publish — requires release manifest'}</button></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Export và Publish là boundary riêng, cần contract và confirmation riêng.' : 'Export and Publish are separate boundaries with separate contracts and confirmation.'}</p></section>
     </>}

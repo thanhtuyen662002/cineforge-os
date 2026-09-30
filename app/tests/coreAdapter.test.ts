@@ -292,6 +292,55 @@ describe('local Core adapter', () => {
     await expect(new HttpCoreClient('http://core').createReleaseCandidateDraft?.('project-1', ' ')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
   })
 
+  it('reads and creates metadata-only release build plans with exact dependency pins', async () => {
+    const plan = {
+      id: 'build-plan-1', project_id: 'project-1', release_candidate_id: 'candidate-1',
+      timeline_revision_id: 'revision-1', media_profile_revision_id: 'profile-1', review_session_id: 'review-1',
+      readiness_digest: 'A'.repeat(64), rights_snapshot_hash: 'B'.repeat(64), plan_hash: 'C'.repeat(64),
+      state: 'PLANNED', next_step: 'Render is a separate boundary.', row_version: 1,
+      snapshot_schema_version: 1, provider_uri: 'https://provider.invalid', source_path: 'C:\\secret\\master.mov',
+    }
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, init })
+      if (url.endsWith('/release/build-plans') && !init?.method) {
+        return new Response(JSON.stringify({ ok: true, result: { items: [plan], projection_seq: 8 } }), { status: 200 })
+      }
+      if (url.endsWith('/release/build-plans/build-plan-1') && !init?.method) {
+        return new Response(JSON.stringify({ ok: true, result: { build_plan: plan } }), { status: 200 })
+      }
+      expect(init?.method).toBe('POST')
+      expect((init?.headers as Record<string, string>)['Idempotency-Key']).toBe('build-plan-create-1')
+      expect(JSON.parse(String(init?.body))).toEqual({ release_candidate_id: 'candidate-1', expected_version: 1 })
+      return new Response(JSON.stringify({ ok: true, result: { build_plan: plan } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const listed = await client.getReleaseBuildPlans?.('project-1')
+      expect(listed?.items[0]).toMatchObject({ id: 'build-plan-1', projectId: 'project-1', releaseCandidateId: 'candidate-1', planHash: 'c'.repeat(64), state: 'PLANNED', rowVersion: 1 })
+      expect(JSON.stringify(listed)).not.toContain('provider')
+      expect(JSON.stringify(listed)).not.toContain('secret')
+      const detail = await client.getReleaseBuildPlan?.('project-1', 'build-plan-1')
+      expect(detail).toMatchObject({ id: 'build-plan-1', planHash: 'c'.repeat(64), state: 'PLANNED' })
+      const created = await client.createReleaseBuildPlan?.('project-1', { releaseCandidateId: 'candidate-1', expectedVersion: 1 }, 'build-plan-create-1')
+      expect(created).toMatchObject({ id: 'build-plan-1', releaseCandidateId: 'candidate-1', state: 'PLANNED' })
+      expect(calls).toHaveLength(3)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('fails closed for release build plans without a connection, scope, or valid candidate version', async () => {
+    const offline = new HttpCoreClient('')
+    await expect(offline.getReleaseBuildPlans?.('project-1')).rejects.toMatchObject({ code: 'CORE_OFFLINE' })
+    await expect(new HttpCoreClient('http://core').getReleaseBuildPlans?.('')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(new HttpCoreClient('http://core').getReleaseBuildPlan?.('project-1', '')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(new HttpCoreClient('http://core').createReleaseBuildPlan?.('project-1', { releaseCandidateId: 'candidate-1', expectedVersion: 0 }, 'create')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(new HttpCoreClient('http://core').createReleaseBuildPlan?.('project-1', { releaseCandidateId: 'candidate-1', expectedVersion: 1 }, ' ')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  })
+
   it('maps first-class workspace records and sends expected row versions for stale-safe updates', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)

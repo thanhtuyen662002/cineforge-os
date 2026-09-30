@@ -18,9 +18,9 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
-> Executable Core schema: version 19 (the Issue #27 working-session tables, the
+> Executable Core schema: version 20 (the Issue #27 working-session tables, the
 > bounded Issue #29 timing metadata tables and the metadata-only Issue #49
-> release-candidate draft table plus the verified local timeline-interchange
+> release-candidate draft and release-build-plan preflight tables plus the verified local timeline-interchange
 > output binding and the bounded returned external-edit registration tables are
 > included, together with the durable single-writer Core ownership/fencing
 > records and the Slice 3A local managed-asset integrity job tables). The generic
@@ -1827,6 +1827,37 @@ update timestamp can change through the Core cancel command. A no-delete
 trigger retains candidates for audit. Public projections omit both JSON
 columns and every path/provider/credential field. Release candidate rows are
 included in project activity through their `RELEASE_CANDIDATE` domain events.
+
+## release_build_plans
+
+The schema v20 metadata preflight stores the exact input closure for a future
+certified master renderer. It is not a release manifest and has no output
+asset or publication authority.
+
+- id PK
+- project_id FK
+- release_candidate_id FK
+- timeline_revision_id FK
+- media_profile_revision_id FK
+- review_session_id FK
+- readiness_digest SHA-256
+- rights_snapshot_hash SHA-256
+- plan_hash UNIQUE SHA-256
+- plan_snapshot_json (bounded, redacted, versioned)
+- plan_snapshot_schema_version
+- state CHECK (`PLANNED`)
+- next_step
+- row_version positive integer
+- command_id FK
+- created_by_actor_id
+- created_at_utc_us
+- updated_at_utc_us
+
+The uniqueness boundary is `(project_id, release_candidate_id)`. All identity
+and snapshot columns are append-only and protected by no-update/no-delete
+triggers. Core creates a row only after re-evaluating the candidate's exact
+readiness and current rights; `UNKNOWN` never becomes `PASS`. Public
+projections omit `plan_snapshot_json` and all path/provider/credential values.
 
 ## release_manifests
 Immutable.
@@ -5242,10 +5273,12 @@ Tokens/capabilities with stale-use risk include deployment_generation + recovery
 
 # SCHEMA-SLICE-3A-LOCAL-INTEGRITY-JOB. Durable bounded job projection
 
-Schema version 19 adds the Core-owned persistence needed by the bounded local
-managed-asset integrity probe. These tables are an operational projection for
-one semantic capability; they do not turn the job runner into a provider or
-connector registry.
+Schema version 20 includes the Core-owned persistence for the bounded local
+managed-asset integrity probe (introduced in v19) and the immutable
+release-build-plan metadata preflight. These tables are operational
+projections for bounded semantic capabilities; they do not turn the job
+runner into a provider or connector registry, and a build plan does not
+create media bytes.
 
 ## `jobs`
 

@@ -178,6 +178,92 @@ test('release candidate drafts bind exact readiness, stay idempotent, and cancel
   }
 });
 
+test('release build plan freezes exact candidate evidence without creating master bytes', () => {
+  const { dbPath, directory } = tempDb();
+  const core = new CoreService({ dbPath });
+  try {
+    const fixture = createApprovedTimeline(core);
+    const candidate = execute(core, 'CreateReleaseCandidateDraft', { project_id: fixture.projectId }, {}, 'build-plan-candidate');
+    assert.equal(candidate.ok, true, JSON.stringify(candidate));
+    const plan = execute(core, 'CreateReleaseBuildPlan', {
+      project_id: fixture.projectId,
+      release_candidate_id: candidate.result.id,
+      local_path: 'C:\\secret\\master.mov',
+      provider_uri: 'https://provider.invalid/output',
+      generated_payload: { secret: true },
+    }, { RELEASE_CANDIDATE: candidate.result.row_version }, 'build-plan-create');
+    assert.equal(plan.ok, true, JSON.stringify(plan));
+    assert.equal(plan.result.state, 'PLANNED');
+    assert.equal(plan.result.project_id, fixture.projectId);
+    assert.equal(plan.result.release_candidate_id, candidate.result.id);
+    assert.equal(plan.result.timeline_revision_id, fixture.revisionId);
+    assert.match(plan.result.plan_hash, /^[0-9a-f]{64}$/);
+    assert.match(plan.result.readiness_digest, /^[0-9a-f]{64}$/);
+    assert.match(plan.result.rights_snapshot_hash, /^[0-9a-f]{64}$/);
+    assert.equal(Object.hasOwn(plan.result, 'plan_snapshot_json'), false);
+    assert.equal(Object.hasOwn(plan.result, 'master_asset_revision_id'), false);
+    const storedCommand = core.db.prepare('SELECT payload_json FROM commands WHERE idempotency_key = ?').get('build-plan-create');
+    assert.equal(storedCommand.payload_json.includes('secret'), false);
+    assert.equal(storedCommand.payload_json.includes('provider'), false);
+    const stored = core.db.prepare('SELECT * FROM release_build_plans WHERE id = ?').get(plan.result.id);
+    assert.equal(stored.state, 'PLANNED');
+    assert.equal(stored.plan_snapshot_schema_version, 1);
+    assert.equal(JSON.stringify(stored).includes('master.mov'), false);
+    assert.equal(JSON.stringify(stored).includes('provider.invalid'), false);
+    assert.equal(JSON.parse(stored.plan_snapshot_json).output.master_asset_revision_id, null);
+
+    const replay = execute(core, 'CreateReleaseBuildPlan', {
+      project_id: fixture.projectId, release_candidate_id: candidate.result.id,
+      local_path: 'C:\\secret\\master.mov', provider_uri: 'https://provider.invalid/output', generated_payload: { secret: true },
+    }, { RELEASE_CANDIDATE: 1 }, 'build-plan-create');
+    assert.equal(replay.ok, true, JSON.stringify(replay));
+    assert.equal(replay.result.id, plan.result.id);
+    assert.equal(replay.result.idempotent_replay, true);
+    const duplicate = execute(core, 'CreateReleaseBuildPlan', {
+      project_id: fixture.projectId, release_candidate_id: candidate.result.id,
+    }, { RELEASE_CANDIDATE: 1 }, 'build-plan-create-second');
+    assert.equal(duplicate.ok, false, JSON.stringify(duplicate));
+    assert.equal(duplicate.error.code, 'RELEASE_BUILD_PLAN_ALREADY_EXISTS');
+    assert.equal(core.db.prepare('SELECT COUNT(*) AS count FROM release_build_plans').get().count, 1);
+
+    const listed = core.handle(request('query.release.build_plan.list', { project_id: fixture.projectId }, 'build-plan-list'));
+    assert.equal(listed.ok, true, JSON.stringify(listed));
+    assert.equal(listed.result.items.length, 1);
+    assert.equal(listed.result.items[0].id, plan.result.id);
+    const found = core.handle(request('query.release.build_plan.get', { project_id: fixture.projectId, release_build_plan_id: plan.result.id }, 'build-plan-get'));
+    assert.equal(found.ok, true, JSON.stringify(found));
+    assert.equal(found.result.build_plan.plan_hash, plan.result.plan_hash);
+    assert.equal(Object.hasOwn(found.result.build_plan, 'plan_snapshot_json'), false);
+    const other = execute(core, 'CreateProject', { title: 'Build plan other', code: 'build-plan-other' }, {}, 'build-plan-other-project');
+    const isolated = core.handle(request('query.release.build_plan.get', { project_id: other.result.id, release_build_plan_id: plan.result.id }, 'build-plan-scope'));
+    assert.equal(isolated.ok, false, JSON.stringify(isolated));
+    assert.equal(isolated.error.code, 'ENTITY_SCOPE_MISMATCH');
+    assert.ok(core.handle(request('query.project.activity', { project_id: fixture.projectId }, 'build-plan-activity')).result.events
+      .some((event) => event.aggregate_type === 'RELEASE_BUILD_PLAN' && event.event_type === 'RELEASE_BUILD_PLAN_CREATED'));
+    assert.ok(core.handle(request('query.project.summary', { project_id: fixture.projectId }, 'build-plan-summary')).result.activity
+      .some((event) => event.aggregate_type === 'RELEASE_BUILD_PLAN'));
+    assert.throws(
+      () => core.db.prepare('UPDATE release_build_plans SET plan_hash = ? WHERE id = ?').run('f'.repeat(64), plan.result.id),
+      /release_build_plan identity is immutable/,
+    );
+    assert.throws(
+      () => core.db.prepare('UPDATE release_build_plans SET next_step = ? WHERE id = ?').run('tampered', plan.result.id),
+      /release_build_plan identity is immutable/,
+    );
+    assert.throws(
+      () => core.db.prepare('UPDATE release_build_plans SET row_version = 2 WHERE id = ?').run(plan.result.id),
+      /release_build_plan identity is immutable/,
+    );
+    assert.throws(
+      () => core.db.prepare('DELETE FROM release_build_plans WHERE id = ?').run(plan.result.id),
+      /release_build_plans are retained for audit/,
+    );
+  } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('HTTP release candidate routes preserve scope, idempotency and redact stored evidence', async () => {
   const candidate = {
     id: 'candidate-1', project_id: 'project-1', timeline_revision_id: 'revision-1',
@@ -187,14 +273,24 @@ test('HTTP release candidate routes preserve scope, idempotency and redact store
     next_step: 'metadata only', created_at: '2026-09-29T00:00:00.000Z',
     readiness_snapshot_json: '{"local_path":"C:\\secret"}', provider_uri: 'https://provider.invalid',
   };
+  const buildPlan = {
+    id: 'build-plan-1', project_id: 'project-1', release_candidate_id: 'candidate-1',
+    timeline_revision_id: 'revision-1', media_profile_revision_id: 'profile-1', review_session_id: 'review-1',
+    readiness_digest: 'c'.repeat(64), rights_snapshot_hash: 'd'.repeat(64), plan_hash: 'e'.repeat(64),
+    state: 'PLANNED', row_version: 1, plan_snapshot_schema_version: 1,
+    next_step: 'certified renderer required', plan_snapshot_json: '{"local_path":"C:\\secret"}', provider_uri: 'https://provider.invalid',
+  };
   const calls = [];
   const fakeCore = {
     handle: (requestValue) => {
       calls.push(requestValue);
       if (requestValue.method === 'query.release.candidate.list') return { ok: true, result: { items: [candidate], projection_seq: 4 } };
       if (requestValue.method === 'query.release.candidate.get') return { ok: true, result: { candidate } };
+      if (requestValue.method === 'query.release.build_plan.list') return { ok: true, result: { items: [buildPlan], projection_seq: 5 } };
+      if (requestValue.method === 'query.release.build_plan.get') return { ok: true, result: { build_plan: buildPlan } };
       if (requestValue.method === 'command.execute' && requestValue.params.command_type === 'CreateReleaseCandidateDraft') return { ok: true, result: candidate };
       if (requestValue.method === 'command.execute' && requestValue.params.command_type === 'CancelReleaseCandidateDraft') return { ok: true, result: { ...candidate, state: 'CANCELLED', row_version: 2 } };
+      if (requestValue.method === 'command.execute' && requestValue.params.command_type === 'CreateReleaseBuildPlan') return { ok: true, result: buildPlan };
       return { ok: false, error: { code: 'NOT_FOUND', category: 'VALIDATION', user_message_key: 'errors.not_found', needs_user: true } };
     },
   };
@@ -225,6 +321,26 @@ test('HTTP release candidate routes preserve scope, idempotency and redact store
     const command = calls.find((item) => item.method === 'command.execute' && item.params.command_type === 'CancelReleaseCandidateDraft');
     assert.equal(command.params.expected_versions.RELEASE_CANDIDATE, 1);
     assert.equal(command.params.idempotency_key, 'candidate-http-cancel');
+    const plans = await fetch(`${base}/v1/projects/project-1/release/build-plans`);
+    assert.equal(plans.status, 200);
+    const plansBody = await plans.json();
+    assert.equal(plansBody.result.items[0].id, 'build-plan-1');
+    assert.equal(plansBody.result.items[0].state, 'PLANNED');
+    assert.equal(Object.hasOwn(plansBody.result.items[0], 'planSnapshotJson'), false);
+    assert.equal(JSON.stringify(plansBody).includes('secret'), false);
+    assert.equal(JSON.stringify(plansBody).includes('provider'), false);
+    const plan = await fetch(`${base}/v1/projects/project-1/release/build-plans/build-plan-1`);
+    assert.equal(plan.status, 200);
+    assert.equal((await plan.json()).result.buildPlan.planHash, 'e'.repeat(64));
+    const planCreate = await fetch(`${base}/v1/projects/project-1/release/build-plans`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'build-plan-http-create' },
+      body: JSON.stringify({ release_candidate_id: 'candidate-1', expected_version: 1 }),
+    });
+    assert.equal(planCreate.status, 200);
+    assert.equal((await planCreate.json()).result.id, 'build-plan-1');
+    const planCommand = calls.find((item) => item.method === 'command.execute' && item.params.command_type === 'CreateReleaseBuildPlan');
+    assert.equal(planCommand.params.expected_versions.RELEASE_CANDIDATE, 1);
+    assert.equal(planCommand.params.idempotency_key, 'build-plan-http-create');
   } finally {
     await new Promise((resolve) => listener.server.close(resolve));
   }

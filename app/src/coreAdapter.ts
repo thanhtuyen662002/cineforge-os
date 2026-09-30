@@ -1,4 +1,4 @@
-import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, ManagedAssetIntegrityJob, ManagedJobList, ManagedJobRetryPlan, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, ManagedAssetIntegrityJob, ManagedJobList, ManagedJobRetryPlan, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseBuildPlan, ReleaseBuildPlanList, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
 // Keep the bounded local adapter available for development and tests without
 // shipping its demo project data in a production bundle. Vite replaces
@@ -51,6 +51,9 @@ export interface CoreBridge {
   getReleaseCandidate?(projectId: string, candidateId: string, signal?: AbortSignal): Promise<ReleaseCandidate>
   createReleaseCandidateDraft?(projectId: string, idempotencyKey?: string): Promise<ReleaseCandidate>
   cancelReleaseCandidateDraft?(projectId: string, candidateId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReleaseCandidate>
+  getReleaseBuildPlans?(projectId: string, signal?: AbortSignal): Promise<ReleaseBuildPlanList>
+  getReleaseBuildPlan?(projectId: string, planId: string, signal?: AbortSignal): Promise<ReleaseBuildPlan>
+  createReleaseBuildPlan?(projectId: string, input: { releaseCandidateId: string; expectedVersion: number }, idempotencyKey?: string): Promise<ReleaseBuildPlan>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
@@ -933,6 +936,32 @@ export class HttpCoreClient implements CoreClient {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ expected_version: expectedVersion }),
     })
     return mapReleaseCandidateRecord(await readCorePayload(response, 'release candidate cancellation'))
+  }
+
+  async getReleaseBuildPlans(projectId: string, signal?: AbortSignal): Promise<ReleaseBuildPlanList> {
+    if (!this.baseUrl) throw new CoreClientError('Release build plans require a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim()) throw new CoreClientError('A project id is required to read release build plans.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/build-plans`, { signal, headers: { Accept: 'application/json' } })
+    return mapReleaseBuildPlanListRecord(await readCorePayload(response, 'release build plans'))
+  }
+
+  async getReleaseBuildPlan(projectId: string, planId: string, signal?: AbortSignal): Promise<ReleaseBuildPlan> {
+    if (!this.baseUrl) throw new CoreClientError('Release build plan requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !planId.trim()) throw new CoreClientError('A project and build plan id are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/build-plans/${encodeURIComponent(planId)}`, { signal, headers: { Accept: 'application/json' } })
+    return mapReleaseBuildPlanRecord(await readCorePayload(response, 'release build plan'))
+  }
+
+  async createReleaseBuildPlan(projectId: string, input: { releaseCandidateId: string; expectedVersion: number }, idempotencyKey: string = crypto.randomUUID()): Promise<ReleaseBuildPlan> {
+    if (!this.baseUrl) throw new CoreClientError('Release build plan creation requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
+    if (!projectId.trim() || !input?.releaseCandidateId?.trim()) throw new CoreClientError('A project and release candidate id are required to plan a release build.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1) throw new CoreClientError('A valid release candidate row version is required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    if (!idempotencyKey.trim()) throw new CoreClientError('An idempotency key is required to plan a release build.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/release/build-plans`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ release_candidate_id: input.releaseCandidateId.trim(), expected_version: input.expectedVersion }),
+    })
+    return mapReleaseBuildPlanRecord(await readCorePayload(response, 'release build plan creation'))
   }
 
   async resolveMediaPreview(projectId: string, revisionId: string, purpose = 'LIBRARY_PREVIEW', signal?: AbortSignal): Promise<MediaPreviewResolution> {
@@ -2298,10 +2327,10 @@ function mapReleaseReadinessRecord(value: unknown): ReleaseReadiness {
 const RELEASE_CANDIDATE_STATES = new Set(['DRAFT', 'CANCELLED'])
 const RELEASE_CANDIDATE_HASH = /^[a-f0-9]{64}$/i
 
-function safeReleaseCandidateText(value: unknown): string | undefined {
+function safeReleaseCandidateText(value: unknown, maxLength = 512): string | undefined {
   const text = stringValue(value)
   if (!text) return undefined
-  let safe = text.slice(0, 512).replace(/(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)[^\s"'<>]*/gi, '[redacted]')
+  let safe = text.slice(0, maxLength).replace(/(?:[A-Za-z]:[\\/]|\\\\|(?:file|https?):\/\/)[^\s"'<>]*/gi, '[redacted]')
   safe = safe.replace(/(?:^|[\s(])\/(?:[^\/\s]+\/)+[^\/\s]*/g, (match) => match.startsWith('/') ? '[redacted]' : `${match[0]}[redacted]`)
   return safe
 }
@@ -2348,6 +2377,51 @@ function mapReleaseCandidateListRecord(value: unknown): ReleaseCandidateList {
 function mapReleaseCandidateWorkspaceRecord(value: unknown): ReleaseCandidate {
   const source = asRecord(value)
   return mapReleaseCandidateRecord(source.candidate ?? source.release_candidate ?? source.releaseCandidate ?? source.result ?? source)
+}
+
+const RELEASE_BUILD_PLAN_STATES = new Set(['PLANNED'])
+
+function mapReleaseBuildPlanRecord(value: unknown): ReleaseBuildPlan {
+  const source = asRecord(value)
+  const planSource = asRecord(source.build_plan ?? source.buildPlan ?? source.result ?? source)
+  const rawState = String(planSource.state ?? 'UNKNOWN').trim().toUpperCase()
+  const hash = (key: string, camel: string) => {
+    const candidate = stringValue(planSource[key] ?? planSource[camel])
+    return candidate && RELEASE_CANDIDATE_HASH.test(candidate) ? candidate.toLowerCase() : undefined
+  }
+  return {
+    id: safeReleaseCandidateText(planSource.id ?? planSource.build_plan_id ?? planSource.buildPlanId, 160),
+    projectId: safeReleaseCandidateText(planSource.project_id ?? planSource.projectId, 160),
+    releaseCandidateId: safeReleaseCandidateText(planSource.release_candidate_id ?? planSource.releaseCandidateId, 160),
+    timelineRevisionId: safeReleaseCandidateText(planSource.timeline_revision_id ?? planSource.timelineRevisionId, 160),
+    mediaProfileRevisionId: safeReleaseCandidateText(planSource.media_profile_revision_id ?? planSource.mediaProfileRevisionId, 160),
+    reviewSessionId: safeReleaseCandidateText(planSource.review_session_id ?? planSource.reviewSessionId, 160),
+    readinessDigest: hash('readiness_digest', 'readinessDigest'),
+    rightsSnapshotHash: hash('rights_snapshot_hash', 'rightsSnapshotHash'),
+    planHash: hash('plan_hash', 'planHash'),
+    state: (RELEASE_BUILD_PLAN_STATES.has(rawState) ? rawState : 'UNKNOWN') as ReleaseBuildPlan['state'],
+    nextStep: safeReleaseCandidateText(planSource.next_step ?? planSource.nextStep),
+    rowVersion: Number.isSafeInteger(Number(planSource.row_version ?? planSource.rowVersion)) && Number(planSource.row_version ?? planSource.rowVersion) >= 1 ? Number(planSource.row_version ?? planSource.rowVersion) : 0,
+    snapshotSchemaVersion: integerValue(planSource.plan_snapshot_schema_version ?? planSource.planSnapshotSchemaVersion ?? planSource.snapshot_schema_version ?? planSource.snapshotSchemaVersion, 0, 1, 100),
+    createdAt: safeReleaseCandidateText(planSource.created_at ?? planSource.createdAt, 80),
+    updatedAt: safeReleaseCandidateText(planSource.updated_at ?? planSource.updatedAt, 80),
+    idempotentReplay: planSource.idempotent_replay === true || planSource.idempotentReplay === true,
+  }
+}
+
+function mapReleaseBuildPlanListRecord(value: unknown): ReleaseBuildPlanList {
+  const source = asRecord(value)
+  const resultValue = source.result
+  const result = asRecord(resultValue)
+  const rows = Array.isArray(value)
+    ? value
+    : arrayValue(source.items ?? source.build_plans ?? source.buildPlans ?? (Array.isArray(resultValue) ? resultValue : undefined) ?? result.items ?? result.build_plans ?? result.buildPlans)
+  const metadata = Object.keys(result).length > 0 ? result : source
+  return {
+    items: rows.map((item) => mapReleaseBuildPlanRecord(item)),
+    projectionSeq: integerValue(metadata.projection_seq ?? metadata.projectionSeq, 0, 0, Number.MAX_SAFE_INTEGER),
+    generatedAt: stringValue(metadata.generated_at ?? metadata.generatedAt),
+  }
 }
 
 function mapCharacterRights(value: unknown): RightsSummary | null {

@@ -806,6 +806,29 @@ because none of those transitions are implemented by this slice. Future
 states below are reserved design contracts and must not be claimed as
 implemented until their own commands, evidence and tests exist.
 
+## 25A. Release build-plan metadata preflight
+
+The executable V1 successor after a metadata-only release candidate is a
+small, immutable planning boundary:
+
+```text
+DRAFT release candidate + READY release readiness
+→ PLANNED build plan
+```
+
+`CreateReleaseBuildPlan` rechecks the candidate's exact approved source,
+current release readiness, rights/consent and row-version fence before storing
+the plan. Stale, restricted, missing or `UNKNOWN` evidence produces a typed
+conflict and no plan row. The plan snapshot is a redacted allowlist and its
+canonical SHA-256 is the immutable `plan_hash`.
+
+This state has no media output and no external side effect. It must not be
+displayed as a render, master, verification, durable release or publication.
+The next step remains a certified local renderer with pinned runtime/toolchain,
+bounded resources, durable output verification and a separate release-manifest
+approval boundary. A plan cannot be cancelled or edited in place; a changed
+candidate/readiness source requires a new exact candidate and plan.
+
 ```text
 DRAFT
 → PICTURE_LOCKED
