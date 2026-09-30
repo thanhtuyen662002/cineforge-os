@@ -2,7 +2,7 @@ import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SettingsView } from '../src/App'
-import type { BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CoreClient, DashboardSnapshot, StagingEvidence, StagingWorkspace, StorageAdmission } from '../src/types'
+import type { BackupRestoreWorkspace, BackupSummary, BackupWorkspace, CoreClient, DashboardSnapshot, RecoveryStatus, StagingEvidence, StagingWorkspace, StorageAdmission } from '../src/types'
 
 const snapshot: DashboardSnapshot = {
   generatedAt: '2026-09-29T08:00:00.000Z',
@@ -42,6 +42,23 @@ const admission: StorageAdmission = {
   estimatedBytes: 1000, availableBytes: 5000, reserveBytes: 500, databaseBytes: 200, objectBytes: 300, objectCount: 2,
 }
 
+const recoveryStatus: RecoveryStatus = {
+  schemaVersion: 1,
+  readinessState: 'UNKNOWN',
+  recoveryState: 'RECONCILIATION_REQUIRED',
+  coreHealthState: 'READY',
+  recoveryEpochState: 'NOT_INITIALIZED',
+  externalRealityState: 'UNKNOWN',
+  restoreActivationState: 'NOT_IMPLEMENTED',
+  dispatchPolicyState: 'UNKNOWN_REQUIRES_RECOVERY_EPOCH',
+  readOnly: true,
+  nextStepCode: 'RECOVERY_EPOCH_AND_EXTERNAL_RECONCILIATION_REQUIRED',
+  checks: [
+    { id: 'CORE_OWNERSHIP', state: 'PASS' },
+    { id: 'RECOVERY_EPOCH', state: 'UNKNOWN', code: 'RECOVERY_EPOCH_NOT_INITIALIZED' },
+  ],
+}
+
 const writingStaging: StagingEvidence = {
   id: 'stage-1', state: 'WRITING', tempName: 'clip.mov', expectedSize: 1024, currentSize: 512,
   hashAlgorithm: 'SHA-256', sha256: 'a'.repeat(64), reparseState: 'CLEAR',
@@ -60,6 +77,7 @@ function client(overrides: Partial<CoreClient> = {}): CoreClient {
     getBackups: vi.fn(async () => [backup]),
     getBackup: vi.fn(async () => workspace),
     getBackupRestoreEstimate: vi.fn(async () => restorePlan),
+    getRecoveryStatus: vi.fn(async () => recoveryStatus),
     getStorageAdmission: vi.fn(async () => admission),
     createBackup: vi.fn(async () => ({ backup, verification: workspace.verifications[0] })),
     verifyBackup: vi.fn(async () => ({ backup: { ...backup, rowVersion: 2 }, verification: { ...workspace.verifications[0], id: 'verification-2' } })),
@@ -70,6 +88,18 @@ function client(overrides: Partial<CoreClient> = {}): CoreClient {
 }
 
 describe('SettingsView backup workspace', () => {
+  it('shows fail-closed recovery posture without offering activation', async () => {
+    const core = client()
+    render(<SettingsView snapshot={snapshot} locale="en" client={core} theme="dark" onThemeChange={vi.fn()} onLocaleChange={vi.fn()} onRefresh={vi.fn()} refreshLabel="Refresh" onToast={vi.fn()} />)
+
+    expect(await screen.findByText('Recovery posture')).toBeTruthy()
+    await waitFor(() => expect(core.getRecoveryStatus).toHaveBeenCalled())
+    expect(await screen.findByText('NOT_INITIALIZED')).toBeTruthy()
+    expect(await screen.findByText('NOT_IMPLEMENTED')).toBeTruthy()
+    expect(await screen.findByText(/RECOVERY_EPOCH_NOT_INITIALIZED/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /activate|restore now/i })).toBeNull()
+  })
+
   it('loads admission and lets the user create then verify a redacted local backup', async () => {
     const core = client()
     render(<SettingsView snapshot={snapshot} locale="en" client={core} theme="dark" onThemeChange={vi.fn()} onLocaleChange={vi.fn()} onRefresh={vi.fn()} refreshLabel="Refresh" onToast={vi.fn()} />)
@@ -88,7 +118,7 @@ describe('SettingsView backup workspace', () => {
     fireEvent.click(restoreButton)
     await waitFor(() => expect(core.getBackupRestoreEstimate).toHaveBeenCalledWith('backup-1'))
     expect(await screen.findByText('Restore preflight (read-only)')).toBeTruthy()
-    expect(await screen.findByText('NOT_IMPLEMENTED')).toBeTruthy()
+    expect((await screen.findAllByText('NOT_IMPLEMENTED')).length).toBeGreaterThan(0)
     expect(screen.queryByText(/destination_path/i)).toBeNull()
     expect(screen.queryByText(/C:\\|file:\/\//i)).toBeNull()
   })

@@ -1001,6 +1001,35 @@ export interface BackupRestoreWorkspace {
   generatedAt?: string
 }
 
+export type RecoveryCheckState = 'PASS' | 'FAIL' | 'UNKNOWN' | string
+
+export interface RecoveryCheck {
+  id: string
+  state: RecoveryCheckState
+  code?: string | null
+  details?: Record<string, unknown>
+}
+
+/**
+ * Read-only Core recovery posture. UNKNOWN is intentionally preserved: a
+ * healthy Core process is not proof that an old snapshot can be activated.
+ */
+export interface RecoveryStatus {
+  schemaVersion?: number
+  readinessState: RecoveryCheckState
+  recoveryState?: string
+  coreHealthState?: string
+  recoveryEpochState?: string
+  externalRealityState?: string
+  restoreActivationState?: string
+  dispatchPolicyState?: string
+  readOnly: boolean
+  nextStepCode?: string
+  checks: RecoveryCheck[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface BackupCommandResult {
   backup: BackupSummary | null
   verification: BackupVerification | null
@@ -1136,6 +1165,7 @@ export interface CoreClient {
   getBackups?(signal?: AbortSignal): Promise<BackupSummary[]>
   getBackup?(backupId: string, signal?: AbortSignal): Promise<BackupWorkspace>
   getBackupRestoreEstimate?(backupId: string, signal?: AbortSignal): Promise<BackupRestoreWorkspace>
+  getRecoveryStatus?(signal?: AbortSignal): Promise<RecoveryStatus>
   getStorageAdmission?(signal?: AbortSignal): Promise<StorageAdmission | null>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>

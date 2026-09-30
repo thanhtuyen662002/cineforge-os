@@ -1384,6 +1384,19 @@ function mapDashboard(result) {
   };
 }
 
+// The Core health query contains local filesystem paths for diagnostics.  The
+// HTTP boundary keeps health useful for the bootstrapper (status, schema,
+// ownership epoch) while never returning private database/object-store paths
+// to the browser or another loopback client.
+function mapHealthEnvelope(response) {
+  if (!response?.ok || !response.result || typeof response.result !== 'object' || Array.isArray(response.result)) return response;
+  const safe = { ...response.result };
+  delete safe.db_path;
+  delete safe.wal_path;
+  delete safe.object_store_path;
+  return { ...response, result: safe };
+}
+
 function command(core, request, commandType, payload, expected, idempotencyKey) {
   return core.handle({
     request_id: requestId(request),
@@ -1674,7 +1687,7 @@ export function createCoreHttpServer(core, options = {}) {
       if (request.method === 'POST' || request.method === 'PATCH') body = await readBody(request);
 
       if (request.method === 'GET' && url.pathname === '/v1/health') {
-        result = query(core, request, 'query.system.health', {});
+        result = mapHealthEnvelope(query(core, request, 'query.system.health', {}));
       } else if (request.method === 'GET' && url.pathname === '/v1/dashboard') {
         const dashboard = query(core, request, 'query.home', {});
         result = dashboard.ok ? mapDashboard(dashboard.result) : dashboard;
@@ -1729,6 +1742,8 @@ export function createCoreHttpServer(core, options = {}) {
         result = command(core, request, 'CreateBackup', body, {}, commandKey(request, body));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'backups' && parts[2] && parts[3] === 'verify' && parts.length === 4) {
         result = command(core, request, 'VerifyBackup', { ...body, backup_id: parts[2] }, {}, commandKey(request, body));
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'recovery' && parts[2] === 'status' && parts.length === 3) {
+        result = query(core, request, 'query.recovery.status', {});
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'storage' && parts[2] === 'admission' && parts.length === 3) {
         result = query(core, request, 'query.storage.admission', {
           destination_path: url.searchParams.get('destination_path') ?? url.searchParams.get('destinationPath') ?? undefined,

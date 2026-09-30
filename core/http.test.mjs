@@ -125,7 +125,20 @@ test('HTTP presentation adapter exposes dashboard, project and production-item f
 
     const health = await fetch(`${base}/v1/health`);
     assert.equal(health.status, 200);
-    assert.equal((await health.json()).result.status, 'READY');
+    const healthPayload = await health.json();
+    assert.equal(healthPayload.result.status, 'READY');
+    assert.equal(Object.hasOwn(healthPayload.result, 'db_path'), false);
+    assert.equal(Object.hasOwn(healthPayload.result, 'wal_path'), false);
+    assert.equal(Object.hasOwn(healthPayload.result, 'object_store_path'), false);
+
+    const recovery = await fetch(`${base}/v1/recovery/status`);
+    assert.equal(recovery.status, 200);
+    const recoveryPayload = await recovery.json();
+    assert.equal(recoveryPayload.ok, true);
+    assert.equal(recoveryPayload.result.read_only, true);
+    assert.equal(recoveryPayload.result.recovery_epoch_state, 'NOT_INITIALIZED');
+    assert.equal(recoveryPayload.result.readiness_state, 'UNKNOWN');
+    assert.ok(recoveryPayload.result.checks.some((check) => check.id === 'EXTERNAL_REALITY_LEDGER' && check.state === 'UNKNOWN'));
   } finally {
     await new Promise((resolve) => listener.server.close(resolve));
     core.close();

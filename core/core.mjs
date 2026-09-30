@@ -8463,6 +8463,7 @@ export class CoreService {
       case 'query.backup.list': return this._backups(params);
       case 'query.backup.get': return this._backupDetails(params.backup_id ?? params.backupId ?? params.id);
       case 'query.backup.restore_estimate': return this._backupRestoreEstimate(params.backup_id ?? params.backupId ?? params.id);
+      case 'query.recovery.status': return this._recoveryStatus();
       case 'query.storage.admission': return this._backupAdmissionQuery(params);
       case 'query.storage.staging_orphans': return this._stagingObjects(params);
       case 'query.needs_you.list': return this._needsYou(params);
@@ -9614,6 +9615,104 @@ export class CoreService {
         generated_at: new Date().toISOString(),
       },
       projection_seq: currentEventSeq,
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Read-only recovery posture projection.
+   *
+   * This surface intentionally reports the evidence Core can prove without
+   * pretending that the recovery epoch/external-side-effect ledger already
+   * exists.  A healthy SQLite/Core process is therefore still UNKNOWN for
+   * recovery activation until those controls are present and reconciled.
+   * No rows, epochs, dispatch fences, or backup state are changed here.
+   */
+  _recoveryStatus() {
+    const health = this._systemHealth();
+    const checks = [];
+    const addCheck = (id, state, code = null, details = {}) => {
+      checks.push({
+        id,
+        state,
+        ...(code ? { code } : {}),
+        ...(Object.keys(details).length > 0 ? { details } : {}),
+      });
+    };
+
+    addCheck(
+      'CORE_OWNERSHIP',
+      health.mutation_enabled === true ? 'PASS' : 'FAIL',
+      health.mutation_enabled === true ? null : 'CORE_OWNERSHIP_NOT_ACTIVE',
+      { state: String(health.ownership_state ?? 'UNKNOWN'), mutation_enabled: health.mutation_enabled === true },
+    );
+    addCheck(
+      'DATABASE_INTEGRITY',
+      String(health.integrity_check ?? '').toLowerCase() === 'ok' ? 'PASS' : 'FAIL',
+      String(health.integrity_check ?? '').toLowerCase() === 'ok' ? null : 'DATABASE_INTEGRITY_FAILED',
+      { result: String(health.integrity_check ?? 'UNKNOWN') },
+    );
+    addCheck(
+      'SQLITE_WAL',
+      health.wal_enabled === true ? 'PASS' : 'FAIL',
+      health.wal_enabled === true ? null : 'WAL_DISABLED',
+      { journal_mode: String(health.journal_mode ?? 'UNKNOWN') },
+    );
+
+    const availableBytes = health.backup_available_bytes;
+    const estimatedBytes = health.backup_estimated_bytes;
+    const storageEvidence = typeof availableBytes === 'number' && Number.isSafeInteger(availableBytes) && availableBytes >= 0
+      && typeof estimatedBytes === 'number' && Number.isSafeInteger(estimatedBytes) && estimatedBytes >= 0;
+    const storageState = health.storage_pressure === true ? 'FAIL' : storageEvidence ? 'PASS' : 'UNKNOWN';
+    addCheck(
+      'STORAGE_RESERVE',
+      storageState,
+      storageState === 'FAIL' ? 'STORAGE_PRESSURE' : storageState === 'UNKNOWN' ? 'STORAGE_CAPACITY_UNKNOWN' : null,
+      storageEvidence ? { available_bytes: availableBytes, estimated_bytes: estimatedBytes } : {},
+    );
+
+    const latestBackup = this.db.prepare(`SELECT state, completed_at_utc_us
+      FROM backups ORDER BY created_at_utc_us DESC, id DESC LIMIT 1`).get() ?? null;
+    const latestBackupState = String(latestBackup?.state ?? '').toUpperCase();
+    addCheck(
+      'LATEST_BACKUP',
+      latestBackupState === 'VERIFIED' ? 'PASS' : 'UNKNOWN',
+      latestBackupState === 'VERIFIED' ? null : 'BACKUP_NOT_VERIFIED',
+      latestBackup ? { state: latestBackupState, completed_at: latestBackup.completed_at_utc_us ? rfc3339FromUs(latestBackup.completed_at_utc_us) : null } : { state: 'MISSING' },
+    );
+
+    const eventSeq = Number(this._projectionSeq());
+    addCheck(
+      'EVENT_PROJECTION',
+      Number.isSafeInteger(eventSeq) && eventSeq >= 0 ? 'PASS' : 'UNKNOWN',
+      Number.isSafeInteger(eventSeq) && eventSeq >= 0 ? null : 'EVENT_PROJECTION_UNKNOWN',
+      Number.isSafeInteger(eventSeq) && eventSeq >= 0 ? { event_seq: eventSeq } : {},
+    );
+
+    // These are explicit UNKNOWN controls, rather than inferred PASS values:
+    // a Core ownership epoch is not a restore recovery epoch, and no local
+    // project snapshot can prove the state of external side effects after it.
+    addCheck('RECOVERY_EPOCH', 'UNKNOWN', 'RECOVERY_EPOCH_NOT_INITIALIZED');
+    addCheck('EXTERNAL_REALITY_LEDGER', 'UNKNOWN', 'EXTERNAL_REALITY_LEDGER_NOT_IMPLEMENTED');
+
+    const hasFailure = checks.some((check) => check.state === 'FAIL');
+    const hasUnknown = checks.some((check) => check.state === 'UNKNOWN');
+    const readinessState = hasFailure ? 'BLOCKED' : hasUnknown ? 'UNKNOWN' : 'PASS';
+    return {
+      schema_version: 1,
+      readiness_state: readinessState,
+      recovery_state: hasFailure ? 'BLOCKED' : hasUnknown ? 'RECONCILIATION_REQUIRED' : 'READY',
+      core_health_state: String(health.status ?? 'UNKNOWN'),
+      recovery_epoch_state: 'NOT_INITIALIZED',
+      external_reality_state: 'UNKNOWN',
+      restore_activation_state: 'NOT_IMPLEMENTED',
+      dispatch_policy_state: 'UNKNOWN_REQUIRES_RECOVERY_EPOCH',
+      read_only: true,
+      next_step_code: hasFailure
+        ? 'REPAIR_CORE_HEALTH_BEFORE_RECOVERY'
+        : 'RECOVERY_EPOCH_AND_EXTERNAL_RECONCILIATION_REQUIRED',
+      checks,
+      projection_seq: Number.isSafeInteger(eventSeq) && eventSeq >= 0 ? eventSeq : 0,
       generated_at: new Date().toISOString(),
     };
   }

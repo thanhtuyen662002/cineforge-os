@@ -299,6 +299,7 @@ The desktop-facing routes are:
 | GET | `/v1/backups/{id}/restore-estimate` | Read-only artifact/recovery preflight with bounded byte/time estimate |
 | POST | `/v1/backups` | Admit, create and verify a local backup (idempotency key supported) |
 | POST | `/v1/backups/{id}/verify` | Re-verify a registered backup artifact |
+| GET | `/v1/recovery/status` | Read-only recovery posture and fail-closed epoch/ledger checks |
 | GET | `/v1/storage/admission` | Estimate backup storage or return fail-closed pressure/profile errors |
 | GET | `/v1/storage/staging` | Inspect durable staging evidence (paths are redacted) |
 | POST | `/v1/storage/staging/reconcile` | Reconcile one staging row or bounded pending rows |
@@ -391,6 +392,15 @@ response always sets `restore_allowed=false` and `activation_state=NOT_IMPLEMENT
 until a governed recovery epoch, forward-policy reconciliation and explicit
 activation command are implemented. `UNKNOWN` checks remain visible and are
 never promoted to a restore pass.
+
+`GET /v1/recovery/status` is a separate read-only posture projection. It
+combines current Core ownership, SQLite integrity/WAL, storage-reserve evidence,
+latest verified-backup state and event-projection evidence with explicit
+`UNKNOWN` checks for the recovery epoch and the installation external-side-effect
+ledger. The Core instance ownership epoch is not treated as a restore recovery
+epoch. The projection never creates an epoch, freezes dispatch, changes backup
+rows or activates a snapshot; `readiness_state=UNKNOWN` therefore remains the
+expected result until a governed recovery implementation supplies those controls.
 
 Canonical command examples:
 
