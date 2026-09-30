@@ -30,7 +30,7 @@ function send(response, body, status = 200, extraHeaders = {}) {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(payload),
     'cache-control': 'no-store',
-    'access-control-allow-headers': 'content-type, authorization, idempotency-key, range, if-range, x-cineforge-preview, x-cineforge-download, x-cineforge-session, x-request-id',
+    'access-control-allow-headers': 'content-type, authorization, idempotency-key, range, if-range, x-cineforge-preview, x-cineforge-download, x-cineforge-session, x-cineforge-core-epoch, x-request-id',
     'access-control-allow-methods': 'GET,HEAD,POST,PATCH,OPTIONS',
     ...(corsOrigin ? { 'access-control-allow-origin': corsOrigin, vary: 'Origin' } : {}),
     ...extraHeaders,
@@ -70,6 +70,11 @@ async function readBody(request) {
 
 function requestId(request) {
   return request.headers['x-request-id'] ?? crypto.randomUUID();
+}
+
+function coreEpoch(request) {
+  const value = request.headers['x-cineforge-core-epoch'];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function expectedVersions(body, kind, fallback) {
@@ -1383,6 +1388,7 @@ function command(core, request, commandType, payload, expected, idempotencyKey) 
   return core.handle({
     request_id: requestId(request),
     api_version: '1',
+    ...(coreEpoch(request) ? { core_epoch: coreEpoch(request) } : {}),
     method: 'command.execute',
     params: {
       command_type: commandType,
@@ -1394,7 +1400,7 @@ function command(core, request, commandType, payload, expected, idempotencyKey) 
 }
 
 function query(core, request, method, params) {
-  return core.handle({ request_id: requestId(request), api_version: '1', method, params });
+  return core.handle({ request_id: requestId(request), api_version: '1', method, params, ...(coreEpoch(request) ? { core_epoch: coreEpoch(request) } : {}) });
 }
 
 function commandKey(request, body = {}) {
@@ -2039,7 +2045,7 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'commands' && parts.length === 2) {
         result = command(core, request, body.command_type, body.payload ?? {}, body.expected_versions ?? {}, commandKey(request, body));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'commands' && parts[2] && parts[3] === 'cancel') {
-        result = core.handle({ request_id: requestId(request), api_version: '1', method: 'command.cancel', params: { command_id: parts[2] } });
+        result = core.handle({ request_id: requestId(request), api_version: '1', method: 'command.cancel', params: { command_id: parts[2] }, ...(coreEpoch(request) ? { core_epoch: coreEpoch(request) } : {}) });
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'decisions' && parts.length === 2) {
         const listed = query(core, request, 'query.decisions.list', {
           project_id: url.searchParams.get('project_id') ?? undefined,

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -9,6 +10,11 @@ import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
 export const API_VERSION = '1';
 export const CORE_VERSION = '0.1.0';
+
+const CORE_OWNERSHIP_HEARTBEAT_INTERVAL_MS = 2_000;
+const CORE_OWNERSHIP_STALE_AFTER_MS = 15_000;
+const CORE_OWNERSHIP_LOCK_FILE_SUFFIX = '.core.lock';
+const CORE_EPOCH_PATTERN = /^[A-Za-z0-9._:-]{1,200}$/;
 
 const TERMINAL_COMMAND_STATES = new Set([
   'SUCCEEDED', 'FAILED', 'CANCELLED', 'PARTIAL', 'SUCCEEDED_WITH_WARNINGS',
@@ -1373,11 +1379,86 @@ function commandResult(row) {
   return out;
 }
 
+function processIdentity() {
+  let host = 'unknown-host';
+  try { host = os.hostname(); } catch { /* keep a bounded fallback */ }
+  return `${process.pid}@${host}`;
+}
+
+function osUserIdentity() {
+  try {
+    const user = os.userInfo();
+    return `${user.username}@${user.uid}`;
+  } catch {
+    return 'unknown-user';
+  }
+}
+
+function processIdFromIdentity(identity) {
+  const match = /^(\d+)@/.exec(String(identity ?? ''));
+  if (!match) return null;
+  const pid = Number(match[1]);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ESRCH') return false;
+    // EPERM means the process exists but this user cannot signal it.  Treat
+    // that as alive; self-promotion in the presence of ambiguity is unsafe.
+    if (error?.code === 'EPERM') return true;
+    return null;
+  }
+}
+
+function coreOwnershipError(code, messageKey, args = {}, options = {}) {
+  return new CoreError(code, 'CONFLICT', messageKey, args, {
+    retryable: true,
+    needsUser: true,
+    ...options,
+  });
+}
+
+function isCoreOwnershipFailure(error) {
+  return ['CORE_ALREADY_OWNED', 'CORE_OWNERSHIP_AMBIGUOUS', 'CORE_OWNERSHIP_REQUIRED', 'CORE_OWNERSHIP_LOST', 'CORE_EPOCH_STALE'].includes(error?.code);
+}
+
 export class CoreService {
   constructor(options = {}) {
     const dbPath = options.dbPath ?? path.join(process.cwd(), '.cineforge', 'cineforge.sqlite');
     if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
     this.dbPath = dbPath;
+    this._ownershipEnabled = dbPath !== ':memory:';
+    this._closed = false;
+    this.db = null;
+    this._processLockFd = null;
+    this._heartbeatTimer = null;
+    this.mutationEnabled = !this._ownershipEnabled;
+    this.ownershipState = this._ownershipEnabled ? 'STARTING' : 'ACTIVE_OWNER';
+    this.instanceId = uuidv7();
+    const configuredEpoch = options.instanceEpoch ?? process.env.CINEFORGE_CORE_SESSION ?? null;
+    this.instanceEpoch = configuredEpoch === null || configuredEpoch === undefined || String(configuredEpoch).trim() === ''
+      ? uuidv7() : String(configuredEpoch).trim();
+    if (!CORE_EPOCH_PATTERN.test(this.instanceEpoch)) throw new TypeError('instanceEpoch contains unsupported characters');
+    this.fencingToken = crypto.randomBytes(32).toString('hex');
+    this.processIdentity = processIdentity();
+    this.osUserIdentity = osUserIdentity();
+    this.startedAtUtcUs = nowUtcUs();
+    const requestedHeartbeat = Number(options.ownershipHeartbeatIntervalMs);
+    this.ownershipHeartbeatIntervalMs = Number.isFinite(requestedHeartbeat)
+      ? Math.min(Math.max(Math.trunc(requestedHeartbeat), 250), 60_000)
+      : CORE_OWNERSHIP_HEARTBEAT_INTERVAL_MS;
+    const requestedStaleAfter = Number(options.ownershipStaleAfterMs);
+    this.ownershipStaleAfterMs = Number.isFinite(requestedStaleAfter)
+      ? Math.min(Math.max(Math.trunc(requestedStaleAfter), this.ownershipHeartbeatIntervalMs * 2), 24 * 60 * 60 * 1000)
+      : CORE_OWNERSHIP_STALE_AFTER_MS;
+    this.processLockPath = this._ownershipEnabled
+      ? path.resolve(options.processLockPath ?? `${path.resolve(dbPath)}${CORE_OWNERSHIP_LOCK_FILE_SUFFIX}`)
+      : null;
     this.assetStorePath = path.resolve(options.assetStorePath
       ?? (dbPath === ':memory:' ? path.join(process.cwd(), '.cineforge', 'asset-store') : path.join(path.dirname(path.resolve(dbPath)), 'asset-store')));
     this.maxAssetBytes = Number.isSafeInteger(options.maxAssetBytes) && options.maxAssetBytes >= 0
@@ -1388,20 +1469,246 @@ export class CoreService {
       : MEDIA_PREVIEW_DEFAULT_TTL_MS;
     // This process fence makes every capability stale after a Core restart.
     // The epoch and token map are intentionally memory-only and are never
-    // written to the project database or returned in health projections.
+    // used as media capability credentials.  Core ownership uses a separate
+    // durable epoch/fencing token so canonical writes survive a restart safely.
     this.previewEpoch = crypto.randomBytes(32).toString('base64url');
     this.previewTokens = new Map();
-    this.db = new DatabaseSync(dbPath);
-    initializeDatabase(this.db);
-    this._bootstrap(options);
+    try {
+      if (this._ownershipEnabled) this._acquireProcessLock();
+      this.db = new DatabaseSync(dbPath);
+      initializeDatabase(this.db);
+      if (this._ownershipEnabled) this._acquireCoreOwnership();
+      this._bootstrap(options);
+      this._startOwnershipHeartbeat();
+    } catch (error) {
+      this._cleanupFailedConstruction();
+      throw error;
+    }
   }
 
   close() {
+    if (this._closed) return;
+    this._closed = true;
     this.previewTokens?.clear();
-    this.db.close();
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
+    this.mutationEnabled = false;
+    try { this._releaseCoreOwnership(); } catch { /* retain the primary close path */ }
+    try { this.db?.close(); } catch { /* already closed */ }
+    this.db = null;
+    this._releaseProcessLock();
+  }
+
+  _cleanupFailedConstruction() {
+    try { this._releaseCoreOwnership(); } catch { /* constructor failure is primary */ }
+    try { this.db?.close(); } catch { /* partially initialized */ }
+    this.db = null;
+    this._releaseProcessLock();
+  }
+
+  _acquireProcessLock() {
+    fs.mkdirSync(path.dirname(this.processLockPath), { recursive: true });
+    const lockMetadata = JSON.stringify({
+      pid: process.pid,
+      instance_id: this.instanceId,
+      instance_epoch: this.instanceEpoch,
+      started_at_utc_us: this.startedAtUtcUs,
+      db_path: this.dbPath,
+    });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        this._processLockFd = fs.openSync(this.processLockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600);
+        fs.writeFileSync(this._processLockFd, lockMetadata, { encoding: 'utf8' });
+        return;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
+        let existing;
+        try {
+          existing = JSON.parse(fs.readFileSync(this.processLockPath, 'utf8'));
+        } catch {
+          throw coreOwnershipError('CORE_OWNERSHIP_AMBIGUOUS', 'errors.core_ownership_ambiguous', {
+            lock_path: this.processLockPath,
+          });
+        }
+        const existingPid = Number(existing?.pid);
+        const alive = isProcessAlive(existingPid);
+        if (alive !== false) {
+          throw coreOwnershipError('CORE_ALREADY_OWNED', 'errors.core_already_owned', {
+            instance_epoch: typeof existing?.instance_epoch === 'string' ? existing.instance_epoch : undefined,
+          });
+        }
+        try {
+          fs.unlinkSync(this.processLockPath);
+        } catch (unlinkError) {
+          if (unlinkError?.code !== 'ENOENT') {
+            throw coreOwnershipError('CORE_OWNERSHIP_AMBIGUOUS', 'errors.core_ownership_ambiguous', {
+              lock_path: this.processLockPath,
+            });
+          }
+        }
+      }
+    }
+    throw coreOwnershipError('CORE_OWNERSHIP_AMBIGUOUS', 'errors.core_ownership_ambiguous', {
+      lock_path: this.processLockPath,
+    });
+  }
+
+  _releaseProcessLock() {
+    if (!this._ownershipEnabled || !this.processLockPath) return;
+    if (this._processLockFd !== null) {
+      try { fs.closeSync(this._processLockFd); } catch { /* already closed */ }
+      this._processLockFd = null;
+    }
+    try {
+      const existing = JSON.parse(fs.readFileSync(this.processLockPath, 'utf8'));
+      if (existing?.instance_id && existing.instance_id !== this.instanceId) return;
+    } catch {
+      // If the marker is already gone or damaged, leave it for the next
+      // launch to classify as ambiguous instead of deleting another owner.
+      return;
+    }
+    try { fs.unlinkSync(this.processLockPath); } catch { /* already removed */ }
+  }
+
+  _acquireCoreOwnership() {
+    const now = nowUtcUs();
+    this._transaction(() => {
+      this.db.prepare(`INSERT INTO core_instances
+        (id, instance_epoch, process_identity, os_user_identity, started_at_utc_us,
+         last_heartbeat_at_utc_us, state, fencing_token)
+        VALUES (?, ?, ?, ?, ?, ?, 'STARTING', ?)`).run(
+        this.instanceId, this.instanceEpoch, this.processIdentity, this.osUserIdentity,
+        this.startedAtUtcUs, now, this.fencingToken,
+      );
+      const ownership = this.db.prepare('SELECT * FROM core_instance_ownership WHERE singleton_id = 1').get();
+      if (!ownership) {
+        throw coreOwnershipError('CORE_OWNERSHIP_AMBIGUOUS', 'errors.core_ownership_ambiguous', {
+          reason: 'ownership_row_missing',
+        });
+      }
+      if (ownership.active_core_instance_id) {
+        const active = this.db.prepare('SELECT * FROM core_instances WHERE id = ?').get(ownership.active_core_instance_id);
+        if (!active) {
+          throw coreOwnershipError('CORE_OWNERSHIP_AMBIGUOUS', 'errors.core_ownership_ambiguous', {
+            reason: 'active_instance_missing',
+          });
+        }
+        const activeState = String(active.state);
+        const activePid = processIdFromIdentity(active.process_identity);
+        const activeAlive = isProcessAlive(activePid);
+        const heartbeatAgeMs = Math.max(0, (now - Number(active.last_heartbeat_at_utc_us)) / 1000);
+        const explicitlyReleased = activeState === 'STOPPED' || activeState === 'STALE_FENCED';
+        const processDead = activeAlive === false;
+        const heartbeatStale = heartbeatAgeMs > this.ownershipStaleAfterMs;
+        if (!explicitlyReleased && activeAlive === true) {
+          throw coreOwnershipError('CORE_ALREADY_OWNED', 'errors.core_already_owned', {
+            instance_epoch: active.instance_epoch,
+            heartbeat_age_ms: Math.round(heartbeatAgeMs),
+          });
+        }
+        if (!explicitlyReleased && activeAlive !== false) {
+          throw coreOwnershipError('CORE_OWNERSHIP_AMBIGUOUS', 'errors.core_ownership_ambiguous', {
+            reason: heartbeatStale ? 'active_process_identity_unknown_stale' : 'active_process_identity_unknown',
+          });
+        }
+        this.db.prepare(`UPDATE core_instances SET state = 'STALE_FENCED', stopped_at_utc_us = ?
+          WHERE id = ? AND state NOT IN ('STOPPED', 'STALE_FENCED')`).run(now, active.id);
+      }
+      this.db.prepare(`UPDATE core_instance_ownership
+        SET active_core_instance_id = ?, active_epoch = ?, fencing_token = ?,
+            row_version = row_version + 1, acquired_at_utc_us = ?
+        WHERE singleton_id = 1`).run(this.instanceId, this.instanceEpoch, this.fencingToken, now);
+      this.db.prepare(`UPDATE core_instances SET state = 'ACTIVE_OWNER', last_heartbeat_at_utc_us = ?
+        WHERE id = ? AND fencing_token = ?`).run(now, this.instanceId, this.fencingToken);
+    });
+    this.ownershipState = 'ACTIVE_OWNER';
+    this.mutationEnabled = true;
+  }
+
+  _releaseCoreOwnership() {
+    if (!this._ownershipEnabled || !this.db) return;
+    const now = nowUtcUs();
+    this._transaction(() => {
+      this.db.prepare(`UPDATE core_instances SET state = 'STOPPED', stopped_at_utc_us = ?, last_heartbeat_at_utc_us = ?
+        WHERE id = ? AND fencing_token = ? AND state IN ('STARTING', 'ACTIVE_OWNER', 'DRAINING')`)
+        .run(now, now, this.instanceId, this.fencingToken);
+      this.db.prepare(`UPDATE core_instance_ownership
+        SET active_core_instance_id = NULL, active_epoch = NULL, fencing_token = NULL,
+            row_version = row_version + 1
+        WHERE singleton_id = 1 AND active_core_instance_id = ? AND active_epoch = ? AND fencing_token = ?`)
+        .run(this.instanceId, this.instanceEpoch, this.fencingToken);
+    });
+    this.ownershipState = 'STOPPED';
+  }
+
+  _startOwnershipHeartbeat() {
+    if (!this._ownershipEnabled) return;
+    this._heartbeatTimer = setInterval(() => {
+      if (this._closed || !this.mutationEnabled) return;
+      try {
+        const now = nowUtcUs();
+        const updated = this._transaction(() => this.db.prepare(`UPDATE core_instances
+          SET last_heartbeat_at_utc_us = ?
+          WHERE id = ? AND instance_epoch = ? AND fencing_token = ? AND state = 'ACTIVE_OWNER'`)
+          .run(now, this.instanceId, this.instanceEpoch, this.fencingToken));
+        if (updated.changes !== 1) {
+          this.mutationEnabled = false;
+          this.ownershipState = 'STALE_FENCED';
+        }
+      } catch {
+        // A failed heartbeat must fail closed.  The next mutating command
+        // rechecks the durable singleton and returns a typed conflict.
+        this.mutationEnabled = false;
+        this.ownershipState = 'CONFLICT';
+      }
+    }, this.ownershipHeartbeatIntervalMs);
+    this._heartbeatTimer.unref?.();
+  }
+
+  _assertCoreOwner() {
+    if (!this._ownershipEnabled) return;
+    if (!this.mutationEnabled || !this.db) {
+      throw coreOwnershipError('CORE_OWNERSHIP_REQUIRED', 'errors.core_ownership_required', {
+        ownership_state: this.ownershipState,
+      });
+    }
+    let row;
+    try {
+      row = this.db.prepare(`SELECT o.active_core_instance_id, o.active_epoch, o.fencing_token,
+          i.state, i.last_heartbeat_at_utc_us
+        FROM core_instance_ownership o
+        LEFT JOIN core_instances i ON i.id = o.active_core_instance_id
+        WHERE o.singleton_id = 1`).get();
+    } catch {
+      this.mutationEnabled = false;
+      this.ownershipState = 'CONFLICT';
+      throw coreOwnershipError('CORE_OWNERSHIP_REQUIRED', 'errors.core_ownership_required', {
+        ownership_state: this.ownershipState,
+      });
+    }
+    const owned = row
+      && row.active_core_instance_id === this.instanceId
+      && row.active_epoch === this.instanceEpoch
+      && row.fencing_token === this.fencingToken
+      && row.state === 'ACTIVE_OWNER';
+    if (!owned) {
+      this.mutationEnabled = false;
+      this.ownershipState = row?.state === 'STALE_FENCED' ? 'STALE_FENCED' : 'CONFLICT';
+      throw coreOwnershipError('CORE_OWNERSHIP_LOST', 'errors.core_ownership_lost', {
+        ownership_state: this.ownershipState,
+      });
+    }
+  }
+
+  _requestEpoch(request) {
+    const value = request?.core_epoch ?? request?.core_ownership_epoch ?? request?.instance_epoch ?? request?.coreInstanceEpoch;
+    return value === undefined || value === null ? null : String(value);
   }
 
   _bootstrap(options) {
+    this._assertCoreOwner();
     this._transaction(() => {
       const studio = this.db.prepare('SELECT * FROM studios ORDER BY created_at_utc_us LIMIT 1').get();
       if (!studio) {
@@ -2975,6 +3282,9 @@ export class CoreService {
       }, { needsUser: true });
     }
     const requestFingerprint = idempotencyKey ? idempotencyFingerprint(payload, expectedVersions) : null;
+    // Ownership is checked before idempotency replay.  A fenced process must
+    // not even read a prior result as though it still had mutation authority.
+    this._assertCoreOwner();
     const previous = this._findIdempotent(commandType, idempotencyKey);
     if (previous) return this._replayCommand(previous, commandType, idempotencyKey, requestFingerprint);
 
@@ -2983,6 +3293,7 @@ export class CoreService {
     const projectId = this._commandProjectId(commandType, payload);
     try {
       this._transaction(() => {
+        this._assertCoreOwner();
         this.db.prepare(`INSERT INTO commands
           (id, studio_id, project_id, actor_id, command_type, schema_version, scope_type, scope_id,
            payload_json, expected_versions_json, reversibility, status, idempotency_key,
@@ -2997,6 +3308,7 @@ export class CoreService {
       // Another Core process may have won the idempotency insert between the
       // lookup above and this transaction. Re-read and replay its exact row so
       // retries stay typed/idempotent instead of surfacing raw SQLite errors.
+      if (isCoreOwnershipFailure(error)) throw error;
       const raced = this._findIdempotent(commandType, idempotencyKey);
       if (raced) return this._replayCommand(raced, commandType, idempotencyKey, requestFingerprint);
       throw error;
@@ -3007,6 +3319,9 @@ export class CoreService {
     let externalCommandPrepared = false;
     let exportAttemptRowVersion = null;
     try {
+      // Staging, VACUUM preparation, and generated-byte materialization are
+      // external side effects.  Recheck immediately before any of them.
+      this._assertCoreOwner();
       // COPY imports reserve and populate a durable staging row before the
       // canonical command transaction starts.  If the process stops during
       // the file operation, the row and private temp bytes remain available
@@ -3044,12 +3359,19 @@ export class CoreService {
         // VACUUM INTO cannot run inside a SQLite transaction.  Mark the
         // command executing first, create and verify the external artifact,
         // then atomically register its immutable manifest below.
-        this._transaction(() => this.db.prepare('UPDATE commands SET status = ?, started_at_utc_us = ? WHERE id = ?')
-          .run('EXECUTING', nowUtcUs(), commandId));
+        this._transaction(() => {
+          this._assertCoreOwner();
+          this.db.prepare('UPDATE commands SET status = ?, started_at_utc_us = ? WHERE id = ?')
+            .run('EXECUTING', nowUtcUs(), commandId);
+        });
         externalCommandPrepared = true;
         backupReservation = this._prepareBackup(payload, commandId);
       }
       const applied = this._transaction(() => {
+        // The final canonical transaction is the last fence.  A takeover
+        // between staging and commit can therefore never publish an old
+        // process's event/outbox mutation.
+        this._assertCoreOwner();
         if (!externalCommandPrepared) {
           this.db.prepare('UPDATE commands SET status = ?, started_at_utc_us = ? WHERE id = ?')
             .run('EXECUTING', nowUtcUs(), commandId);
@@ -3086,6 +3408,7 @@ export class CoreService {
       const coreError = error instanceof CoreError ? error : new CoreError(
         'INTERNAL_ERROR', 'INTERNAL', 'errors.internal', {}, { needsUser: false, technicalDetails: { message: String(error?.message ?? error) } },
       );
+      if (isCoreOwnershipFailure(coreError)) throw coreError;
       if (stagingReservation?.id) {
         try {
           this._transaction(() => {
@@ -7294,6 +7617,7 @@ export class CoreService {
   }
 
   cancelCommand(input = {}) {
+    this._assertCoreOwner();
     const commandId = requiredString(input.command_id ?? input.commandId, 'command_id');
     const current = this.db.prepare('SELECT * FROM commands WHERE id = ?').get(commandId);
     if (!current) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.command_not_found', { command_id: commandId });
@@ -7302,6 +7626,7 @@ export class CoreService {
     }
     if (terminalStatus(current.status)) return { ...commandResult(current), cancellation: 'already_terminal' };
     this._transaction(() => {
+      this._assertCoreOwner();
       this.db.prepare(`UPDATE commands SET status = 'CANCELLED', finished_at_utc_us = ?, error_code = ? WHERE id = ?`)
         .run(nowUtcUs(), 'CANCELLED', commandId);
       this._insertAudit({ actionType: 'command.cancel', targetType: 'COMMAND', targetId: commandId, payload: {} }, commandId, this.actorId, 'CANCELLED');
@@ -7975,11 +8300,32 @@ export class CoreService {
     if (integrity !== 'ok') degradedReasons.push('INTEGRITY_CHECK_FAILED');
     if (journalMode !== 'WAL') degradedReasons.push('WAL_DISABLED');
     if (storagePressure) degradedReasons.push('STORAGE_PRESSURE');
+    let ownershipRow = null;
+    if (this._ownershipEnabled) {
+      try {
+        ownershipRow = this.db.prepare(`SELECT o.active_core_instance_id, o.active_epoch, o.fencing_token,
+            i.state, i.last_heartbeat_at_utc_us
+          FROM core_instance_ownership o
+          LEFT JOIN core_instances i ON i.id = o.active_core_instance_id
+          WHERE o.singleton_id = 1`).get() ?? null;
+      } catch {
+        ownershipRow = null;
+      }
+    }
+    const ownershipState = ownershipRow?.state ?? this.ownershipState;
+    const ownershipActive = !this._ownershipEnabled || (
+      this.mutationEnabled
+      && ownershipState === 'ACTIVE_OWNER'
+      && ownershipRow?.active_core_instance_id === this.instanceId
+      && ownershipRow?.active_epoch === this.instanceEpoch
+      && ownershipRow?.fencing_token === this.fencingToken
+    );
+    if (!ownershipActive) degradedReasons.push('CORE_OWNERSHIP_NOT_ACTIVE');
     return {
       core_version: CORE_VERSION,
       api_version: API_VERSION,
       schema_version: SCHEMA_VERSION,
-      status: integrity === 'ok' && journalMode === 'WAL' && foreignKeys === 1 && !storagePressure ? 'READY' : 'DEGRADED',
+      status: integrity === 'ok' && journalMode === 'WAL' && foreignKeys === 1 && !storagePressure && ownershipActive ? 'READY' : 'DEGRADED',
       freshness: 'FRESH',
       db_path: this.dbPath,
       journal_mode: journalMode,
@@ -7995,6 +8341,11 @@ export class CoreService {
       installation_id: this._getMeta('installation_id'),
       studio_id: this.studioId,
       actor_id: this.actorId,
+      core_instance_id: this.instanceId,
+      instance_epoch: this.instanceEpoch,
+      ownership_state: ownershipState,
+      mutation_enabled: ownershipActive,
+      last_heartbeat_at: ownershipRow?.last_heartbeat_at_utc_us ? rfc3339FromUs(ownershipRow.last_heartbeat_at_utc_us) : null,
       backup_state: latestBackup?.state ?? 'MISSING',
       last_backup_at: latestBackup?.completed_at_utc_us ? rfc3339FromUs(latestBackup.completed_at_utc_us) : null,
       storage_pressure: storagePressure,
@@ -9129,6 +9480,13 @@ export class CoreService {
       }
       if (request.actor_id && request.actor_id !== this.actorId) {
         throw new CoreError('AUTH_REQUIRED', 'AUTH_REQUIRED', 'errors.actor_mismatch', {}, { needsUser: true });
+      }
+      const requestEpoch = this._requestEpoch(request);
+      if (requestEpoch !== null && requestEpoch !== this.instanceEpoch) {
+        throw coreOwnershipError('CORE_EPOCH_STALE', 'errors.core_epoch_stale', {
+          expected_epoch: this.instanceEpoch,
+          received_epoch: requestEpoch,
+        });
       }
       const method = requiredString(request.method, 'method', 160);
       const params = request.params ?? {};

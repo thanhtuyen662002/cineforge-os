@@ -106,6 +106,37 @@ try {
         throw 'CineForge Core did not become ready; a production portable build must include a working Core.'
     }
 
+    # A second bootstrap must not probe another port and open the same data
+    # root concurrently. The Windows host owns a stable mutex keyed by this
+    # data root and reports a deterministic already-running exit code.
+    $duplicateStdout = Join-Path $dataRoot 'bootstrap.duplicate.stdout.log'
+    $duplicateStderr = Join-Path $dataRoot 'bootstrap.duplicate.stderr.log'
+    # Route the short-lived child through cmd.exe so the wrapper reliably
+    # exposes the native process exit code on Windows single-file hosts.
+    $duplicateCommand = '{0} {1} > {2} 2> {3}' -f (& $quote $exe), $arguments, (& $quote $duplicateStdout), (& $quote $duplicateStderr)
+    $duplicate = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\cmd.exe') -ArgumentList @('/d', '/s', '/c', ('"' + $duplicateCommand + '"')) -WorkingDirectory $resolvedRoot -WindowStyle Hidden -PassThru
+    try {
+        if (-not $duplicate.WaitForExit(10000)) {
+            throw 'A second CineForge bootstrap did not exit after detecting the active data-root owner.'
+        }
+        $duplicate.Refresh()
+        if ($duplicate.ExitCode -ne 6) {
+            $duplicateError = if (Test-Path -LiteralPath $duplicateStderr) { Get-Content -LiteralPath $duplicateStderr -Raw } else { '' }
+            throw "A second CineForge bootstrap returned exit code $($duplicate.ExitCode), expected 6. $duplicateError"
+        }
+        $duplicateError = if (Test-Path -LiteralPath $duplicateStderr) { Get-Content -LiteralPath $duplicateStderr -Raw } else { '' }
+        if ($duplicateError -notmatch '(?i)already running') {
+            throw "A second CineForge bootstrap did not report an already-running error. $duplicateError"
+        }
+    }
+    finally {
+        try {
+            if (-not $duplicate.HasExited) { Stop-Tree $duplicate }
+            else { $duplicate.Dispose() }
+        }
+        catch { }
+    }
+
     $html = (Invoke-WebRequest -Uri "http://127.0.0.1:$webPort/" -UseBasicParsing -TimeoutSec 5).Content
     if ($html -notmatch '<html') { throw 'CineForge root page did not return HTML.' }
     if ($health.core) {

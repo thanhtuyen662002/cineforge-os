@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -26,6 +26,38 @@ export function initializeDatabase(db) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    /*
+     * A project database has exactly one canonical Core writer.  The process
+     * lock is the fast OS-level guard; these durable rows are the recovery and
+     * fencing record that survives a crashed process.  The ownership row is a
+     * singleton by construction, while every instance epoch and fencing token
+     * is unique so an old process can never be mistaken for its successor.
+     */
+    CREATE TABLE IF NOT EXISTS core_instances (
+      id TEXT PRIMARY KEY,
+      instance_epoch TEXT NOT NULL UNIQUE,
+      process_identity TEXT NOT NULL,
+      os_user_identity TEXT NOT NULL,
+      started_at_utc_us INTEGER NOT NULL,
+      last_heartbeat_at_utc_us INTEGER NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('STARTING', 'ACTIVE_OWNER', 'DRAINING', 'STOPPED', 'STALE_FENCED', 'CONFLICT')),
+      fencing_token TEXT NOT NULL UNIQUE,
+      stopped_at_utc_us INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS core_instance_ownership (
+      singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+      active_core_instance_id TEXT REFERENCES core_instances(id),
+      active_epoch TEXT,
+      fencing_token TEXT,
+      row_version INTEGER NOT NULL DEFAULT 1,
+      acquired_at_utc_us INTEGER
+    );
+
+    INSERT OR IGNORE INTO core_instance_ownership
+      (singleton_id, active_core_instance_id, active_epoch, fencing_token, row_version, acquired_at_utc_us)
+      VALUES (1, NULL, NULL, NULL, 1, NULL);
 
     CREATE TABLE IF NOT EXISTS studios (
       id TEXT PRIMARY KEY,

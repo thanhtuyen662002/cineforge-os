@@ -162,6 +162,19 @@ Each case must run against an isolated disposable project/control-plane fixture 
 
 ### CT-14 — Second Core/zombie writer
 
+**Current bounded implementation evidence (2026-09-30):** the V1 Core now
+acquires a data-root process lock before opening SQLite, records
+`core_instances` plus a singleton `core_instance_ownership` epoch, heartbeats
+the owner, rejects stale HTTP epochs, and validates the owner tuple before
+command replay, external staging/backup preparation and the final canonical
+transaction. `core/core.test.mjs` covers duplicate-owner rejection, dead-owner
+reclaim and stale-epoch non-mutation; `core/http.test.mjs` covers the HTTP
+fence; `packaging/smoke_test.ps1` covers a duplicate Windows bootstrap exiting
+with the typed already-running result. This is implementation evidence for
+the bounded slice, not promotion of `CF-CTRL-SINGLE-CORE-WRITER`: suspended
+process injection, independent review and full chaos/restore evidence remain
+required.
+
 - **Preconditions:** One Core owns the library with an OS-level exclusive primitive and fencing token.
 - **Fault injection:** Start a second process and resume a suspended first process after ownership changes.
 - **Expected invariant:** Exactly one writer epoch is active; stale writes are rejected at the database and IPC boundary.
