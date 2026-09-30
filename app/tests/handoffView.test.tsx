@@ -2,7 +2,7 @@ import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { HandoffView } from '../src/App'
-import type { CoreClient, DashboardSnapshot, HandoffWorkspace, ProjectSummary, ReviewSession, TimelineRevision, TimelineSummary, TimelineWorkspace } from '../src/types'
+import type { AssetSummary, CoreClient, DashboardSnapshot, ExternalEdit, HandoffWorkspace, ProjectSummary, ReviewSession, TimelineRevision, TimelineSummary, TimelineWorkspace } from '../src/types'
 
 const project: ProjectSummary = {
   id: 'project-1', name: 'Phim thử', kind: 'Project', updatedAt: 'Vừa cập nhật', stage: 'ACTIVE', stageDetail: 'test',
@@ -159,5 +159,22 @@ describe('HandoffView', () => {
     render(<HandoffView snapshot={snapshot} locale="vi" client={core} onToast={vi.fn()} />)
     expect(await screen.findByText(/Bổ sung rights\/consent/)).toBeTruthy()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Tạo interchange đã verify' })).toHaveProperty('disabled', false))
+  })
+
+  it('registers a selected managed returned interchange without applying it to the timeline', async () => {
+    const returnedAsset: AssetSummary = { id: 'asset-returned', projectId: project.id, name: 'Returned cut', assetType: 'TIMELINE_INTERCHANGE', originType: 'EXTERNAL_EDIT', state: 'ACTIVE', availability: 'AVAILABLE', readinessState: 'READY', revisionId: 'returned-revision-1', contentHash: 'e'.repeat(64), byteSize: 1024, warnings: [] }
+    const registered: ExternalEdit = { id: 'external-edit-1', projectId: project.id, handoffManifestId: 'manifest-1', exportSessionId: 'session-1', timelineRevisionId: approvedRevision.id, returnedAssetRevisionId: returnedAsset.revisionId, lineageConfidence: 'PARTIAL', validationState: 'REGISTERED', sourceDocumentHash: returnedAsset.contentHash, sourceDocumentByteSize: returnedAsset.byteSize, returnedRightsStatus: 'ALLOWED', validationSnapshot: { schemaVersion: 1 }, contractDiffCount: 1, contractDiffs: [{ id: 'diff-1', diffType: 'DURATION', severity: 'WARNING', before: { duration: '24/1' }, after: { duration: '25/1' } }], nextStep: 'Review the returned interchange before applying it.', rowVersion: 1 }
+    const registerExternalEdit = vi.fn(async () => registered)
+    const core = client({ getHandoffs: vi.fn(async () => [{ exportSession: completedResult.exportSession!, handoffManifest: completedResult.handoffManifest! }]), getHandoff: vi.fn(async () => completedResult), getAssets: vi.fn(async () => [returnedAsset]), getExternalEdits: vi.fn(async () => ({ items: [] })), registerExternalEdit })
+    render(<HandoffView snapshot={snapshot} locale="vi" client={core} onToast={vi.fn()} />)
+    const registerButton = await screen.findByRole('button', { name: 'Đăng ký interchange trả về' })
+    const returnedAssetSelect = await screen.findByRole('combobox', { name: 'Asset interchange trả về' })
+    await waitFor(() => expect(returnedAssetSelect).toHaveProperty('disabled', false))
+    fireEvent.change(returnedAssetSelect, { target: { value: 'returned-revision-1' } })
+    await waitFor(() => expect(registerButton).toHaveProperty('disabled', false))
+    fireEvent.click(registerButton)
+    await waitFor(() => expect(registerExternalEdit).toHaveBeenCalledWith(project.id, expect.objectContaining({ handoffManifestId: 'manifest-1', exportSessionId: 'session-1', returnedAssetRevisionId: 'returned-revision-1', expectedVersion: 6, lineageConfidence: 'PARTIAL' }), expect.stringMatching(/^external-edit-register:/)))
+    expect(await screen.findByText('Đã đăng ký')).toBeTruthy()
+    expect(screen.getByText('Review the returned interchange before applying it.')).toBeTruthy()
   })
 })

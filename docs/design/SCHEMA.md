@@ -18,18 +18,21 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
-> Executable Core schema: version 16 (the Issue #27 working-session tables, the
+> Executable Core schema: version 17 (the Issue #27 working-session tables, the
 > bounded Issue #29 timing metadata tables and the metadata-only Issue #49
 > release-candidate draft table plus the verified local timeline-interchange
-> output binding are included). The generic
+> output binding and the bounded returned external-edit registration tables are
+> included). The generic
 > dependency/staleness graph remains a broader design contract; the Issue #29
 > slice computes its stale projection from immutable pins and current gate
 > evidence instead of materializing that graph.
 > This document describes canonical data. Search indexes, embeddings, thumbnails, previews and caches are derived data.
 
-The v16 upgrade is additive. It creates the verified export-output columns and
-index while preserving the immutable handoff identity; the preceding v15
-upgrade created `release_candidates` plus its
+The v17 upgrade is additive. It creates the returned external-edit lineage and
+contract-diff tables, indexes and no-update/no-delete guards while preserving
+the immutable handoff/export identity. The preceding v16 upgrade created the
+verified export-output columns and index; the preceding v15 upgrade created
+`release_candidates` plus its
 project/state, exact-revision and command indexes, and recreates the identity,
 terminal-state and no-delete guards on every open. Existing canonical rows are
 not rewritten; a partially created release-candidate table that is missing
@@ -1741,11 +1744,52 @@ until a new handoff manifest is created from current exact evidence.
 ## external_edits
 - id PK
 - project_id FK
-- handoff_manifest_id nullable
-- returned_asset_revision_id
-- returned_interchange_asset_revision_id nullable
-- lineage_confidence: EXACT | PARTIAL | FLATTENED | UNKNOWN
-- imported_at_utc_us
+- handoff_manifest_id FK (the exact immutable handoff that produced the source)
+- export_session_id FK (the exact `COMPLETED` export session)
+- timeline_revision_id FK (the exact source revision pinned by that session)
+- returned_asset_revision_id FK (the managed returned asset revision)
+- returned_interchange_asset_revision_id nullable FK (the returned interchange
+  revision; V1 binds it to the returned asset revision and never treats it as a
+  canonical timeline revision)
+- lineage_confidence: `EXACT` | `PARTIAL` | `FLATTENED` | `UNKNOWN`
+- validation_state: `RECEIVED` | `VALIDATING` | `REGISTERED` |
+  `BLOCKED_SCHEMA` | `BLOCKED_SCOPE` | `BLOCKED_MEDIA` |
+  `BLOCKED_RIGHTS` | `FAILED`
+- source_document_hash (SHA-256 of the exact returned UTF-8 bytes)
+- source_document_byte_size (positive bounded byte count)
+- source_manifest_hash (the immutable handoff manifest digest)
+- source_revision_content_hash (the exact source timeline content digest)
+- source_dependency_snapshot_hash (the exact approved-review dependency digest)
+- source_review_session_id FK
+- returned_rights_status: `ALLOWED` | `RESTRICTED` | `UNKNOWN` |
+  `REVOKED` | `EXPIRED`
+- validation_snapshot_json (bounded, redacted validation evidence)
+- contract_diff_count
+- next_step
+- row_version (positive integer)
+- command_id FK
+- created_by_actor_id FK
+- created_at_utc_us
+
+The v17 registration command inserts one immutable lineage record only after
+an exact handoff or export identity resolves to the verified handoff/export
+pair (when both are supplied they must agree), the returned asset belongs to the
+same project and is a managed `TIMELINE_INTERCHANGE` revision, the bytes are
+read through the managed content-addressed store, the canonical interchange
+profile validates, and the current rights/consent result is `ALLOWED`. The
+record is evidence about an external editor return; it never mutates a
+canonical timeline, creates an approval/review, or authorizes export, release or
+publish. Failed validation is retained in the command/audit ledger and does
+not create a misleading successful `external_edits` row.
+
+The uniqueness boundary is `(project_id, handoff_manifest_id,
+returned_asset_revision_id, source_document_hash)`. Repeating the same
+idempotency key replays the command result; attempting the same immutable
+registration through a different command is an explicit conflict. Public
+projections include only safe hashes, sizes, IDs, state, rights status,
+redacted validation evidence and bounded `contract_diffs`; storage paths,
+provider fields, credentials and raw returned documents are never persisted in
+the projection.
 
 ## release_candidates
 - id PK
@@ -4564,11 +4608,21 @@ PK(editor_adapter_version_id, feature_code)
 ## external_edit_contract_diffs
 - id PK
 - external_edit_id FK
+- project_id FK
 - diff_type: MEDIA_PROFILE | FPS_TIMEBASE | START_TIMECODE | DURATION | MEDIA_IDENTITY | PROXY_ORIGINAL_ROLE | FLATTENING | AUDIO_LANGUAGE | SUBTITLE_LANGUAGE | OTHER
-- severity
-- before_json
-- after_json
-- resolution_state
+- severity: `INFO` | `WARNING` | `BLOCKING`
+- before_json (bounded, redacted canonical value)
+- after_json (bounded, redacted canonical value)
+- resolution_state: `UNRESOLVED` | `ACCEPTED` | `REJECTED` |
+  `NOT_APPLICABLE`
+- created_by_actor_id FK
+- created_at_utc_us
+
+Contract diffs are append-only evidence emitted while registering the returned
+interchange. They compare the returned profile/timing/artifact identity with
+the exact export binding; a warning does not silently rewrite canon, and a
+future resolution command must create a separate audited record. No update or
+delete path exists for either this table or `external_edits`.
 
 # 98. Alternate deliverable review scope
 

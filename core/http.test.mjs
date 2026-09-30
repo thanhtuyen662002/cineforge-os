@@ -1091,3 +1091,54 @@ test('HTTP handoff routes preserve exact hashes and conservative compatibility',
     await new Promise((resolve) => listener.server.close(resolve));
   }
 });
+
+test('HTTP external-edit routes preserve lineage, rights state and optimistic export version', async () => {
+  const calls = [];
+  const externalEdit = {
+    id: 'external-edit-1', project_id: 'project-1', handoff_manifest_id: 'handoff-1', export_session_id: 'export-1',
+    timeline_revision_id: 'revision-1', returned_asset_revision_id: 'returned-revision-1',
+    returned_interchange_asset_revision_id: 'returned-revision-1', lineage_confidence: 'PARTIAL', validation_state: 'REGISTERED',
+    source_document_hash: 'a'.repeat(64), source_document_byte_size: 2048, source_manifest_hash: 'b'.repeat(64),
+    source_revision_content_hash: 'c'.repeat(64), source_dependency_snapshot_hash: 'd'.repeat(64), source_review_session_id: 'review-1',
+    returned_rights_status: 'ALLOWED', validation_snapshot: { returned_document_hash: 'a'.repeat(64), local_path: 'C:/secret' },
+    contract_diff_count: 1, contract_diffs: [{ id: 'diff-1', diff_type: 'DURATION', severity: 'WARNING', before: { num: 24, den: 1 }, after: { num: 25, den: 1 }, resolution_state: 'UNRESOLVED' }],
+    next_step: 'Review contract differences', row_version: 1, command_id: 'command-1', created_at: '2026-09-30T00:00:00.000Z',
+  };
+  const core = {
+    handle(request) {
+      calls.push(request);
+      if (request.method === 'query.external_edit.list') return { ok: true, result: { items: [externalEdit], projection_seq: 7 } };
+      if (request.method === 'query.external_edit.get') return { ok: true, result: { external_edit: externalEdit, projection_seq: 7 } };
+      if (request.method === 'command.execute' && request.params.command_type === 'RegisterExternalEdit') return { ok: true, result: { external_edit: externalEdit } };
+      return { ok: false, error: { code: 'NOT_FOUND', category: 'VALIDATION' } };
+    },
+  };
+  const listener = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+  const base = `http://127.0.0.1:${listener.address.port}`;
+  const jsonRequest = async (pathName, options = {}) => {
+    const response = await fetch(`${base}${pathName}`, { ...options, headers: { 'content-type': 'application/json', ...(options.headers ?? {}) } });
+    return { response, payload: await response.json() };
+  };
+  try {
+    const listed = await jsonRequest('/v1/projects/project-1/external-edits?validation_state=REGISTERED');
+    assert.equal(listed.response.status, 200);
+    assert.equal(listed.payload.result.items[0].lineageConfidence, 'PARTIAL');
+    assert.equal(listed.payload.result.items[0].contractDiffs[0].diffType, 'DURATION');
+    assert.equal(listed.payload.result.items[0].contractDiffCount, 1);
+    const detail = await jsonRequest('/v1/projects/project-1/external-edits/external-edit-1');
+    assert.equal(detail.response.status, 200);
+    assert.equal(detail.payload.result.externalEdit.returnedRightsStatus, 'ALLOWED');
+    const created = await jsonRequest('/v1/projects/project-1/external-edits', {
+      method: 'POST', headers: { 'idempotency-key': 'external-edit-register' },
+      body: JSON.stringify({ handoff_manifest_id: 'handoff-1', export_session_id: 'export-1', returned_asset_revision_id: 'returned-revision-1', expected_version: 4, lineage_confidence: 'PARTIAL' }),
+    });
+    assert.equal(created.response.status, 200);
+    assert.equal(created.payload.result.externalEdit.id, 'external-edit-1');
+    const command = calls.find((call) => call.method === 'command.execute');
+    assert.equal(command.params.command_type, 'RegisterExternalEdit');
+    assert.equal(command.params.payload.project_id, 'project-1');
+    assert.equal(command.params.expected_versions.EXPORT_SESSION, 4);
+  } finally {
+    await new Promise((resolve) => listener.server.close(resolve));
+  }
+});

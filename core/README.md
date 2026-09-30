@@ -86,10 +86,11 @@ project claim, and `UNKNOWN` rights/readiness never becomes `PASS`.
 
 The timeline working session, autosave, undo/redo, collaboration, playback,
 render, technical-master/transcode and media-byte export, external-editor
-round-trip, release, publish, release signing and arbitrary provider execution
-remain explicitly deferred. The implemented timeline interchange is a
-verified, local JSON artifact boundary; it does not claim to render or publish
-media bytes.
+editing round-trip, release, publish, release signing and arbitrary provider
+execution remain explicitly deferred. The implemented timeline interchange is
+a verified, local JSON artifact boundary. Its bounded return-registration
+boundary is implemented below; neither surface renders or publishes media
+bytes.
 The desktop workspace states that boundary and never reports media progress
 without Core evidence. These later surfaces must receive their own contracts
 before they are added to the UI.
@@ -163,6 +164,38 @@ event. Stale/cross-project/malformed review or hash input, unknown rights,
 unready/unmaterialized assets and changed timeline content fail closed without
 partial output. This baseline performs no playback, render, transcode,
 audio/subtitle processing, generation, external publish or release signing.
+
+## Returned external-edit registration
+
+After an editor returns a managed interchange document, the executable Core
+command `RegisterExternalEdit` records its lineage against an exact immutable
+handoff manifest or `COMPLETED` export session (callers may provide both; when
+both are present they must resolve to the same binding). The command requires
+an optimistic export-session version and an idempotency key, checks same-project
+scope, current rights/consent (`ALLOWED`), active managed
+`TIMELINE_INTERCHANGE` asset identity and stable SHA-256/size, then validates
+the canonical UTF-8 `CINEFORGE_TIMELINE_INTERCHANGE` /
+`GENERIC_INTERCHANGE_V1` profile. The parser rejects duplicate/unsafe keys,
+non-canonical or non-finite JSON, unknown/provider/path/URI fields, malformed
+rationals and bounded-limit violations. `EXACT` lineage is accepted only when
+returned bytes equal the exact export bytes; otherwise the caller must state
+`PARTIAL`, `FLATTENED` or `UNKNOWN`.
+
+The successful row is immutable, append-only and project-scoped. It includes
+the source/returned IDs and hashes, rights and validation state, a redacted
+validation snapshot, human-readable next step and append-only contract diffs.
+The command does not modify a canonical timeline, create or approve a review,
+authorize release/publish, or execute an external provider. Failed validation
+is retained in command/audit evidence; duplicate immutable identity is an
+explicit conflict. The loopback adapter exposes these redacted projections:
+
+- `GET /v1/projects/{id}/external-edits?validation_state=&limit=`;
+- `GET /v1/projects/{id}/external-edits/{externalEditId}`; and
+- `POST /v1/projects/{id}/external-edits` with
+  at least one of `handoff_manifest_id` or `export_session_id` (both are
+  recommended when the caller has the exact pair),
+  `returned_asset_revision_id`, optional `lineage_confidence` and
+  `expected_version`.
 
 ## Requirements
 
@@ -243,6 +276,9 @@ The desktop-facing routes are:
 | GET | `/v1/projects/{id}/exports/{exportId}` | Read one redacted export session and validation snapshot |
 | POST | `/v1/projects/{id}/exports/{exportId}/build` | Build a verified local timeline interchange JSON artifact |
 | GET/HEAD | `/v1/projects/{id}/exports/{exportId}/download` | Issue a scoped capability or stream a verified artifact range |
+| GET | `/v1/projects/{id}/external-edits` | List registered returned interchange lineage records |
+| GET | `/v1/projects/{id}/external-edits/{externalEditId}` | Read one redacted returned-edit record and contract diffs |
+| POST | `/v1/projects/{id}/external-edits` | Register a managed returned interchange against an exact export |
 | GET | `/v1/projects/{id}/assets` | List project assets and latest immutable revisions |
 | POST | `/v1/projects/{id}/assets` | Hash and register a local file (copy by default) |
 | GET | `/v1/assets` | List assets across the studio |

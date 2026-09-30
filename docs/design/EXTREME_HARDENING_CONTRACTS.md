@@ -2408,6 +2408,35 @@ Apply:
 - attachment extraction only to private staging;
 - codec/font/renderer failures quarantine the artifact, not crash Core.
 
+## CX4. Returned external-edit interchange intake
+
+The returned interchange boundary is a hostile structured-document intake, even
+when a user says that it came from a trusted editor. Registration must resolve
+an exact immutable handoff or completed export (and cross-check both when both
+are supplied) before any lineage record is accepted. The returned asset must be a same-project managed object
+with a stable descriptor, content hash and byte size; an arbitrary path, URI,
+provider reference, cloud location or filename is never an identity.
+
+The accepted V1 profile is an explicit canonical UTF-8 JSON allowlist. The
+parser must use fatal UTF-8 decoding, reject duplicate keys and unsafe object
+keys, reject NaN/Infinity and non-canonical serialization, and enforce bounded
+bytes, depth, node count, object keys, strings and track/clip/marker/artifact
+counts. It must validate project/timeline/revision, approved review,
+dependency/content hashes, media-profile revision and rational time values
+against the exact export binding. Unknown fields are rejected before a
+registration row is written. `EXACT` is an evidence claim derived only from
+matching returned/export bytes; a caller-supplied exact claim with a mismatch
+must fail closed.
+
+Validation and rights failures remain auditable command/error evidence and do
+not become a successful external-edit record. Successful registration appends
+immutable lineage and contract-diff evidence only. It must never mutate a
+canonical timeline revision, approve/review content, resolve `latest`, invoke a
+provider, render/transcode media, publish, or expose raw returned documents in
+public projections. Contract differences are bounded, redacted and
+append-only; unresolved differences require an explicit human decision before
+any future canonical application boundary.
+
 # CY. Windows namespace and credential-leak boundary
 
 Windows paths are normalized/canonicalized before authorization.

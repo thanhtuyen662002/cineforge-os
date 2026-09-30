@@ -51,7 +51,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CoreClientError, createCoreClient } from './coreAdapter'
-import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
+import type { ActivityItem, AssetSummary, AudioCueTiming, BackupSummary, BackupWorkspace, CharacterRevision, CharacterRevisionKind, CharacterSummary, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, HandoffListItem, HandoffWorkspace, Locale, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, ReleaseCandidate, ReleaseGate, ReleaseGateState, ReleaseReadiness, ReviewSession, ReviewWorkspace, ShotLifecycleState, ShotSummary, StagingEvidence, StagingWorkspace, StorageAdmission, SubtitleTiming, TaskStatus, TaskSummary, Theme, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingWorkspace, WorkState } from './types'
 
 type NavKey = 'home' | 'projects' | 'timeline' | 'review' | 'handoff' | 'release' | 'characters' | 'needs' | 'activity' | 'library' | 'settings'
 
@@ -2489,6 +2489,12 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const [timelineId, setTimelineId] = useState<string | null>(null)
   const [timelineWorkspace, setTimelineWorkspace] = useState<TimelineWorkspace | null>(null)
   const [reviews, setReviews] = useState<ReviewSession[]>([])
+  const [externalEdits, setExternalEdits] = useState<ExternalEdit[]>([])
+  const [returnedAssets, setReturnedAssets] = useState<AssetSummary[]>([])
+  const [externalEditLoading, setExternalEditLoading] = useState(false)
+  const [selectedReturnedRevisionId, setSelectedReturnedRevisionId] = useState('')
+  const [lineageConfidence, setLineageConfidence] = useState<ExternalEditLineageConfidence>('PARTIAL')
+  const [externalEditMutating, setExternalEditMutating] = useState(false)
   const [targetEditor, setTargetEditor] = useState('UNKNOWN_EDITOR')
   const [targetVersion, setTargetVersion] = useState('1')
   const [loading, setLoading] = useState(false)
@@ -2529,7 +2535,6 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
       && exactSelectedSession.dependencySnapshotHash && Number.isSafeInteger(exactSelectedSession.rowVersion)
       && exactSelectedSession.rowVersion > 0 && !mutating,
   )
-
   useEffect(() => {
     if (!projectId && snapshot.projects[0]) setProjectId(snapshot.projects[0].id)
     if (projectId && !snapshot.projects.some((candidate) => candidate.id === projectId)) setProjectId(snapshot.projects[0]?.id ?? '')
@@ -2538,19 +2543,21 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const loadProject = useCallback(async (signal?: AbortSignal) => {
     const generation = ++loadGenerationRef.current
     if (!projectId) {
-      setHandoffs([]); setSelectedHandoffId(null); setSelectedWorkspace(null); setTimelines([]); setTimelineId(null); setTimelineWorkspace(null); setReviews([]); setLoading(false); return
+      setHandoffs([]); setSelectedHandoffId(null); setSelectedWorkspace(null); setTimelines([]); setTimelineId(null); setTimelineWorkspace(null); setReviews([]); setExternalEdits([]); setReturnedAssets([]); setSelectedReturnedRevisionId(''); setExternalEditLoading(false); setLoading(false); return
     }
     if (!client.getHandoffs || !client.getTimelines || !client.getReviews) {
       setError(locale === 'vi' ? 'Core chưa cung cấp đầy đủ workspace bàn giao.' : 'Core does not expose the complete handoff workspace yet.')
       setLoading(false)
       return
     }
-    setLoading(true); setError(null); setActionError(null); setNeedsUser(false)
+    setLoading(true); setExternalEditLoading(Boolean(client.getExternalEdits || client.getAssets)); setError(null); setActionError(null); setNeedsUser(false)
     try {
-      const [handoffResult, timelineResult, reviewResult] = await Promise.all([
+      const [handoffResult, timelineResult, reviewResult, externalEditResult, assetResult] = await Promise.all([
         client.getHandoffs(projectId, undefined, signal),
         client.getTimelines(projectId, signal),
         client.getReviews(projectId, undefined, signal),
+        client.getExternalEdits ? client.getExternalEdits(projectId, undefined, signal).catch(() => ({ items: [] as ExternalEdit[] })) : Promise.resolve({ items: [] as ExternalEdit[] }),
+        client.getAssets ? client.getAssets(projectId, signal).catch(() => [] as AssetSummary[]) : Promise.resolve([] as AssetSummary[]),
       ])
       if (signal?.aborted || generation !== loadGenerationRef.current) return
       setHandoffs(handoffResult)
@@ -2558,17 +2565,20 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
       setTimelines(timelineResult)
       setTimelineId((current) => current && timelineResult.some((item) => item.id === current) ? current : timelineResult[0]?.id ?? null)
       setReviews(reviewResult)
+      setExternalEdits(externalEditResult.items)
+      setReturnedAssets(assetResult)
+      setSelectedReturnedRevisionId((current) => current && assetResult.some((asset) => asset.revisionId === current) ? current : '')
     } catch (cause) {
       if ((cause instanceof DOMException && cause.name === 'AbortError') || generation !== loadGenerationRef.current) return
-      setError(workspaceErrorMessage(cause, locale)); setHandoffs([]); setSelectedHandoffId(null); setSelectedWorkspace(null); setTimelines([]); setTimelineId(null); setTimelineWorkspace(null); setReviews([])
+      setError(workspaceErrorMessage(cause, locale)); setHandoffs([]); setSelectedHandoffId(null); setSelectedWorkspace(null); setTimelines([]); setTimelineId(null); setTimelineWorkspace(null); setReviews([]); setExternalEdits([]); setReturnedAssets([]); setSelectedReturnedRevisionId('')
     } finally {
-      if (!signal?.aborted && generation === loadGenerationRef.current) setLoading(false)
+      if (!signal?.aborted && generation === loadGenerationRef.current) { setLoading(false); setExternalEditLoading(false) }
     }
   }, [client, locale, projectId])
 
   useEffect(() => {
     const controller = new AbortController()
-    setHandoffs([]); setSelectedHandoffId(null); setSelectedWorkspace(null); setTimelines([]); setTimelineId(null); setTimelineWorkspace(null); setReviews([])
+    setHandoffs([]); setSelectedHandoffId(null); setSelectedWorkspace(null); setTimelines([]); setTimelineId(null); setTimelineWorkspace(null); setReviews([]); setExternalEdits([]); setReturnedAssets([]); setSelectedReturnedRevisionId('')
     void loadProject(controller.signal)
     return () => controller.abort()
   }, [loadProject])
@@ -2653,6 +2663,21 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
   const sanitization = selectedWorkspace?.handoffManifest?.sanitizationReport ?? selectedWorkspace?.sanitizationReport
   const manifest = selectedWorkspace?.handoffManifest
   const session = selectedWorkspace?.exportSession ?? selectedHandoff
+  const returnedInterchangeAssets = useMemo(() => returnedAssets.filter((asset) => {
+    const assetType = String(asset.assetType ?? '').toUpperCase()
+    const originType = String(asset.originType ?? '').toUpperCase()
+    const availability = String(asset.availability ?? '').toUpperCase()
+    const state = String(asset.state ?? '').toUpperCase()
+    return Boolean(asset.revisionId) && assetType === 'TIMELINE_INTERCHANGE' && ['IMPORTED', 'EXTERNAL_EDIT', 'HANDOFF_RETURN'].includes(originType) && availability === 'AVAILABLE' && state !== 'ARCHIVED' && state !== 'DELETED'
+  }), [returnedAssets])
+  const selectedExternalEdits = useMemo(() => {
+    if (!session?.id && !manifest?.id) return []
+    return externalEdits.filter((item) => (session?.id && item.exportSessionId === session.id) || (manifest?.id && item.handoffManifestId === manifest.id))
+  }, [externalEdits, manifest?.id, session?.id])
+  const canRegisterExternalEdit = Boolean(
+    connected && client.registerExternalEdit && session?.state === 'COMPLETED' && session.id && manifest?.id
+      && Number.isSafeInteger(session.rowVersion) && session.rowVersion > 0 && selectedReturnedRevisionId && !externalEditMutating,
+  )
   const sessionNextStep = selectedWorkspace?.nextStep ?? session?.nextStep ?? (
     String(session?.state ?? 'UNKNOWN').toUpperCase() === 'UNKNOWN'
       ? (locale === 'vi' ? 'Core chưa xác nhận lifecycle; tải lại và không tự nhận artifact.' : 'Core has not confirmed the lifecycle; refresh and do not adopt the artifact automatically.')
@@ -2722,6 +2747,66 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
       setDownloadLoading(false)
     }
   }
+  useEffect(() => {
+    if (!session?.id || session.state !== 'COMPLETED') {
+      setSelectedReturnedRevisionId('')
+      return
+    }
+    setSelectedReturnedRevisionId((current) => {
+      if (current && returnedInterchangeAssets.some((asset) => asset.revisionId === current)) return current
+      // Do not silently choose the first returned asset. Registration is a
+      // mutating, auditable action and the user must select the exact managed
+      // revision that came back from the editor.
+      return ''
+    })
+  }, [returnedInterchangeAssets, session?.id, session?.outputAssetRevisionId, session?.state])
+
+  const registerExternalEdit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!client.registerExternalEdit || !canRegisterExternalEdit || !projectId || !session?.id || !manifest?.id || !selectedReturnedRevisionId) return
+    const projectEpoch = projectEpochRef.current
+    setExternalEditMutating(true); setActionError(null); setNeedsUser(false)
+    // A failed validation may be repaired by granting rights or importing a
+    // corrected asset. Keep each submit idempotent while in flight, but use a
+    // fresh key for the next attempt so Core does not replay the old failure.
+    const attemptToken = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+    const idempotencyKey = `external-edit-register:${attemptToken}`
+    try {
+      const next = await client.registerExternalEdit(projectId, {
+        handoffManifestId: manifest.id,
+        exportSessionId: session.id,
+        returnedAssetRevisionId: selectedReturnedRevisionId,
+        expectedVersion: session.rowVersion,
+        lineageConfidence,
+      }, idempotencyKey)
+      if (projectEpoch !== projectEpochRef.current || projectIdRef.current !== projectId) return
+      setExternalEdits((current) => [next, ...current.filter((item) => item.id !== next.id)])
+      onToast(locale === 'vi' ? 'Đã đăng ký interchange trả về. Timeline canonical vẫn không thay đổi.' : 'Registered the returned interchange. The canonical timeline was not changed.')
+    } catch (cause) {
+      setNeedsUser(cause instanceof CoreClientError && cause.needsUser)
+      setActionError(workspaceErrorMessage(cause, locale))
+    } finally {
+      if (projectEpoch === projectEpochRef.current) setExternalEditMutating(false)
+    }
+  }
+
+  const externalEditConfidenceLabel = (value: ExternalEditLineageConfidence) => {
+    const labels: Record<ExternalEditLineageConfidence, [string, string]> = {
+      EXACT: ['Exact bytes', 'Exact bytes'], PARTIAL: ['Có thể chỉnh sửa một phần', 'Partial edit'], FLATTENED: ['Đã flatten', 'Flattened'], UNKNOWN: ['Chưa biết', 'Unknown'],
+    }
+    return labels[value]?.[locale === 'vi' ? 0 : 1] ?? value
+  }
+  const externalEditStateLabel = (value: string) => {
+    const labels: Record<string, [string, string]> = {
+      REGISTERED: ['Đã đăng ký', 'Registered'], RECEIVED: ['Đã nhận', 'Received'], VALIDATING: ['Đang kiểm tra', 'Validating'], BLOCKED_SCHEMA: ['Bị chặn schema', 'Schema blocked'], BLOCKED_SCOPE: ['Bị chặn phạm vi', 'Scope blocked'], BLOCKED_MEDIA: ['Bị chặn media', 'Media blocked'], BLOCKED_RIGHTS: ['Bị chặn quyền', 'Rights blocked'], FAILED: ['Thất bại', 'Failed'],
+    }
+    const normalized = String(value ?? 'UNKNOWN').toUpperCase()
+    return labels[normalized]?.[locale === 'vi' ? 0 : 1] ?? normalized
+  }
+  const externalEditDiffValue = (value: Record<string, unknown> | undefined) => {
+    if (!value || Object.keys(value).length === 0) return '—'
+    return Object.entries(value).slice(0, 3).map(([key, item]) => `${key}: ${typeof item === 'string' ? item : JSON.stringify(item)}`).join(' · ')
+  }
   return <div className="page handoff-page">
     <div className="page-heading"><div><p className="eyebrow">TIMELINE HANDOFF</p><h1>{locale === 'vi' ? 'Bàn giao timeline' : 'Timeline handoff'}</h1><p className="page-subtitle">{locale === 'vi' ? 'Tạo manifest metadata bất biến từ timeline đã approve. Không render, transcode hoặc ghi file đích trong bước này.' : 'Create an immutable metadata manifest from an approved timeline. This step does not render, transcode or write to a destination.'}</p></div><div className="page-heading-actions"><button className="subtle-button tiny" onClick={() => void loadProject()} disabled={loading}><RefreshCw size={13} className={loading ? 'spin' : ''} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip"><PackageOpen size={15} />{handoffs.length}</span></div></div>
     <div className="timeline-toolbar"><label>{locale === 'vi' ? 'Project' : 'Project'}<select className="timeline-project-select" value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label={locale === 'vi' ? 'Project bàn giao' : 'Handoff project'}><option value="">{locale === 'vi' ? 'Chọn project' : 'Choose a project'}</option>{snapshot.projects.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>{project && <span className={`state-label ${connected ? '' : 'warning-text'}`}><ShieldCheck size={13} />{connected ? (locale === 'vi' ? 'Core đã kết nối' : 'Core connected') : (locale === 'vi' ? 'Core offline' : 'Core offline')}</span>}</div>
@@ -2737,6 +2822,10 @@ export function HandoffView({ snapshot, locale, client, onToast }: { snapshot: D
         <div className="timeline-metrics"><div><span>{locale === 'vi' ? 'Editor' : 'Editor'}</span><strong>{session.targetEditor ?? manifest?.targetEditor ?? 'UNKNOWN'}</strong></div><div><span>{locale === 'vi' ? 'Phiên bản' : 'Version'}</span><strong>{session.targetVersion ?? manifest?.targetVersion ?? 'UNKNOWN'}</strong></div><div><span>Manifest SHA-256</span><strong title={selectedWorkspace?.manifestHash ?? manifest?.manifestHash}>{(selectedWorkspace?.manifestHash ?? manifest?.manifestHash)?.slice(0, 16) ?? '—'}</strong></div><div><span>{locale === 'vi' ? 'Allowlist' : 'Allowlist'}</span><strong>{manifest?.artifactAllowlist.length ?? 0}</strong></div></div>
          <p className="readonly-note"><Info size={14} />{sessionNextStep}</p>
          {session.state === 'COMPLETED' && session.outputContentHash && <div className="handoff-evidence"><span><strong>{locale === 'vi' ? 'Interchange SHA-256' : 'Interchange SHA-256'}</strong><code>{session.outputContentHash}</code></span><span><strong>{locale === 'vi' ? 'Kích thước' : 'Byte size'}</strong><code>{session.outputByteSize ?? 0} bytes</code></span><span><strong>{locale === 'vi' ? 'Asset revision' : 'Asset revision'}</strong><code>{session.outputAssetRevisionId ?? '—'}</code></span></div>}
+        {(client.getExternalEdits || client.registerExternalEdit) && <div className="handoff-section external-edit-section"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon amber"><ArrowRight size={16} /></span><div><h3>{locale === 'vi' ? 'Interchange trả về' : 'Returned interchange'}</h3><p>{locale === 'vi' ? 'Đăng ký lineage của file đã trả về sau khi Core kiểm tra exact handoff, asset managed, hash và rights.' : 'Register returned-file lineage after Core checks the exact handoff, managed asset, hash and rights.'}</p></div></div><span className="count-chip">{selectedExternalEdits.length}</span></div>
+          {externalEditLoading ? <LoadingState label={locale === 'vi' ? 'Đang đọc interchange trả về…' : 'Reading returned interchanges…'} /> : selectedExternalEdits.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Chưa có interchange trả về nào được đăng ký cho handoff này.' : 'No returned interchange has been registered for this handoff yet.'} /> : <div className="external-edit-list">{selectedExternalEdits.map((item) => <div className="external-edit-card" key={item.id ?? `${item.exportSessionId}:${item.returnedAssetRevisionId}`}><div className="external-edit-card-heading"><strong>{externalEditStateLabel(item.validationState)}</strong><span className={`record-code ${item.validationState === 'REGISTERED' ? 'success' : 'warning'}`}>{externalEditConfidenceLabel(item.lineageConfidence)}</span></div><div className="external-edit-facts"><span>{locale === 'vi' ? 'Asset trả về' : 'Returned asset'}: <code>{item.returnedAssetRevisionId ?? '—'}</code></span><span>{locale === 'vi' ? 'Rights' : 'Rights'}: <strong>{item.returnedRightsStatus}</strong></span><span>{locale === 'vi' ? 'Hash' : 'Hash'}: <code>{item.sourceDocumentHash?.slice(0, 16) ?? '—'}</code></span><span>{locale === 'vi' ? 'Diff' : 'Diffs'}: <strong>{item.contractDiffCount}</strong></span></div>{item.contractDiffs.length > 0 && <div className="external-edit-diffs">{item.contractDiffs.slice(0, 4).map((diff, index) => <div key={diff.id ?? `${diff.diffType}-${index}`}><span>{diff.diffType ?? 'OTHER'} · {diff.severity ?? 'INFO'}</span><small>{externalEditDiffValue(diff.before)} → {externalEditDiffValue(diff.after)}</small></div>)}</div>}<p className="staging-next-step">{item.nextStep ?? (locale === 'vi' ? 'Không có bước tiếp theo.' : 'No next step recorded.')}</p></div>)}</div>}
+          {session.state !== 'COMPLETED' ? <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Chỉ có thể đăng ký sau khi export session COMPLETED và output evidence đã được Core verify.' : 'Registration is available only after the export session is COMPLETED and output evidence is verified by Core.'}</p> : !client.registerExternalEdit ? <p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'Bridge hiện tại chỉ hỗ trợ xem lineage; chưa có command đăng ký.' : 'This bridge can only show lineage; registration is not exposed.'}</p> : <form className="workspace-form external-edit-form" onSubmit={registerExternalEdit}><div className="form-grid two"><label>{locale === 'vi' ? 'Asset interchange trả về' : 'Returned interchange asset'}<select aria-label={locale === 'vi' ? 'Asset interchange trả về' : 'Returned interchange asset'} value={selectedReturnedRevisionId} onChange={(event) => setSelectedReturnedRevisionId(event.target.value)} disabled={externalEditMutating || returnedInterchangeAssets.length === 0}><option value="">{returnedInterchangeAssets.length === 0 ? (locale === 'vi' ? 'Chưa có asset managed khả dụng' : 'No available managed asset') : (locale === 'vi' ? 'Chọn asset đã import' : 'Choose an imported asset')}</option>{returnedInterchangeAssets.map((asset) => <option key={asset.revisionId} value={asset.revisionId}>{asset.name} · {asset.revisionId} · {formatBytes(asset.byteSize)}{asset.contentHash ? ` · ${asset.contentHash.slice(0, 12)}` : ''}</option>)}</select></label><label>{locale === 'vi' ? 'Độ tin cậy lineage' : 'Lineage confidence'}<select value={lineageConfidence} onChange={(event) => setLineageConfidence(event.target.value as ExternalEditLineageConfidence)} disabled={externalEditMutating}><option value="PARTIAL">{externalEditConfidenceLabel('PARTIAL')}</option><option value="FLATTENED">{externalEditConfidenceLabel('FLATTENED')}</option><option value="UNKNOWN">{externalEditConfidenceLabel('UNKNOWN')}</option><option value="EXACT">{externalEditConfidenceLabel('EXACT')}</option></select></label></div><p className="readonly-note"><Info size={14} />{locale === 'vi' ? 'EXACT chỉ hợp lệ khi bytes returned khớp exact output; Core sẽ từ chối khai báo sai. Đăng ký không apply edit, không approve và không publish.' : 'EXACT is valid only when returned bytes match the exact output; Core rejects false claims. Registration does not apply edits, approve, or publish.'}</p><button className="primary-button small" type="submit" disabled={!canRegisterExternalEdit}>{externalEditMutating ? <RefreshCw size={13} className="spin" /> : <ArrowRight size={13} />}{locale === 'vi' ? 'Đăng ký interchange trả về' : 'Register returned interchange'}</button></form>}
+        </div>}
         {compatibility && <div className="handoff-section"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Tương thích đích' : 'Target compatibility'}</h3><p>{compatibility.profileVersion ?? '—'} · {compatibility.editableClaim ? (locale === 'vi' ? 'Có thể chỉnh sửa theo claim' : 'Editable claim') : (locale === 'vi' ? 'Không claim editable' : 'No editable claim')}</p></div></div><div className="compatibility-list">{compatibility.entries.map((entry) => <div className="compatibility-row" key={`${entry.feature}:${entry.status}`}><span>{entry.feature}</span><span className={`compatibility-status ${entry.status.toLowerCase()}`}>{entry.status}</span><small>{entry.detail}</small></div>)}</div></div>}
         {manifest && <div className="handoff-section"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Artifact allowlist' : 'Artifact allowlist'}</h3><p>{locale === 'vi' ? 'Chỉ revision/hash/size và trạng thái readiness được phép đi qua.' : 'Only revision/hash/size and readiness state cross the boundary.'}</p></div></div>{manifest.artifactAllowlist.length === 0 ? <EmptyInline icon={Info} text={locale === 'vi' ? 'Không có media artifact được pin.' : 'No media artifacts are pinned.'} /> : <div className="artifact-list">{manifest.artifactAllowlist.map((artifact) => <div className="artifact-row" key={`${artifact.assetRevisionId}:${artifact.contentHash}`}><span><strong>{artifact.assetRevisionId ?? artifact.assetId ?? '—'}</strong><small>{artifact.semanticRole ?? '—'} · {artifact.byteSize} bytes · {artifact.availabilityState ?? 'UNKNOWN'}</small></span><code>{artifact.contentHash ?? 'NO_HASH'}</code></div>)}</div>}</div>}
         {sanitization && <div className="handoff-section"><div className="card-heading"><div><h3>{locale === 'vi' ? 'Sanitization report' : 'Sanitization report'}</h3><p>{sanitization.policy ?? 'HANDOFF_SANITIZATION_V1'}</p></div><span className="state-label">{sanitization.recorded ? 'RECORDED' : 'UNKNOWN'}</span></div><div className="sanitization-list">{sanitization.removedFields.map((field) => <code key={field}>{field}</code>)}</div></div>}

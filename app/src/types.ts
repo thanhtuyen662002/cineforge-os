@@ -665,6 +665,60 @@ export interface HandoffListItem {
   handoffManifest: HandoffManifest
 }
 
+export type ExternalEditLineageConfidence = 'EXACT' | 'PARTIAL' | 'FLATTENED' | 'UNKNOWN'
+export type ExternalEditValidationState = 'RECEIVED' | 'VALIDATING' | 'REGISTERED' | 'BLOCKED_SCHEMA' | 'BLOCKED_SCOPE' | 'BLOCKED_MEDIA' | 'BLOCKED_RIGHTS' | 'FAILED' | string
+
+export interface ExternalEditContractDiff {
+  id?: string
+  externalEditId?: string
+  projectId?: string
+  diffType?: string
+  severity?: string
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  resolutionState?: string
+  createdByActorId?: string
+  createdAt?: string
+}
+
+export interface ExternalEdit {
+  id?: string
+  projectId?: string
+  handoffManifestId?: string
+  exportSessionId?: string
+  timelineRevisionId?: string
+  returnedAssetRevisionId?: string
+  returnedInterchangeAssetRevisionId?: string
+  lineageConfidence: ExternalEditLineageConfidence
+  validationState: ExternalEditValidationState
+  sourceDocumentHash?: string
+  sourceDocumentByteSize?: number
+  sourceManifestHash?: string
+  sourceRevisionContentHash?: string
+  sourceDependencySnapshotHash?: string
+  sourceReviewSessionId?: string
+  returnedRightsStatus: RightsState
+  validationSnapshot?: Record<string, unknown>
+  contractDiffCount: number
+  contractDiffs: ExternalEditContractDiff[]
+  nextStep?: string
+  rowVersion: number
+  commandId?: string
+  createdAt?: string
+}
+
+export interface ExternalEditList {
+  items: ExternalEdit[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export type ExternalEditRegistrationInput = {
+  returnedAssetRevisionId: string
+  expectedVersion: number
+  lineageConfidence?: ExternalEditLineageConfidence
+} & ({ handoffManifestId: string; exportSessionId?: string } | { handoffManifestId?: string; exportSessionId: string })
+
 export interface TimelineInterchangeDownload {
   projectId?: string
   exportSessionId?: string
@@ -1073,6 +1127,9 @@ export interface CoreClient {
   submitReview?(projectId: string, reviewSessionId: string, decision: HumanReviewDecision, expectedVersion: number, notes?: string, reasonCodes?: string[], idempotencyKey?: string): Promise<ReviewWorkspace>
   getHandoffs?(projectId: string, state?: string, signal?: AbortSignal): Promise<HandoffListItem[]>
   getHandoff?(projectId: string, handoffId: string, signal?: AbortSignal): Promise<HandoffWorkspace>
+  getExternalEdits?(projectId: string, state?: string, signal?: AbortSignal): Promise<ExternalEditList>
+  getExternalEdit?(projectId: string, externalEditId: string, signal?: AbortSignal): Promise<ExternalEdit>
+  registerExternalEdit?(projectId: string, input: ExternalEditRegistrationInput, idempotencyKey?: string): Promise<ExternalEdit>
   createHandoffManifest?(projectId: string, input: { timelineRevisionId: string; reviewSessionId: string; dependencySnapshotHash: string; targetEditor: string; targetVersion: string; targetProfile?: string; expectedVersion: number }, idempotencyKey?: string): Promise<HandoffWorkspace>
   buildTimelineInterchangeExport?(projectId: string, exportSessionId: string, dependencySnapshotHash: string, expectedVersion: number, idempotencyKey?: string): Promise<HandoffWorkspace>
   resolveTimelineInterchangeDownload?(projectId: string, exportSessionId: string, signal?: AbortSignal): Promise<TimelineInterchangeDownload>

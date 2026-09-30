@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -2293,6 +2293,101 @@ export function initializeDatabase(db) {
     CREATE TRIGGER handoff_manifests_json_insert_guard BEFORE INSERT ON handoff_manifests
       WHEN typeof(NEW.manifest_json) <> 'text'
       BEGIN SELECT RAISE(ABORT, 'invalid handoff manifest json'); END;
+  `);
+
+  // v17 returned external-edit registration.  The returned interchange is
+  // an immutable, project-scoped lineage record.  It never becomes a
+  // canonical timeline revision and it cannot be edited in place; a later
+  // interpretation is a new record/command with its own evidence.
+  // A partially-created v17 table is unsafe to accept silently: unlike an
+  // additive column upgrade, its constraints define the append-only trust
+  // boundary.  Fail closed and ask the caller to restore/rebuild the local
+  // database rather than running against an unverified shape.
+  const existingExternalEditColumns = new Set(db.prepare('PRAGMA table_info(external_edits)').all().map((row) => String(row.name)));
+  if (existingExternalEditColumns.size > 0) {
+    const requiredExternalEditColumns = [
+      'id', 'project_id', 'handoff_manifest_id', 'export_session_id', 'timeline_revision_id',
+      'returned_asset_revision_id', 'returned_interchange_asset_revision_id', 'lineage_confidence',
+      'validation_state', 'source_document_hash', 'source_document_byte_size', 'source_manifest_hash',
+      'source_revision_content_hash', 'source_dependency_snapshot_hash', 'source_review_session_id',
+      'returned_rights_status', 'validation_snapshot_json', 'contract_diff_count', 'next_step',
+      'row_version', 'command_id', 'created_by_actor_id', 'created_at_utc_us',
+    ];
+    const missingExternalEditColumns = requiredExternalEditColumns.filter((column) => !existingExternalEditColumns.has(column));
+    if (missingExternalEditColumns.length > 0) throw new Error(`external_edits schema is incomplete; missing required columns: ${missingExternalEditColumns.join(', ')}`);
+  }
+  const existingExternalDiffColumns = new Set(db.prepare('PRAGMA table_info(external_edit_contract_diffs)').all().map((row) => String(row.name)));
+  if (existingExternalDiffColumns.size > 0) {
+    const requiredExternalDiffColumns = ['id', 'external_edit_id', 'project_id', 'diff_type', 'severity', 'before_json', 'after_json', 'resolution_state', 'created_by_actor_id', 'created_at_utc_us'];
+    const missingExternalDiffColumns = requiredExternalDiffColumns.filter((column) => !existingExternalDiffColumns.has(column));
+    if (missingExternalDiffColumns.length > 0) throw new Error(`external_edit_contract_diffs schema is incomplete; missing required columns: ${missingExternalDiffColumns.join(', ')}`);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS external_edits (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      handoff_manifest_id TEXT NOT NULL REFERENCES handoff_manifests(id),
+      export_session_id TEXT NOT NULL REFERENCES export_sessions(id),
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      returned_asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+      returned_interchange_asset_revision_id TEXT REFERENCES asset_revisions(id),
+      lineage_confidence TEXT NOT NULL CHECK (lineage_confidence IN ('EXACT', 'PARTIAL', 'FLATTENED', 'UNKNOWN')),
+      validation_state TEXT NOT NULL CHECK (validation_state IN ('RECEIVED', 'VALIDATING', 'REGISTERED', 'BLOCKED_SCHEMA', 'BLOCKED_SCOPE', 'BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'FAILED')),
+      source_document_hash TEXT NOT NULL CHECK (typeof(source_document_hash) = 'text' AND length(source_document_hash) = 64 AND source_document_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      source_document_byte_size INTEGER NOT NULL CHECK (typeof(source_document_byte_size) = 'integer' AND source_document_byte_size > 0 AND source_document_byte_size <= 9007199254740991),
+      source_manifest_hash TEXT NOT NULL CHECK (typeof(source_manifest_hash) = 'text' AND length(source_manifest_hash) = 64 AND source_manifest_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      source_revision_content_hash TEXT NOT NULL CHECK (typeof(source_revision_content_hash) = 'text' AND length(source_revision_content_hash) = 64 AND source_revision_content_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      source_dependency_snapshot_hash TEXT NOT NULL CHECK (typeof(source_dependency_snapshot_hash) = 'text' AND length(source_dependency_snapshot_hash) = 64 AND source_dependency_snapshot_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      source_review_session_id TEXT NOT NULL REFERENCES review_sessions(id),
+      returned_rights_status TEXT NOT NULL CHECK (returned_rights_status IN ('ALLOWED', 'RESTRICTED', 'UNKNOWN', 'REVOKED', 'EXPIRED')),
+      validation_snapshot_json TEXT NOT NULL DEFAULT '{}' CHECK (typeof(validation_snapshot_json) = 'text'),
+      contract_diff_count INTEGER NOT NULL DEFAULT 0 CHECK (typeof(contract_diff_count) = 'integer' AND contract_diff_count >= 0),
+      next_step TEXT NOT NULL DEFAULT '',
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      command_id TEXT NOT NULL REFERENCES commands(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS external_edits_exact_uq
+      ON external_edits(project_id, handoff_manifest_id, returned_asset_revision_id, source_document_hash);
+    CREATE INDEX IF NOT EXISTS external_edits_project_state_idx
+      ON external_edits(project_id, validation_state, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS external_edits_handoff_idx
+      ON external_edits(handoff_manifest_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS external_edits_asset_idx
+      ON external_edits(returned_asset_revision_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS external_edits_command_idx
+      ON external_edits(command_id);
+
+    CREATE TABLE IF NOT EXISTS external_edit_contract_diffs (
+      id TEXT PRIMARY KEY,
+      external_edit_id TEXT NOT NULL REFERENCES external_edits(id),
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      diff_type TEXT NOT NULL CHECK (diff_type IN ('MEDIA_PROFILE', 'FPS_TIMEBASE', 'START_TIMECODE', 'DURATION', 'MEDIA_IDENTITY', 'PROXY_ORIGINAL_ROLE', 'FLATTENING', 'AUDIO_LANGUAGE', 'SUBTITLE_LANGUAGE', 'OTHER')),
+      severity TEXT NOT NULL CHECK (severity IN ('INFO', 'WARNING', 'BLOCKING')),
+      before_json TEXT NOT NULL DEFAULT '{}',
+      after_json TEXT NOT NULL DEFAULT '{}',
+      resolution_state TEXT NOT NULL DEFAULT 'UNRESOLVED' CHECK (resolution_state IN ('UNRESOLVED', 'ACCEPTED', 'REJECTED', 'NOT_APPLICABLE')),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS external_edit_contract_diffs_edit_idx
+      ON external_edit_contract_diffs(external_edit_id, created_at_utc_us ASC, id ASC);
+    CREATE INDEX IF NOT EXISTS external_edit_contract_diffs_project_idx
+      ON external_edit_contract_diffs(project_id, created_at_utc_us DESC, id DESC);
+
+    CREATE TRIGGER IF NOT EXISTS external_edits_no_update
+      BEFORE UPDATE ON external_edits
+      BEGIN SELECT RAISE(ABORT, 'external_edits are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS external_edits_no_delete
+      BEFORE DELETE ON external_edits
+      BEGIN SELECT RAISE(ABORT, 'external_edits are retained for audit'); END;
+    CREATE TRIGGER IF NOT EXISTS external_edit_contract_diffs_no_update
+      BEFORE UPDATE ON external_edit_contract_diffs
+      BEGIN SELECT RAISE(ABORT, 'external_edit_contract_diffs are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS external_edit_contract_diffs_no_delete
+      BEFORE DELETE ON external_edit_contract_diffs
+      BEGIN SELECT RAISE(ABORT, 'external_edit_contract_diffs are retained for audit'); END;
   `);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so

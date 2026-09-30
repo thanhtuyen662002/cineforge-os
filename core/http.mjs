@@ -8,9 +8,11 @@ function statusFor(response) {
   if (response.ok) return 200;
   const code = response.error?.code;
   if (code === 'NOT_FOUND') return 404;
-  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'AUDIO_CUE_NOT_FOUND', 'AUDIO_CUE_REVISION_NOT_FOUND', 'SUBTITLE_TRACK_NOT_FOUND', 'SUBTITLE_TRACK_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND', 'EXPORT_SESSION_NOT_FOUND', 'RELEASE_CANDIDATE_NOT_FOUND'].includes(code)) return 404;
-  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'REVIEW_NOT_SUPPORTED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'AUDIO_CUE_STALE', 'AUDIO_CUE_REVIEW_REQUIRED', 'SUBTITLE_TRACK_STALE', 'SUBTITLE_TRACK_REVIEW_REQUIRED', 'TIMING_DEPENDENCY_HASH_REQUIRED', 'TIMING_DEPENDENCY_HASH_MISMATCH', 'AUDIO_ASSET_REQUIRED', 'TIMING_OUT_OF_BOUNDS', 'SUBTITLE_SEGMENT_OVERLAP', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE', 'RELEASE_READINESS_BLOCKED', 'RELEASE_CANDIDATE_ALREADY_EXISTS', 'RELEASE_CANDIDATE_NOT_CANCELLABLE', 'INVALID_RELEASE_CANDIDATE_STATE'].includes(code)) return 409;
-  if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED', 'PREVIEW_MIME_UNSUPPORTED', 'PREVIEW_PURPOSE_UNSUPPORTED', 'EXPORT_PROFILE_UNSUPPORTED'].includes(code)) return 415;
+  if (['SOURCE_NOT_FOUND', 'ASSET_NOT_FOUND', 'ASSET_REVISION_NOT_FOUND', 'IMPORT_SESSION_NOT_FOUND', 'STAGING_NOT_FOUND', 'BACKUP_NOT_FOUND', 'CHARACTER_NOT_FOUND', 'CHARACTER_REVISION_NOT_FOUND', 'CHARACTER_PACKAGE_NOT_FOUND', 'VISUAL_IDENTITY_PACKAGE_NOT_FOUND', 'VOICE_IDENTITY_PACKAGE_NOT_FOUND', 'PERFORMANCE_BIBLE_NOT_FOUND', 'MEDIA_PROFILE_NOT_FOUND', 'MEDIA_PROFILE_REVISION_NOT_FOUND', 'TIMELINE_NOT_FOUND', 'TIMELINE_REVISION_NOT_FOUND', 'TIMELINE_WORKING_SESSION_NOT_FOUND', 'TIMELINE_TRACK_NOT_FOUND', 'TIMELINE_CLIP_NOT_FOUND', 'AUDIO_CUE_NOT_FOUND', 'AUDIO_CUE_REVISION_NOT_FOUND', 'SUBTITLE_TRACK_NOT_FOUND', 'SUBTITLE_TRACK_REVISION_NOT_FOUND', 'REVIEW_SESSION_NOT_FOUND', 'HANDOFF_NOT_FOUND', 'EXPORT_SESSION_NOT_FOUND', 'RELEASE_CANDIDATE_NOT_FOUND', 'EXTERNAL_EDIT_NOT_FOUND'].includes(code)) return 404;
+  if (['STALE_REVISION', 'STALE_DECISION', 'STALE_REVIEW', 'EXPECTED_VERSION_REQUIRED', 'EXPECTED_DECISION_VERSION_REQUIRED', 'BASE_REVISION_VERSION_REQUIRED', 'DUPLICATE_PROJECT_CODE', 'DUPLICATE_SHOT_CODE', 'DUPLICATE_CHARACTER_CODE', 'DUPLICATE_TIMELINE_CODE', 'INVALID_STATE_TRANSITION', 'INVALID_MEDIA_PROFILE_TRANSITION', 'INVALID_TIMELINE_REVISION_TRANSITION', 'ENTITY_SCOPE_MISMATCH', 'HASH_MISMATCH', 'CONTENT_IDENTITY_CONFLICT', 'SOURCE_CHANGED_DURING_HASH', 'SOURCE_CHANGED_DURING_STAGE', 'STAGING_SOURCE_MISMATCH', 'INVALID_DECISION_CHOICE', 'DECISION_NOT_OPEN', 'STAGING_NOT_READY', 'STAGING_MISSING', 'STAGING_IDENTITY_CHANGED', 'STAGING_CONTENT_CHANGED', 'INVALID_STAGING_TRANSITION', 'RIGHTS_IDENTITY_EXISTS', 'RIGHTS_REQUIRED', 'RIGHTS_BLOCKED', 'VOICE_REVISION_RIGHTS_REQUIRED', 'ASSET_NOT_READY', 'TIMELINE_PROFILE_REQUIRED', 'TIMELINE_PROFILE_NOT_APPROVED', 'TIMELINE_ASSET_NOT_READY', 'TIMELINE_RIGHTS_BLOCKED', 'TIMELINE_REVISION_IMMUTABLE', 'REVIEW_SUBJECT_NOT_REVIEWABLE', 'REVIEW_ALREADY_OPEN', 'REVIEW_DECISION_IMMUTABLE', 'REVIEW_NOT_READY', 'REVIEW_REQUIRED_FOR_APPROVAL', 'REVIEW_SNAPSHOT_REQUIRED', 'REVIEW_NOT_SUBMITTED', 'REVIEW_APPROVAL_REQUIRED', 'REVIEW_NOT_SUPPORTED', 'HANDOFF_REVISION_NOT_APPROVED', 'HANDOFF_SNAPSHOT_REQUIRED', 'TIMELINE_WORKING_SESSION_ALREADY_OPEN', 'TIMELINE_WORKING_SESSION_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_NOT_EDITABLE', 'TIMELINE_WORKING_BASE_HASH_MISMATCH', 'TIMELINE_WORKING_PROFILE_CHANGED', 'TIMELINE_WORKING_DRAFT_CORRUPT', 'TIMELINE_WORKING_HISTORY_CORRUPT', 'TIMELINE_DRAFT_NOT_AUTOSAVED', 'TIMELINE_WORKING_RECOVERY_REQUIRED', 'TIMELINE_WORKING_SESSION_CLOSED', 'TIMELINE_CLOSE_DISPOSITION_REQUIRED', 'TIMELINE_NO_UNDO', 'TIMELINE_NO_REDO', 'TIMELINE_EDIT_OP_ALREADY_EXISTS', 'TIMELINE_WORKING_OP_LIMIT', 'AUDIO_CUE_STALE', 'AUDIO_CUE_REVIEW_REQUIRED', 'SUBTITLE_TRACK_STALE', 'SUBTITLE_TRACK_REVIEW_REQUIRED', 'TIMING_DEPENDENCY_HASH_REQUIRED', 'TIMING_DEPENDENCY_HASH_MISMATCH', 'AUDIO_ASSET_REQUIRED', 'TIMING_OUT_OF_BOUNDS', 'SUBTITLE_SEGMENT_OVERLAP', 'STORAGE_PRESSURE', 'STORAGE_CAPACITY_UNKNOWN', 'BACKUP_ALREADY_EXISTS', 'BACKUP_MEMORY_UNSUPPORTED', 'BACKUP_MANIFEST_TAMPERED', 'BACKUP_MANIFEST_INVALID', 'BACKUP_DATABASE_TAMPERED', 'BACKUP_DATABASE_CORRUPT', 'BACKUP_SCHEMA_MISMATCH', 'BACKUP_INSTALLATION_MISMATCH', 'BACKUP_OBJECT_TAMPERED', 'BACKUP_OBJECT_MISSING', 'BACKUP_OBJECT_CHANGED', 'BACKUP_SIZE_MISMATCH', 'BACKUP_OBJECT_INVALID', 'BACKUP_REPARSE_REJECTED', 'BACKUP_PATH_ESCAPE', 'BACKUP_FILE_UNREADABLE', 'RELEASE_READINESS_BLOCKED', 'RELEASE_CANDIDATE_ALREADY_EXISTS', 'RELEASE_CANDIDATE_NOT_CANCELLABLE', 'INVALID_RELEASE_CANDIDATE_STATE', 'EXTERNAL_EDIT_SCOPE_MISMATCH', 'EXTERNAL_EDIT_HANDOFF_NOT_VERIFIED', 'EXTERNAL_EDIT_ASSET_NOT_READY', 'EXTERNAL_EDIT_ASSET_CHANGED', 'EXTERNAL_EDIT_RIGHTS_BLOCKED', 'EXTERNAL_EDIT_ALREADY_REGISTERED', 'EXTERNAL_EDIT_LINEAGE_CLAIM_INVALID', 'EXTERNAL_EDIT_EXTERNAL_REFERENCE'].includes(code)) return 409;
+  if (['SOURCE_HARDLINK_REJECTED', 'SOURCE_REPARSE_REJECTED', 'PREVIEW_MIME_UNSUPPORTED', 'PREVIEW_PURPOSE_UNSUPPORTED', 'EXPORT_PROFILE_UNSUPPORTED', 'EXTERNAL_EDIT_PROFILE_UNSUPPORTED'].includes(code)) return 415;
+  if (code === 'EXTERNAL_EDIT_TOO_LARGE') return 413;
+  if (['EXTERNAL_EDIT_SCHEMA_INVALID', 'EXTERNAL_EDIT_INVALID_UTF8'].includes(code)) return 400;
   if (['PREVIEW_TOKEN_INVALID', 'PREVIEW_TOKEN_EXPIRED', 'PREVIEW_TOKEN_SCOPE', 'PREVIEW_SESSION_REQUIRED', 'EXPORT_DOWNLOAD_TOKEN_INVALID', 'EXPORT_DOWNLOAD_TOKEN_EXPIRED', 'EXPORT_DOWNLOAD_TOKEN_SCOPE', 'EXPORT_DOWNLOAD_SESSION_REQUIRED'].includes(code)) return 401;
   if (code === 'ORIGIN_NOT_ALLOWED' || code === 'LOCAL_ONLY') return 403;
   if (['PREVIEW_RANGE_INVALID', 'PREVIEW_RANGE_NOT_SATISFIABLE', 'PREVIEW_RANGE_TOO_LARGE', 'EXPORT_DOWNLOAD_RANGE_INVALID', 'EXPORT_DOWNLOAD_RANGE_NOT_SATISFIABLE', 'EXPORT_DOWNLOAD_RANGE_TOO_LARGE'].includes(code)) return 416;
@@ -1183,6 +1185,57 @@ function mapHandoffList(result) {
   };
 }
 
+function mapExternalEdit(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const diffs = Array.isArray(value.contract_diffs ?? value.contractDiffs) ? (value.contract_diffs ?? value.contractDiffs).map((diff) => ({
+    id: readString(diff, 'id'),
+    externalEditId: readString(diff, 'external_edit_id', 'externalEditId'),
+    projectId: readString(diff, 'project_id', 'projectId'),
+    diffType: readString(diff, 'diff_type', 'diffType'),
+    severity: readString(diff, 'severity'),
+    before: diff.before && typeof diff.before === 'object' ? diff.before : {},
+    after: diff.after && typeof diff.after === 'object' ? diff.after : {},
+    resolutionState: readString(diff, 'resolution_state', 'resolutionState'),
+    createdByActorId: readString(diff, 'created_by_actor_id', 'createdByActorId'),
+    createdAt: readString(diff, 'created_at', 'createdAt'),
+  })) : [];
+  return {
+    id: readString(value, 'id', 'external_edit_id', 'externalEditId'),
+    projectId: readString(value, 'project_id', 'projectId'),
+    handoffManifestId: readString(value, 'handoff_manifest_id', 'handoffManifestId'),
+    exportSessionId: readString(value, 'export_session_id', 'exportSessionId'),
+    timelineRevisionId: readString(value, 'timeline_revision_id', 'timelineRevisionId'),
+    returnedAssetRevisionId: readString(value, 'returned_asset_revision_id', 'returnedAssetRevisionId'),
+    returnedInterchangeAssetRevisionId: readString(value, 'returned_interchange_asset_revision_id', 'returnedInterchangeAssetRevisionId'),
+    lineageConfidence: readString(value, 'lineage_confidence', 'lineageConfidence') ?? 'UNKNOWN',
+    validationState: readString(value, 'validation_state', 'validationState') ?? 'UNKNOWN',
+    sourceDocumentHash: readString(value, 'source_document_hash', 'sourceDocumentHash'),
+    sourceDocumentByteSize: Number(value.source_document_byte_size ?? value.sourceDocumentByteSize ?? 0),
+    sourceManifestHash: readString(value, 'source_manifest_hash', 'sourceManifestHash'),
+    sourceRevisionContentHash: readString(value, 'source_revision_content_hash', 'sourceRevisionContentHash'),
+    sourceDependencySnapshotHash: readString(value, 'source_dependency_snapshot_hash', 'sourceDependencySnapshotHash'),
+    sourceReviewSessionId: readString(value, 'source_review_session_id', 'sourceReviewSessionId'),
+    returnedRightsStatus: readString(value, 'returned_rights_status', 'returnedRightsStatus') ?? 'UNKNOWN',
+    validationSnapshot: value.validation_snapshot ?? value.validationSnapshot ?? {},
+    contractDiffCount: Number(value.contract_diff_count ?? value.contractDiffCount ?? diffs.length),
+    contractDiffs: diffs,
+    nextStep: readString(value, 'next_step', 'nextStep'),
+    rowVersion: Number(value.row_version ?? value.rowVersion ?? 1),
+    commandId: readString(value, 'command_id', 'commandId'),
+    createdAt: readString(value, 'created_at', 'createdAt'),
+  };
+}
+
+function mapExternalEditList(result) {
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  const rows = Array.isArray(result) ? result : value.items ?? value.external_edits ?? value.externalEdits ?? [];
+  return {
+    items: Array.isArray(rows) ? rows.map(mapExternalEdit) : [],
+    projectionSeq: Number(value.projection_seq ?? value.projectionSeq ?? 0),
+    generatedAt: readString(value, 'generated_at', 'generatedAt') ?? new Date().toISOString(),
+  };
+}
+
 const RELEASE_GATE_KEYS = new Set(['PICTURE', 'AUDIO', 'LOCALIZATION', 'TECHNICAL_MEDIA', 'QC', 'RIGHTS', 'MISSING_MEDIA', 'UNRESOLVED_DECISIONS']);
 const RELEASE_GATE_STATES = new Set(['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE']);
 const RELEASE_EVIDENCE_KEYS = new Set([
@@ -1864,6 +1917,18 @@ export function createCoreHttpServer(core, options = {}) {
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'exports' && parts[4] && parts[5] === 'build' && parts.length === 6) {
         const built = command(core, request, 'BuildTimelineInterchangeExport', { ...body, project_id: parts[2], export_session_id: parts[4] }, expectedVersions(body, 'EXPORT_SESSION'), commandKey(request, body));
         result = built.ok ? { ...built, result: { ...built.result, exportSession: mapHandoffSession(built.result.export_session) } } : built;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'external-edits' && parts.length === 4) {
+        const listed = query(core, request, 'query.external_edit.list', {
+          project_id: parts[2], validation_state: url.searchParams.get('validation_state') ?? url.searchParams.get('validationState') ?? undefined,
+          limit: url.searchParams.get('limit') ?? 100,
+        });
+        result = listed.ok ? { ...listed, result: mapExternalEditList(listed.result) } : listed;
+      } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'external-edits' && parts[4] && parts.length === 5) {
+        const found = query(core, request, 'query.external_edit.get', { project_id: parts[2], external_edit_id: parts[4] });
+        result = found.ok ? { ...found, result: { externalEdit: mapExternalEdit(found.result.external_edit ?? found.result.externalEdit ?? found.result) } } : found;
+      } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'external-edits' && parts.length === 4) {
+        const registered = command(core, request, 'RegisterExternalEdit', { ...body, project_id: parts[2] }, expectedVersions(body, 'EXPORT_SESSION'), commandKey(request, body));
+        result = registered.ok ? { ...registered, result: { externalEdit: mapExternalEdit(registered.result.external_edit ?? registered.result.externalEdit ?? registered.result) } } : registered;
       } else if (request.method === 'GET' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
         result = query(core, request, 'query.project.list', { include_trashed: url.searchParams.get('include_trashed') === 'true' });
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts.length === 2) {
