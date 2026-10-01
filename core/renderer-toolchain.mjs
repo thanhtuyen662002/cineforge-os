@@ -90,13 +90,44 @@ function expectedBinaryName(name) {
   return process.platform === 'win32' ? `${name}.exe` : name;
 }
 
-function readUtf8Bounded(filePath, maxBytes) {
+function readUtf8Bounded(filePath, maxBytes, expectedIdentity = null, expectedStat = null) {
   let stat;
+  let pathIdentity;
   try { stat = fs.statSync(filePath); } catch { return { ok: false, code: 'MANIFEST_MISSING' }; }
   if (!stat.isFile()) return { ok: false, code: 'MANIFEST_NOT_FILE' };
   if (stat.size < 1 || stat.size > maxBytes) return { ok: false, code: 'MANIFEST_SIZE_INVALID' };
+  try { pathIdentity = stableFileIdentity(fs.statSync(filePath, { bigint: true })); } catch { return { ok: false, code: 'MANIFEST_UNREADABLE' }; }
+  if (!sameStableFileIdentity(expectedIdentity, pathIdentity)
+    || (expectedStat && Number(expectedStat.size) !== Number(stat.size))) {
+    return { ok: false, code: 'MANIFEST_CHANGED_BEFORE_READ' };
+  }
+  let fd;
   let bytes;
-  try { bytes = fs.readFileSync(filePath); } catch { return { ok: false, code: 'MANIFEST_UNREADABLE' }; }
+  try {
+    fd = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_BINARY ?? 0));
+    const opened = fs.fstatSync(fd);
+    const openedIdentity = stableFileIdentity(fs.fstatSync(fd, { bigint: true }));
+    if (!opened.isFile() || opened.size !== stat.size || !sameStableFileIdentity(pathIdentity, openedIdentity)) {
+      return { ok: false, code: 'MANIFEST_CHANGED_BEFORE_READ' };
+    }
+    bytes = Buffer.alloc(Number(opened.size));
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const count = fs.readSync(fd, bytes, offset, bytes.byteLength - offset, offset);
+      if (count <= 0) return { ok: false, code: 'MANIFEST_READ_TRUNCATED' };
+      offset += count;
+    }
+    const finished = fs.fstatSync(fd);
+    const finishedIdentity = stableFileIdentity(fs.fstatSync(fd, { bigint: true }));
+    let pathAfter;
+    try { pathAfter = fs.lstatSync(filePath); } catch { return { ok: false, code: 'MANIFEST_CHANGED_DURING_READ' }; }
+    if (!finished.isFile() || finished.size !== stat.size || !sameStableFileIdentity(openedIdentity, finishedIdentity)
+      || pathAfter.isSymbolicLink() || !pathAfter.isFile()
+      || !sameStableFileIdentity(finishedIdentity, stableFileIdentity(fs.statSync(filePath, { bigint: true })))) {
+      return { ok: false, code: 'MANIFEST_CHANGED_DURING_READ' };
+    }
+  } catch { return { ok: false, code: 'MANIFEST_UNREADABLE' }; }
+  finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* preserve primary result */ } } }
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return { ok: false, code: 'MANIFEST_UTF8_INVALID' }; }
   if (text.length === 0 || text.charCodeAt(0) === 0xfeff) return { ok: false, code: 'MANIFEST_ENCODING_INVALID' };
@@ -322,7 +353,7 @@ export function preflightRendererToolchain(options = {}) {
     const checkedManifest = inspectPath(manifestPath, 'manifest');
     if (!checkedManifest.ok) return blocked(checkedManifest.code, { unknown: checkedManifest.code === 'MANIFEST_MISSING' });
     if (root !== null && !isWithin(root, checkedManifest.absolute)) return blocked('MANIFEST_OUTSIDE_ROOT');
-    loaded = readUtf8Bounded(checkedManifest.absolute, MAX_MANIFEST_BYTES);
+    loaded = readUtf8Bounded(checkedManifest.absolute, MAX_MANIFEST_BYTES, checkedManifest.fileIdentity, checkedManifest.stat);
     if (!loaded.ok) return blocked(loaded.code, { unknown: loaded.code === 'MANIFEST_MISSING' });
   }
   if (!loaded.ok) return blocked(loaded.code);

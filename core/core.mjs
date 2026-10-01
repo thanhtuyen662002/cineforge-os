@@ -97,8 +97,15 @@ const LOCAL_PROBE_TERMINAL_STATES = new Set([
 ]);
 const LOCAL_PROBE_ATTEMPT_STATES = new Set(['CREATED', 'DISPATCHING', 'EXECUTING', 'VERIFYING', 'SUCCEEDED', 'FAILED', 'ABANDONED']);
 const LOCAL_PROBE_MAX_ATTEMPTS = 3;
-const LOCAL_PROBE_MAX_BYTES = 4 * 1024 * 1024 * 1024;
+// Integrity probes yield between asynchronous stream chunks so the Core
+// event loop remains responsive to health/cancel requests.  Keep the caller
+// budget bounded below the multi-gigabyte upload limit; a larger verification
+// must be a separately admitted cancellable job rather than a synchronous
+// query-side read.
+const LOCAL_PROBE_MAX_BYTES = 512 * 1024 * 1024;
 const LOCAL_PROBE_DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+const LOCAL_PROBE_CHUNK_BYTES = 1024 * 1024;
+const LOCAL_PROBE_TIMEOUT_MS = 2 * 60 * 1000;
 // Browser intake is a local-only upload boundary.  Keep the limit explicit so
 // a malformed/chunked request cannot consume unbounded disk space while the
 // stream is being verified.  Large production media can still be imported by
@@ -290,13 +297,29 @@ export class CoreError extends Error {
       retryable: this.retryable,
       needs_user: this.needsUser,
       decision_request_id: this.decisionRequestId,
-      technical_details: this.technicalDetails,
+      technical_details: publicTechnicalDetails(this.technicalDetails),
     };
   }
 }
 
 function json(value) {
   return JSON.stringify(value ?? {});
+}
+
+// Error envelopes are persisted in command records and returned across the
+// local HTTP boundary. Preserve useful error codes/values while removing
+// absolute filesystem paths that can appear in native exception messages.
+const ABSOLUTE_PATH_IN_ERROR = /(?:[A-Za-z]:[\\/][^"'<>|;\r\n]*|\\\\[^"'<>|;\r\n]+|\/(?:Users|home|tmp|var|private|mnt|opt|etc)\/[^"'<>|;\r\n]*)/gi;
+function publicTechnicalDetails(value) {
+  if (value === null || value === undefined || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.replace(ABSOLUTE_PATH_IN_ERROR, '[path redacted]');
+  if (Array.isArray(value)) return value.map((item) => publicTechnicalDetails(item));
+  if (typeof value === 'object') {
+    const result = {};
+    for (const [key, item] of Object.entries(value)) result[key] = publicTechnicalDetails(item);
+    return result;
+  }
+  return String(value).replace(ABSOLUTE_PATH_IN_ERROR, '[path redacted]');
 }
 
 function parseJson(value, fallback = {}) {
@@ -1569,6 +1592,7 @@ export class CoreService {
     this._heartbeatTimer = null;
     this._localProbeTimer = null;
     this._localProbeRunning = false;
+    this._localProbeAbortControllers = new Map();
     this.mutationEnabled = !this._ownershipEnabled;
     this.ownershipState = this._ownershipEnabled ? 'STARTING' : 'ACTIVE_OWNER';
     this.instanceId = uuidv7();
@@ -1637,6 +1661,10 @@ export class CoreService {
       clearTimeout(this._localProbeTimer);
       this._localProbeTimer = null;
     }
+    for (const controller of this._localProbeAbortControllers?.values() ?? []) {
+      try { controller.abort(); } catch { /* preserve the close path */ }
+    }
+    this._localProbeAbortControllers?.clear();
     this.mutationEnabled = false;
     try { this._releaseCoreOwnership(); } catch { /* retain the primary close path */ }
     try { this.db?.close(); } catch { /* already closed */ }
@@ -2041,13 +2069,16 @@ export class CoreService {
     } catch { return; }
     if (!claimed) return;
     this._localProbeRunning = true;
-    try { this._runLocalProbeAttempt(claimed.id, claimed.attemptId); } finally {
+    Promise.resolve(this._runLocalProbeAttempt(claimed.id, claimed.attemptId)).catch(() => {
+      // The durable attempt remains fenced/reconcilable if an unexpected
+      // runner exception occurs; never crash the Core event loop.
+    }).finally(() => {
       this._localProbeRunning = false;
       if (!this._closed) this._scheduleLocalProbeRunner();
-    }
+    });
   }
 
-  _probeManagedObject(jobId, attemptId) {
+  async _probeManagedObject(jobId, attemptId) {
     const row = this.db.prepare(`SELECT j.*, r.storage_object_id, r.availability_state, so.hash_algorithm,
         so.content_hash, so.byte_size, so.storage_class, l.storage_root, l.relative_path,
         l.location_role, l.state AS location_state,
@@ -2072,7 +2103,9 @@ export class CoreService {
     const target = path.resolve(this.assetStorePath, row.relative_path);
     if (!pathIsWithin(target, this.assetStorePath) || pathKey(target) === pathKey(this.assetStorePath)) return { ...evidence, state: 'FAIL', code: 'PROBE_PATH_ESCAPE' };
     let descriptor;
+    let stream;
     let before;
+    let controller;
     try {
       this._assertNoReparsePath(target);
       const pathBefore = fs.lstatSync(target);
@@ -2080,6 +2113,7 @@ export class CoreService {
       descriptor = fs.openSync(target, fs.constants.O_RDONLY | Number(fs.constants.O_NOFOLLOW ?? 0));
       before = fs.fstatSync(descriptor);
       if (!before.isFile() || Number(before.nlink ?? 1) !== 1) return { ...evidence, state: 'FAIL', code: 'PROBE_NOT_REGULAR_FILE' };
+      if (!this._sameHandleIdentity(this._sourceIdentity(pathBefore), this._sourceIdentity(before))) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED' };
       if (!Number.isSafeInteger(Number(before.size)) || Number(before.size) < 0) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_SIZE_UNSAFE' };
       // The registered metadata is bounded, but an external writer can grow
       // the file between registration and this read.  Refuse the probe before
@@ -2087,29 +2121,68 @@ export class CoreService {
       // the caller's explicit IO budget.
       if (Number(before.size) > Number(row.requested_max_bytes)) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_IO_BUDGET_EXCEEDED', observed_byte_size: Number(before.size) };
       const digest = crypto.createHash('sha256');
-      const buffer = Buffer.allocUnsafe(1024 * 1024);
-      let offset = 0;
-      while (offset < Number(before.size)) {
-        const read = fs.readSync(descriptor, buffer, 0, Math.min(buffer.length, Number(before.size) - offset), offset);
-        if (read <= 0) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_SHORT_READ', observed_byte_size: Number(before.size), bytesRead: offset };
-        digest.update(buffer.subarray(0, read)); offset += read;
+      let bytesRead = 0;
+      if (Number(before.size) > 0) {
+        controller = new AbortController();
+        this._localProbeAbortControllers.set(attemptId, controller);
+        let timedOut = false;
+        const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, LOCAL_PROBE_TIMEOUT_MS);
+        try {
+          stream = fs.createReadStream(null, {
+            fd: descriptor,
+            autoClose: false,
+            start: 0,
+            end: Number(before.size) - 1,
+            highWaterMark: LOCAL_PROBE_CHUNK_BYTES,
+            signal: controller.signal,
+          });
+          for await (const chunk of stream) {
+            if (this._closed) {
+              controller.abort();
+              return { ...evidence, state: 'UNKNOWN', code: 'PROBE_CORE_CLOSED', observed_byte_size: Number(before.size), bytesRead };
+            }
+            bytesRead += chunk.byteLength;
+            if (bytesRead > Number(before.size)) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_STREAM_OVERRUN', observed_byte_size: Number(before.size), bytesRead };
+            digest.update(chunk);
+          }
+        } catch (error) {
+          if (timedOut || error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
+            const currentState = this.db.prepare('SELECT state FROM jobs WHERE id = ?').get(jobId)?.state;
+            const code = currentState === 'CANCELLATION_REQUESTED' ? 'PROBE_CANCELLED' : 'PROBE_TIMEOUT';
+            return { ...evidence, state: 'UNKNOWN', code, observed_byte_size: Number(before.size), bytesRead };
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+          this._localProbeAbortControllers.delete(attemptId);
+          stream = null;
+        }
       }
+      if (bytesRead !== Number(before.size)) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_SHORT_READ', observed_byte_size: Number(before.size), bytesRead };
       const after = fs.fstatSync(descriptor);
-      if (!this._sameSourceIdentity(this._sourceIdentity(before), this._sourceIdentity(after))) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED', observed_byte_size: Number(after.size), bytesRead: offset };
+      if (!this._sameSourceIdentity(this._sourceIdentity(before), this._sourceIdentity(after))) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED', observed_byte_size: Number(after.size), bytesRead };
+      let pathAfter;
+      try { pathAfter = fs.lstatSync(target); } catch { return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED', observed_byte_size: Number(after.size), bytesRead }; }
+      if (pathAfter.isSymbolicLink() || !pathAfter.isFile() || Number(pathAfter.nlink ?? 1) !== 1
+        || !this._sameHandleIdentity(this._sourceIdentity(after), this._sourceIdentity(pathAfter))) {
+        return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED', observed_byte_size: Number(after.size), bytesRead };
+      }
       const observedHash = digest.digest('hex');
       const state = Number(before.size) === expectedSize && observedHash === expectedHash ? 'PASS' : 'FAIL';
-      return { ...evidence, state, code: state === 'PASS' ? null : Number(before.size) !== expectedSize ? 'PROBE_BYTE_SIZE_MISMATCH' : 'PROBE_CONTENT_HASH_MISMATCH', observed_hash: observedHash, observed_byte_size: Number(before.size), bytesRead: Number(before.size) };
+      return { ...evidence, state, code: state === 'PASS' ? null : Number(before.size) !== expectedSize ? 'PROBE_BYTE_SIZE_MISMATCH' : 'PROBE_CONTENT_HASH_MISMATCH', observed_hash: observedHash, observed_byte_size: Number(before.size), bytesRead };
     } catch (error) {
       const code = error?.code === 'ENOENT' ? 'PROBE_OBJECT_MISSING' : error?.code === 'ELOOP' ? 'PROBE_REPARSE_REJECTED' : 'PROBE_OBJECT_UNREADABLE';
       return { ...evidence, state: code === 'PROBE_OBJECT_MISSING' || code === 'PROBE_REPARSE_REJECTED' ? 'FAIL' : 'UNKNOWN', code };
     } finally {
+      if (stream) { try { stream.destroy(); } catch { /* evidence already captured */ } }
+      this._localProbeAbortControllers.delete(attemptId);
       if (descriptor !== undefined) { try { fs.closeSync(descriptor); } catch { /* evidence already captured */ } }
     }
   }
 
-  _runLocalProbeAttempt(jobId, attemptId) {
+  async _runLocalProbeAttempt(jobId, attemptId) {
     let result;
-    try { result = this._probeManagedObject(jobId, attemptId); } catch (error) {
+    try { result = await this._probeManagedObject(jobId, attemptId); } catch (error) {
       result = { state: 'UNKNOWN', code: 'PROBE_INTERNAL_ERROR', bytesRead: 0, error: String(error?.message ?? error).slice(0, 200) };
     }
     if (this._closed) return;
@@ -4378,6 +4451,9 @@ export class CoreService {
       }
     } else if (current.state === 'RUNNING') {
       nextState = 'CANCELLATION_REQUESTED';
+      if (attempt?.id) {
+        try { this._localProbeAbortControllers.get(attempt.id)?.abort(); } catch { /* the durable request remains authoritative */ }
+      }
     } else if (current.state === 'CANCELLATION_REQUESTED') {
       // A second cancel command with a fresh idempotency key is a harmless,
       // auditable no-op. Advance the optimistic row fence so the command has

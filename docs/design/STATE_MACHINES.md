@@ -2980,6 +2980,13 @@ changes canonical asset bytes or approval state. `CANNOT_CANCEL` is reserved
 for a future explicit cancellation blocker; the V1 local runner does not
 silently convert it to success.
 
+The V1 runner reserves at most 512 MiB per attempt (default 256 MiB), reads
+through an asynchronous bounded stream so Core health and cancellation remain
+responsive, and applies a two-minute wall-clock read timeout. Timeout,
+aborted-stream, short-read and stale-path evidence are `UNKNOWN`; a user
+cancellation is distinguished as `PROBE_CANCELLED` while a read deadline is
+`PROBE_TIMEOUT`; none is promoted to `PASS`.
+
 Without a pending cancellation, an `UNKNOWN` measurement terminates the job
 as `FAILED_RETRYABLE`; `FAIL` terminates it as `FAILED_FINAL`; `PASS`
 terminates it as `COMPLETED`. A pending cancellation records

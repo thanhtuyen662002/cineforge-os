@@ -360,9 +360,15 @@ internal static class Program
             throw new InvalidOperationException("the Windows local application-data directory is unavailable.");
 
         var cacheRoot = Path.Combine(localAppData, "CineForge", "packages");
+        if (HasReparseAncestor(cacheRoot))
+            throw new InvalidDataException("the embedded package cache has a reparse-point ancestor.");
         Directory.CreateDirectory(cacheRoot);
+        if (HasReparseAncestor(cacheRoot))
+            throw new InvalidDataException("the embedded package cache has a reparse-point ancestor.");
         var packageKey = Convert.ToHexString(payload.PayloadSha256).ToLowerInvariant();
         var packageRoot = Path.Combine(cacheRoot, packageKey);
+        if (HasReparseAncestor(packageRoot))
+            throw new InvalidDataException("the embedded package cache path has a reparse-point ancestor.");
         var mutexName = EmbeddedPackageCachePrefix + packageKey;
         using var mutex = new Mutex(false, mutexName);
         var acquired = false;
@@ -399,6 +405,8 @@ internal static class Program
             }
 
             var staging = packageRoot + ".staging-" + Guid.NewGuid().ToString("N");
+            if (HasReparseAncestor(staging))
+                throw new InvalidDataException("the embedded package staging path has a reparse-point ancestor.");
             Directory.CreateDirectory(staging);
             try
             {
@@ -429,6 +437,8 @@ internal static class Program
 
     private static void ExtractEmbeddedZip(EmbeddedPayloadInfo payload, string destinationRoot)
     {
+        if (HasReparseAncestor(destinationRoot))
+            throw new InvalidDataException("the embedded package destination has a reparse-point ancestor.");
         using var source = new FileStream(payload.PayloadPath, FileMode.Open, FileAccess.Read, FileShare.Read,
             128 * 1024, FileOptions.SequentialScan);
         using var bounded = new BoundedReadStream(source, payload.PayloadOffset, payload.PayloadLength);
@@ -468,13 +478,16 @@ internal static class Program
             if (isDirectory)
             {
                 if (File.Exists(target)) throw new InvalidDataException($"the embedded package has a file/directory collision: {entry.FullName}");
+                if (HasReparseAncestor(target)) throw new InvalidDataException($"the embedded package directory is under a reparse point: {entry.FullName}");
                 Directory.CreateDirectory(target);
                 continue;
             }
             if (entry.Length < 0 || entry.Length > MaxEmbeddedEntryBytes || totalBytes > MaxEmbeddedUncompressedBytes - entry.Length)
                 throw new InvalidDataException("the embedded package exceeds its uncompressed size bound.");
             if (Directory.Exists(target)) throw new InvalidDataException($"the embedded package has a file/directory collision: {entry.FullName}");
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            var targetDirectory = Path.GetDirectoryName(target)!;
+            if (HasReparseAncestor(targetDirectory)) throw new InvalidDataException($"the embedded package file is under a reparse point: {entry.FullName}");
+            Directory.CreateDirectory(targetDirectory);
             using var input = entry.Open();
             using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024, FileOptions.SequentialScan);
             var copied = CopyBounded(input, output, entry.Length, MaxEmbeddedEntryBytes);
@@ -1077,7 +1090,11 @@ internal static class Program
                     core = health.CoreReady,
                     web = Directory.Exists(health.WebRoot),
                     transport = health.Transport.ToString().ToLowerInvariant(),
-                    dataRoot = health.DataRoot,
+                    // /healthz is reachable by every loopback client.  Keep
+                    // it useful for readiness checks without disclosing the
+                    // user's absolute data path; /v1/health is redacted by
+                    // Core as well.
+                    dataRootConfigured = !string.IsNullOrWhiteSpace(health.DataRoot),
                 });
                 await WriteBytesAsync(context.Response, Encoding.UTF8.GetBytes(payload), "application/json; charset=utf-8", 200);
             }
@@ -1285,10 +1302,14 @@ internal static class Program
         if (context.Request.ContentLength64 > MaxStagedUploadBytes) throw new StageUploadException(413, "SOURCE_TOO_LARGE", "The selected file is larger than the supported 8 GiB limit.");
 
         var intakeRoot = Path.GetFullPath(Path.Combine(dataRoot, "intake"));
+        if (HasReparseAncestor(intakeRoot)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staging root is not trusted.");
         Directory.CreateDirectory(intakeRoot);
+        if (HasReparseAncestor(intakeRoot)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staging root is not trusted.");
         var handle = Guid.NewGuid().ToString("N");
         var directory = Path.Combine(intakeRoot, handle);
+        if (HasReparseAncestor(directory)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staging directory is not trusted.");
         Directory.CreateDirectory(directory);
+        if (HasReparseAncestor(directory)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staging directory is not trusted.");
         var partial = Path.Combine(directory, "payload.part");
         var payloadPath = Path.Combine(directory, "payload.bin");
         var manifestPath = Path.Combine(directory, "manifest.json");
@@ -1371,6 +1392,7 @@ internal static class Program
         var intakeRoot = Path.GetFullPath(Path.Combine(dataRoot, "intake"));
         var directory = Path.GetFullPath(Path.Combine(intakeRoot, handle));
         if (!IsWithinDirectory(directory, intakeRoot) || !Directory.Exists(directory)) throw new StageUploadException(404, "STAGE_NOT_FOUND", "The staged file no longer exists.");
+        if (HasReparseAncestor(intakeRoot) || HasReparseAncestor(directory)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file location is not trusted.");
         if (IsReparsePoint(directory)) throw new StageUploadException(409, "STAGE_UNTRUSTED", "The staged file location is not trusted.");
         var manifestPath = Path.Combine(directory, "manifest.json");
         if (!File.Exists(manifestPath) || IsReparsePoint(manifestPath)) throw new StageUploadException(404, "STAGE_NOT_FOUND", "The staged file manifest no longer exists.");
@@ -1432,6 +1454,7 @@ internal static class Program
         var intakeRoot = Path.GetFullPath(Path.Combine(dataRoot, "intake"));
         var directory = Path.GetFullPath(Path.Combine(intakeRoot, handle));
         var manifestPath = Path.Combine(directory, "manifest.json");
+        if (HasReparseAncestor(intakeRoot) || HasReparseAncestor(directory)) return;
         if (!File.Exists(manifestPath) || IsReparsePoint(manifestPath)) return;
         var manifest = JsonSerializer.Deserialize<StagedUploadManifest>(File.ReadAllText(manifestPath));
         if (manifest is null || !string.Equals(manifest.Handle, handle, StringComparison.Ordinal)) return;
@@ -1455,10 +1478,22 @@ internal static class Program
         catch { return true; }
     }
 
+    private static bool HasReparseAncestor(string path)
+    {
+        var current = Path.GetFullPath(path);
+        while (true)
+        {
+            if ((Directory.Exists(current) || File.Exists(current)) && IsReparsePoint(current)) return true;
+            var parent = Directory.GetParent(current)?.FullName;
+            if (string.IsNullOrWhiteSpace(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase)) return false;
+            current = parent;
+        }
+    }
+
     private static void PruneStagedUploads(string dataRoot)
     {
         var intakeRoot = Path.Combine(dataRoot, "intake");
-        if (!Directory.Exists(intakeRoot)) return;
+        if (!Directory.Exists(intakeRoot) || HasReparseAncestor(intakeRoot)) return;
         try
         {
             foreach (var directoryPath in Directory.EnumerateDirectories(intakeRoot))

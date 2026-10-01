@@ -88,6 +88,11 @@ try {
     if (-not $health.web -or $health.status -ne 'ok' -or -not $health.core) {
         throw 'CineForge single-file package did not expose a ready web/Core product.'
     }
+    $healthJson = $health | ConvertTo-Json -Depth 10 -Compress
+    if ($healthJson -match '(?i)([A-Za-z]:\\|\\\\|(?:file|https?)://|/Users/|/home/)' -or $healthJson -match [regex]::Escape($dataRoot)) {
+        throw 'CineForge single-file health endpoint leaked an absolute data path.'
+    }
+    if ($health.dataRootConfigured -ne $true) { throw 'CineForge single-file health endpoint did not report the data root as configured.' }
 
     $html = (Invoke-WebRequest -Uri "http://127.0.0.1:$webPort/" -UseBasicParsing -TimeoutSec 5).Content
     if ($html -notmatch '<html') { throw 'CineForge single-file root page did not return HTML.' }

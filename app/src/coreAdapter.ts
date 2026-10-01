@@ -112,6 +112,10 @@ const LOCAL_IDEMPOTENCY_KEY = 'cineforge-idempotency-v1'
 // fail closed without duplicating a production guard across dozens of
 // capability methods; it also avoids an accidental cloud/network fallback.
 const PRODUCTION_MISSING_CORE_BASE_URL = 'http://127.0.0.1:1'
+// The Core local integrity probe is an asynchronous, bounded read job. Keep
+// the client-side admission limit identical to Core so a UI request cannot be
+// silently widened to a multi-gigabyte synchronous operation.
+const LOCAL_PROBE_MAX_BYTES = 512 * 1024 * 1024
 
 export class CoreClientError extends Error {
   readonly code: string
@@ -815,7 +819,10 @@ export class HttpCoreClient implements CoreClient {
   async runManagedAssetIntegrityProbe(projectId: string, assetRevisionId: string, contentHash: string, maxBytes = 256 * 1024 * 1024, idempotencyKey = crypto.randomUUID()): Promise<ManagedAssetIntegrityJob> {
     if (!this.baseUrl) throw new CoreClientError('Asset integrity probing requires a connected Core.', { code: 'CORE_OFFLINE', category: 'EXTERNAL_UNAVAILABLE', retryable: true, needsUser: true })
     if (!projectId.trim() || !assetRevisionId.trim() || !/^[a-f0-9]{64}$/i.test(contentHash.trim())) throw new CoreClientError('A project, revision and SHA-256 content hash are required.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
-    const boundedMaxBytes = integerValue(maxBytes, 256 * 1024 * 1024, 1, 4 * 1024 * 1024 * 1024)
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > LOCAL_PROBE_MAX_BYTES) {
+      throw new CoreClientError('The local integrity probe byte budget must be between 1 byte and 512 MiB.', { code: 'INVALID_ARGUMENT', category: 'VALIDATION', needsUser: true })
+    }
+    const boundedMaxBytes = maxBytes
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetRevisionId)}/integrity-probe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },

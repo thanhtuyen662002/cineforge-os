@@ -137,6 +137,7 @@ try {
         version = '0.1.0-single-file'
         built_at_utc = [DateTime]::UtcNow.ToString('o')
         source_git_head = [string]$portableManifest.source_git_head
+        source_tree_clean = [bool]$portableManifest.source_tree_clean
         mode = 'single-file'
         ui = [string]$portableManifest.ui
         core = 'node-self-contained'

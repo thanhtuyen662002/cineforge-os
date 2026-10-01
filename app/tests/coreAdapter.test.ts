@@ -608,6 +608,8 @@ describe('local Core adapter', () => {
       const cancelled = await client.cancelManagedAssetIntegrityProbe?.('job-1', 2, 'job-cancel-1')
       expect(cancelled?.state).toBe('CANCELLED_CONFIRMED')
       expect(fetchMock).toHaveBeenCalledTimes(3)
+      await expect(client.runManagedAssetIntegrityProbe?.('project-1', 'revision-1', hash, 512 * 1024 * 1024 + 1, 'job-too-large')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      expect(fetchMock).toHaveBeenCalledTimes(3)
     } finally {
       vi.unstubAllGlobals()
     }

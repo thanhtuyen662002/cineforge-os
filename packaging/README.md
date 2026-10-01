@@ -28,6 +28,12 @@ prefer a visible `web/` and `runtime/` directory. `-Mode SingleFile` requires
 the production `node-self-contained` Core mode and refuses Python/source
 fallbacks so the one-file EXE never gains a hidden machine prerequisite.
 
+Packaging is provenance fail-closed: the build refuses to run when Git reports
+tracked or untracked source changes. Commit the exact source/toolchain changes
+first, then rebuild; ignored build caches are recreated or excluded by the
+packaging boundary. The generated manifest records `source_tree_clean: true`
+alongside the exact source commit.
+
 The one-file output is placed under `dist/CineForge-OneFile/`:
 
 ```text

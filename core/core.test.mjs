@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { CoreService } from './core.mjs';
+import { CoreError, CoreService } from './core.mjs';
 import { initializeDatabase } from './schema.mjs';
 
 function tempDb() {
@@ -23,6 +23,21 @@ function execute(core, command_type, payload, expected_versions = {}, idempotenc
     ...(idempotency_key ? { idempotency_key } : {}),
   }, `${command_type}-${idempotency_key ?? Math.random()}`));
 }
+
+test('public error details redact absolute filesystem paths', () => {
+  const error = new CoreError('SOURCE_UNREADABLE', 'VALIDATION', 'errors.source_unreadable', { source_name: 'clip.mov' }, {
+    technicalDetails: {
+      message: "EACCES: permission denied, open 'C:\\private\\cineforge\\clip.mov'",
+      nested: { path: '/tmp/cineforge/secret.mov', code: 'EACCES' },
+    },
+  });
+  const envelope = error.toEnvelope();
+  const serialized = JSON.stringify(envelope);
+  assert.equal(serialized.includes('C:\\private\\cineforge'), false);
+  assert.equal(serialized.includes('/tmp/cineforge'), false);
+  assert.match(envelope.technical_details.message, /path redacted/);
+  assert.equal(envelope.user_message_args.source_name, 'clip.mov');
+});
 
 test('smoke: create project, close, and reload it from SQLite WAL', () => {
   const { dbPath, directory } = tempDb();

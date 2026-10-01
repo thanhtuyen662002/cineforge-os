@@ -105,6 +105,11 @@ try {
     elseif ($health.status -ne 'ok' -or -not $health.core) {
         throw 'CineForge Core did not become ready; a production portable build must include a working Core.'
     }
+    $healthJson = $health | ConvertTo-Json -Depth 10 -Compress
+    if ($healthJson -match '(?i)([A-Za-z]:\\|\\\\|(?:file|https?)://|/Users/|/home/)' -or $healthJson -match [regex]::Escape($dataRoot)) {
+        throw 'CineForge health endpoint leaked an absolute data path.'
+    }
+    if ($health.dataRootConfigured -ne $true) { throw 'CineForge health endpoint did not report the data root as configured.' }
 
     # A second bootstrap must not probe another port and open the same data
     # root concurrently. The Windows host owns a stable mutex keyed by this

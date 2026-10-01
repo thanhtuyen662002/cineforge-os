@@ -122,6 +122,26 @@ function Get-GitHead {
     return $null
 }
 
+function Assert-CleanGitTree {
+    # The packaged payload can contain generated files that are not represented
+    # by HEAD. Refuse to publish a manifest that claims only a commit while the
+    # working tree contributes unreviewed tracked or untracked source. Ignored
+    # build/cache directories remain allowed; they are recreated or excluded
+    # by the packaging boundary below.
+    try {
+        $status = @(& git -C $repoRoot status --porcelain=v1 --untracked-files=all 2>$null)
+    }
+    catch {
+        throw "Could not inspect the source tree before packaging. $($_.Exception.Message)"
+    }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the source tree before packaging: git status failed.' }
+    if ($status.Count -gt 0) {
+        $sample = (($status | Select-Object -First 8) -join '; ')
+        throw "Packaging requires a clean Git worktree so provenance is truthful. Commit or stash source changes first. Detected: $sample"
+    }
+}
+
+Assert-CleanGitTree
 Write-Host "CineForge Windows packaging ($Mode / $Configuration)" -ForegroundColor Green
 Write-Host "Repository: $repoRoot"
 
@@ -361,6 +381,7 @@ $manifest = [ordered]@{
     version = '0.1.0-portable'
     built_at_utc = [DateTime]::UtcNow.ToString('o')
     source_git_head = $gitHead
+    source_tree_clean = $true
     mode = $Mode
     ui = $uiMode
     core = $coreMode

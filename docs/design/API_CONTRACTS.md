@@ -4274,7 +4274,12 @@ The command contract is:
 - `RunManagedAssetIntegrityProbe({project_id, asset_revision_id,
   content_hash, max_bytes?})` — requires an `Idempotency-Key`, pins the exact
   revision/hash and a canonical manifest hash, reserves the bounded read
-  budget and returns `QUEUED`;
+  budget and returns `QUEUED`. The job-specific `max_bytes` is bounded to
+  512 MiB (default 256 MiB); larger verification requires a separate,
+  explicitly cancellable job contract. The runner reads asynchronously in
+  bounded chunks and fails as `UNKNOWN` after a two-minute read timeout. A
+  user cancellation is recorded as `PROBE_CANCELLED`; a read deadline remains
+  `PROBE_TIMEOUT`;
 - `CancelManagedAssetIntegrityProbe({job_id})` — requires the current
   `expected_versions.JOB` value. `QUEUED`/`CLAIMED` jobs become
   `CANCELLED_CONFIRMED`; a `RUNNING` job becomes

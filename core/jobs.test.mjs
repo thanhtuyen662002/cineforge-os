@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import test from 'node:test';
 import { CoreService } from './core.mjs';
 
@@ -154,6 +155,66 @@ test('queued local probe cancellation releases its read reservation', () => {
     assert.equal(usage.actual_amount, 0);
     core._localProbeRunning = false;
   } finally {
+    core.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('running local probe aborts its bounded stream and records cancellation evidence', async () => {
+  const { directory, dbPath, assetStorePath } = tempDb();
+  const core = new CoreService({ dbPath, assetStorePath });
+  const originalCreateReadStream = fs.createReadStream;
+  try {
+    const asset = createManagedAsset(core, directory, assetStorePath, 'cancel-stream');
+    fs.createReadStream = (_path, options = {}) => {
+      const size = Number(options.end ?? 0) - Number(options.start ?? 0) + 1;
+      const first = Math.max(1, Math.floor(size / 2));
+      let rejectDelay;
+      let delayTimer;
+      const stream = Readable.from((async function* () {
+        yield Buffer.alloc(first, 0x61);
+        await new Promise((resolve, reject) => {
+          rejectDelay = reject;
+          delayTimer = setTimeout(resolve, 10_000);
+        });
+        yield Buffer.alloc(size - first, 0x62);
+      })());
+      options.signal?.addEventListener('abort', () => {
+        const error = Object.assign(new Error('aborted by test cancellation'), { name: 'AbortError', code: 'ABORT_ERR' });
+        if (delayTimer) clearTimeout(delayTimer);
+        rejectDelay?.(error);
+        stream.destroy(error);
+      }, { once: true });
+      return stream;
+    };
+    const queued = execute(core, 'RunManagedAssetIntegrityProbe', {
+      project_id: asset.projectId, asset_revision_id: asset.revisionId, content_hash: asset.contentHash,
+    }, {}, 'probe-cancel-stream');
+    assert.equal(queued.ok, true);
+    let running;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      running = core.handle(request('query.jobs.get', { job_id: queued.result.job.id }, `probe-cancel-stream-get-${attempt}`));
+      if (running.result?.job?.state === 'RUNNING') break;
+      await waitFor(10);
+    }
+    assert.equal(running.result.job.state, 'RUNNING');
+    const cancelled = execute(core, 'CancelManagedAssetIntegrityProbe', { job_id: queued.result.job.id }, { JOB: running.result.job.row_version }, 'probe-cancel-stream-command');
+    assert.equal(cancelled.ok, true);
+    assert.equal(cancelled.result.job.state, 'CANCELLATION_REQUESTED');
+    let completed;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      completed = core.handle(request('query.jobs.get', { job_id: queued.result.job.id }, `probe-cancel-stream-final-${attempt}`));
+      if (completed.result?.job?.state === 'COMPLETED_AFTER_CANCEL') break;
+      await waitFor(10);
+    }
+    assert.equal(completed.result.job.state, 'COMPLETED_AFTER_CANCEL');
+    assert.equal(completed.result.job.evidence.state, 'UNKNOWN');
+    assert.equal(completed.result.job.evidence.code, 'PROBE_CANCELLED');
+    assert.ok(completed.result.job.evidence.bytes_read < asset.objectSize);
+    assert.equal(completed.result.job.usage.state, 'RELEASED');
+    assert.equal(fs.readFileSync(asset.objectPath).toString('utf8'), `managed bytes cancel-stream\n`);
+  } finally {
+    fs.createReadStream = originalCreateReadStream;
     core.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
