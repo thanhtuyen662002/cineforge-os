@@ -309,7 +309,7 @@ function json(value) {
 // Error envelopes are persisted in command records and returned across the
 // local HTTP boundary. Preserve useful error codes/values while removing
 // absolute filesystem paths that can appear in native exception messages.
-const ABSOLUTE_PATH_IN_ERROR = /(?:[A-Za-z]:[\\/][^"'<>|;\r\n]*|\\\\[^"'<>|;\r\n]+|\/(?:Users|home|tmp|var|private|mnt|opt|etc)\/[^"'<>|;\r\n]*)/gi;
+const ABSOLUTE_PATH_IN_ERROR = /(?:[A-Za-z]:[\\/][^"'<>|;\r\n]*|\\\\[^"'<>|;\r\n]+|(?:file:)?\/\/[^"'<>|;\r\n]+|\/(?:Users|home|tmp|var|private|mnt|opt|etc|workspace|data|srv|run|root)\/[^"'<>|;\r\n]*)/gi;
 function publicTechnicalDetails(value) {
   if (value === null || value === undefined || typeof value === 'number' || typeof value === 'boolean') return value;
   if (typeof value === 'string') return value.replace(ABSOLUTE_PATH_IN_ERROR, '[path redacted]');

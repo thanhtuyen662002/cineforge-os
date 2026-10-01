@@ -28,13 +28,14 @@ test('public error details redact absolute filesystem paths', () => {
   const error = new CoreError('SOURCE_UNREADABLE', 'VALIDATION', 'errors.source_unreadable', { source_name: 'clip.mov' }, {
     technicalDetails: {
       message: "EACCES: permission denied, open 'C:\\private\\cineforge\\clip.mov'",
-      nested: { path: '/tmp/cineforge/secret.mov', code: 'EACCES' },
+      nested: { path: '/tmp/cineforge/secret.mov', uri: 'file:///workspace/secret.mov', code: 'EACCES' },
     },
   });
   const envelope = error.toEnvelope();
   const serialized = JSON.stringify(envelope);
   assert.equal(serialized.includes('C:\\private\\cineforge'), false);
   assert.equal(serialized.includes('/tmp/cineforge'), false);
+  assert.equal(serialized.includes('file:///workspace'), false);
   assert.match(envelope.technical_details.message, /path redacted/);
   assert.equal(envelope.user_message_args.source_name, 'clip.mov');
 });
