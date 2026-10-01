@@ -2230,3 +2230,56 @@ head CI, executed runtime/chaos evidence, child implementation PRs and
 post-merge reconciliation remain required before implementation or production
 release can be closed.  The machine-readable boundary is recorded in
 `docs/orchestration/ARCHITECTURE_CLOSURE_MANIFEST.json`.
+
+
+# ARCH-MEDIA-PROBE-01. Typed technical media probe boundary
+
+`ProbeMediaAsset` is a local, read-only capability for deriving technical facts
+from one exact managed `asset_revision_id`. Core remains the only writer of
+canonical project truth. The capability may create immutable
+`technical_metadata`, append-only stream inventory and bounded probe evidence,
+but it cannot edit source bytes, approved revisions, canon, timelines, release
+state or publication state.
+
+The admission tuple is immutable for the lifetime of a probe job: project and
+exact revision, source SHA-256 and byte size, managed-materialization identity,
+exact certified toolchain manifest/binary hashes and version, probe schema and
+parser-policy versions, plus the rights/consent generation and
+command/idempotency identity. Core checks rights, materialization and source
+identity before execution, again immediately before binding, and again when a
+stale-sensitive projection is served. A changed source, toolchain, rights
+generation, project scope or optimistic row version fences the attempt. Earlier
+evidence remains immutable history and is exposed as `STALE`, `CONFLICT` or
+`UNKNOWN`; no `latest` value is resolved implicitly.
+
+Execution is a capability boundary, not a generic command runner. The only
+permitted executable is an explicitly configured, preflight-verified local
+`ffprobe` binary from a pinned toolchain manifest. The runner uses `shell=false`,
+an allowlisted argument vector, a private staged input, a sanitized environment,
+network denial, bounded stdout/stderr and wall-clock/output budgets, and
+process-tree cancellation. PATH lookup, shell text, arbitrary user paths,
+automatic download, provider/cloud dispatch and inherited credentials are
+forbidden. Without a certified manifest or execution attestation the state is
+`BLOCKED_TOOLCHAIN`/`UNKNOWN` with `needs_user` and a concrete `next_step`.
+
+The parser is strict and fail-closed. It accepts bounded UTF-8 JSON, rejects
+duplicate or unknown keys, non-finite numbers, malformed or overflowing
+rationals, excessive depth/nodes/strings/streams, unsafe attachment/data
+streams, invalid dimensions/time bases and inconsistent duration/frame
+evidence. Exact rational values are retained where the domain requires them;
+lossy floating conversion is never used to make a PASS decision.
+
+The durable job and attempt state expose human-readable state, ownership and
+next step. Cancellation, timeout, process-tree uncertainty, short read, source
+swap, parser conflict and restart abandonment remain `UNKNOWN` or a typed
+blocked/retryable state until reconciled. `UNKNOWN` never satisfies a
+technical-media gate. Exact idempotency replay returns the existing result; key
+reuse with a different payload, a stale fencing token or a cross-project
+identity is an explicit conflict.
+
+Technical metadata is derived evidence, not asset identity and not renderer
+authorization. Search/vector indexes, UI state and worker-local files cannot
+become canonical identity. The current renderer preflight may be consumed as a
+toolchain evidence input, but `execution_state=DISABLED` remains the boundary
+until separately reviewed typed renderer, QC, durability, activation, export
+and publish contracts are implemented.

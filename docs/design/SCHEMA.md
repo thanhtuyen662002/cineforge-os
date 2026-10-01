@@ -5334,3 +5334,83 @@ rights record or release master is rewritten or deleted. This slice does not
 add remote/provider fields, arbitrary paths, generation outputs, repair or
 quarantine state, garbage-collection state, restore activation, or recovery
 epoch controls.
+
+
+# SCHEMA-MEDIA-PROBE-01. Technical media probe persistence
+
+The media-probe migration is additive and versioned. It does not widen the
+Slice 3A `jobs` check constraint or reinterpret an integrity job as a media
+probe. The canonical relational entity remains `technical_metadata`.
+
+## `media_probe_jobs`
+
+- `id` PK and `project_id` FK;
+- exact `asset_revision_id` FK, `source_content_hash`, `source_byte_size` and
+  managed-materialization identity;
+- `toolchain_manifest_hash`, `toolchain_id`, `toolchain_version`,
+  `probe_schema_version` and `parser_policy_version`;
+- `idempotency_key`, canonical request hash, originating `command_id`,
+  `rights_generation`, `state`, `needs_user`, bounded `next_step`, `row_version`
+  and timestamps;
+- unique identity fence on project, asset revision, source hash, toolchain
+  manifest, schema/policy versions and canonical request hash.
+
+Allowed job states are `QUEUED`, `CLAIMED`, `RUNNING`, `PARSING`,
+`COMPLETED`, `FAILED_RETRYABLE`, `FAILED_FINAL`, `UNKNOWN`,
+`BLOCKED_TOOLCHAIN`, `BLOCKED_RIGHTS`, `CANCEL_REQUESTED`, `CANCELLED` and
+`STALE`. `UNKNOWN`, `BLOCKED_*` and `STALE` never satisfy a technical-media
+readiness gate.
+
+## `media_probe_attempts`
+
+- `id` PK, `media_probe_job_id` FK, `attempt_no`, `retry_kind`, exact
+  `idempotency_key`, `fencing_token`, `state`, start/finish timestamps and
+  bounded resource counters;
+- typed exit/cancel/timeout/process-tree evidence, redacted error code/details,
+  observed toolchain/source identity and row version;
+- `UNIQUE(media_probe_job_id, attempt_no)` and immutable identity triggers.
+
+Attempt states are `CREATED`, `DISPATCHING`, `EXECUTING`, `PARSING`,
+`VERIFYING`, `SUCCEEDED`, `FAILED` and `ABANDONED`. Startup reconciliation
+abandons in-flight attempts and fences their token before requeueing an exact
+job. A stale token cannot bind metadata.
+
+## `technical_metadata` additions
+
+The existing canonical row gains nullable, versioned evidence fields:
+
+- `source_asset_revision_id`, `source_content_hash`, `source_byte_size`;
+- `probe_job_id`, `probe_attempt_id`, `toolchain_manifest_hash`,
+  `toolchain_binary_hash`, `probe_schema_version` and `parser_policy_version`;
+- `raw_evidence_object_id`, `raw_evidence_hash`, `raw_evidence_byte_size`,
+  `evidence_state` and `stale_reason`.
+
+These identity fields are immutable after insertion. A new source/toolchain or
+policy revision creates a new technical-metadata row and marks the old
+projection stale; it never overwrites a prior measurement.
+
+## `technical_metadata_streams`
+
+One append-only row represents each accepted stream in stream-index order:
+
+- `id` PK, `technical_metadata_id` FK, `stream_index`, `stream_kind`, `codec`,
+  bounded disposition flags, dimensions, pixel/sample fields, canonical
+  rational time base/frame rate/duration, and a bounded normalized metadata
+  hash;
+- attachment/data streams are retained as explicit inventory only when policy
+  allows them; unsafe streams make the probe `UNKNOWN`/`CONFLICT`;
+- `UNIQUE(technical_metadata_id, stream_index)` and no update/delete path.
+
+## `media_probe_evidence`
+
+Evidence is append-only per attempt and stores `PASS`, `FAIL`, `UNKNOWN` or
+`CONFLICT`, a bounded evidence code, exact input/toolchain/schema pins,
+observed hash/size, bounded counters, sanitized validation snapshot hash and
+created time. Raw process output is stored only in a Core-managed evidence
+object with retention metadata; it is never returned through public API/UI.
+
+All probe rows remain project-scoped and carry no provider URLs, credentials,
+private filesystem paths or arbitrary command text. Rights/consent and
+materialization decisions are referenced by exact generation/hash, so a later
+revocation makes the projection stale or blocked without deleting original or
+approved evidence.

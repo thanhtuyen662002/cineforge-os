@@ -4317,3 +4317,60 @@ requeues the same job (or confirms cancellation), so a job cannot be stranded.
 This bounded contract explicitly excludes network/provider/CLI dispatch,
 generation, media decode/technical metadata, automatic repair or quarantine,
 destructive cleanup/GC, restore activation and recovery-epoch machinery.
+
+
+# API-MEDIA-PROBE-01. Project-scoped ProbeMediaAsset API
+
+The technical-media probe is a Core-owned, read-only capability over one exact
+managed asset revision. The project-scoped routes are:
+
+- `GET /v1/projects/{project_id}/assets/{asset_revision_id}/technical-metadata`
+  — read the current verified/stale/unknown projection;
+- `GET /v1/projects/{project_id}/assets/{asset_revision_id}/technical-metadata/probes`
+  — list bounded probe jobs/evidence for that exact revision;
+- `POST /v1/projects/{project_id}/assets/{asset_revision_id}/technical-metadata/probes`
+  — queue `ProbeMediaAsset` with an `Idempotency-Key`;
+- `GET /v1/projects/{project_id}/technical-media-probes/{probe_job_id}` — read
+  one exact job;
+- `POST /v1/projects/{project_id}/technical-media-probes/{probe_job_id}/cancel`
+  and `/retry` — audited, row-version-fenced mutations.
+
+The queue body is identity-only:
+
+```json
+{
+  "content_hash": "64-lowercase-hex-sha256",
+  "byte_size": 123456,
+  "toolchain_manifest_hash": "64-lowercase-hex-sha256",
+  "probe_schema_version": "MEDIA_PROBE_V1",
+  "parser_policy_version": "MEDIA_PROBE_PARSER_V1",
+  "expected_version": 4
+}
+```
+
+The caller cannot supply a path, URI, executable, shell string, provider,
+argv, raw ffprobe options or a `latest` selector. Core resolves the exact
+managed object and startup-bound toolchain from its own allowlisted state,
+checks rights/consent and materialization, then rechecks all pins before
+binding evidence. Missing/tampered/unverified toolchain or source returns
+`BLOCKED_TOOLCHAIN`, `BLOCKED_MEDIA`, `BLOCKED_RIGHTS` or `UNKNOWN` with
+`needs_user` and a localized `next_step`.
+
+The redacted projection includes `project_id`, exact revision/content/toolchain
+hashes, probe/parser versions, job/attempt IDs, state, evidence outcome/code,
+typed technical metadata, bounded stream inventory, `needs_user`, `next_step`,
+`row_version`, `projection_seq` and `generated_at`. It excludes absolute or
+UNC paths, file URIs, raw process output/command lines, credentials, provider
+fields and arbitrary JSON. List limits, field lengths, stream count and
+evidence size are bounded server-side; cross-project IDs return a scope
+conflict rather than an empty success.
+
+The lifecycle is observable and honest: `QUEUED`/`CLAIMED`/`RUNNING`/`PARSING`
+do not include invented percentages or ETAs. Timeout, cancellation, child
+survival, source swap, parse conflict, changed rights/toolchain or restart
+reconciliation remains `UNKNOWN`, `CONFLICT`, `BLOCKED_*` or `STALE`; none is
+promoted to `PASS`. Retry is allowed only from the typed retryable state and
+reuses the same exact source/toolchain tuple. Replaying an identical
+idempotency key returns the same job; key reuse with different identity is a
+typed conflict. This API never renders/transcodes, creates master bytes,
+approves media, builds a release manifest or publishes.
