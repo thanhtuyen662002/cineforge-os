@@ -2939,3 +2939,35 @@ absolute path, fencing token, provider job ID or raw diagnostic. The action
 does not edit asset bytes, approve content, trigger generation, dispatch a
 provider, run a network/CLI command, repair/quarantine data, delete/GC data,
 activate a restore or change a recovery epoch.
+
+
+# UI-MEDIA-TECHNICAL-METADATA-01. Technical metadata workspace
+
+The Library asset inspector may show a `Technical metadata` panel only when
+Core returns a project-scoped exact revision projection. The primary action is
+`Phân tích kỹ thuật` (`Probe technical media`) and is disabled when the Core is
+offline, the asset is not managed/materialized, rights are `UNKNOWN` or
+restricted, the content hash is stale, or no certified local ffprobe pack is
+verified.
+
+The panel exposes intent first and machinery on demand:
+
+- `Đang chờ phân tích` / `Queued` for durable `QUEUED`/`CLAIMED`;
+- `Đang đọc metadata kỹ thuật` / `Running` for `RUNNING`/`PARSING` without a
+  fabricated percentage or ETA;
+- `Đã xác minh metadata` / `Verified` only for exact `COMPLETED` evidence;
+- `Chưa xác định` / `Unknown`, `Có mâu thuẫn` / `Conflict`, `Bị chặn` /
+  `Blocked`, or `Đã cũ` / `Stale` with Core-owned `next_step` and clear
+  ownership of the recovery action.
+
+Verified fields are typed container/codec, dimensions, pixel/sample format,
+frame rate/time base, duration, channel/sample data and bounded stream
+inventory. The UI never displays private paths, raw ffprobe JSON, command
+lines, credentials, provider fields or unbounded metadata. Advanced evidence
+shows exact hashes, schema/toolchain versions and attempt IDs without making
+them editable.
+
+Cancel/retry controls send the current row version and an idempotency key. A
+stale response refreshes the projection and explains the conflict; it never
+silently retries. Technical metadata is read-only evidence and the panel keeps
+render, master, export, release and publish actions outside this workspace.

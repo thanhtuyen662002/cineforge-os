@@ -7738,3 +7738,40 @@ Client offline queue is not a second hidden outbox allowed to replay historical 
 Media/session/action capability tokens that could violate current rights/privacy/correctness become invalid when their bound deployment/recovery generation is superseded.
 
 Token cryptographic validity is necessary but not sufficient authority.
+
+
+# MEDIA-PROBE-HARDENING-01. Bounded local media-probe execution
+
+The executable media probe has a separate hardening contract from the generic
+renderer preflight. The following budgets are mandatory defaults and may only
+be tightened by policy:
+
+- ffprobe stdout: 8 MiB; stderr: 1 MiB; parsed JSON depth: 32; total nodes:
+  50,000; strings: 4,096 bytes; streams: 256; arrays: 1,024 entries;
+- process wall time: 120 seconds; cancellation grace: 2 seconds; attempts: 3;
+  no unbounded retry or output buffering;
+- rational numerators/denominators: positive checked integers bounded to the
+  declared media domain; denominators may not be zero and values are reduced
+  with checked `BigInt` arithmetic before conversion to safe API forms.
+
+The parser uses a duplicate-key detector and an explicit allowlist. It rejects
+unknown keys, malformed UTF-8/JSON, `NaN`/`Infinity`, integer/float overflow,
+negative dimensions, invalid time bases/frame rates, unsafe attachment/data
+streams, contradictory duration/frame counts and any budget overflow. Raw
+parser text is retained only in private evidence and never reaches a public
+projection.
+
+The process boundary is `shell=false` with a fixed executable identity and
+allowlisted argv. The runner supplies a sanitized environment/CWD, no
+credentials, a private staged input, network denial and descendant-process
+containment. It drains stdout/stderr with backpressure and terminates the
+entire process tree on timeout/cancel. A surviving child, descriptor/path
+identity change, reparse/hardlink alias, source hash/size change or toolchain
+digest drift makes the attempt `UNKNOWN`/`STALE`; it cannot bind a PASS.
+
+The connector never receives a database handle and cannot mutate canonical
+rows. Core owns job state, rights checks, idempotency, fencing and the final
+transaction that appends `technical_metadata`, stream inventory and evidence.
+No PATH lookup, shell interpolation, automatic download, network/provider
+dispatch, render/transcode, master output, release activation or publish effect
+is reachable through this capability.

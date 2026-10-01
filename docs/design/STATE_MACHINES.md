@@ -3012,3 +3012,52 @@ new attempt. Reconciliation itself is audited and emits a domain event.
 The state machine contains no provider callback, network effect, shell command,
 generation output, automatic repair/quarantine transition, restore activation
 or recovery-epoch transition.
+
+
+# STATE-MEDIA-PROBE-01. ProbeMediaAsset lifecycle
+
+The media-probe job pins one exact project/revision/content/toolchain/schema
+tuple. Its normal path is:
+
+```text
+QUEUED
+  → CLAIMED
+  → RUNNING
+  → PARSING
+  → VERIFYING
+  → COMPLETED
+```
+
+Typed exits are `FAILED_RETRYABLE`, `FAILED_FINAL`, `UNKNOWN`, `CONFLICT`,
+`BLOCKED_TOOLCHAIN`, `BLOCKED_RIGHTS`, `STALE` and `CANCELLED`. A cancellation
+request is explicit:
+
+```text
+QUEUED | CLAIMED → CANCEL_REQUESTED → CANCELLED
+RUNNING | PARSING → CANCEL_REQUESTED → UNKNOWN | CANCELLED
+```
+
+The running process may finish after a cancellation request, but the evidence
+is marked `UNKNOWN`/`PROBE_CANCELLED` until process-tree state and source
+identity are reconciled. Timeout is `PROBE_TIMEOUT`; it is never treated as a
+clean failure or success. A parser contradiction is `CONFLICT`, not a best
+effort PASS.
+
+Attempts have their own durable path:
+
+```text
+CREATED → DISPATCHING → EXECUTING → PARSING → VERIFYING → SUCCEEDED | FAILED
+                                      └──────────────────────────────→ ABANDONED
+```
+
+On restart, any non-terminal attempt is fenced and marked `ABANDONED` before a
+fresh exact attempt is queued. The old fencing token cannot write metadata or
+advance the job. Retry uses a new attempt number and an exact same-source
+identity, is bounded by policy, and requires the current job row version.
+
+`COMPLETED` means only that strict technical evidence was durably bound. It
+does not approve the asset, change canon/timeline, authorize rendering or
+release, or imply rights beyond the exact checked generation. Any changed
+source hash/size, toolchain manifest, rights generation, parser policy or
+project scope moves the projection to `STALE`/`BLOCKED_*` and preserves the
+earlier measurement for audit.

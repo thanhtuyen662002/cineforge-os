@@ -533,3 +533,51 @@ Planner monitors WIP distribution among:
 Unbounded hardening cannot starve the first real 3–5 minute film unless a currently reachable unresolved P0 prevents safe continuation.
 
 The first real film remains a mandatory architecture validation milestone.
+
+
+# DESIGN-MEDIA-PROBE-01. ProbeMediaAsset implementation contract
+
+`ProbeMediaAsset` is the first executable technical-media capability. It is a
+Core command with no direct UI/worker/connector database writes and no generic
+shell or provider dispatch. The command accepts an exact project, asset
+revision, content hash/byte size, rights decision generation, pinned toolchain
+manifest identity, parser-policy version and an idempotency key. It never
+accepts a filesystem path, URI, provider field, arbitrary argv or a `latest`
+selector.
+
+The command creates a durable probe job and immutable attempt. The job pins the
+source revision/hash, exact toolchain/probe schema/parser versions and expected
+row version. The attempt pins a fencing token and bounded resource reservations.
+A retry is a new exact attempt for the same tuple; it cannot silently move to a
+newer source revision or toolchain. Replaying an identical idempotency key
+returns the same job/result, while reusing the key with a different canonical
+payload returns `IDEMPOTENCY_KEY_REUSE_CONFLICT`.
+
+The local connector is permitted only after the startup-bound renderer manifest
+has verified an exact regular-file `ffprobe` identity. It runs with `shell=false`,
+a fixed allowlisted argv, private staged input, sanitized environment/CWD, no
+network, bounded stdout/stderr and process-tree termination on cancel/timeout.
+The connector returns typed process evidence and never receives a database
+handle. Missing, stale, reparse, hardlink, tampered or oversized toolchain
+inputs produce `BLOCKED_TOOLCHAIN`/`UNKNOWN`, not a guessed fallback.
+
+The parser reads only bounded UTF-8 ffprobe JSON. The allowlist is versioned;
+duplicate/unknown keys, non-finite values, unsafe stream dispositions,
+malformed rationals, zero denominators, BigInt overflow, dimensions outside
+policy, excessive depth/nodes/strings/streams and contradictory duration/frame
+facts are rejected. Raw stdout/stderr and private paths remain internal
+evidence; public projections expose only typed fields, hashes, bounded codes and
+a redacted `next_step`.
+
+Binding is a single Core transaction after the source descriptor/hash, rights
+generation, toolchain digest and expected row version are revalidated. It adds
+an immutable `technical_metadata` row, append-only stream inventory and raw
+evidence identity. It cannot update original assets, approved canon, timelines,
+release candidates, masters or publication. Earlier probe results remain
+auditable history and become `STALE` when any pinned identity changes.
+
+The implementation must prove parser, process, cancellation, restart,
+idempotency, stale-fencing, rights, project-isolation, redaction and packaging
+negative paths with executable tests. Documentation maturity remains
+`SPECIFIED` until the corresponding code, independent review and exact-head
+evidence exist; prose alone never advances a control to `PRODUCTION_PROVEN`.
