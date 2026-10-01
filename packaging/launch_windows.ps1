@@ -1,24 +1,35 @@
 [CmdletBinding()]
 param(
-    [string]$ArtifactRoot = (Join-Path $PSScriptRoot '..\dist\CineForge'),
+    [string]$ArtifactRoot,
     [switch]$NoBrowser,
     [switch]$AllowOffline
 )
 
 $ErrorActionPreference = 'Stop'
-$exe = Join-Path (Resolve-Path -LiteralPath $ArtifactRoot).Path 'CineForge.exe'
+$singleFileDefault = Join-Path $PSScriptRoot '..\dist\CineForge-OneFile'
+$portableDefault = Join-Path $PSScriptRoot '..\dist\CineForge'
+if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
+    $ArtifactRoot = if (Test-Path -LiteralPath (Join-Path $singleFileDefault 'CineForge.exe') -PathType Leaf) { $singleFileDefault } else { $portableDefault }
+}
+$resolvedRoot = (Resolve-Path -LiteralPath $ArtifactRoot).Path
+$exe = Join-Path $resolvedRoot 'CineForge.exe'
 if (-not (Test-Path -LiteralPath $exe)) {
     throw "CineForge.exe is missing. Run packaging\\build_windows.ps1 first."
 }
-$resolvedRoot = (Resolve-Path -LiteralPath $ArtifactRoot).Path
 $webIndex = Join-Path $resolvedRoot 'web\index.html'
-if (-not (Test-Path -LiteralPath $webIndex)) {
+$embeddedSingleFile = -not (Test-Path -LiteralPath $webIndex -PathType Leaf)
+if ($embeddedSingleFile -and [IO.Path]::GetFileName($resolvedRoot) -ne 'CineForge-OneFile') {
     throw "CineForge web bundle is missing: $webIndex"
 }
 $manifestPath = Join-Path $resolvedRoot 'build-manifest.json'
-if (-not (Test-Path -LiteralPath $manifestPath)) {
-    throw "CineForge build manifest is missing: $manifestPath"
+if ($embeddedSingleFile) {
+    $args = @()
+    if ($NoBrowser) { $args += '--no-browser' }
+    if ($AllowOffline) { $args += '--allow-offline' }
+    & $exe @args
+    exit $LASTEXITCODE
 }
+if (-not (Test-Path -LiteralPath $manifestPath)) { throw "CineForge build manifest is missing: $manifestPath" }
 
 function Get-Sha256([string]$PathToHash) {
     $fileHash = Get-Command Get-FileHash -ErrorAction SilentlyContinue
@@ -39,7 +50,7 @@ function Get-Sha256([string]$PathToHash) {
 try { $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json }
 catch { throw "CineForge build manifest is invalid: $manifestPath ($($_.Exception.Message))" }
 $manifestHash = if ($manifest.PSObject.Properties.Name -contains 'bootstrap_sha256') { [string]$manifest.bootstrap_sha256 } else { '' }
-if ([string]::IsNullOrWhiteSpace($manifestHash)) { throw 'CineForge build manifest does not contain bootstrap_sha256.' }
+if ($manifestHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'CineForge build manifest does not contain a valid bootstrap_sha256.' }
 $actualHash = Get-Sha256 $exe
 if (-not $actualHash.Equals($manifestHash, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "CineForge.exe failed manifest integrity check (expected $manifestHash, got $actualHash)."
@@ -56,16 +67,14 @@ if ($artifactCount -lt 1 -or $artifactCount -ne $artifactFiles.Count) {
 }
 $rootPrefix = $resolvedRoot.TrimEnd('\') + '\'
 $seenArtifactPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$inventoryBootstrapHash = $null
 foreach ($artifact in $artifactFiles) {
     $relative = [string]$artifact.path
-    if ([string]::IsNullOrWhiteSpace($relative)
-        -or [IO.Path]::IsPathRooted($relative)
-        -or $relative -match '(^|[\\/])\.\.?([\\/]|$)') {
+    if (([string]::IsNullOrWhiteSpace($relative) -or [IO.Path]::IsPathRooted($relative) -or $relative -match '(^|[\\/])\.\.?([\\/]|$)')) {
         throw "CineForge build manifest contains an unsafe artifact path: $relative"
     }
     $candidate = [IO.Path]::GetFullPath((Join-Path $resolvedRoot ($relative -replace '/', '\')))
-    if (-not $candidate.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
-        -or -not $seenArtifactPaths.Add($candidate)) {
+    if ((-not $candidate.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or -not $seenArtifactPaths.Add($candidate))) {
         throw "CineForge build manifest contains a duplicate or escaped artifact path: $relative"
     }
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -87,6 +96,12 @@ foreach ($artifact in $artifactFiles) {
     if (-not $actualArtifactHash.Equals($expectedArtifactHash, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "CineForge packaged artifact hash mismatch: $relative"
     }
+    if ($relative.Equals('CineForge.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $inventoryBootstrapHash = $expectedArtifactHash
+    }
+}
+if ($null -eq $inventoryBootstrapHash -or -not $inventoryBootstrapHash.Equals($manifestHash, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'CineForge build manifest bootstrap_sha256 does not match the CineForge.exe inventory entry.'
 }
 
 if (-not $AllowOffline) {

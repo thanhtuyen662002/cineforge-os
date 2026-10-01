@@ -806,6 +806,54 @@ because none of those transitions are implemented by this slice. Future
 states below are reserved design contracts and must not be claimed as
 implemented until their own commands, evidence and tests exist.
 
+## 25A. Release build-plan metadata preflight
+
+The executable V1 successor after a metadata-only release candidate is a
+small, immutable planning boundary:
+
+```text
+DRAFT release candidate + READY release readiness
+→ PLANNED build plan
+```
+
+`CreateReleaseBuildPlan` rechecks the candidate's exact approved source,
+current release readiness, rights/consent and row-version fence before storing
+the plan. Stale, restricted, missing or `UNKNOWN` evidence produces a typed
+conflict and no plan row. The plan snapshot is a redacted allowlist and its
+canonical SHA-256 is the immutable `plan_hash`.
+
+This state has no media output and no external side effect. It must not be
+displayed as a render, master, verification, durable release or publication.
+The next step remains a certified local renderer with pinned runtime/toolchain,
+bounded resources, durable output verification and a separate release-manifest
+approval boundary. A plan cannot be cancelled or edited in place; a changed
+candidate/readiness source requires a new exact candidate and plan.
+
+## 25B. Renderer toolchain preflight
+
+The first executable step toward mastering is a read-only local toolchain
+preflight:
+
+```text
+NO_CERTIFIED_TOOLCHAIN
+→ BLOCKED
+MANIFEST_AND_BINARY_EVIDENCE_VERIFIED
+→ READY
+READY
+→ STALE
+```
+
+`READY` requires an explicit versioned manifest, exact SHA-256 for both the
+declared `ffmpeg` and `ffprobe` binaries, stable regular-file/non-reparse
+identity, and network `DENY`. The preflight never invokes the binaries,
+resolves a machine `PATH`, downloads or updates a runtime, or creates output
+bytes. A `READY` result is only artifact evidence that the next typed
+connector invocation may be evaluated; its `execution_state` remains
+`DISABLED`. `verification_state=ARTIFACT_VERIFIED` is not a renderer trust
+attestation, master, QC pass, release manifest or publish authorization. Any
+digest, version, file-identity or manifest change returns `STALE`/`BLOCKED` and
+invalidates dependent work.
+
 ```text
 DRAFT
 → PICTURE_LOCKED
@@ -2900,3 +2948,67 @@ Terminal/reset:
 - RESET_REQUIRED
 
 A numeric sequence by itself is never enough to determine validity after restore/redeployment.
+
+# STATE-LOCAL-INTEGRITY-JOB-SLICE-3A. Local managed-object probe lifecycle
+
+The Slice 3A job lifecycle is durable in Core and is scoped to one exact asset
+revision and pinned content hash. The normal path is:
+
+```text
+QUEUED
+  → RUNNING
+  → COMPLETED | FAILED_FINAL | FAILED_RETRYABLE
+```
+
+The queue may expose `CLAIMED` while a runner owns the durable row. A queued
+or claimed job can be cancelled before bytes are read:
+
+```text
+QUEUED | CLAIMED → CANCELLED_CONFIRMED
+```
+
+Cancellation while the local read is already running is a request, not a fake
+interrupt. Core records:
+
+```text
+RUNNING → CANCELLATION_REQUESTED
+CANCELLATION_REQUESTED → COMPLETED_AFTER_CANCEL
+```
+
+The completed-after-cancel evidence is retained as a measurement and never
+changes canonical asset bytes or approval state. `CANNOT_CANCEL` is reserved
+for a future explicit cancellation blocker; the V1 local runner does not
+silently convert it to success.
+
+The V1 runner reserves at most 512 MiB per attempt (default 256 MiB), reads
+through an asynchronous bounded stream so Core health and cancellation remain
+responsive, and applies a two-minute wall-clock read timeout. Timeout,
+aborted-stream, short-read and stale-path evidence are `UNKNOWN`; a user
+cancellation is distinguished as `PROBE_CANCELLED` while a read deadline is
+`PROBE_TIMEOUT`; none is promoted to `PASS`.
+
+Without a pending cancellation, an `UNKNOWN` measurement terminates the job
+as `FAILED_RETRYABLE`; `FAIL` terminates it as `FAILED_FINAL`; `PASS`
+terminates it as `COMPLETED`. A pending cancellation records
+`COMPLETED_AFTER_CANCEL` after the read, while retaining the actual evidence
+outcome. None of these transitions promote an asset or imply approval. An
+explicit retry is allowed only from `FAILED_RETRYABLE`, creates the next
+`EXACT` attempt for the same pinned revision/hash, and is bounded to three
+attempts. A stale source identity or a stale optimistic `row_version` blocks
+the retry.
+
+Attempt state is separately durable:
+
+```text
+CREATED → DISPATCHING → EXECUTING → VERIFYING → SUCCEEDED | FAILED
+```
+
+`DISPATCHING` is a local runner bookkeeping state, not an external provider
+dispatch. On startup, Core fences and marks any in-flight attempt
+`ABANDONED`, then creates a fresh exact attempt and requeues the same job (or
+confirms a pending cancellation). An old fencing token cannot finalize the
+new attempt. Reconciliation itself is audited and emits a domain event.
+
+The state machine contains no provider callback, network effect, shell command,
+generation output, automatic repair/quarantine transition, restore activation
+or recovery-epoch transition.

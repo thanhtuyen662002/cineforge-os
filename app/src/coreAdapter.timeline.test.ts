@@ -99,6 +99,28 @@ describe('HttpCoreClient timeline boundary', () => {
     expect(calls.slice(1).every((call) => call.init?.headers && new Headers(call.init.headers).get('Idempotency-Key'))).toBe(true)
   })
 
+  it('reads paged working-session history and preserves only safe operation/action fields', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      calls.push({ url: String(input), init })
+      return new Response(JSON.stringify({ ok: true, result: {
+        timeline: { id: 'timeline-1', project_id: 'project-1', title: 'Main', provider_path: 'C:/secret' },
+        working_session_id: 'session-1',
+        operations: [{ id: 'op-1', op_seq: 3, op_type: 'MOVE_CLIP', history_state: 'UNDONE', result_hash: 'a'.repeat(64), actor_id: 'actor-1', payload: { secret: 'must not cross' } }],
+        history_actions: [{ id: 'action-1', action_seq: 2, action_type: 'UNDO', target_op_seq: 3, before_hash: 'b'.repeat(64), after_hash: 'a'.repeat(64), actor_id: 'actor-1', private_detail: 'must not cross' }],
+        cursor: { after_op_seq: 3, has_more: true },
+      } }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    const history = await new HttpCoreClient('http://core').getTimelineWorkingHistory('project-1', 'timeline-1', 'session-1', 2, 1)
+    expect(new URL(calls[0].url).pathname).toBe('/v1/projects/project-1/timelines/timeline-1/working-sessions/session-1/history')
+    expect(new URL(calls[0].url).search).toBe('?after_op_seq=2&limit=1')
+    expect(history).toMatchObject({ workingSessionId: 'session-1', cursor: { afterOpSeq: 3, hasMore: true } })
+    expect(history.operations[0]).toMatchObject({ id: 'op-1', opSeq: 3, opType: 'MOVE_CLIP', historyState: 'UNDONE', resultHash: 'a'.repeat(64), actorId: 'actor-1' })
+    expect(history.historyActions[0]).toMatchObject({ id: 'action-1', actionSeq: 2, actionType: 'UNDO', targetOpSeq: 3 })
+    expect(JSON.stringify(history)).not.toContain('provider')
+    expect(JSON.stringify(history)).not.toContain('secret')
+  })
+
   it('reads and writes metadata timing with exact dependency fencing and redacts unknown fields', async () => {
     const hash = 'c'.repeat(64)
     const calls: Array<{ url: string; init?: RequestInit }> = []

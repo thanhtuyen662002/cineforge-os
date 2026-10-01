@@ -59,6 +59,37 @@ describe('local Core adapter', () => {
     }
   })
 
+  it('sends idempotency keys and maps canonical project/item writes', async () => {
+    const calls: Array<{ url: string; key: string | undefined }> = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const headers = init?.headers as Record<string, string>
+      calls.push({ url, key: headers['Idempotency-Key'] })
+      expect(init?.method).toBe('POST')
+      if (url.endsWith('/v1/projects')) {
+        expect(headers['Idempotency-Key']).toBe('project-create-1')
+        return new Response(JSON.stringify({ ok: true, result: { id: 'project-live', title: 'Live project', lifecycle_state: 'ACTIVE', code: 'LIVE' } }), { status: 200 })
+      }
+      expect(url).toBe('http://core/v1/projects/project-live/production-items')
+      expect(headers['Idempotency-Key']).toBe('item-create-1')
+      return new Response(JSON.stringify({ ok: true, result: { id: 'task-live', title: 'Opening shot' } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const project = await client.createProject('Live project', 'project-create-1')
+      const item = await client.addProductionItem('project-live', 'Opening shot', 'item-create-1')
+      expect(project).toMatchObject({ id: 'project-live', name: 'Live project', stage: 'ACTIVE', stageDetail: 'LIVE' })
+      expect(item).toEqual({ id: 'task-live', title: 'Opening shot', detail: 'Mới tạo · chưa bắt đầu', state: 'todo' })
+      expect(calls).toEqual([
+        { url: 'http://core/v1/projects', key: 'project-create-1' },
+        { url: 'http://core/v1/projects/project-live/production-items', key: 'item-create-1' },
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('recovers from a malformed local snapshot', async () => {
     localStorage.setItem('cineforge-dashboard-v1', '{broken')
     const snapshot = await createCoreClient().getDashboard()
@@ -208,6 +239,33 @@ describe('local Core adapter', () => {
     }
   })
 
+  it('reads the startup-bound renderer toolchain preflight without exposing paths', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('http://core/v1/release/renderer/preflight')
+      return new Response(JSON.stringify({ ok: true, result: {
+        state: 'READY', overall_state: 'READY', verification_state: 'ARTIFACT_VERIFIED', execution_state: 'DISABLED',
+        capability: 'LOCAL_RENDERER_TOOLCHAIN_PREFLIGHT', toolchain_id: 'ffmpeg-9.0.2', toolchain_version: '9.0.2',
+        manifest_schema_version: 1, manifest_sha256: 'a'.repeat(64), manifest_byte_size: 256,
+        network_policy: 'DENY', shell_execution: 'NOT_USED',
+        binaries: {
+          ffmpeg: { state: 'VERIFIED', sha256: 'b'.repeat(64), byte_size: 100, version: '9.0.2', path: 'C:\\secret\\ffmpeg.exe' },
+          ffprobe: { state: 'VERIFIED', sha256: 'c'.repeat(64), byte_size: 101, version: '9.0.2', path: 'C:\\secret\\ffprobe.exe' },
+        },
+        checks: [{ id: 'MANIFEST', state: 'PASS', code: 'MANIFEST_VERIFIED' }],
+        reason_codes: [], next_step: 'Render contract/QC remains separate.', projection_seq: 9,
+      } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const preflight = await new HttpCoreClient('http://core').getRendererToolchainPreflight!()
+      expect(preflight).toMatchObject({ state: 'READY', overallState: 'READY', verificationState: 'ARTIFACT_VERIFIED', executionState: 'DISABLED', toolchainId: 'ffmpeg-9.0.2' })
+      expect(preflight.binaries.ffmpeg).toMatchObject({ state: 'VERIFIED', sha256: 'b'.repeat(64), byteSize: 100 })
+      expect(JSON.stringify(preflight)).not.toContain('secret')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('reads, creates, and cancels release candidate metadata with safe mapping and stale-safe inputs', async () => {
     const candidate = {
       id: 'candidate-1', project_id: 'project-1', timeline_revision_id: 'revision-1',
@@ -259,6 +317,55 @@ describe('local Core adapter', () => {
     await expect(new HttpCoreClient('http://core').getReleaseCandidates?.('')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
     await expect(new HttpCoreClient('http://core').cancelReleaseCandidateDraft?.('project-1', 'candidate-1', 0, 'cancel')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
     await expect(new HttpCoreClient('http://core').createReleaseCandidateDraft?.('project-1', ' ')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  })
+
+  it('reads and creates metadata-only release build plans with exact dependency pins', async () => {
+    const plan = {
+      id: 'build-plan-1', project_id: 'project-1', release_candidate_id: 'candidate-1',
+      timeline_revision_id: 'revision-1', media_profile_revision_id: 'profile-1', review_session_id: 'review-1',
+      readiness_digest: 'A'.repeat(64), rights_snapshot_hash: 'B'.repeat(64), plan_hash: 'C'.repeat(64),
+      state: 'PLANNED', next_step: 'Render is a separate boundary.', row_version: 1,
+      snapshot_schema_version: 1, provider_uri: 'https://provider.invalid', source_path: 'C:\\secret\\master.mov',
+    }
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, init })
+      if (url.endsWith('/release/build-plans') && !init?.method) {
+        return new Response(JSON.stringify({ ok: true, result: { items: [plan], projection_seq: 8 } }), { status: 200 })
+      }
+      if (url.endsWith('/release/build-plans/build-plan-1') && !init?.method) {
+        return new Response(JSON.stringify({ ok: true, result: { build_plan: plan } }), { status: 200 })
+      }
+      expect(init?.method).toBe('POST')
+      expect((init?.headers as Record<string, string>)['Idempotency-Key']).toBe('build-plan-create-1')
+      expect(JSON.parse(String(init?.body))).toEqual({ release_candidate_id: 'candidate-1', expected_version: 1 })
+      return new Response(JSON.stringify({ ok: true, result: { build_plan: plan } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const listed = await client.getReleaseBuildPlans?.('project-1')
+      expect(listed?.items[0]).toMatchObject({ id: 'build-plan-1', projectId: 'project-1', releaseCandidateId: 'candidate-1', planHash: 'c'.repeat(64), state: 'PLANNED', rowVersion: 1 })
+      expect(JSON.stringify(listed)).not.toContain('provider')
+      expect(JSON.stringify(listed)).not.toContain('secret')
+      const detail = await client.getReleaseBuildPlan?.('project-1', 'build-plan-1')
+      expect(detail).toMatchObject({ id: 'build-plan-1', planHash: 'c'.repeat(64), state: 'PLANNED' })
+      const created = await client.createReleaseBuildPlan?.('project-1', { releaseCandidateId: 'candidate-1', expectedVersion: 1 }, 'build-plan-create-1')
+      expect(created).toMatchObject({ id: 'build-plan-1', releaseCandidateId: 'candidate-1', state: 'PLANNED' })
+      expect(calls).toHaveLength(3)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('fails closed for release build plans without a connection, scope, or valid candidate version', async () => {
+    const offline = new HttpCoreClient('')
+    await expect(offline.getReleaseBuildPlans?.('project-1')).rejects.toMatchObject({ code: 'CORE_OFFLINE' })
+    await expect(new HttpCoreClient('http://core').getReleaseBuildPlans?.('')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(new HttpCoreClient('http://core').getReleaseBuildPlan?.('project-1', '')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(new HttpCoreClient('http://core').createReleaseBuildPlan?.('project-1', { releaseCandidateId: 'candidate-1', expectedVersion: 0 }, 'create')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(new HttpCoreClient('http://core').createReleaseBuildPlan?.('project-1', { releaseCandidateId: 'candidate-1', expectedVersion: 1 }, ' ')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
   })
 
   it('maps first-class workspace records and sends expected row versions for stale-safe updates', async () => {
@@ -452,6 +559,67 @@ describe('local Core adapter', () => {
       expect(evidence?.objects[0]).toMatchObject({ contentHash: 'b'.repeat(64), observedHash: 'c'.repeat(64), state: 'UNKNOWN' })
       expect((evidence?.objects[0] as Record<string, unknown>).relativePath).toBeUndefined()
       expect(evidence?.cursor.nextAfter).toBe('b'.repeat(64))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('maps durable integrity jobs and keeps mutating controls idempotent', async () => {
+    const hash = 'a'.repeat(64)
+    const job = {
+      id: 'job-1', project_id: 'project-1', job_type: 'STORAGE_OBJECT_INTEGRITY_PROBE', semantic_capability: 'STORAGE_OBJECT_INTEGRITY_PROBE',
+      priority: 50, state: 'QUEUED', subject_asset_revision_id: 'revision-1', subject_content_hash: hash,
+      requested_max_bytes: 4096, pinned_manifest_hash: 'b'.repeat(64), connector_version: 'local-probe-v1',
+      needs_user: false, next_step: 'The local verifier will read the pinned object.', row_version: 2, cancelable: true, retryable: false,
+      latest_attempt: { id: 'attempt-1', job_id: 'job-1', attempt_no: 1, retry_kind: 'INITIAL', state: 'CREATED', fencing_token: 'private-token', absolute_path: 'C:\\private\\object', bytes_read: 0 },
+      evidence: { id: 'evidence-1', job_attempt_id: 'attempt-1', project_id: 'project-1', asset_revision_id: 'revision-1', state: 'UNKNOWN', code: 'NOT_RUN', content_hash: hash, evidence: { private_path: 'C:\\private\\object' } },
+      usage: { resource_type: 'READ_BYTES', reserved_amount: 4096, state: 'RESERVED', private_path: 'C:\\private\\object' },
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('http://core/v1/jobs?')) {
+        const parsed = new URL(url)
+        expect(parsed.searchParams.get('limit')).toBe('25')
+        expect(parsed.searchParams.get('project_id')).toBe('project-1')
+        expect(parsed.searchParams.get('state')).toBe('QUEUED')
+        return new Response(JSON.stringify({ ok: true, result: { jobs: [job], projection_seq: 11 } }), { status: 200 })
+      }
+      expect(init?.method).toBe('POST')
+      const headers = init?.headers as Record<string, string>
+      expect(headers['Idempotency-Key']).toMatch(/^job-/)
+      if (url.endsWith('/assets/revision-1/integrity-probe')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ content_hash: hash, max_bytes: 4096 })
+      } else {
+        expect(JSON.parse(String(init?.body))).toEqual({ expected_version: 2 })
+      }
+      return new Response(JSON.stringify({ ok: true, result: { job: { ...job, state: url.endsWith('/cancel') ? 'CANCELLED_CONFIRMED' : 'COMPLETED', cancelable: false } } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new HttpCoreClient('http://core')
+      const listed = await client.getJobs?.('project-1', 'queued', 25)
+      expect(listed?.jobs[0]).toMatchObject({ id: 'job-1', state: 'QUEUED', subjectContentHash: hash, rowVersion: 2 })
+      expect(listed?.jobs[0].latestAttempt).toMatchObject({ attemptNo: 1, state: 'CREATED' })
+      expect((listed?.jobs[0].latestAttempt as Record<string, unknown>).absolutePath).toBeUndefined()
+      expect((listed?.jobs[0].usage as Record<string, unknown>).privatePath).toBeUndefined()
+      expect(listed?.jobs[0].evidence?.evidence?.private_path).toBeUndefined()
+      const queued = await client.runManagedAssetIntegrityProbe?.('project-1', 'revision-1', hash.toUpperCase(), 4096, 'job-run-1')
+      expect(queued?.id).toBe('job-1')
+      const cancelled = await client.cancelManagedAssetIntegrityProbe?.('job-1', 2, 'job-cancel-1')
+      expect(cancelled?.state).toBe('CANCELLED_CONFIRMED')
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      await expect(client.runManagedAssetIntegrityProbe?.('project-1', 'revision-1', hash, 512 * 1024 * 1024 + 1, 'job-too-large')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('fails closed when Core returns an integrity job without a stable identity', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true, result: { jobs: [{ state: 'QUEUED' }] } }), { status: 200 })))
+    try {
+      const client = new HttpCoreClient('http://core')
+      await expect(client.getJobs?.()).rejects.toMatchObject({ code: 'CORE_INVALID_RESPONSE' })
     } finally {
       vi.unstubAllGlobals()
     }

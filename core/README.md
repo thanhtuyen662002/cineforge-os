@@ -24,6 +24,9 @@ The slice owns project truth in SQLite and provides:
   basenames/digests;
 - optimistic `row_version` checks and deterministic idempotency keys;
 - append-only `commands`, `domain_events`, and `audit_records` ledgers;
+- a bounded local managed-asset integrity probe job (`LOCAL_ASSET_PROBE_V1`)
+  with durable attempts, redacted PASS/FAIL/UNKNOWN evidence, byte-read
+  reservations, cancellation, exact retry and restart reconciliation;
 - query projections for home, project workspace, health, activity, search,
   storage, library assets, import sessions and command history;
 - resumable event reads using `events.subscribe({after_seq})`;
@@ -302,6 +305,12 @@ The desktop-facing routes are:
 | GET | `/v1/recovery/status` | Read-only recovery posture and fail-closed epoch/ledger checks |
 | GET | `/v1/storage/admission` | Estimate backup storage or return fail-closed pressure/profile errors |
 | GET | `/v1/storage/scrub-health` | Read-only bounded verification of managed CAS metadata, file size and SHA-256 (PASS/FAIL/UNKNOWN) |
+| GET | `/v1/jobs?project_id=&state=&limit=` | List redacted local integrity jobs and their latest attempt/evidence |
+| GET | `/v1/jobs/{id}` | Read one exact pinned local integrity job |
+| GET | `/v1/jobs/{id}/retry-plan` | Read whether an exact bounded retry is currently allowed |
+| POST | `/v1/projects/{id}/assets/{revisionId}/integrity-probe` | Queue a local managed-object integrity probe (requires `Idempotency-Key`) |
+| POST | `/v1/jobs/{id}/cancel` | Request/confirm cancellation with the current job row version |
+| POST | `/v1/jobs/{id}/retry` | Queue an exact retry of a retryable probe with the current job row version |
 | GET | `/v1/storage/staging` | Inspect durable staging evidence (paths are redacted) |
 | POST | `/v1/storage/staging/reconcile` | Reconcile one staging row or bounded pending rows |
 | GET | `/v1/imports/{id}` | Read an import session and its item state |
@@ -445,3 +454,35 @@ structured `IDEMPOTENCY_KEY_REUSE_CONFLICT` conflict (HTTP 409) and does not
 create another command or event. Existing databases are upgraded in place and
 backfill the fingerprint from their durable command JSON before accepting a
 replay.
+
+## Slice 3A local integrity jobs
+
+`RunManagedAssetIntegrityProbe` is the first bounded asynchronous job vertical.
+It accepts one exact project-scoped `asset_revision_id` and its pinned
+SHA-256 `content_hash`; the revision must resolve to a `LOCAL_MANAGED` object
+with one available primary CAS location. Core computes a canonical manifest
+hash at queue time and records `jobs`, `job_attempts`, `job_evidence` and a
+read-byte reservation in one transaction. The built-in connector is
+`LOCAL_ASSET_PROBE_V1`; it performs only local, read-only file identity, size
+and SHA-256 checks. It never calls a network/provider/CLI connector and never
+mutates or repairs asset bytes.
+
+The durable job states are `QUEUED`, `CLAIMED`, `RUNNING`,
+`CANCELLATION_REQUESTED`, `CANCELLED_CONFIRMED`, `CANNOT_CANCEL`,
+`COMPLETED`, `COMPLETED_AFTER_CANCEL`, `FAILED_RETRYABLE` and
+`FAILED_FINAL`. Evidence is `PASS`, `FAIL` or `UNKNOWN`; `UNKNOWN` remains
+unknown and is never promoted to `PASS`. A queued job can be cancelled before
+the read starts. A running cancellation is recorded as a request and a late
+read is retained as `COMPLETED_AFTER_CANCEL`; it does not become canonical
+media state. Retry is an explicit, optimistic-versioned `EXACT` retry of the
+same immutable revision, limited to three attempts, and is blocked when the
+source identity is stale or the job is not retryable.
+
+Startup fencing abandons an in-flight attempt, creates a fresh exact attempt
+and requeues the pinned revision (or confirms cancellation), so a restart
+cannot strand a job or reuse an old fencing token. Public projections expose
+hashes, sizes, states, bounded codes and next steps only; absolute paths,
+fencing tokens, raw diagnostics and provider fields remain internal. This
+slice deliberately excludes generation, provider dispatch, remote jobs,
+arbitrary shell/CLI execution, automatic repair/quarantine, destructive GC,
+restore activation and recovery-epoch machinery.

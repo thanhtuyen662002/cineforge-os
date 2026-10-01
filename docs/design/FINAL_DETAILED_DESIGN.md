@@ -72,6 +72,17 @@ UI never bypasses this path for canonical mutation.
 
 # 4. User action coverage matrix
 
+# DESIGN-TECHNICAL-METADATA-NAMING. Canonical derived-media metadata owner
+
+The canonical relational entity is `technical_metadata`, as defined in
+`SCHEMA.md`. `asset_technical_metadata` is not a second table, compatibility
+alias or runtime projection. Any future typed media-probe job must reference
+an exact `asset_revision_id` and immutable `technical_metadata.id`, pin its
+source content hash and toolchain/probe schema evidence, and preserve earlier
+results as stale history when the source or toolchain changes. This section
+resolves the former architecture-inventory naming ambiguity before executable
+media probing is designed or implemented.
+
 | ID | User action | Canonical owner | Critical safeguards | UI owner |
 |---|---|---|---|---|
 | A01 | Create/duplicate project | Project + MediaProfile + Command | copy-on-write assets, explicit defaults | Project Creation |
@@ -394,6 +405,23 @@ Deliver:
 - ReleaseCandidate/Manifest;
 - GC dry-run;
 - backup/restore.
+
+The current executable continuation after the metadata-only release candidate
+is the `CreateReleaseBuildPlan` preflight. It freezes the exact input closure
+for a future renderer and records a deterministic plan hash, but it does not
+render, transcode, create a master, sign, publish or create a release
+manifest. A real master requires a separate pinned local renderer/toolchain,
+durability and QC contract before that boundary can be opened.
+
+The next bounded implementation is `query.release.renderer.preflight`. It
+checks an explicitly materialized local connector manifest and exact binary
+digests without executing a process. The query is deliberately useful for the
+desktop release surface: it distinguishes a missing/untrusted toolchain from
+an approved plan while keeping rendering controls disabled. It must never
+fall back to a machine `PATH`, auto-download `latest`, expose a private path,
+or turn a successful preflight into release authority. Process execution,
+staging, media probing, final-byte QC, durable activation and publication
+remain separate contracts with their own schema and restart tests.
 
 ## Slice 7 — First real film
 Produce a 3–5 minute film with:

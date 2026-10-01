@@ -9,4 +9,20 @@
     <RootNamespace>CineForge.Bootstrap</RootNamespace>
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
   </PropertyGroup>
+  <!--
+    The SingleFile release embeds the already-built web/Core payload as a
+    managed resource before PublishSingleFile runs. Appending bytes after a
+    .NET single-file bundle corrupts its own bundle footer, so the resource
+    must be part of the bundle itself. Both properties are intentionally
+    opt-in; the portable/debug build remains free of release payloads.
+  -->
+  <PropertyGroup Condition="'$(EmbeddedMetadata)' != ''">
+    <DefineConstants>$(DefineConstants);CINEFORGE_EMBEDDED_PAYLOAD</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(PackagePayload)' != '' and Exists('$(PackagePayload)')">
+    <EmbeddedResource Include="$(PackagePayload)" LogicalName="CineForge.payload.zip" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(EmbeddedMetadata)' != '' and Exists('$(EmbeddedMetadata)')">
+    <Compile Include="$(EmbeddedMetadata)" Link="EmbeddedBuildMetadata.g.cs" />
+  </ItemGroup>
 </Project>

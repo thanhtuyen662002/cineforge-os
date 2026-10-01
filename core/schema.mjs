@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 20;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -1636,6 +1636,65 @@ export function initializeDatabase(db) {
       BEGIN SELECT RAISE(ABORT, 'cancelled release_candidates are terminal'); END;
   `);
 
+  // v20 immutable release-build-plan metadata preflight.  A plan pins the
+  // exact release-candidate evidence that a future certified renderer will
+  // consume; it contains no media bytes, output asset, path, provider or
+  // publication authority.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS release_build_plans (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      release_candidate_id TEXT NOT NULL REFERENCES release_candidates(id),
+      timeline_revision_id TEXT NOT NULL REFERENCES timeline_revisions(id),
+      media_profile_revision_id TEXT NOT NULL REFERENCES project_media_profile_revisions(id),
+      review_session_id TEXT NOT NULL REFERENCES review_sessions(id),
+      readiness_digest TEXT NOT NULL CHECK (length(readiness_digest) = 64 AND readiness_digest NOT GLOB '*[^0-9a-fA-F]*'),
+      rights_snapshot_hash TEXT NOT NULL CHECK (length(rights_snapshot_hash) = 64 AND rights_snapshot_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      plan_hash TEXT NOT NULL UNIQUE CHECK (length(plan_hash) = 64 AND plan_hash NOT GLOB '*[^0-9a-fA-F]*'),
+      plan_snapshot_json TEXT NOT NULL DEFAULT '{}',
+      plan_snapshot_schema_version INTEGER NOT NULL DEFAULT 1 CHECK (plan_snapshot_schema_version >= 1),
+      state TEXT NOT NULL CHECK (state IN ('PLANNED')),
+      next_step TEXT NOT NULL DEFAULT '',
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      command_id TEXT NOT NULL REFERENCES commands(id),
+      created_by_actor_id TEXT NOT NULL REFERENCES actors(id),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS release_build_plans_project_idx
+      ON release_build_plans(project_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS release_build_plans_candidate_idx
+      ON release_build_plans(release_candidate_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS release_build_plans_command_idx
+      ON release_build_plans(command_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS release_build_plans_candidate_uq
+      ON release_build_plans(project_id, release_candidate_id);
+    CREATE TRIGGER IF NOT EXISTS release_build_plans_no_delete
+      BEFORE DELETE ON release_build_plans
+      BEGIN SELECT RAISE(ABORT, 'release_build_plans are retained for audit'); END;
+    CREATE TRIGGER IF NOT EXISTS release_build_plans_identity_no_update
+      BEFORE UPDATE ON release_build_plans
+      WHEN NEW.id IS NOT OLD.id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.release_candidate_id IS NOT OLD.release_candidate_id
+        OR NEW.timeline_revision_id IS NOT OLD.timeline_revision_id
+        OR NEW.media_profile_revision_id IS NOT OLD.media_profile_revision_id
+        OR NEW.review_session_id IS NOT OLD.review_session_id
+        OR NEW.readiness_digest IS NOT OLD.readiness_digest
+        OR NEW.rights_snapshot_hash IS NOT OLD.rights_snapshot_hash
+        OR NEW.plan_hash IS NOT OLD.plan_hash
+        OR NEW.plan_snapshot_json IS NOT OLD.plan_snapshot_json
+        OR NEW.plan_snapshot_schema_version IS NOT OLD.plan_snapshot_schema_version
+        OR NEW.state IS NOT OLD.state
+        OR NEW.next_step IS NOT OLD.next_step
+        OR NEW.row_version IS NOT OLD.row_version
+        OR NEW.command_id IS NOT OLD.command_id
+        OR NEW.created_by_actor_id IS NOT OLD.created_by_actor_id
+        OR NEW.created_at_utc_us IS NOT OLD.created_at_utc_us
+        OR NEW.updated_at_utc_us IS NOT OLD.updated_at_utc_us
+      BEGIN SELECT RAISE(ABORT, 'release_build_plan identity is immutable'); END;
+  `);
+
   // v7 backup metadata is created after the command/audit tables so its
   // command references are valid even on a fresh database.  The artifact
   // bytes and object copies live outside SQLite; these rows bind the immutable
@@ -2420,6 +2479,96 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS external_edit_contract_diffs_no_delete
       BEFORE DELETE ON external_edit_contract_diffs
       BEGIN SELECT RAISE(ABORT, 'external_edit_contract_diffs are retained for audit'); END;
+  `);
+
+  // Slice 3A local managed-object integrity jobs.  These rows are a small
+  // durable projection owned by Core; they deliberately contain no provider,
+  // network, shell or absolute-path fields.  Evidence and usage are
+  // append-only so a restart can reconcile an interrupted attempt without
+  // rewriting the historical result.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id),
+      job_type TEXT NOT NULL CHECK (job_type = 'STORAGE_OBJECT_INTEGRITY_PROBE'),
+      semantic_capability TEXT NOT NULL CHECK (semantic_capability = 'STORAGE_OBJECT_INTEGRITY_PROBE'),
+      priority INTEGER NOT NULL DEFAULT 50 CHECK (priority >= 0 AND priority <= 100),
+      state TEXT NOT NULL CHECK (state IN ('QUEUED', 'CLAIMED', 'RUNNING', 'CANCELLATION_REQUESTED', 'CANCELLED_CONFIRMED', 'CANNOT_CANCEL', 'COMPLETED', 'COMPLETED_AFTER_CANCEL', 'FAILED_RETRYABLE', 'FAILED_FINAL')),
+      subject_asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+      subject_content_hash TEXT NOT NULL CHECK (length(subject_content_hash) = 64),
+      requested_max_bytes INTEGER NOT NULL CHECK (requested_max_bytes > 0),
+      pinned_manifest_hash TEXT NOT NULL CHECK (length(pinned_manifest_hash) = 64),
+      connector_version TEXT NOT NULL CHECK (length(connector_version) BETWEEN 1 AND 120),
+      command_id TEXT REFERENCES commands(id),
+      needs_user INTEGER NOT NULL DEFAULT 0 CHECK (needs_user IN (0, 1)),
+      next_step TEXT,
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS jobs_project_state_idx ON jobs(project_id, state, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS jobs_subject_idx ON jobs(subject_asset_revision_id, created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS job_attempts (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL REFERENCES jobs(id),
+      attempt_no INTEGER NOT NULL CHECK (attempt_no >= 1),
+      retry_kind TEXT NOT NULL CHECK (retry_kind IN ('INITIAL', 'EXACT')),
+      idempotency_key TEXT NOT NULL UNIQUE,
+      fencing_token TEXT,
+      state TEXT NOT NULL CHECK (state IN ('CREATED', 'DISPATCHING', 'EXECUTING', 'VERIFYING', 'SUCCEEDED', 'FAILED', 'ABANDONED')),
+      started_at_utc_us INTEGER,
+      finished_at_utc_us INTEGER,
+      bytes_read INTEGER CHECK (bytes_read IS NULL OR bytes_read >= 0),
+      error_code TEXT,
+      error_details_json TEXT NOT NULL DEFAULT '{}',
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(job_id, attempt_no)
+    );
+    CREATE INDEX IF NOT EXISTS job_attempts_job_idx ON job_attempts(job_id, attempt_no DESC);
+
+    CREATE TABLE IF NOT EXISTS job_evidence (
+      id TEXT PRIMARY KEY,
+      job_attempt_id TEXT NOT NULL UNIQUE REFERENCES job_attempts(id),
+      project_id TEXT REFERENCES projects(id),
+      asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+      state TEXT NOT NULL CHECK (state IN ('PASS', 'FAIL', 'UNKNOWN')),
+      code TEXT,
+      content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
+      expected_byte_size INTEGER NOT NULL CHECK (expected_byte_size >= 0),
+      observed_hash TEXT,
+      observed_byte_size INTEGER CHECK (observed_byte_size IS NULL OR observed_byte_size >= 0),
+      bytes_read INTEGER NOT NULL DEFAULT 0 CHECK (bytes_read >= 0),
+      evidence_json TEXT NOT NULL DEFAULT '{}',
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS job_evidence_project_idx ON job_evidence(project_id, created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS job_usage_records (
+      id TEXT PRIMARY KEY,
+      job_attempt_id TEXT NOT NULL REFERENCES job_attempts(id),
+      resource_type TEXT NOT NULL CHECK (resource_type = 'READ_BYTES'),
+      reserved_amount INTEGER NOT NULL CHECK (reserved_amount >= 0),
+      actual_amount INTEGER CHECK (actual_amount IS NULL OR actual_amount >= 0),
+      state TEXT NOT NULL CHECK (state IN ('RESERVED', 'RELEASED', 'CONSUMED')),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS job_usage_attempt_idx ON job_usage_records(job_attempt_id);
+
+    CREATE TRIGGER IF NOT EXISTS job_evidence_no_update
+      BEFORE UPDATE ON job_evidence
+      BEGIN SELECT RAISE(ABORT, 'job_evidence is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS job_evidence_no_delete
+      BEFORE DELETE ON job_evidence
+      BEGIN SELECT RAISE(ABORT, 'job_evidence is retained for audit'); END;
+    CREATE TRIGGER IF NOT EXISTS job_usage_no_update
+      BEFORE UPDATE OF job_attempt_id, resource_type, reserved_amount, created_at_utc_us ON job_usage_records
+      BEGIN SELECT RAISE(ABORT, 'job_usage identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS jobs_attempt_identity_no_update
+      BEFORE UPDATE OF job_id, attempt_no, retry_kind, idempotency_key, created_at_utc_us ON job_attempts
+      BEGIN SELECT RAISE(ABORT, 'job_attempt identity is immutable'); END;
   `);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so

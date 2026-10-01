@@ -1212,6 +1212,98 @@ commands fail closed with a scope conflict. `UNKNOWN` is never promoted to
 `PASS`, and a missing or malformed public state maps to `UNKNOWN` in an
 adapter rather than to a terminal success.
 
+## 19.2 Release build-plan metadata preflight
+
+The next bounded release boundary is an immutable **build plan**, not a media
+master. It gives a future certified renderer one exact, auditable input closure
+without pretending that bytes have been rendered. The project-scoped routes are:
+
+- `GET /v1/projects/{project_id}/release/build-plans`
+- `GET /v1/projects/{project_id}/release/build-plans/{build_plan_id}`
+- `POST /v1/projects/{project_id}/release/build-plans`
+
+The POST body is deliberately small:
+
+```json
+{
+  "release_candidate_id": "<draft-candidate>",
+  "expected_version": 1
+}
+```
+
+`CreateReleaseBuildPlan` requires an idempotency key and the current
+`RELEASE_CANDIDATE` row version. Core re-evaluates release readiness in the
+same command boundary and requires the candidate to remain `DRAFT`, to bind to
+the one exact approved timeline/profile/review source, and to have the same
+readiness and rights digests that were stored on the candidate. Any changed,
+stale, missing, restricted or `UNKNOWN` evidence fails closed with no plan
+row. The command never resolves `latest` and accepts no path, URI, provider
+identifier, generated payload or renderer-specific option.
+
+On success Core stores one immutable `release_build_plans` row in state
+`PLANNED`. Its redacted snapshot contains only the exact candidate, timeline,
+profile, review, readiness, rights and bounded audio/subtitle evidence needed
+to compile a later master request. The plan has a deterministic SHA-256
+`plan_hash`, append-only command/event/audit evidence and a human-readable
+`next_step` stating that a certified local master renderer is still required.
+It contains no output asset, media bytes, storage path, signing state or
+publication destination. Repeating the same immutable plan through another
+command is an explicit conflict; repeating the same idempotency key replays the
+same result.
+
+List/get projections are project-scoped and redact the stored snapshot. They
+return exact IDs, hashes, state, row version and next step only. `PLANNED` is
+not `BUILDING`, `VERIFIED`, `RELEASE_ACTIVATED` or `PUBLISHED`; the UI must
+keep master/export/sign/publish controls disabled until a separate renderer,
+durability, QC, release-manifest and publication contract exists.
+
+## 19.3 Local renderer toolchain preflight
+
+`query.release.renderer.preflight` (HTTP `GET /v1/release/renderer/preflight`)
+is a read-only artifact-evidence check for the next boundary. It may inspect only an
+explicitly configured, local toolchain manifest and the two declared media
+binaries. It never searches `PATH`,
+downloads a runtime, runs a shell, changes the database, or creates media
+bytes. The projection is redacted and contains no absolute path:
+
+```json
+{
+  "capability": "LOCAL_RENDERER_TOOLCHAIN_PREFLIGHT",
+  "state": "BLOCKED",
+  "overall_state": "BLOCKED",
+  "verification_state": "UNKNOWN",
+  "execution_state": "DISABLED",
+  "toolchain_id": null,
+  "toolchain_version": null,
+  "manifest_schema_version": null,
+  "manifest_sha256": null,
+  "manifest_byte_size": null,
+  "network_policy": "DISABLED_REQUIRED",
+  "shell_execution": "NOT_USED",
+  "checks": [
+    { "id": "TOOLCHAIN", "state": "UNKNOWN", "code": "NO_CERTIFIED_TOOLCHAIN" }
+  ],
+  "reason_codes": ["NO_CERTIFIED_TOOLCHAIN"],
+  "binaries": {
+    "ffmpeg": { "state": "UNKNOWN", "sha256": null, "byte_size": null, "version": null },
+    "ffprobe": { "state": "UNKNOWN", "sha256": null, "byte_size": null, "version": null }
+  },
+  "next_step": "Cài đặt và chứng thực đúng local renderer toolchain manifest trước khi render."
+}
+```
+
+`READY` is returned only when the manifest schema, semantic version, exact
+binary digests, stable regular-file identity and declared network policy all
+verify. `verification_state=ARTIFACT_VERIFIED` describes those files only;
+`execution_state` remains `DISABLED` until a separate typed connector proves
+argv, sandbox, input/output scopes, timeout, cancellation, output durability,
+independent probe/QC and recovery semantics. `UNKNOWN` is never promoted to
+`READY`; missing, malformed, stale, reparse or tampered inputs remain
+`BLOCKED` with a human-readable next step. This query does not certify a
+renderer, authorize a build plan, or enable a master, release manifest or
+publish transition. Binary verification is bounded at 512 MiB per declared
+file; larger packs require a separate cancellable verification job.
+
 # 20. Connector host interface
 
 Every connector implementation exposes a versioned host contract.
@@ -4168,3 +4260,60 @@ forward revocation replay, remote/offline immutable durability, update
 signing/anti-rollback, disaster recovery, garbage collection, or multi-user
 backup authority.  Callers must not present a verified local backup as proof of
 those properties.
+
+# API-SLICE-3A-LOCAL-INTEGRITY-JOB. Bounded managed-asset integrity job
+
+Slice 3A implements one local capability only: a read-only integrity probe
+for an exact, project-scoped managed asset revision. It is a durable Core job,
+not a connector framework or a generation surface. The built-in connector
+identity is `LOCAL_ASSET_PROBE_V1` and the semantic capability is
+`STORAGE_OBJECT_INTEGRITY_PROBE`.
+
+The command contract is:
+
+- `RunManagedAssetIntegrityProbe({project_id, asset_revision_id,
+  content_hash, max_bytes?})` — requires an `Idempotency-Key`, pins the exact
+  revision/hash and a canonical manifest hash, reserves the bounded read
+  budget and returns `QUEUED`. The job-specific `max_bytes` is bounded to
+  512 MiB (default 256 MiB); larger verification requires a separate,
+  explicitly cancellable job contract. The runner reads asynchronously in
+  bounded chunks and fails as `UNKNOWN` after a two-minute read timeout. A
+  user cancellation is recorded as `PROBE_CANCELLED`; a read deadline remains
+  `PROBE_TIMEOUT`;
+- `CancelManagedAssetIntegrityProbe({job_id})` — requires the current
+  `expected_versions.JOB` value. `QUEUED`/`CLAIMED` jobs become
+  `CANCELLED_CONFIRMED`; a `RUNNING` job becomes
+  `CANCELLATION_REQUESTED` and its final read is recorded as
+  `COMPLETED_AFTER_CANCEL` if it finishes;
+- `RetryManagedAssetIntegrityProbe({job_id})` — requires the current job row
+  version and is allowed only for `FAILED_RETRYABLE`. It creates a fresh
+  `EXACT` attempt for the same pinned revision/hash, at most three attempts in
+  total. A changed source identity is a stale conflict, never an implicit
+  retry against a newer revision.
+
+The query contract is:
+
+- `query.jobs.list({project_id?, state?, limit?})`;
+- `query.jobs.get({job_id, project_id?})`; and
+- `query.jobs.retry_plan({job_id, project_id?})`.
+
+The loopback adapter maps these to `GET /v1/jobs`, `GET /v1/jobs/{id}`,
+`GET /v1/jobs/{id}/retry-plan`,
+`POST /v1/projects/{id}/assets/{revisionId}/integrity-probe`,
+`POST /v1/jobs/{id}/cancel` and `POST /v1/jobs/{id}/retry`. Every mutating
+route is an audited command and requires idempotency. Reads are bounded and
+scoped by exact job identity; mutating cancel/retry operations fail closed on
+a stale job row version.
+
+The probe validates one available `LOCAL_MANAGED` primary CAS location,
+rejects reparse/symlink/hardlink/path escapes, binds the file descriptor to a
+stable identity, and compares observed size/hash with the pinned values. It
+records evidence as `PASS`, `FAIL` or `UNKNOWN`; `UNKNOWN` is never promoted
+to `PASS`. Public responses contain no absolute paths, fencing tokens,
+provider IDs, raw diagnostics or credentials. Restart reconciliation abandons
+an in-flight attempt, fences its token, creates a new exact attempt and
+requeues the same job (or confirms cancellation), so a job cannot be stranded.
+
+This bounded contract explicitly excludes network/provider/CLI dispatch,
+generation, media decode/technical metadata, automatic repair or quarantine,
+destructive cleanup/GC, restore activation and recovery-epoch machinery.

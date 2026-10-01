@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { initializeDatabase, SCHEMA_VERSION } from './schema.mjs';
 import { isUuid, nowUtcUs, rfc3339FromUs, uuidv7 } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
+import { preflightRendererToolchain } from './renderer-toolchain.mjs';
 
 export const API_VERSION = '1';
 export const CORE_VERSION = '0.1.0';
@@ -60,6 +61,8 @@ const HANDOFF_MANIFEST_SCHEMA_VERSION = 1;
 const HANDOFF_COMPATIBILITY_PROFILE_VERSION = 'HANDOFF_COMPATIBILITY_V1';
 const RELEASE_CANDIDATE_STATES = new Set(['DRAFT', 'CANCELLED']);
 const RELEASE_CANDIDATE_SNAPSHOT_SCHEMA_VERSION = 1;
+const RELEASE_BUILD_PLAN_STATES = new Set(['PLANNED']);
+const RELEASE_BUILD_PLAN_SNAPSHOT_SCHEMA_VERSION = 1;
 const TIMELINE_INTERCHANGE_SCHEMA_VERSION = 1;
 const TIMELINE_INTERCHANGE_PROFILE = 'GENERIC_INTERCHANGE_V1';
 const TIMELINE_INTERCHANGE_MAX_BYTES = 8 * 1024 * 1024;
@@ -72,6 +75,44 @@ const TIMELINE_INTERCHANGE_DOWNLOAD_MAX_FULL_BYTES = 32 * 1024 * 1024;
 const TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE = 'LOCAL_TIMELINE_INTERCHANGE_DOWNLOAD';
 const TIMELINE_INTERCHANGE_MUTATING_COMMANDS = new Set(['BuildTimelineInterchangeExport']);
 const EXTERNAL_EDIT_MUTATING_COMMANDS = new Set(['RegisterExternalEdit']);
+// Slice 3A is deliberately a single built-in local capability.  It reads a
+// registered managed object and records bounded evidence; it never dispatches
+// to a provider, network endpoint or shell command.
+const LOCAL_PROBE_MUTATING_COMMANDS = new Set([
+  'RunManagedAssetIntegrityProbe',
+  'CancelManagedAssetIntegrityProbe',
+  'RetryManagedAssetIntegrityProbe',
+]);
+const LOCAL_PROBE_JOB_TYPE = 'STORAGE_OBJECT_INTEGRITY_PROBE';
+const LOCAL_PROBE_CAPABILITY = 'STORAGE_OBJECT_INTEGRITY_PROBE';
+const LOCAL_PROBE_CONNECTOR_VERSION = 'LOCAL_ASSET_PROBE_V1';
+const LOCAL_PROBE_STATES = new Set([
+  'QUEUED', 'CLAIMED', 'RUNNING', 'CANCELLATION_REQUESTED',
+  'CANCELLED_CONFIRMED', 'CANNOT_CANCEL', 'COMPLETED',
+  'COMPLETED_AFTER_CANCEL', 'FAILED_RETRYABLE', 'FAILED_FINAL',
+]);
+const LOCAL_PROBE_TERMINAL_STATES = new Set([
+  'CANCELLED_CONFIRMED', 'CANNOT_CANCEL', 'COMPLETED',
+  'COMPLETED_AFTER_CANCEL', 'FAILED_FINAL',
+]);
+const LOCAL_PROBE_ATTEMPT_STATES = new Set(['CREATED', 'DISPATCHING', 'EXECUTING', 'VERIFYING', 'SUCCEEDED', 'FAILED', 'ABANDONED']);
+const LOCAL_PROBE_MAX_ATTEMPTS = 3;
+// Integrity probes yield between asynchronous stream chunks so the Core
+// event loop remains responsive to health/cancel requests.  Keep the caller
+// budget bounded below the multi-gigabyte upload limit; a larger verification
+// must be a separately admitted cancellable job rather than a synchronous
+// query-side read.
+const LOCAL_PROBE_MAX_BYTES = 512 * 1024 * 1024;
+const LOCAL_PROBE_DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+const LOCAL_PROBE_CHUNK_BYTES = 1024 * 1024;
+const LOCAL_PROBE_TIMEOUT_MS = 2 * 60 * 1000;
+// Browser intake is a local-only upload boundary.  Keep the limit explicit so
+// a malformed/chunked request cannot consume unbounded disk space while the
+// stream is being verified.  Large production media can still be imported by
+// the path-based COPY flow, which uses the same durable staging lifecycle.
+const DESKTOP_STAGE_MAX_BYTES = 4 * 1024 * 1024 * 1024;
+const DESKTOP_STAGE_MAX_FILENAME_BYTES = 500;
+const DESKTOP_STAGE_MAX_MIME_BYTES = 200;
 const EXTERNAL_EDIT_MAX_BYTES = TIMELINE_INTERCHANGE_MAX_BYTES;
 const EXTERNAL_EDIT_MAX_DEPTH = 32;
 const EXTERNAL_EDIT_MAX_NODES = 50_000;
@@ -115,6 +156,7 @@ const TIMING_METADATA_MUTATING_COMMANDS = new Set([
   'CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision',
 ]);
 const RELEASE_CANDIDATE_MUTATING_COMMANDS = new Set(['CreateReleaseCandidateDraft', 'CancelReleaseCandidateDraft']);
+const RELEASE_BUILD_PLAN_MUTATING_COMMANDS = new Set(['CreateReleaseBuildPlan']);
 const MAX_TIMELINE_WORKING_OPS = 10_000;
 const MAX_TIMELINE_WORKING_BATCH = 32;
 const MAX_TIMELINE_CLIENT_ID = 200;
@@ -255,13 +297,29 @@ export class CoreError extends Error {
       retryable: this.retryable,
       needs_user: this.needsUser,
       decision_request_id: this.decisionRequestId,
-      technical_details: this.technicalDetails,
+      technical_details: publicTechnicalDetails(this.technicalDetails),
     };
   }
 }
 
 function json(value) {
   return JSON.stringify(value ?? {});
+}
+
+// Error envelopes are persisted in command records and returned across the
+// local HTTP boundary. Preserve useful error codes/values while removing
+// absolute filesystem paths that can appear in native exception messages.
+const ABSOLUTE_PATH_IN_ERROR = /(?:[A-Za-z]:[\\/][^"'<>|;\r\n]*|\\\\[^"'<>|;\r\n]+|(?:file:)?\/\/[^"'<>|;\r\n]+|\/(?:Users|home|tmp|var|private|mnt|opt|etc|workspace|data|srv|run|root)\/[^"'<>|;\r\n]*)/gi;
+function publicTechnicalDetails(value) {
+  if (value === null || value === undefined || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.replace(ABSOLUTE_PATH_IN_ERROR, '[path redacted]');
+  if (Array.isArray(value)) return value.map((item) => publicTechnicalDetails(item));
+  if (typeof value === 'object') {
+    const result = {};
+    for (const [key, item] of Object.entries(value)) result[key] = publicTechnicalDetails(item);
+    return result;
+  }
+  return String(value).replace(ABSOLUTE_PATH_IN_ERROR, '[path redacted]');
 }
 
 function parseJson(value, fallback = {}) {
@@ -716,6 +774,64 @@ function publicStorageObject(row) {
   if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
   delete out.verified_at_utc_us;
   delete out.created_at_utc_us;
+  return out;
+}
+
+function publicJobAttempt(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const field of ['started_at_utc_us', 'finished_at_utc_us', 'created_at_utc_us']) {
+    if (out[field] !== undefined && out[field] !== null) out[field.replace('_utc_us', '')] = rfc3339FromUs(out[field]);
+    delete out[field];
+  }
+  // Fencing tokens and raw error details are Core-internal.  Callers receive
+  // a bounded error code and a human-readable next step from the job row.
+  delete out.fencing_token;
+  delete out.error_details_json;
+  return out;
+}
+
+function publicJobEvidence(row) {
+  if (!row) return null;
+  const out = rowObject(row);
+  if (out.created_at_utc_us !== undefined && out.created_at_utc_us !== null) out.created_at = rfc3339FromUs(out.created_at_utc_us);
+  delete out.created_at_utc_us;
+  const parsedEvidence = parseJson(out.evidence_json, {});
+  // Evidence is a typed, bounded public projection. Never forward internal
+  // diagnostics or future connector fields just because they happened to be
+  // persisted in the JSON column.
+  out.evidence = {};
+  if (parsedEvidence && typeof parsedEvidence === 'object' && !Array.isArray(parsedEvidence)) {
+    if (typeof parsedEvidence.late_after_cancel === 'boolean') out.evidence.late_after_cancel = parsedEvidence.late_after_cancel;
+    if (typeof parsedEvidence.connector_version === 'string' && parsedEvidence.connector_version.length <= 120) {
+      out.evidence.connector_version = parsedEvidence.connector_version;
+    }
+  }
+  delete out.evidence_json;
+  return out;
+}
+
+function publicJob(row, attempt = null, evidence = null, usage = null) {
+  if (!row) return null;
+  const out = rowObject(row);
+  for (const field of ['created_at_utc_us', 'updated_at_utc_us']) {
+    if (out[field] !== undefined && out[field] !== null) out[field.replace('_utc_us', '')] = rfc3339FromUs(out[field]);
+    delete out[field];
+  }
+  out.needs_user = Boolean(out.needs_user);
+  out.cancelable = ['QUEUED', 'CLAIMED', 'RUNNING'].includes(String(out.state));
+  out.retryable = out.state === 'FAILED_RETRYABLE'
+    && Number.isSafeInteger(Number(attempt?.attempt_no))
+    && Number(attempt.attempt_no) < LOCAL_PROBE_MAX_ATTEMPTS;
+  out.latest_attempt = publicJobAttempt(attempt);
+  out.evidence = publicJobEvidence(evidence);
+  if (usage) out.usage = {
+    resource_type: usage.resource_type,
+    reserved_amount: Number(usage.reserved_amount),
+    actual_amount: usage.actual_amount === null || usage.actual_amount === undefined ? null : Number(usage.actual_amount),
+    state: usage.state,
+  };
+  delete out.command_id;
   return out;
 }
 
@@ -1247,6 +1363,27 @@ function publicReleaseCandidate(row) {
   return out;
 }
 
+function publicReleaseBuildPlan(row) {
+  if (!row) return null;
+  const out = {};
+  for (const field of [
+    'id', 'project_id', 'release_candidate_id', 'timeline_revision_id',
+    'media_profile_revision_id', 'review_session_id', 'readiness_digest',
+    'rights_snapshot_hash', 'plan_hash', 'state', 'next_step',
+    'plan_snapshot_schema_version',
+  ]) if (Object.prototype.hasOwnProperty.call(row, field) && row[field] !== undefined) out[field] = row[field];
+  out.state = RELEASE_BUILD_PLAN_STATES.has(String(out.state ?? '').toUpperCase()) ? String(out.state).toUpperCase() : 'UNKNOWN';
+  for (const field of ['readiness_digest', 'rights_snapshot_hash', 'plan_hash']) {
+    if (!SHA256_HEX.test(String(out[field] ?? ''))) out[field] = null;
+    else out[field] = String(out[field]).toLowerCase();
+  }
+  out.row_version = Number.isSafeInteger(Number(row.row_version)) && Number(row.row_version) >= 1 ? Number(row.row_version) : 0;
+  if (out.next_step !== undefined) out.next_step = safeReleaseCandidateText(out.next_step) ?? '';
+  if (row.created_at_utc_us !== undefined && row.created_at_utc_us !== null) out.created_at = rfc3339FromUs(row.created_at_utc_us);
+  if (row.updated_at_utc_us !== undefined && row.updated_at_utc_us !== null) out.updated_at = rfc3339FromUs(row.updated_at_utc_us);
+  return out;
+}
+
 function safeReleaseCandidateEvidence(value, depth = 0) {
   if (depth > 5) return undefined;
   if (Array.isArray(value)) return value.slice(0, 200).map((item) => safeReleaseCandidateEvidence(item, depth + 1)).filter((item) => item !== undefined);
@@ -1453,6 +1590,9 @@ export class CoreService {
     this.db = null;
     this._processLockFd = null;
     this._heartbeatTimer = null;
+    this._localProbeTimer = null;
+    this._localProbeRunning = false;
+    this._localProbeAbortControllers = new Map();
     this.mutationEnabled = !this._ownershipEnabled;
     this.ownershipState = this._ownershipEnabled ? 'STARTING' : 'ACTIVE_OWNER';
     this.instanceId = uuidv7();
@@ -1477,6 +1617,13 @@ export class CoreService {
       : null;
     this.assetStorePath = path.resolve(options.assetStorePath
       ?? (dbPath === ':memory:' ? path.join(process.cwd(), '.cineforge', 'asset-store') : path.join(path.dirname(path.resolve(dbPath)), 'asset-store')));
+    // Renderer toolchain configuration is input-only.  The preflight query
+    // returns hashes/version metadata, never these paths.  No default is
+    // inferred from PATH or the host installation.
+    this.rendererToolchainRoot = options.rendererToolchainRoot ?? null;
+    this.rendererToolchainManifest = options.rendererToolchainManifest
+      ?? options.rendererToolchainManifestPath
+      ?? null;
     this.maxAssetBytes = Number.isSafeInteger(options.maxAssetBytes) && options.maxAssetBytes >= 0
       ? options.maxAssetBytes : 8 * 1024 * 1024 * 1024;
     const requestedPreviewTtl = Number(options.previewTokenTtlMs);
@@ -1510,6 +1657,14 @@ export class CoreService {
       clearInterval(this._heartbeatTimer);
       this._heartbeatTimer = null;
     }
+    if (this._localProbeTimer) {
+      clearTimeout(this._localProbeTimer);
+      this._localProbeTimer = null;
+    }
+    for (const controller of this._localProbeAbortControllers?.values() ?? []) {
+      try { controller.abort(); } catch { /* preserve the close path */ }
+    }
+    this._localProbeAbortControllers?.clear();
     this.mutationEnabled = false;
     try { this._releaseCoreOwnership(); } catch { /* retain the primary close path */ }
     try { this.db?.close(); } catch { /* already closed */ }
@@ -1788,6 +1943,293 @@ export class CoreService {
       // Older databases are upgraded before this point; keep startup read-only
       // if an interrupted migration cannot expose the recovery marker.
     }
+    // Local probe attempts have no external provider ambiguity.  A process
+    // fence therefore safely abandons an in-flight attempt and requeues the
+    // exact pinned revision on the next launch before the bounded runner is
+    // started.  No bytes are adopted or mutated during reconciliation.
+    try { this._reconcileLocalProbeJobs(); } catch { /* keep read-only Core available */ }
+    this._scheduleLocalProbeRunner();
+  }
+
+  _jobRow(jobId) {
+    const id = requiredString(jobId, 'job_id', 200);
+    const row = this.db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+    if (!row) throw new CoreError('JOB_NOT_FOUND', 'VALIDATION', 'errors.job_not_found', { job_id: id });
+    return row;
+  }
+
+  _jobProjection(jobId, projectId = null) {
+    const job = this._jobRow(jobId);
+    if (projectId !== null && projectId !== undefined && job.project_id !== projectId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'JOB', entity_id: job.id, project_id: projectId, actual_project_id: job.project_id,
+      }, { needsUser: true });
+    }
+    const attempt = this.db.prepare('SELECT * FROM job_attempts WHERE job_id = ? ORDER BY attempt_no DESC LIMIT 1').get(job.id);
+    const evidence = attempt ? this.db.prepare('SELECT * FROM job_evidence WHERE job_attempt_id = ?').get(attempt.id) : null;
+    const usage = attempt ? this.db.prepare('SELECT * FROM job_usage_records WHERE job_attempt_id = ? ORDER BY created_at_utc_us DESC LIMIT 1').get(attempt.id) : null;
+    return publicJob(job, attempt, evidence, usage);
+  }
+
+  _reconcileLocalProbeJobs() {
+    const rows = this.db.prepare(`SELECT j.id, j.state, j.row_version, j.requested_max_bytes,
+        a.id AS attempt_id, a.attempt_no, a.state AS attempt_state
+      FROM jobs j JOIN job_attempts a ON a.job_id = j.id
+      WHERE j.state IN ('CLAIMED', 'RUNNING', 'CANCELLATION_REQUESTED')
+        AND a.state IN ('DISPATCHING', 'EXECUTING', 'VERIFYING')`).all();
+    if (rows.length === 0) return;
+    const commandId = uuidv7();
+    const now = nowUtcUs();
+    this._transaction(() => {
+      this._assertCoreOwner();
+      this.db.prepare(`INSERT INTO commands
+        (id, studio_id, project_id, actor_id, command_type, schema_version, scope_type, scope_id,
+         payload_json, expected_versions_json, reversibility, status, created_at_utc_us, started_at_utc_us)
+        VALUES (?, ?, NULL, ?, 'ReconcileLocalProbeJobs', 1, 'SYSTEM', NULL, ?, '{}', 'REVERSIBLE', 'EXECUTING', ?, ?)`)
+        .run(commandId, this.studioId, this.actorId, json({ job_ids: rows.map((row) => row.id) }), now, now);
+      const eventSeqs = [];
+      for (const row of rows) {
+        this.db.prepare(`UPDATE job_attempts SET state = 'ABANDONED', finished_at_utc_us = ?, row_version = row_version + 1
+          WHERE id = ? AND state IN ('DISPATCHING', 'EXECUTING', 'VERIFYING')`).run(now, row.attempt_id);
+        // The abandoned attempt no longer owns its read reservation. Release
+        // it before creating a replacement so restart reconciliation cannot
+        // double-count the same bounded IO budget.
+        this.db.prepare(`UPDATE job_usage_records SET actual_amount = 0, state = 'RELEASED', updated_at_utc_us = ?
+          WHERE job_attempt_id = ? AND state = 'RESERVED'`).run(now, row.attempt_id);
+        let nextState = row.state;
+        if (row.state === 'CLAIMED' || row.state === 'RUNNING') {
+          const nextAttemptNo = Number(row.attempt_no) + 1;
+          if (Number.isSafeInteger(nextAttemptNo) && nextAttemptNo <= LOCAL_PROBE_MAX_ATTEMPTS) {
+            this.db.prepare(`INSERT INTO job_attempts
+              (id, job_id, attempt_no, retry_kind, idempotency_key, state, created_at_utc_us)
+              VALUES (?, ?, ?, 'EXACT', ?, 'CREATED', ?)`).run(
+              uuidv7(), row.id, nextAttemptNo, `local:${row.id}:${nextAttemptNo}:recovery:${commandId}`, now,
+            );
+            const newAttempt = this.db.prepare('SELECT id FROM job_attempts WHERE job_id = ? AND attempt_no = ?').get(row.id, nextAttemptNo);
+            this.db.prepare(`INSERT INTO job_usage_records
+              (id, job_attempt_id, resource_type, reserved_amount, state, created_at_utc_us, updated_at_utc_us)
+              VALUES (?, ?, 'READ_BYTES', ?, 'RESERVED', ?, ?)`).run(uuidv7(), newAttempt.id, row.requested_max_bytes, now, now);
+            nextState = 'QUEUED';
+            this.db.prepare(`UPDATE jobs SET state = 'QUEUED', needs_user = 0,
+              next_step = 'Đang kiểm tra lại object local sau khi Core khởi động lại.',
+              row_version = row_version + 1, updated_at_utc_us = ? WHERE id = ?`).run(now, row.id);
+          } else {
+            nextState = 'FAILED_RETRYABLE';
+            this.db.prepare(`UPDATE jobs SET state = 'FAILED_RETRYABLE', needs_user = 1,
+              next_step = 'Đã hết lượt tự động sau khi Core khởi động lại; kiểm tra evidence và lập job mới.',
+              row_version = row_version + 1, updated_at_utc_us = ? WHERE id = ?`).run(now, row.id);
+          }
+        }
+        if (row.state === 'CANCELLATION_REQUESTED') {
+          nextState = 'CANCELLED_CONFIRMED';
+          this.db.prepare(`UPDATE jobs SET state = 'CANCELLED_CONFIRMED', needs_user = 0,
+            next_step = 'Job đã huỷ trước khi Core khởi động lại.', row_version = row_version + 1,
+            updated_at_utc_us = ? WHERE id = ?`).run(now, row.id);
+        }
+        const seq = this._insertEvent({
+          aggregateType: 'JOB', aggregateId: row.id, aggregateVersion: Number(row.row_version) + 1,
+          eventType: 'LOCAL_PROBE_JOB_RECONCILED', payload: { job_id: row.id, previous_state: row.state, state: nextState },
+        }, commandId, this.actorId, null, null);
+        eventSeqs.push(seq);
+      }
+      this._insertAudit({ actionType: 'job.reconcile_local_probe', targetType: 'JOB', targetId: rows[0].id, payload: { count: rows.length } }, commandId, this.actorId, 'SUCCEEDED');
+      this.db.prepare(`UPDATE commands SET status = 'SUCCEEDED', finished_at_utc_us = ?, result_json = ? WHERE id = ?`)
+        .run(nowUtcUs(), json({ count: rows.length, event_seq: eventSeqs }), commandId);
+    });
+  }
+
+  _scheduleLocalProbeRunner() {
+    if (this._closed || this._localProbeTimer) return;
+    this._localProbeTimer = setTimeout(() => {
+      this._localProbeTimer = null;
+      try { this._drainLocalProbeJobs(); } catch { /* a later tick will retry after a transient fence/lock */ }
+    }, 0);
+    this._localProbeTimer.unref?.();
+  }
+
+  _drainLocalProbeJobs() {
+    if (this._closed || this._localProbeRunning) return;
+    let claimed = null;
+    try {
+      this._transaction(() => {
+        this._assertCoreOwner();
+        const row = this.db.prepare(`SELECT j.*, a.id AS attempt_id, a.attempt_no
+          FROM jobs j JOIN job_attempts a ON a.job_id = j.id
+          WHERE j.state = 'QUEUED' AND a.state = 'CREATED'
+          ORDER BY j.priority DESC, j.created_at_utc_us ASC, j.id ASC LIMIT 1`).get();
+        if (!row) return;
+        const now = nowUtcUs();
+        this.db.prepare(`UPDATE jobs SET state = 'RUNNING', needs_user = 0,
+          next_step = 'Đang đọc và xác minh object managed local.', row_version = row_version + 1,
+          updated_at_utc_us = ? WHERE id = ? AND state = 'QUEUED'`).run(now, row.id);
+        this.db.prepare(`UPDATE job_attempts SET state = 'EXECUTING', fencing_token = ?, started_at_utc_us = ?, row_version = row_version + 1
+          WHERE id = ? AND state = 'CREATED'`).run(this.fencingToken, now, row.attempt_id);
+        claimed = { id: row.id, attemptId: row.attempt_id };
+      });
+    } catch { return; }
+    if (!claimed) return;
+    this._localProbeRunning = true;
+    Promise.resolve(this._runLocalProbeAttempt(claimed.id, claimed.attemptId)).catch(() => {
+      // The durable attempt remains fenced/reconcilable if an unexpected
+      // runner exception occurs; never crash the Core event loop.
+    }).finally(() => {
+      this._localProbeRunning = false;
+      if (!this._closed) this._scheduleLocalProbeRunner();
+    });
+  }
+
+  async _probeManagedObject(jobId, attemptId) {
+    const row = this.db.prepare(`SELECT j.*, r.storage_object_id, r.availability_state, so.hash_algorithm,
+        so.content_hash, so.byte_size, so.storage_class, l.storage_root, l.relative_path,
+        l.location_role, l.state AS location_state,
+        (SELECT COUNT(*) FROM storage_object_locations all_primary
+          WHERE all_primary.storage_object_id = so.id AND all_primary.location_role = 'PRIMARY') AS primary_location_count
+      FROM jobs j JOIN asset_revisions r ON r.id = j.subject_asset_revision_id
+      JOIN storage_objects so ON so.id = r.storage_object_id
+      LEFT JOIN storage_object_locations l ON l.storage_object_id = so.id AND l.location_role = 'PRIMARY'
+      WHERE j.id = ?
+      ORDER BY CASE WHEN l.state = 'AVAILABLE' THEN 0 ELSE 1 END, l.created_at_utc_us ASC, l.id ASC
+      LIMIT 1`).get(jobId);
+    if (!row) return { state: 'UNKNOWN', code: 'JOB_NOT_FOUND', bytesRead: 0 };
+    const expectedHash = String(row.subject_content_hash ?? '').toLowerCase();
+    const expectedSize = Number(row.byte_size);
+    const evidence = { content_hash: expectedHash, expected_byte_size: Number.isSafeInteger(expectedSize) ? expectedSize : 0, bytes_read: 0 };
+    if (row.storage_class !== 'LOCAL_MANAGED' || row.hash_algorithm !== 'SHA-256' || !SHA256_HEX.test(expectedHash)) return { ...evidence, state: 'FAIL', code: 'PROBE_METADATA_INVALID' };
+    if (String(row.content_hash).toLowerCase() !== expectedHash || !Number.isSafeInteger(expectedSize) || expectedSize < 0) return { ...evidence, state: 'FAIL', code: 'PROBE_CONTENT_IDENTITY_MISMATCH' };
+    if (row.availability_state !== 'AVAILABLE' || row.primary_location_count !== 1 || row.location_role !== 'PRIMARY' || row.location_state !== 'AVAILABLE') return { ...evidence, state: 'FAIL', code: 'PROBE_LOCATION_UNAVAILABLE' };
+    if (expectedSize > Number(row.requested_max_bytes)) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_IO_BUDGET_EXCEEDED' };
+    const expectedRelativePath = this._objectRelativePath('SHA-256', expectedHash).split(path.sep).join('/');
+    if (row.storage_root !== 'asset-store' || row.relative_path !== expectedRelativePath) return { ...evidence, state: 'FAIL', code: 'PROBE_LOCATION_INVALID' };
+    const target = path.resolve(this.assetStorePath, row.relative_path);
+    if (!pathIsWithin(target, this.assetStorePath) || pathKey(target) === pathKey(this.assetStorePath)) return { ...evidence, state: 'FAIL', code: 'PROBE_PATH_ESCAPE' };
+    let descriptor;
+    let stream;
+    let before;
+    let controller;
+    try {
+      this._assertNoReparsePath(target);
+      const pathBefore = fs.lstatSync(target);
+      if (!pathBefore.isFile() || Number(pathBefore.nlink ?? 1) !== 1) return { ...evidence, state: 'FAIL', code: pathBefore.isSymbolicLink() ? 'PROBE_REPARSE_REJECTED' : 'PROBE_HARDLINK_REJECTED' };
+      descriptor = fs.openSync(target, fs.constants.O_RDONLY | Number(fs.constants.O_NOFOLLOW ?? 0));
+      before = fs.fstatSync(descriptor);
+      if (!before.isFile() || Number(before.nlink ?? 1) !== 1) return { ...evidence, state: 'FAIL', code: 'PROBE_NOT_REGULAR_FILE' };
+      if (!this._sameHandleIdentity(this._sourceIdentity(pathBefore), this._sourceIdentity(before))) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED' };
+      if (!Number.isSafeInteger(Number(before.size)) || Number(before.size) < 0) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_SIZE_UNSAFE' };
+      // The registered metadata is bounded, but an external writer can grow
+      // the file between registration and this read.  Refuse the probe before
+      // consuming any bytes instead of allowing a changed object to exceed
+      // the caller's explicit IO budget.
+      if (Number(before.size) > Number(row.requested_max_bytes)) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_IO_BUDGET_EXCEEDED', observed_byte_size: Number(before.size) };
+      const digest = crypto.createHash('sha256');
+      let bytesRead = 0;
+      if (Number(before.size) > 0) {
+        controller = new AbortController();
+        this._localProbeAbortControllers.set(attemptId, controller);
+        let timedOut = false;
+        const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, LOCAL_PROBE_TIMEOUT_MS);
+        try {
+          stream = fs.createReadStream(null, {
+            fd: descriptor,
+            autoClose: false,
+            start: 0,
+            end: Number(before.size) - 1,
+            highWaterMark: LOCAL_PROBE_CHUNK_BYTES,
+            signal: controller.signal,
+          });
+          for await (const chunk of stream) {
+            if (this._closed) {
+              controller.abort();
+              return { ...evidence, state: 'UNKNOWN', code: 'PROBE_CORE_CLOSED', observed_byte_size: Number(before.size), bytesRead };
+            }
+            bytesRead += chunk.byteLength;
+            if (bytesRead > Number(before.size)) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_STREAM_OVERRUN', observed_byte_size: Number(before.size), bytesRead };
+            digest.update(chunk);
+          }
+        } catch (error) {
+          if (timedOut || error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
+            const currentState = this.db.prepare('SELECT state FROM jobs WHERE id = ?').get(jobId)?.state;
+            const code = currentState === 'CANCELLATION_REQUESTED' ? 'PROBE_CANCELLED' : 'PROBE_TIMEOUT';
+            return { ...evidence, state: 'UNKNOWN', code, observed_byte_size: Number(before.size), bytesRead };
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+          this._localProbeAbortControllers.delete(attemptId);
+          stream = null;
+        }
+      }
+      if (bytesRead !== Number(before.size)) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_SHORT_READ', observed_byte_size: Number(before.size), bytesRead };
+      const after = fs.fstatSync(descriptor);
+      if (!this._sameSourceIdentity(this._sourceIdentity(before), this._sourceIdentity(after))) return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED', observed_byte_size: Number(after.size), bytesRead };
+      let pathAfter;
+      try { pathAfter = fs.lstatSync(target); } catch { return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED', observed_byte_size: Number(after.size), bytesRead }; }
+      if (pathAfter.isSymbolicLink() || !pathAfter.isFile() || Number(pathAfter.nlink ?? 1) !== 1
+        || !this._sameHandleIdentity(this._sourceIdentity(after), this._sourceIdentity(pathAfter))) {
+        return { ...evidence, state: 'UNKNOWN', code: 'PROBE_OBJECT_CHANGED', observed_byte_size: Number(after.size), bytesRead };
+      }
+      const observedHash = digest.digest('hex');
+      const state = Number(before.size) === expectedSize && observedHash === expectedHash ? 'PASS' : 'FAIL';
+      return { ...evidence, state, code: state === 'PASS' ? null : Number(before.size) !== expectedSize ? 'PROBE_BYTE_SIZE_MISMATCH' : 'PROBE_CONTENT_HASH_MISMATCH', observed_hash: observedHash, observed_byte_size: Number(before.size), bytesRead };
+    } catch (error) {
+      const code = error?.code === 'ENOENT' ? 'PROBE_OBJECT_MISSING' : error?.code === 'ELOOP' ? 'PROBE_REPARSE_REJECTED' : 'PROBE_OBJECT_UNREADABLE';
+      return { ...evidence, state: code === 'PROBE_OBJECT_MISSING' || code === 'PROBE_REPARSE_REJECTED' ? 'FAIL' : 'UNKNOWN', code };
+    } finally {
+      if (stream) { try { stream.destroy(); } catch { /* evidence already captured */ } }
+      this._localProbeAbortControllers.delete(attemptId);
+      if (descriptor !== undefined) { try { fs.closeSync(descriptor); } catch { /* evidence already captured */ } }
+    }
+  }
+
+  async _runLocalProbeAttempt(jobId, attemptId) {
+    let result;
+    try { result = await this._probeManagedObject(jobId, attemptId); } catch (error) {
+      result = { state: 'UNKNOWN', code: 'PROBE_INTERNAL_ERROR', bytesRead: 0, error: String(error?.message ?? error).slice(0, 200) };
+    }
+    if (this._closed) return;
+    try {
+      this._transaction(() => {
+        this._assertCoreOwner();
+        const job = this.db.prepare('SELECT * FROM jobs WHERE id = ?').get(jobId);
+        const attempt = this.db.prepare('SELECT * FROM job_attempts WHERE id = ? AND job_id = ?').get(attemptId, jobId);
+        if (!job || !attempt || ['SUCCEEDED', 'FAILED', 'ABANDONED'].includes(attempt.state)) return;
+        const now = nowUtcUs();
+        const afterCancel = job.state === 'CANCELLATION_REQUESTED';
+        const terminalState = afterCancel ? 'COMPLETED_AFTER_CANCEL' : result.state === 'PASS' ? 'COMPLETED' : result.state === 'FAIL' ? 'FAILED_FINAL' : 'FAILED_RETRYABLE';
+        const attemptState = result.state === 'PASS' ? 'SUCCEEDED' : 'FAILED';
+        const nextStep = terminalState === 'COMPLETED' || terminalState === 'COMPLETED_AFTER_CANCEL' ? 'Evidence đã ghi nhận; không có bytes nào bị sửa.' : terminalState === 'FAILED_RETRYABLE' ? 'Kiểm tra quyền truy cập hoặc thay đổi file rồi thử lại.' : 'Đối tượng không khớp metadata; giữ nguyên asset và xem evidence.';
+        this.db.prepare(`UPDATE job_attempts SET state = ?, finished_at_utc_us = ?, bytes_read = ?, error_code = ?, error_details_json = ?, row_version = row_version + 1 WHERE id = ?`)
+          .run(attemptState, now, Number(result.bytesRead ?? result.bytes_read ?? 0), result.code ?? null, json({ code: result.code ?? null }), attemptId);
+        this.db.prepare(`INSERT INTO job_evidence
+          (id, job_attempt_id, project_id, asset_revision_id, state, code, content_hash, expected_byte_size, observed_hash, observed_byte_size, bytes_read, evidence_json, created_at_utc_us)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(uuidv7(), attemptId, job.project_id, job.subject_asset_revision_id, result.state, result.code ?? null, job.subject_content_hash,
+            Number(result.expected_byte_size ?? 0), result.observed_hash ?? null, result.observed_byte_size ?? null, Number(result.bytesRead ?? result.bytes_read ?? 0), json({
+              late_after_cancel: afterCancel,
+              connector_version: LOCAL_PROBE_CONNECTOR_VERSION,
+              ...(result.error ? { error: result.error } : {}),
+            }), now);
+        this.db.prepare(`UPDATE job_usage_records SET actual_amount = ?, state = ?, updated_at_utc_us = ? WHERE job_attempt_id = ?`)
+          .run(Number(result.bytesRead ?? result.bytes_read ?? 0), result.state === 'UNKNOWN' ? 'RELEASED' : 'CONSUMED', now, attemptId);
+        this.db.prepare(`UPDATE jobs SET state = ?, needs_user = ?, next_step = ?, row_version = row_version + 1, updated_at_utc_us = ? WHERE id = ?`)
+          .run(terminalState, terminalState === 'FAILED_RETRYABLE' ? 1 : 0, nextStep, now, jobId);
+        const eventSeq = this._insertEvent({
+          aggregateType: 'JOB', aggregateId: jobId, aggregateVersion: Number(job.row_version) + 1,
+          eventType: `LOCAL_PROBE_JOB_${terminalState}`,
+          payload: {
+            job_id: jobId,
+            state: terminalState,
+            evidence_state: result.state,
+            code: result.code ?? null,
+            bytes_read: Number(result.bytesRead ?? result.bytes_read ?? 0),
+            late_after_cancel: afterCancel,
+          },
+        }, job.command_id, this.actorId, null, null);
+        this._insertAudit({
+          actionType: 'job.local_probe.complete', targetType: 'JOB', targetId: jobId,
+          payload: { state: terminalState, evidence_state: result.state, code: result.code ?? null, event_seq: eventSeq },
+        }, job.command_id, this.actorId, terminalState === 'FAILED_FINAL' || terminalState === 'FAILED_RETRYABLE' ? 'FAILED' : 'SUCCEEDED');
+      });
+    } catch { /* stale fence or shutdown leaves the attempt for next-start reconciliation */ }
   }
 
   _recoverInterruptedTimelineExports() {
@@ -2982,6 +3424,193 @@ export class CoreService {
     }
   }
 
+  _useExistingImportStaging(payload) {
+    const stagingId = requiredString(payload.staging_id ?? payload.stagingId ?? payload.source_handle ?? payload.sourceHandle, 'staging_id', 200);
+    const row = this._stagingRow(stagingId);
+    if (!['COMPLETE', 'VERIFIED'].includes(String(row.state))) {
+      throw new CoreError('STAGING_NOT_READY', 'CONFLICT', 'errors.staging_not_ready', { staging_id: stagingId, state: row.state }, { needsUser: true });
+    }
+    if (row.import_item_id) {
+      throw new CoreError('STAGING_ALREADY_IMPORTED', 'CONFLICT', 'errors.staging_already_imported', { staging_id: stagingId }, { needsUser: true });
+    }
+    // Re-read and verify the private bytes before the import command is
+    // journaled as executing.  This catches tampering between the upload and
+    // the user's explicit Import action without widening the path boundary.
+    const verified = this._verifyStagingObject(stagingId);
+    if (!SHA256_HEX.test(String(verified.sha256 ?? '')) || !Number.isSafeInteger(Number(verified.expected_size ?? verified.current_size))) {
+      throw new CoreError('STAGING_VERIFY_FAILED', 'INTERNAL', 'errors.staging_verify_failed', { staging_id: stagingId }, { needsUser: false });
+    }
+    return { id: stagingId, sourcePath: path.resolve(String(verified.temp_path)), digest: { content_hash: verified.sha256, byte_size: Number(verified.expected_size ?? verified.current_size) }, owned: false };
+  }
+
+  /**
+   * Stage bytes received from the local desktop browser boundary.
+   *
+   * The browser never receives a filesystem path.  Core owns the durable
+   * staging row, writes the request stream into a private O_EXCL file, fsyncs
+   * it, hashes it, and only then exposes the opaque staging id to the UI.
+   * ImportAsset consumes that id through the normal COPY materialization path.
+   */
+  async stageDesktopAsset({ stream, filename, mimeType, contentLength = null, idempotencyKey }) {
+    this._assertCoreOwner();
+    if (!stream || typeof stream[Symbol.asyncIterator] !== 'function') {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_upload_stream', {});
+    }
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0 || idempotencyKey.length > 200) {
+      throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', { command_type: 'StageDesktopAsset' }, { needsUser: true });
+    }
+    const normalizedName = String(filename ?? '').normalize('NFC').trim();
+    if (!normalizedName || normalizedName.includes('\0') || normalizedName.includes('/') || normalizedName.includes('\\')
+      || Buffer.byteLength(normalizedName, 'utf8') > DESKTOP_STAGE_MAX_FILENAME_BYTES) {
+      throw new CoreError('INVALID_FILENAME', 'VALIDATION', 'errors.invalid_filename', {}, { needsUser: true });
+    }
+    const normalizedMime = String(mimeType ?? 'application/octet-stream').split(';', 1)[0].trim().toLowerCase();
+    if (!normalizedMime || normalizedMime.includes('\0') || Buffer.byteLength(normalizedMime, 'utf8') > DESKTOP_STAGE_MAX_MIME_BYTES) {
+      throw new CoreError('INVALID_MIME_TYPE', 'VALIDATION', 'errors.invalid_mime_type', {}, { needsUser: true });
+    }
+    const expectedSize = contentLength === null || contentLength === undefined || contentLength === ''
+      ? null : Number(contentLength);
+    if (expectedSize !== null && (!Number.isSafeInteger(expectedSize) || expectedSize < 0 || expectedSize > DESKTOP_STAGE_MAX_BYTES)) {
+      throw new CoreError('UPLOAD_TOO_LARGE', 'VALIDATION', 'errors.upload_too_large', { max_bytes: DESKTOP_STAGE_MAX_BYTES }, { needsUser: true });
+    }
+    const fingerprint = idempotencyFingerprint({ original_name: normalizedName, mime_type: normalizedMime, expected_size: expectedSize }, {});
+    const previous = this._findIdempotent('StageDesktopAsset', idempotencyKey);
+    if (previous) {
+      this._assertIdempotencyBinding(previous, 'StageDesktopAsset', idempotencyKey, fingerprint);
+      if (previous.status === 'FAILED') {
+        const failure = parseJson(previous.error_details_json, {});
+        throw new CoreError(previous.error_code ?? 'COMMAND_FAILED', failure.category ?? 'INTERNAL', failure.user_message_key ?? 'errors.command_failed', failure.user_message_args ?? {}, {
+          retryable: failure.retryable, needsUser: failure.needs_user, technicalDetails: failure.technical_details,
+        });
+      }
+      if (previous.status !== 'SUCCEEDED') {
+        throw new CoreError('IDEMPOTENCY_IN_PROGRESS', 'CONFLICT', 'errors.idempotency_in_progress', { command_type: 'StageDesktopAsset' }, { retryable: true, needsUser: true });
+      }
+      const prior = parseJson(previous.result_json, null);
+      if (prior && typeof prior === 'object') {
+        // A retry must prove that the request body is the same.  Consume and
+        // hash the stream even on replay; metadata alone is not a safe
+        // idempotency binding for file uploads.
+        const priorSize = Number(prior.byte_size);
+        const priorHash = String(prior.content_hash ?? '').toLowerCase();
+        const retryHash = crypto.createHash('sha256');
+        let retrySize = 0;
+        for await (const chunk of stream) {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          retrySize += buffer.length;
+          if (retrySize > DESKTOP_STAGE_MAX_BYTES) {
+            throw new CoreError('UPLOAD_TOO_LARGE', 'VALIDATION', 'errors.upload_too_large', { max_bytes: DESKTOP_STAGE_MAX_BYTES }, { needsUser: true });
+          }
+          retryHash.update(buffer);
+        }
+        if (!Number.isSafeInteger(priorSize) || retrySize !== priorSize || retryHash.digest('hex') !== priorHash) {
+          throw new CoreError('IDEMPOTENCY_KEY_REUSE_CONFLICT', 'CONFLICT', 'errors.idempotency_key_reuse_conflict', { command_type: 'StageDesktopAsset' }, { needsUser: true });
+        }
+        return { ...prior, idempotent_replay: true, projection_seq: this._projectionSeq() };
+      }
+      throw new CoreError('IDEMPOTENCY_RESULT_MISSING', 'INTERNAL', 'errors.internal', {}, { needsUser: false });
+    }
+
+    const commandId = uuidv7();
+    const stagingId = uuidv7();
+    const created = nowUtcUs();
+    const { root, candidate } = this._stagingPath(stagingId);
+    fs.mkdirSync(root, { recursive: true });
+    const rootStat = fs.lstatSync(root);
+    if (rootStat.isSymbolicLink()) throw new CoreError('STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.staging_reparse_rejected', {}, { needsUser: false });
+    const sourceFingerprint = this._pathFingerprint(candidate);
+    const commandPayload = { original_name: normalizedName, mime_type: normalizedMime, expected_size: expectedSize };
+    try {
+      this._transaction(() => {
+        this._assertCoreOwner();
+        this.db.prepare(`INSERT INTO commands
+          (id, studio_id, actor_id, command_type, schema_version, scope_type, payload_json,
+           expected_versions_json, reversibility, status, idempotency_key, idempotency_fingerprint,
+           created_at_utc_us)
+          VALUES (?, ?, ?, 'StageDesktopAsset', 1, 'SYSTEM', ?, '{}', 'REVERSIBLE', 'EXECUTING', ?, ?, ?)`)
+          .run(commandId, this.studioId, this.actorId, json(commandPayload), idempotencyKey, fingerprint, created);
+        this.db.prepare(`INSERT INTO staging_objects
+          (id, command_id, temp_path, expected_size, current_size, hash_algorithm, source_path_fingerprint,
+           source_file_identity_json, reparse_state, state, row_version, created_at_utc_us, updated_at_utc_us)
+          VALUES (?, ?, ?, ?, 0, 'SHA-256', ?, ?, 'UNKNOWN', 'WRITING', 1, ?, ?)`)
+          .run(stagingId, commandId, candidate, expectedSize, sourceFingerprint,
+            json({ kind: 'DESKTOP_UPLOAD', original_name: normalizedName, mime_type: normalizedMime }), created, created);
+      });
+
+      let descriptor = null;
+      let byteSize = 0;
+      const hash = crypto.createHash('sha256');
+      try {
+        descriptor = fs.openSync(candidate, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+        for await (const chunk of stream) {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          byteSize += buffer.length;
+          if (byteSize > DESKTOP_STAGE_MAX_BYTES) {
+            throw new CoreError('UPLOAD_TOO_LARGE', 'VALIDATION', 'errors.upload_too_large', { max_bytes: DESKTOP_STAGE_MAX_BYTES }, { needsUser: true });
+          }
+          hash.update(buffer);
+          let offset = 0;
+          while (offset < buffer.length) offset += fs.writeSync(descriptor, buffer, offset, buffer.length - offset);
+        }
+        if (expectedSize !== null && byteSize !== expectedSize) {
+          throw new CoreError('UPLOAD_SIZE_MISMATCH', 'CONFLICT', 'errors.upload_size_mismatch', { expected_size: expectedSize, actual_size: byteSize }, { needsUser: true });
+        }
+        fs.fsyncSync(descriptor);
+        fs.closeSync(descriptor);
+        descriptor = null;
+        const stat = fs.lstatSync(candidate);
+        if (stat.isSymbolicLink() || !stat.isFile() || Number(stat.nlink ?? 1) !== 1) {
+          throw new CoreError('STAGING_REPARSE_REJECTED', 'INTERNAL', 'errors.staging_reparse_rejected', {}, { needsUser: false });
+        }
+        const identity = this._sourceIdentity(stat);
+        const contentHash = hash.digest('hex');
+        this._transaction(() => {
+          this._assertCoreOwner();
+          this._setStagingState(stagingId, 'COMPLETE', {
+            current_size: byteSize,
+            sha256: contentHash,
+            os_file_identity_json: json(identity),
+          });
+          const row = this._stagingRow(stagingId);
+          const result = {
+            handle: stagingId,
+            name: normalizedName,
+            mime_type: normalizedMime,
+            byte_size: byteSize,
+            content_hash: contentHash,
+            state: row.state,
+            command_id: commandId,
+          };
+          const eventSeq = this._insertEvent({
+            aggregateType: 'STAGING_OBJECT', aggregateId: stagingId, aggregateVersion: 1,
+            eventType: 'DESKTOP_ASSET_STAGED',
+            payload: { staging_id: stagingId, byte_size: byteSize, content_hash: contentHash, mime_type: normalizedMime },
+          }, commandId, this.actorId);
+          this._insertAudit({ actionType: 'asset.desktop_stage', targetType: 'STAGING_OBJECT', targetId: stagingId,
+            payload: { byte_size: byteSize, content_hash: contentHash, mime_type: normalizedMime } }, commandId, this.actorId, 'SUCCEEDED');
+          this.db.prepare(`UPDATE commands SET status = 'SUCCEEDED', finished_at_utc_us = ?, result_json = ? WHERE id = ?`)
+            .run(nowUtcUs(), json({ ...result, event_seq: eventSeq }), commandId);
+        });
+      } finally {
+        if (descriptor !== null) { try { fs.closeSync(descriptor); } catch { /* preserve primary error */ } }
+      }
+      const row = this._stagingRow(stagingId);
+      return { handle: stagingId, name: normalizedName, mimeType: normalizedMime, byteSize, contentHash: row.sha256, command_id: commandId, projection_seq: this._projectionSeq() };
+    } catch (error) {
+      const coreError = error instanceof CoreError ? error : new CoreError('DESKTOP_STAGE_FAILED', 'INTERNAL', 'errors.desktop_stage_failed', {}, { needsUser: false, technicalDetails: { message: String(error?.message ?? error) } });
+      try {
+        this._transaction(() => {
+          const row = this._stagingRow(stagingId);
+          if (row.state === 'WRITING') this._setStagingState(stagingId, 'FAILED');
+          this._insertAudit({ actionType: 'asset.desktop_stage', targetType: 'STAGING_OBJECT', targetId: stagingId, payload: { error_code: coreError.code } }, commandId, this.actorId, 'FAILED');
+          this.db.prepare(`UPDATE commands SET status = 'FAILED', finished_at_utc_us = ?, error_code = ?, error_details_json = ? WHERE id = ?`)
+            .run(nowUtcUs(), coreError.code, json(coreError.toEnvelope()), commandId);
+        });
+      } catch { /* preserve the original staging error and durable evidence */ }
+      throw coreError;
+    }
+  }
+
   _verifyStagingObject(stagingId) {
     const row = this._stagingRow(stagingId);
     if (!['COMPLETE', 'VERIFIED'].includes(row.state)) {
@@ -3009,7 +3638,7 @@ export class CoreService {
       throw new CoreError('STAGING_IDENTITY_CHANGED', 'CONFLICT', 'errors.staging_identity_changed', { staging_id: row.id }, { needsUser: true });
     }
     const digest = this._hashLocalFile(tempPath);
-    if (digest.content_hash !== row.sha256 || digest.byte_size !== Number(row.expected_size)) {
+    if (digest.content_hash !== row.sha256 || digest.byte_size !== Number(row.expected_size ?? row.current_size)) {
       this._setStagingState(row.id, 'QUARANTINED');
       throw new CoreError('STAGING_CONTENT_CHANGED', 'CONFLICT', 'errors.staging_content_changed', { staging_id: row.id }, { needsUser: true });
     }
@@ -3093,7 +3722,7 @@ export class CoreService {
           throw new CoreError('STAGING_IDENTITY_CHANGED', 'CONFLICT', 'errors.staging_identity_changed', { staging_id: row.id }, { needsUser: true });
         }
         const digest = this._hashLocalFile(tempPath);
-        if (Number(row.expected_size) !== digest.byte_size || (row.sha256 && row.sha256 !== digest.content_hash)) {
+        if (Number(row.expected_size ?? row.current_size) !== digest.byte_size || (row.sha256 && row.sha256 !== digest.content_hash)) {
           throw new CoreError('STAGING_CONTENT_CHANGED', 'CONFLICT', 'errors.staging_content_changed', { staging_id: row.id }, { needsUser: true });
         }
         const evidence = {
@@ -3203,6 +3832,15 @@ export class CoreService {
   }
 
   _commandPayloadForStorage(commandType, payload) {
+    if (LOCAL_PROBE_MUTATING_COMMANDS.has(commandType)) {
+      return {
+        ...(payload.project_id ?? payload.projectId ? { project_id: String(payload.project_id ?? payload.projectId).slice(0, 200) } : {}),
+        ...(payload.asset_revision_id ?? payload.assetRevisionId ? { asset_revision_id: String(payload.asset_revision_id ?? payload.assetRevisionId).slice(0, 200) } : {}),
+        ...(payload.job_id ?? payload.jobId ?? payload.id ? { job_id: String(payload.job_id ?? payload.jobId ?? payload.id).slice(0, 200) } : {}),
+        ...(payload.content_hash ?? payload.contentHash ? { content_hash: String(payload.content_hash ?? payload.contentHash).slice(0, 128) } : {}),
+        ...(payload.max_bytes ?? payload.maxBytes ? { max_bytes: payload.max_bytes ?? payload.maxBytes } : {}),
+      };
+    }
     if (commandType === 'RegisterExternalEdit') {
       const projectId = payload.project_id ?? payload.projectId;
       const handoffManifestId = payload.handoff_manifest_id ?? payload.handoffManifestId;
@@ -3227,6 +3865,14 @@ export class CoreService {
     if (commandType === 'CancelReleaseCandidateDraft') {
       const projectId = payload.project_id ?? payload.projectId;
       const candidateId = payload.release_candidate_id ?? payload.releaseCandidateId ?? payload.candidate_id ?? payload.candidateId ?? payload.id;
+      return {
+        project_id: typeof projectId === 'string' ? projectId.slice(0, 200) : null,
+        release_candidate_id: typeof candidateId === 'string' ? candidateId.slice(0, 200) : null,
+      };
+    }
+    if (commandType === 'CreateReleaseBuildPlan') {
+      const projectId = payload.project_id ?? payload.projectId;
+      const candidateId = payload.release_candidate_id ?? payload.releaseCandidateId ?? payload.candidate_id ?? payload.candidateId;
       return {
         project_id: typeof projectId === 'string' ? projectId.slice(0, 200) : null,
         release_candidate_id: typeof candidateId === 'string' ? candidateId.slice(0, 200) : null,
@@ -3306,7 +3952,7 @@ export class CoreService {
     if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 200)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_idempotency_key', {});
     }
-    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType) || TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType) || EXTERNAL_EDIT_MUTATING_COMMANDS.has(commandType))
+    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType) || RELEASE_BUILD_PLAN_MUTATING_COMMANDS.has(commandType) || TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType) || EXTERNAL_EDIT_MUTATING_COMMANDS.has(commandType) || LOCAL_PROBE_MUTATING_COMMANDS.has(commandType))
       && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0)) {
       throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', {
         command_type: commandType,
@@ -3359,7 +4005,12 @@ export class CoreService {
       // for explicit reconciliation instead of becoming an untracked orphan.
       const importCommand = ['ImportAsset', 'RegisterAsset', 'ImportLocalAsset'].includes(commandType);
       const storageMode = String(payload.storage_mode ?? payload.storageMode ?? 'COPY').trim().toUpperCase();
-      if (importCommand && storageMode === 'COPY') stagingReservation = this._reserveImportStaging(payload, commandId);
+      if (importCommand && storageMode === 'COPY') {
+        const existingStagingId = payload.staging_id ?? payload.stagingId ?? payload.source_handle ?? payload.sourceHandle;
+        stagingReservation = existingStagingId
+          ? this._useExistingImportStaging(payload)
+          : this._reserveImportStaging(payload, commandId);
+      }
       if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) stagingReservation = this._reserveGeneratedStaging(payload, expectedVersions, commandId);
       if (commandType === 'BuildTimelineInterchangeExport' && stagingReservation?.context) {
         // Materialize and hash the generated bytes before entering the command
@@ -3434,13 +4085,15 @@ export class CoreService {
           .run(operation.projectId ?? null, nowUtcUs(), json(result), commandId);
         return result;
       });
-      return this._commandResponse(commandId, applied);
+      const response = this._commandResponse(commandId, applied);
+      if (LOCAL_PROBE_MUTATING_COMMANDS.has(commandType)) this._scheduleLocalProbeRunner();
+      return response;
     } catch (error) {
       const coreError = error instanceof CoreError ? error : new CoreError(
         'INTERNAL_ERROR', 'INTERNAL', 'errors.internal', {}, { needsUser: false, technicalDetails: { message: String(error?.message ?? error) } },
       );
       if (isCoreOwnershipFailure(coreError)) throw coreError;
-      if (stagingReservation?.id) {
+      if (stagingReservation?.id && stagingReservation.owned !== false) {
         try {
           this._transaction(() => {
             const current = this._stagingRow(stagingReservation.id);
@@ -3475,6 +4128,14 @@ export class CoreService {
     // record to claim a different project from the entity being mutated.
     const entityType = String(payload.entity_type ?? payload.entityType ?? '').trim().toUpperCase();
     const entityId = payload.entity_id ?? payload.entityId;
+    if (commandType === 'RunManagedAssetIntegrityProbe') {
+      const revisionId = payload.asset_revision_id ?? payload.assetRevisionId;
+      if (revisionId) return this.db.prepare(`SELECT a.project_id FROM asset_revisions r JOIN assets a ON a.id = r.asset_id WHERE r.id = ?`).get(revisionId)?.project_id ?? null;
+    }
+    if (['CancelManagedAssetIntegrityProbe', 'RetryManagedAssetIntegrityProbe'].includes(commandType)) {
+      const jobId = payload.job_id ?? payload.jobId ?? payload.id;
+      if (jobId) return this.db.prepare('SELECT project_id FROM jobs WHERE id = ?').get(jobId)?.project_id ?? null;
+    }
     if (commandType === 'CreateMediaProfileRevision' || commandType === 'CreateTimeline') {
       if (explicitProjectId) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
     }
@@ -3520,6 +4181,12 @@ export class CoreService {
       if (reviewSessionId) return this.db.prepare('SELECT project_id FROM review_sessions WHERE id = ?').get(reviewSessionId)?.project_id ?? null;
     }
     if (commandType === 'CreateReleaseCandidateDraft') {
+      if (typeof explicitProjectId === 'string' && explicitProjectId.trim()) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
+      return null;
+    }
+    if (commandType === 'CreateReleaseBuildPlan') {
+      const candidateId = payload.release_candidate_id ?? payload.releaseCandidateId ?? payload.candidate_id ?? payload.candidateId;
+      if (typeof candidateId === 'string' && candidateId.trim()) return this.db.prepare('SELECT project_id FROM release_candidates WHERE id = ?').get(candidateId)?.project_id ?? null;
       if (typeof explicitProjectId === 'string' && explicitProjectId.trim()) return this.db.prepare('SELECT id FROM projects WHERE id = ?').get(explicitProjectId)?.id ?? null;
       return null;
     }
@@ -3641,8 +4308,10 @@ export class CoreService {
     if (['CreateMediaProfileRevision', 'TransitionMediaProfileRevision', 'CreateTimeline', 'CreateTimelineRevision', 'TransitionTimelineRevision'].includes(commandType)) return 'COMPENSATABLE';
     if (['OpenReview', 'SubmitReview'].includes(commandType)) return 'COMPENSATABLE';
     if (RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
+    if (RELEASE_BUILD_PLAN_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
     if (TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
     if (EXTERNAL_EDIT_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
+    if (LOCAL_PROBE_MUTATING_COMMANDS.has(commandType)) return 'COMPENSATABLE';
     if (['CreateHandoffManifest', 'BeginTimelineWorkingSession', 'ApplyTimelineEditOp', 'UndoTimelineEditOp', 'RedoTimelineEditOp',
       'AutosaveTimelineWorkingSession', 'CheckpointTimelineWorkingSession', 'CloseTimelineWorkingSession'].includes(commandType)) return 'COMPENSATABLE';
     if (['CreateAudioCueRevision', 'TransitionAudioCueRevision', 'CreateSubtitleTrackRevision', 'TransitionSubtitleTrackRevision'].includes(commandType)) return 'COMPENSATABLE';
@@ -3679,6 +4348,7 @@ export class CoreService {
       case 'SubmitReview': return this._submitReview(payload, expectedVersions);
       case 'CreateReleaseCandidateDraft': return this._createReleaseCandidateDraft(payload, commandId);
       case 'CancelReleaseCandidateDraft': return this._cancelReleaseCandidateDraft(payload, expectedVersions);
+      case 'CreateReleaseBuildPlan': return this._createReleaseBuildPlan(payload, expectedVersions, commandId);
       case 'BuildTimelineInterchangeExport': return this._buildTimelineInterchangeExport(payload, expectedVersions, commandId);
       case 'CreateHandoffManifest': return this._createHandoffManifest(payload, expectedVersions, commandId);
       case 'RegisterExternalEdit': return this._registerExternalEdit(payload, expectedVersions, commandId);
@@ -3703,12 +4373,129 @@ export class CoreService {
       case 'RevokeRights': return this._revokeRights(payload, commandId);
       case 'CreateBackup': return this._createBackup(payload, commandId);
       case 'VerifyBackup': return this._verifyBackup(payload, commandId);
+      case 'RunManagedAssetIntegrityProbe': return this._runManagedAssetIntegrityProbe(payload, commandId);
+      case 'CancelManagedAssetIntegrityProbe': return this._cancelManagedAssetIntegrityProbe(payload, expectedVersions);
+      case 'RetryManagedAssetIntegrityProbe': return this._retryManagedAssetIntegrityProbe(payload, expectedVersions, commandId);
       case 'AddNote':
       case 'AddTaskNote':
       case 'AddShotNote': return this._addNote(payload, commandType);
       default:
         throw new CoreError('UNSUPPORTED_COMMAND', 'VALIDATION', 'errors.unsupported_command', { command_type: commandType });
     }
+  }
+
+  _runManagedAssetIntegrityProbe(payload, commandId) {
+    const projectId = requiredString(payload.project_id ?? payload.projectId, 'project_id', 200);
+    const revisionId = requiredString(payload.asset_revision_id ?? payload.assetRevisionId, 'asset_revision_id', 200);
+    const contentHash = requiredString(payload.content_hash ?? payload.contentHash, 'content_hash', 128).toLowerCase();
+    if (!SHA256_HEX.test(contentHash)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'content_hash' });
+    const requestedMaxBytes = boundedInteger(payload.max_bytes ?? payload.maxBytes ?? LOCAL_PROBE_DEFAULT_MAX_BYTES, 'max_bytes', { min: 1, max: LOCAL_PROBE_MAX_BYTES });
+    const revision = this.db.prepare(`SELECT r.id, r.storage_object_id, r.availability_state,
+        a.project_id, a.lifecycle_state, so.hash_algorithm, so.content_hash, so.byte_size, so.storage_class
+      FROM asset_revisions r JOIN assets a ON a.id = r.asset_id
+      JOIN storage_objects so ON so.id = r.storage_object_id WHERE r.id = ?`).get(revisionId);
+    if (!revision) throw new CoreError('ASSET_REVISION_NOT_FOUND', 'VALIDATION', 'errors.asset_revision_not_found', { asset_revision_id: revisionId });
+    this._assertPayloadProjectScope(payload, revision.project_id, 'ASSET_REVISION', revisionId);
+    if (revision.project_id !== projectId) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'ASSET_REVISION', entity_id: revisionId, project_id: projectId, actual_project_id: revision.project_id }, { needsUser: true });
+    if (revision.storage_class !== 'LOCAL_MANAGED') throw new CoreError('PROBE_ASSET_NOT_MANAGED', 'CONFLICT', 'errors.probe_asset_not_managed', {}, { needsUser: true });
+    if (String(revision.content_hash).toLowerCase() !== contentHash) throw new CoreError('STALE_REVISION', 'STALE_REVISION', 'errors.stale_revision', { entity_type: 'ASSET_REVISION', entity_id: revisionId }, { needsUser: true });
+    if (!SHA256_HEX.test(String(revision.content_hash)) || !Number.isSafeInteger(Number(revision.byte_size)) || Number(revision.byte_size) < 0) throw new CoreError('PROBE_ASSET_METADATA_INVALID', 'CONFLICT', 'errors.probe_asset_metadata_invalid', {}, { needsUser: true });
+    if (Number(revision.byte_size) > requestedMaxBytes) throw new CoreError('PROBE_IO_BUDGET_TOO_SMALL', 'CONFLICT', 'errors.probe_io_budget_too_small', { required_bytes: Number(revision.byte_size) }, { needsUser: true });
+    const manifest = {
+      schema_version: 1, semantic_capability: LOCAL_PROBE_CAPABILITY,
+      connector_version: LOCAL_PROBE_CONNECTOR_VERSION, project_id: projectId,
+      asset_revision_id: revisionId, content_hash: contentHash,
+      byte_size: Number(revision.byte_size), max_bytes: requestedMaxBytes,
+    };
+    const manifestHash = crypto.createHash('sha256').update(canonicalJson(manifest), 'utf8').digest('hex');
+    const jobId = uuidv7();
+    const attemptId = uuidv7();
+    const now = nowUtcUs();
+    this.db.prepare(`INSERT INTO jobs
+      (id, project_id, job_type, semantic_capability, priority, state, subject_asset_revision_id,
+       subject_content_hash, requested_max_bytes, pinned_manifest_hash, connector_version,
+       command_id, next_step, created_at_utc_us, updated_at_utc_us)
+      VALUES (?, ?, ?, ?, 50, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(jobId, projectId, LOCAL_PROBE_JOB_TYPE, LOCAL_PROBE_CAPABILITY, revisionId, contentHash, requestedMaxBytes, manifestHash, LOCAL_PROBE_CONNECTOR_VERSION, commandId,
+        'Đang chờ kiểm tra object managed local.', now, now);
+    this.db.prepare(`INSERT INTO job_attempts
+      (id, job_id, attempt_no, retry_kind, idempotency_key, state, created_at_utc_us)
+      VALUES (?, ?, 1, 'INITIAL', ?, 'CREATED', ?)`)
+      .run(attemptId, jobId, `local:${jobId}:1`, now);
+    this.db.prepare(`INSERT INTO job_usage_records
+      (id, job_attempt_id, resource_type, reserved_amount, state, created_at_utc_us, updated_at_utc_us)
+      VALUES (?, ?, 'READ_BYTES', ?, 'RESERVED', ?, ?)`)
+      .run(uuidv7(), attemptId, requestedMaxBytes, now, now);
+    const projection = this._jobProjection(jobId);
+    return {
+      projectId,
+      result: { job: projection },
+      event: { aggregateType: 'JOB', aggregateId: jobId, aggregateVersion: 1, eventType: 'LOCAL_PROBE_JOB_QUEUED', payload: { job_id: jobId, asset_revision_id: revisionId, connector_version: LOCAL_PROBE_CONNECTOR_VERSION } },
+      audit: { actionType: 'job.local_probe.queue', targetType: 'JOB', targetId: jobId, payload: { asset_revision_id: revisionId, connector_version: LOCAL_PROBE_CONNECTOR_VERSION } },
+    };
+  }
+
+  _cancelManagedAssetIntegrityProbe(payload, expectedVersions) {
+    const jobId = requiredString(payload.job_id ?? payload.jobId ?? payload.id, 'job_id', 200);
+    const current = this._jobRow(jobId);
+    this._expectedVersion(expectedVersions, 'JOB', jobId, current.row_version);
+    const attempt = this.db.prepare('SELECT * FROM job_attempts WHERE job_id = ? ORDER BY attempt_no DESC LIMIT 1').get(jobId);
+    if (LOCAL_PROBE_TERMINAL_STATES.has(current.state)) throw new CoreError('JOB_NOT_CANCELLABLE', 'CONFLICT', 'errors.job_not_cancellable', { state: current.state }, { needsUser: true });
+    const now = nowUtcUs();
+    let nextState = current.state;
+    if (current.state === 'QUEUED' || current.state === 'CLAIMED') {
+      nextState = 'CANCELLED_CONFIRMED';
+      if (attempt) {
+        this.db.prepare(`UPDATE job_attempts SET state = 'ABANDONED', finished_at_utc_us = ?, row_version = row_version + 1 WHERE id = ? AND state IN ('CREATED', 'DISPATCHING')`).run(now, attempt.id);
+        this.db.prepare(`UPDATE job_usage_records SET actual_amount = 0, state = 'RELEASED', updated_at_utc_us = ? WHERE job_attempt_id = ? AND state = 'RESERVED'`).run(now, attempt.id);
+      }
+    } else if (current.state === 'RUNNING') {
+      nextState = 'CANCELLATION_REQUESTED';
+      if (attempt?.id) {
+        try { this._localProbeAbortControllers.get(attempt.id)?.abort(); } catch { /* the durable request remains authoritative */ }
+      }
+    } else if (current.state === 'CANCELLATION_REQUESTED') {
+      // A second cancel command with a fresh idempotency key is a harmless,
+      // auditable no-op. Advance the optimistic row fence so the command has
+      // a unique aggregate version and the UI can observe that the request
+      // was already accepted without violating append-only event ordering.
+      this.db.prepare(`UPDATE jobs SET row_version = row_version + 1, updated_at_utc_us = ? WHERE id = ?`).run(now, jobId);
+      return { projectId: current.project_id, result: { job: this._jobProjection(jobId), cancellation: 'already_requested' }, event: { aggregateType: 'JOB', aggregateId: jobId, aggregateVersion: Number(current.row_version) + 1, eventType: 'LOCAL_PROBE_CANCEL_ALREADY_REQUESTED', payload: { job_id: jobId, state: nextState } }, audit: { actionType: 'job.local_probe.cancel', targetType: 'JOB', targetId: jobId, payload: { state: nextState, already_requested: true } } };
+    } else throw new CoreError('JOB_NOT_CANCELLABLE', 'CONFLICT', 'errors.job_not_cancellable', { state: current.state }, { needsUser: true });
+    this.db.prepare(`UPDATE jobs SET state = ?, needs_user = 0, next_step = ?, row_version = row_version + 1, updated_at_utc_us = ? WHERE id = ?`)
+      .run(nextState, nextState === 'CANCELLATION_REQUESTED' ? 'Đang chờ lượt đọc kết thúc an toàn.' : 'Job đã huỷ; không có bytes nào bị sửa.', now, jobId);
+    return {
+      projectId: current.project_id,
+      result: { job: this._jobProjection(jobId), cancellation: nextState === 'CANCELLATION_REQUESTED' ? 'requested' : 'confirmed' },
+      event: { aggregateType: 'JOB', aggregateId: jobId, aggregateVersion: Number(current.row_version) + 1, eventType: nextState === 'CANCELLATION_REQUESTED' ? 'LOCAL_PROBE_CANCEL_REQUESTED' : 'LOCAL_PROBE_CANCELLED', payload: { job_id: jobId, state: nextState } },
+      audit: { actionType: 'job.local_probe.cancel', targetType: 'JOB', targetId: jobId, payload: { state: nextState } },
+    };
+  }
+
+  _retryManagedAssetIntegrityProbe(payload, expectedVersions, commandId) {
+    const jobId = requiredString(payload.job_id ?? payload.jobId ?? payload.id, 'job_id', 200);
+    const current = this._jobRow(jobId);
+    this._expectedVersion(expectedVersions, 'JOB', jobId, current.row_version);
+    if (current.state !== 'FAILED_RETRYABLE') throw new CoreError('JOB_NOT_RETRYABLE', 'CONFLICT', 'errors.job_not_retryable', { state: current.state }, { needsUser: true });
+    const previousAttempt = this.db.prepare('SELECT * FROM job_attempts WHERE job_id = ? ORDER BY attempt_no DESC LIMIT 1').get(jobId);
+    const nextAttemptNo = Number(previousAttempt?.attempt_no ?? 0) + 1;
+    if (!Number.isSafeInteger(nextAttemptNo) || nextAttemptNo > LOCAL_PROBE_MAX_ATTEMPTS) throw new CoreError('JOB_RETRY_LIMIT', 'CONFLICT', 'errors.job_retry_limit', { max_attempts: LOCAL_PROBE_MAX_ATTEMPTS }, { needsUser: true });
+    const currentRevision = this.db.prepare(`SELECT so.content_hash FROM asset_revisions r JOIN storage_objects so ON so.id = r.storage_object_id WHERE r.id = ?`).get(current.subject_asset_revision_id);
+    if (!currentRevision || String(currentRevision.content_hash).toLowerCase() !== String(current.subject_content_hash).toLowerCase()) throw new CoreError('STALE_REVISION', 'STALE_REVISION', 'errors.stale_revision', { entity_type: 'ASSET_REVISION', entity_id: current.subject_asset_revision_id }, { needsUser: true });
+    const now = nowUtcUs();
+    const attemptId = uuidv7();
+    this.db.prepare(`INSERT INTO job_attempts (id, job_id, attempt_no, retry_kind, idempotency_key, state, created_at_utc_us) VALUES (?, ?, ?, 'EXACT', ?, 'CREATED', ?)`)
+      .run(attemptId, jobId, nextAttemptNo, `local:${jobId}:${nextAttemptNo}:${commandId}`, now);
+    this.db.prepare(`INSERT INTO job_usage_records (id, job_attempt_id, resource_type, reserved_amount, state, created_at_utc_us, updated_at_utc_us) VALUES (?, ?, 'READ_BYTES', ?, 'RESERVED', ?, ?)`)
+      .run(uuidv7(), attemptId, Number(current.requested_max_bytes), now, now);
+    this.db.prepare(`UPDATE jobs SET state = 'QUEUED', needs_user = 0, next_step = 'Đang chờ thử lại cùng asset revision đã pin.', row_version = row_version + 1, updated_at_utc_us = ? WHERE id = ?`)
+      .run(now, jobId);
+    return {
+      projectId: current.project_id,
+      result: { job: this._jobProjection(jobId), retry: { attempt_no: nextAttemptNo, retry_kind: 'EXACT' } },
+      event: { aggregateType: 'JOB', aggregateId: jobId, aggregateVersion: Number(current.row_version) + 1, eventType: 'LOCAL_PROBE_RETRY_QUEUED', payload: { job_id: jobId, attempt_no: nextAttemptNo, retry_kind: 'EXACT' } },
+      audit: { actionType: 'job.local_probe.retry', targetType: 'JOB', targetId: jobId, payload: { attempt_no: nextAttemptNo, retry_kind: 'EXACT' } },
+    };
   }
 
   _createProject(payload) {
@@ -7341,11 +8128,18 @@ export class CoreService {
     if (storageMode === 'COPY') {
       if (!stagingId) throw new CoreError('STAGING_REQUIRED', 'CONFLICT', 'errors.staging_required', {}, { needsUser: true });
       staged = this._stagingRow(stagingId);
-      sourcePath = this._canonicalSourcePath(payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path);
+      const suppliedSourcePath = payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path;
+      // Browser intake only has the opaque staging handle.  Resolve its
+      // private candidate path inside Core; callers cannot rebind the handle
+      // to an arbitrary local path.  Path-based COPY keeps the original
+      // source path for provenance and compatibility with CLI imports.
+      sourcePath = suppliedSourcePath
+        ? this._canonicalSourcePath(suppliedSourcePath)
+        : path.resolve(String(staged.temp_path));
       file = {
         hash_algorithm: staged.hash_algorithm ?? 'SHA-256',
         content_hash: staged.sha256,
-        byte_size: Number(staged.expected_size),
+        byte_size: Number(staged.expected_size ?? staged.current_size),
         ...(parseJson(staged.source_file_identity_json, {}) ?? {}),
       };
       if (!SHA256_HEX.test(String(file.content_hash ?? ''))) {
@@ -7380,9 +8174,14 @@ export class CoreService {
     if (!/^[A-Z][A-Z0-9_.-]{0,63}$/.test(semanticRole)) {
       throw new CoreError('INVALID_SEMANTIC_ROLE', 'VALIDATION', 'errors.invalid_semantic_role', {});
     }
-    const sourceUri = pathToFileURL(sourcePath).href;
-    const sourceFingerprint = this._pathFingerprint(sourcePath);
-    if (staged && staged.source_path_fingerprint !== sourceFingerprint) {
+    const suppliedSourcePath = payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path;
+    const sourceUri = staged && !suppliedSourcePath
+      ? `cineforge://staging/${encodeURIComponent(stagingId)}`
+      : pathToFileURL(sourcePath).href;
+    const sourceFingerprint = staged && !suppliedSourcePath
+      ? staged.source_path_fingerprint
+      : this._pathFingerprint(sourcePath);
+    if (staged && suppliedSourcePath && staged.source_path_fingerprint !== sourceFingerprint) {
       throw new CoreError('STAGING_SOURCE_MISMATCH', 'CONFLICT', 'errors.staging_source_mismatch', {}, { needsUser: true });
     }
     const originalName = requiredString(payload.original_name ?? payload.originalName ?? path.basename(sourcePath), 'original_name', 500);
@@ -7479,7 +8278,8 @@ export class CoreService {
       this.db.prepare(`INSERT INTO import_sessions
         (id, project_id, actor_id, state, source_kind, source_root, intent_hint, created_at_utc_us, updated_at_utc_us, row_version)
         VALUES (?, ?, ?, 'COMMITTED', 'LOCAL_FILE', ?, ?, ?, ?, 1)`).run(
-        sessionId, project?.id ?? null, this.actorId, pathToFileURL(path.dirname(sourcePath)).href,
+        sessionId, project?.id ?? null, this.actorId,
+        staged && !suppliedSourcePath ? `cineforge://staging/${encodeURIComponent(stagingId)}` : pathToFileURL(path.dirname(sourcePath)).href,
         optionalString(payload.intent_hint ?? payload.intentHint, 'intent_hint', 500, null), now, now,
       );
       this.db.prepare(`INSERT INTO import_items
@@ -7709,8 +8509,9 @@ export class CoreService {
        UNION SELECT id FROM notes WHERE project_id = ?
        UNION SELECT id FROM asset_revisions WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?)
        UNION SELECT id FROM release_candidates WHERE project_id = ?
+       UNION SELECT id FROM release_build_plans WHERE project_id = ?
        UNION SELECT ?)
-      ORDER BY seq DESC LIMIT 20`).all(projectId, projectId, projectId, projectId, projectId, projectId).map((row) => this._publicActivity(row));
+      ORDER BY seq DESC LIMIT 20`).all(projectId, projectId, projectId, projectId, projectId, projectId, projectId).map((row) => this._publicActivity(row));
     return { project: publicProject(project), counts: { tasks, shots, notes, assets }, activity, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
@@ -7747,6 +8548,7 @@ export class CoreService {
     if (aggregateType === 'EXPORT_SESSION') return this.db.prepare('SELECT project_id FROM export_sessions WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'HANDOFF_MANIFEST') return this.db.prepare('SELECT project_id FROM handoff_manifests WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'RELEASE_CANDIDATE') return this.db.prepare('SELECT project_id FROM release_candidates WHERE id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'RELEASE_BUILD_PLAN') return this.db.prepare('SELECT project_id FROM release_build_plans WHERE id = ?').get(aggregateId)?.project_id ?? null;
     return null;
   }
 
@@ -8163,17 +8965,7 @@ export class CoreService {
       }, { needsUser: true, technicalDetails: { release_candidate_id: duplicate.id, state: duplicate.state } });
     }
     const snapshot = this._releaseCandidateSnapshot(readiness);
-    const rightsGate = Array.isArray(readiness.gates) ? readiness.gates.find((gate) => gate?.key === 'RIGHTS') : null;
-    const rightsSnapshotHash = crypto.createHash('sha256').update(canonicalJson({
-      project_id: project.id,
-      exact_source: snapshot.exact_source,
-      rights: {
-        state: rightsGate?.state ?? 'UNKNOWN',
-        blocking: rightsGate?.blocking !== false,
-        reason: rightsGate?.reason ?? null,
-        evidence: safeReleaseCandidateEvidence(rightsGate?.evidence ?? {}),
-      },
-    }), 'utf8').digest('hex');
+    const rightsSnapshotHash = this._releaseRightsSnapshotHash(project.id, readiness);
     const subtitleManifest = this._releaseCandidateSubtitleManifest(readiness);
     const candidateId = uuidv7();
     const created = nowUtcUs();
@@ -8295,6 +9087,211 @@ export class CoreService {
     return { candidate: publicReleaseCandidate(row), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
+  _releaseBuildPlanRow(id) {
+    const planId = requiredString(id, 'release_build_plan_id');
+    const row = this.db.prepare('SELECT * FROM release_build_plans WHERE id = ?').get(planId);
+    if (!row) throw new CoreError('RELEASE_BUILD_PLAN_NOT_FOUND', 'VALIDATION', 'errors.release_build_plan_not_found', { release_build_plan_id: planId });
+    return row;
+  }
+
+  _releaseRightsSnapshotHash(projectId, readiness) {
+    const rightsGate = Array.isArray(readiness?.gates) ? readiness.gates.find((gate) => gate?.key === 'RIGHTS') : null;
+    return crypto.createHash('sha256').update(canonicalJson({
+      project_id: projectId,
+      exact_source: readiness?.exact_source ?? {},
+      rights: {
+        state: rightsGate?.state ?? 'UNKNOWN',
+        blocking: rightsGate?.blocking !== false,
+        reason: rightsGate?.reason ?? null,
+        evidence: safeReleaseCandidateEvidence(rightsGate?.evidence ?? {}),
+      },
+    }), 'utf8').digest('hex');
+  }
+
+  _releaseBuildPlanSnapshot(project, candidate, readiness, rightsSnapshotHash) {
+    const exactSource = readiness?.exact_source && typeof readiness.exact_source === 'object'
+      ? Object.fromEntries(['timeline_id', 'timeline_revision_id', 'timeline_content_hash', 'media_profile_revision_id', 'review_session_id']
+        .map((key) => [key, readiness.exact_source[key] ?? null]))
+      : {};
+    const gateKeys = ['PICTURE', 'AUDIO', 'LOCALIZATION', 'TECHNICAL_MEDIA', 'QC', 'RIGHTS', 'MISSING_MEDIA', 'UNRESOLVED_DECISIONS'];
+    const gates = gateKeys.map((key) => {
+      const gate = Array.isArray(readiness?.gates) ? readiness.gates.find((item) => item?.key === key) : null;
+      return {
+        key,
+        state: String(gate?.state ?? 'UNKNOWN').toUpperCase(),
+        blocking: gate?.blocking === true,
+        evidence: safeReleaseCandidateEvidence(gate?.evidence ?? {}),
+      };
+    });
+    let subtitleManifest = {};
+    try { subtitleManifest = safeReleaseCandidateEvidence(parseJson(candidate.subtitle_manifest_json, {})) ?? {}; } catch { subtitleManifest = {}; }
+    return {
+      plan_schema_version: RELEASE_BUILD_PLAN_SNAPSHOT_SCHEMA_VERSION,
+      plan_type: 'CINEFORGE_RELEASE_BUILD_PLAN',
+      plan_profile: 'LOCAL_MASTER_PREFLIGHT_V1',
+      project_id: project.id,
+      release_candidate_id: candidate.id,
+      exact_source: exactSource,
+      readiness_digest: String(readiness.gate_manifest_hash ?? '').toLowerCase(),
+      rights_snapshot_hash: rightsSnapshotHash,
+      gates,
+      subtitle_manifest: subtitleManifest,
+      output: { state: 'NOT_CREATED', master_asset_revision_id: null },
+    };
+  }
+
+  _createReleaseBuildPlan(payload, expectedVersions, commandId) {
+    const requestedProjectId = requiredString(payload.project_id ?? payload.projectId, 'project_id');
+    const project = this._project(requestedProjectId);
+    const candidateId = requiredString(payload.release_candidate_id ?? payload.releaseCandidateId ?? payload.candidate_id ?? payload.candidateId, 'release_candidate_id');
+    const candidate = this._releaseCandidateRow(candidateId);
+    this._assertPayloadProjectScope(payload, candidate.project_id, 'RELEASE_CANDIDATE', candidate.id);
+    if (project.id !== candidate.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'RELEASE_CANDIDATE', entity_id: candidate.id, project_id: project.id, actual_project_id: candidate.project_id,
+      }, { needsUser: true });
+    }
+    this._assertProjectWritable(project);
+    this._expectedVersion(expectedVersions, 'RELEASE_CANDIDATE', candidate.id, candidate.row_version);
+    if (String(candidate.state).toUpperCase() !== 'DRAFT') {
+      throw new CoreError('RELEASE_BUILD_PLAN_CANDIDATE_INVALID', 'CONFLICT', 'errors.release_build_plan_candidate_invalid', {
+        release_candidate_id: candidate.id, state: candidate.state,
+      }, { needsUser: true });
+    }
+    if (candidate.audio_master_asset_revision_id !== null && candidate.audio_master_asset_revision_id !== undefined) {
+      throw new CoreError('RELEASE_BUILD_PLAN_MASTER_ALREADY_BOUND', 'CONFLICT', 'errors.release_build_plan_master_already_bound', {
+        release_candidate_id: candidate.id,
+      }, { needsUser: true });
+    }
+    const readiness = this._releaseReadiness(project.id);
+    if (readiness.overall_state !== 'READY') {
+      throw new CoreError('RELEASE_BUILD_PLAN_STALE', 'CONFLICT', 'errors.release_build_plan_stale', {
+        release_candidate_id: candidate.id,
+      }, {
+        needsUser: true,
+        technicalDetails: {
+          overall_state: readiness.overall_state,
+          current_readiness_digest: readiness.gate_manifest_hash,
+          candidate_readiness_digest: candidate.readiness_digest,
+          blocking_gate_keys: Array.isArray(readiness.blocking_gate_keys) ? readiness.blocking_gate_keys.slice(0, 8) : [],
+        },
+      });
+    }
+    const exact = readiness.exact_source ?? {};
+    const exactFields = [
+      ['timeline_revision_id', candidate.timeline_revision_id],
+      ['media_profile_revision_id', candidate.media_profile_revision_id],
+      ['review_session_id', candidate.review_session_id],
+    ];
+    for (const [field, candidateValue] of exactFields) {
+      if (exact[field] !== candidateValue) {
+        throw new CoreError('RELEASE_BUILD_PLAN_STALE', 'CONFLICT', 'errors.release_build_plan_stale', {
+          release_candidate_id: candidate.id,
+        }, { needsUser: true, technicalDetails: { field, candidate_value: candidateValue, current_value: exact[field] ?? null } });
+      }
+    }
+    const readinessDigest = String(readiness.gate_manifest_hash ?? '').toLowerCase();
+    const rightsSnapshotHash = this._releaseRightsSnapshotHash(project.id, readiness);
+    if (!SHA256_HEX.test(readinessDigest) || readinessDigest !== String(candidate.readiness_digest).toLowerCase() || rightsSnapshotHash !== String(candidate.rights_snapshot_hash).toLowerCase()) {
+      throw new CoreError('RELEASE_BUILD_PLAN_STALE', 'CONFLICT', 'errors.release_build_plan_stale', {
+        release_candidate_id: candidate.id,
+      }, { needsUser: true, technicalDetails: { current_readiness_digest: readinessDigest, candidate_readiness_digest: candidate.readiness_digest, current_rights_snapshot_hash: rightsSnapshotHash, candidate_rights_snapshot_hash: candidate.rights_snapshot_hash } });
+    }
+    const existing = this.db.prepare('SELECT * FROM release_build_plans WHERE project_id = ? AND release_candidate_id = ? LIMIT 1').get(project.id, candidate.id);
+    if (existing) {
+      throw new CoreError('RELEASE_BUILD_PLAN_ALREADY_EXISTS', 'CONFLICT', 'errors.release_build_plan_already_exists', {
+        release_build_plan_id: existing.id,
+      }, { needsUser: true, technicalDetails: { release_build_plan_id: existing.id, plan_hash: existing.plan_hash } });
+    }
+    const snapshot = this._releaseBuildPlanSnapshot(project, candidate, readiness, rightsSnapshotHash);
+    const planHash = crypto.createHash('sha256').update(canonicalJson(snapshot), 'utf8').digest('hex');
+    const planId = uuidv7();
+    const created = nowUtcUs();
+    const nextStep = 'Plan đã pin exact evidence; cần certified local master renderer trước khi tạo master bytes.';
+    try {
+      this.db.prepare(`INSERT INTO release_build_plans
+        (id, project_id, release_candidate_id, timeline_revision_id, media_profile_revision_id, review_session_id,
+         readiness_digest, rights_snapshot_hash, plan_hash, plan_snapshot_json, plan_snapshot_schema_version,
+         state, next_step, row_version, command_id, created_by_actor_id, created_at_utc_us, updated_at_utc_us)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PLANNED', ?, 1, ?, ?, ?, ?)`)
+        .run(planId, project.id, candidate.id, candidate.timeline_revision_id, candidate.media_profile_revision_id,
+          candidate.review_session_id, readinessDigest, rightsSnapshotHash, planHash, canonicalJson(snapshot),
+          RELEASE_BUILD_PLAN_SNAPSHOT_SCHEMA_VERSION, nextStep, commandId, this.actorId, created, created);
+    } catch (error) {
+      if (String(error?.message ?? error).includes('release_build_plans_candidate_uq') || String(error?.message ?? error).includes('release_build_plans.project_id')) {
+        const duplicate = this.db.prepare('SELECT * FROM release_build_plans WHERE project_id = ? AND release_candidate_id = ? LIMIT 1').get(project.id, candidate.id);
+        if (duplicate) throw new CoreError('RELEASE_BUILD_PLAN_ALREADY_EXISTS', 'CONFLICT', 'errors.release_build_plan_already_exists', { release_build_plan_id: duplicate.id }, { needsUser: true });
+      }
+      throw error;
+    }
+    const row = this._releaseBuildPlanRow(planId);
+    const result = publicReleaseBuildPlan(row);
+    return {
+      projectId: project.id,
+      result,
+      event: {
+        aggregateType: 'RELEASE_BUILD_PLAN', aggregateId: planId, aggregateVersion: 1,
+        eventType: 'RELEASE_BUILD_PLAN_CREATED',
+        payload: {
+          release_build_plan_id: planId, project_id: project.id, release_candidate_id: candidate.id,
+          timeline_revision_id: candidate.timeline_revision_id, media_profile_revision_id: candidate.media_profile_revision_id,
+          review_session_id: candidate.review_session_id, readiness_digest: readinessDigest,
+          rights_snapshot_hash: rightsSnapshotHash, plan_hash: planHash, state: 'PLANNED',
+        },
+      },
+      audit: {
+        actionType: 'release.build_plan.create', targetType: 'RELEASE_BUILD_PLAN', targetId: planId,
+        payload: {
+          project_id: project.id, release_candidate_id: candidate.id, timeline_revision_id: candidate.timeline_revision_id,
+          media_profile_revision_id: candidate.media_profile_revision_id, review_session_id: candidate.review_session_id,
+          readiness_digest: readinessDigest, rights_snapshot_hash: rightsSnapshotHash, plan_hash: planHash, state: 'PLANNED',
+        },
+      },
+    };
+  }
+
+  _releaseBuildPlanList(params = {}) {
+    const projectId = requiredString(params.project_id ?? params.projectId, 'project_id');
+    this._project(projectId);
+    const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
+    const rows = this.db.prepare(`SELECT * FROM release_build_plans
+      WHERE project_id = ? ORDER BY created_at_utc_us DESC, id DESC LIMIT ?`).all(projectId, limit);
+    return { items: rows.map(publicReleaseBuildPlan), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _releaseBuildPlanGet(id, requestedProjectId) {
+    const projectId = requiredString(requestedProjectId, 'project_id');
+    this._project(projectId);
+    const row = this._releaseBuildPlanRow(id);
+    if (projectId !== row.project_id) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+        entity_type: 'RELEASE_BUILD_PLAN', entity_id: row.id, project_id: projectId, actual_project_id: row.project_id,
+      }, { needsUser: true });
+    }
+    return { build_plan: publicReleaseBuildPlan(row), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _releaseRendererToolchainPreflight(params = {}) {
+    // A query is observational and must not become a local-file probing
+    // primitive.  Renderer paths are configured at Core startup only; caller
+    // supplied path fields are intentionally ignored.
+    const root = this.rendererToolchainRoot;
+    const configuredManifest = this.rendererToolchainManifest;
+    const result = preflightRendererToolchain({
+      rendererToolchainRoot: root,
+      rendererToolchainManifest: configuredManifest,
+      // Production Core accepts only a canonical manifest file.  The pure
+      // function keeps object input for bounded unit fixtures/bootstrap tests,
+      // but a live query must never accept a caller-constructed manifest.
+      allowObjectManifest: false,
+    });
+    return {
+      ...result,
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
   _systemHealth() {
     const journalMode = String(this.db.prepare('PRAGMA journal_mode').get().journal_mode ?? '').toUpperCase();
     const synchronousValue = Number(this.db.prepare('PRAGMA synchronous').get().synchronous ?? -1);
@@ -8407,14 +9404,43 @@ export class CoreService {
         params.release_candidate_id ?? params.releaseCandidateId ?? params.candidate_id ?? params.candidateId ?? params.id,
         params.project_id ?? params.projectId,
       );
+      case 'query.release.build_plan.list': return this._releaseBuildPlanList(params);
+      case 'query.release.build_plan.get': return this._releaseBuildPlanGet(
+        params.release_build_plan_id ?? params.releaseBuildPlanId ?? params.build_plan_id ?? params.buildPlanId ?? params.id,
+        params.project_id ?? params.projectId,
+      );
+      case 'query.release.renderer.preflight': return this._releaseRendererToolchainPreflight(params);
       case 'query.project.activity': return this._activity(params.project_id ?? params.projectId, params);
       case 'query.task.list': return this._tasks(params.project_id ?? params.projectId);
+      case 'query.task.get': {
+        const task = this._task(params.task_id ?? params.taskId ?? params.id);
+        const projectId = params.project_id ?? params.projectId;
+        if (projectId !== undefined && projectId !== null && task.project_id !== projectId) {
+          throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+            entity_type: 'TASK', entity_id: task.id, project_id: projectId, actual_project_id: task.project_id,
+          }, { needsUser: true });
+        }
+        return publicTask(task);
+      }
       case 'query.shot.list': return this._shots(params.project_id ?? params.projectId);
+      case 'query.shot.get': {
+        const shot = this._shot(params.shot_id ?? params.shotId ?? params.id);
+        const projectId = params.project_id ?? params.projectId;
+        if (projectId !== undefined && projectId !== null && shot.project_id !== projectId) {
+          throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {
+            entity_type: 'SHOT', entity_id: shot.id, project_id: projectId, actual_project_id: shot.project_id,
+          }, { needsUser: true });
+        }
+        return publicShot(shot);
+      }
       case 'query.notes.list': return this._notes(params.project_id ?? params.projectId, params);
       case 'query.library.assets':
       case 'query.library.assets_page':
       case 'query.asset.list':
       case 'query.project.assets': return this._assets(params);
+      case 'query.jobs.list': return this._jobs(params);
+      case 'query.jobs.get': return { job: this._jobProjection(params.job_id ?? params.jobId ?? params.id, params.project_id ?? params.projectId ?? null), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+      case 'query.jobs.retry_plan': return this._jobRetryPlan(params.job_id ?? params.jobId ?? params.id, params.project_id ?? params.projectId ?? null);
       case 'query.character.list': return this._characterList(params);
       case 'query.character.workspace': {
         const projection = this._characterProjection(params.character_id ?? params.characterId);
@@ -8942,6 +9968,44 @@ export class CoreService {
     };
   }
 
+  _jobs(params = {}) {
+    const projectId = params.project_id ?? params.projectId ?? null;
+    if (projectId) this._project(projectId);
+    const requestedState = params.state ?? null;
+    const state = requestedState === null || requestedState === undefined || requestedState === '' ? null : String(requestedState).trim().toUpperCase();
+    if (state !== null && !LOCAL_PROBE_STATES.has(state)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'state' });
+    const limit = boundedInteger(params.limit ?? 100, 'limit', { min: 1, max: 200 });
+    const rows = this.db.prepare(`SELECT * FROM jobs
+      WHERE (? IS NULL OR project_id = ?) AND (? IS NULL OR state = ?)
+      ORDER BY created_at_utc_us DESC, id DESC LIMIT ?`).all(projectId, projectId, state, state, limit);
+    return {
+      jobs: rows.map((row) => this._jobProjection(row.id)),
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  _jobRetryPlan(jobId, projectId = null) {
+    const job = this._jobRow(jobId);
+    if (projectId !== null && projectId !== undefined && job.project_id !== projectId) {
+      throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', { entity_type: 'JOB', entity_id: job.id, project_id: projectId, actual_project_id: job.project_id }, { needsUser: true });
+    }
+    const attempt = this.db.prepare('SELECT attempt_no FROM job_attempts WHERE job_id = ? ORDER BY attempt_no DESC LIMIT 1').get(job.id);
+    const nextAttempt = Number(attempt?.attempt_no ?? 0) + 1;
+    const allowed = job.state === 'FAILED_RETRYABLE' && nextAttempt <= LOCAL_PROBE_MAX_ATTEMPTS;
+    return {
+      job_id: job.id,
+      allowed,
+      retry_kind: 'EXACT',
+      next_attempt_no: nextAttempt,
+      max_attempts: LOCAL_PROBE_MAX_ATTEMPTS,
+      reason_code: allowed ? null : job.state !== 'FAILED_RETRYABLE' ? 'JOB_STATE_NOT_RETRYABLE' : 'JOB_RETRY_LIMIT',
+      next_step: allowed ? 'Có thể thử lại cùng asset revision đã pin.' : 'Giữ evidence hiện tại hoặc tạo một probe mới cho revision cụ thể.',
+      projection_seq: this._projectionSeq(),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
   _externalEditError(code, messageKey = 'errors.external_edit_schema_invalid', args = {}, options = {}) {
     return new CoreError(code, options.category ?? 'CONFLICT', messageKey, args, {
       needsUser: options.needsUser === undefined ? true : options.needsUser,
@@ -9377,9 +10441,10 @@ export class CoreService {
         UNION SELECT id FROM export_sessions WHERE project_id = ?
         UNION SELECT id FROM project_media_profiles WHERE project_id = ?
          UNION SELECT id FROM release_candidates WHERE project_id = ?
+         UNION SELECT id FROM release_build_plans WHERE project_id = ?
         ) ORDER BY seq DESC LIMIT ?`).all(
       projectId, projectId, projectId, projectId, projectId,
-       projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit,
+       projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit,
     );
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }

@@ -18,12 +18,12 @@ This avoids two competing canonical models while preserving auditability and fut
 
 > Status: implementation baseline derived from `docs/architecture/FINAL_ARCHITECTURE.md`.
 > Database V1: SQLite WAL, single authoritative writer inside CineForge Core.
-> Executable Core schema: version 18 (the Issue #27 working-session tables, the
+> Executable Core schema: version 20 (the Issue #27 working-session tables, the
 > bounded Issue #29 timing metadata tables and the metadata-only Issue #49
-> release-candidate draft table plus the verified local timeline-interchange
+> release-candidate draft and release-build-plan preflight tables plus the verified local timeline-interchange
 > output binding and the bounded returned external-edit registration tables are
 > included, together with the durable single-writer Core ownership/fencing
-> records). The generic
+> records and the Slice 3A local managed-asset integrity job tables). The generic
 > dependency/staleness graph remains a broader design contract; the Issue #29
 > slice computes its stale projection from immutable pins and current gate
 > evidence instead of materializing that graph.
@@ -855,6 +855,15 @@ UNIQUE(storage_object_id, storage_root_id, relative_path)
 - last_verified_at_utc_us
 
 ## technical_metadata
+
+`technical_metadata` is the single canonical relational name for immutable,
+derived media-technical evidence. The architecture inventory, implementation
+schema and future API references must use this name; `asset_technical_metadata`
+is not a second table or an alias. A future executable media-probe migration
+must add the source revision/content hash, exact toolchain and probe-schema
+pins, raw-evidence identity and append-only stream inventory without mutating
+the original asset bytes or silently replacing an earlier result.
+
 - id PK
 - media_kind
 - container
@@ -1827,6 +1836,37 @@ update timestamp can change through the Core cancel command. A no-delete
 trigger retains candidates for audit. Public projections omit both JSON
 columns and every path/provider/credential field. Release candidate rows are
 included in project activity through their `RELEASE_CANDIDATE` domain events.
+
+## release_build_plans
+
+The schema v20 metadata preflight stores the exact input closure for a future
+certified master renderer. It is not a release manifest and has no output
+asset or publication authority.
+
+- id PK
+- project_id FK
+- release_candidate_id FK
+- timeline_revision_id FK
+- media_profile_revision_id FK
+- review_session_id FK
+- readiness_digest SHA-256
+- rights_snapshot_hash SHA-256
+- plan_hash UNIQUE SHA-256
+- plan_snapshot_json (bounded, redacted, versioned)
+- plan_snapshot_schema_version
+- state CHECK (`PLANNED`)
+- next_step
+- row_version positive integer
+- command_id FK
+- created_by_actor_id
+- created_at_utc_us
+- updated_at_utc_us
+
+The uniqueness boundary is `(project_id, release_candidate_id)`. All identity
+and snapshot columns are append-only and protected by no-update/no-delete
+triggers. Core creates a row only after re-evaluating the candidate's exact
+readiness and current rights; `UNKNOWN` never becomes `PASS`. Public
+projections omit `plan_snapshot_json` and all path/provider/credential values.
 
 ## release_manifests
 Immutable.
@@ -5239,3 +5279,58 @@ UNIQUE(installation_id, deployment_generation, recovery_epoch_id, stream_generat
 - created_at_utc_us
 
 Tokens/capabilities with stale-use risk include deployment_generation + recovery_epoch identity.
+
+# SCHEMA-SLICE-3A-LOCAL-INTEGRITY-JOB. Durable bounded job projection
+
+Schema version 20 includes the Core-owned persistence for the bounded local
+managed-asset integrity probe (introduced in v19) and the immutable
+release-build-plan metadata preflight. These tables are operational
+projections for bounded semantic capabilities; they do not turn the job
+runner into a provider or connector registry, and a build plan does not
+create media bytes.
+
+## `jobs`
+
+- `id` primary key and optional `project_id` foreign key;
+- `job_type` and `semantic_capability`, both fixed to
+  `STORAGE_OBJECT_INTEGRITY_PROBE`;
+- `priority` (0–100) and the durable job `state`;
+- exact `subject_asset_revision_id`, pinned SHA-256 `subject_content_hash`,
+  positive `requested_max_bytes`, and `pinned_manifest_hash`;
+- `connector_version` (currently `LOCAL_ASSET_PROBE_V1`), originating
+  `command_id`, `needs_user`, human-readable `next_step`, `row_version`, and
+  creation/update timestamps.
+
+The revision and content hash are immutable job identity. A retry may create a
+new attempt only while retaining that identity; it never resolves a newer
+revision implicitly. `row_version` is the optimistic fence for cancellation,
+retry, and other future mutating commands.
+
+## `job_attempts`
+
+Each attempt has a unique `(job_id, attempt_no)`, an `INITIAL` or `EXACT`
+`retry_kind`, a unique idempotency key, optional internal fencing token,
+execution state, bounded byte count, error code/details, row version and
+timestamps. Attempt identity columns are guarded against updates. Fencing
+tokens and raw error details are internal and are omitted by public projections.
+
+## `job_evidence`
+
+Evidence is one append-only row per attempt and records `PASS`, `FAIL` or
+`UNKNOWN`, a bounded code, the pinned hash and expected byte size, optional
+observed hash/size, bytes read, a JSON evidence envelope and timestamp. Update
+and delete triggers retain the historical measurement. `UNKNOWN` is a distinct
+measurement and cannot satisfy a verified-asset claim.
+
+## `job_usage_records`
+
+The V1 resource is `READ_BYTES`. Each attempt reserves a positive bounded
+budget, then records `CONSUMED` or `RELEASED` with actual bytes and timestamps.
+Reservation identity is immutable; cancellation before reading releases the
+reservation, while an evidence-producing read settles it.
+
+The migration is additive and idempotent. No existing asset, original, canon,
+rights record or release master is rewritten or deleted. This slice does not
+add remote/provider fields, arbitrary paths, generation outputs, repair or
+quarantine state, garbage-collection state, restore activation, or recovery
+epoch controls.

@@ -2,7 +2,7 @@ import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ReleaseView } from '../src/App'
-import type { CoreClient, DashboardSnapshot, ProjectSummary, ReleaseCandidate, ReleaseReadiness } from '../src/types'
+import type { CoreClient, DashboardSnapshot, ProjectSummary, ReleaseBuildPlan, ReleaseCandidate, ReleaseReadiness, RendererToolchainPreflight } from '../src/types'
 
 const projectOne: ProjectSummary = {
   id: 'project-1', name: 'Phim thử', kind: 'Project', updatedAt: 'Vừa cập nhật', stage: 'ACTIVE', stageDetail: 'test',
@@ -41,6 +41,14 @@ const candidateDraft: ReleaseCandidate = {
   nextStep: 'Metadata only.',
 }
 
+const buildPlan: ReleaseBuildPlan = {
+  id: 'build-plan-1', projectId: projectOne.id, releaseCandidateId: candidateDraft.id,
+  timelineRevisionId: 'revision-1', mediaProfileRevisionId: 'profile-1', reviewSessionId: 'review-1',
+  readinessDigest: 'a'.repeat(64), rightsSnapshotHash: 'b'.repeat(64), planHash: 'c'.repeat(64),
+  state: 'PLANNED', rowVersion: 1, snapshotSchemaVersion: 1,
+  nextStep: 'Render is a separate boundary.',
+}
+
 function client(overrides: Partial<CoreClient> = {}): CoreClient {
   return {
     isLive: () => true,
@@ -65,6 +73,24 @@ describe('ReleaseView', () => {
     expect(screen.getByRole('button', { name: /Export master/ })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: /Publish/ })).toHaveProperty('disabled', true)
     expect(core.getReleaseReadiness).toHaveBeenCalledWith(projectOne.id, expect.any(AbortSignal))
+  })
+
+  it('shows renderer toolchain preflight evidence while keeping render unavailable', async () => {
+    const preflight: RendererToolchainPreflight = {
+      state: 'BLOCKED', overallState: 'BLOCKED', verificationState: 'UNKNOWN',
+      capability: 'LOCAL_RENDERER_TOOLCHAIN_PREFLIGHT', reasonCodes: ['NO_CERTIFIED_TOOLCHAIN'], checks: [], executionState: 'DISABLED',
+      binaries: { ffmpeg: { state: 'UNKNOWN' }, ffprobe: { state: 'UNKNOWN' } },
+      networkPolicy: 'DISABLED_REQUIRED', nextStep: 'Materialize an approved local renderer toolchain.',
+    }
+    const getRendererToolchainPreflight = vi.fn(async () => preflight)
+    const core = client({ getRendererToolchainPreflight })
+    render(<ReleaseView snapshot={snapshot} locale="en" client={core} />)
+
+    expect(await screen.findByText('Local renderer toolchain')).toBeTruthy()
+    expect((await screen.findAllByText('Blocked')).length).toBeGreaterThan(0)
+    expect(screen.getByText('Materialize an approved local renderer toolchain.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Export master/ })).toHaveProperty('disabled', true)
+    expect(getRendererToolchainPreflight).toHaveBeenCalledWith(expect.any(AbortSignal))
   })
 
   it('rebinds the exact project and ignores a stale response after switching', async () => {
@@ -124,6 +150,48 @@ describe('ReleaseView', () => {
     } finally {
       confirm.mockRestore()
     }
+  })
+
+  it('creates a metadata-only build plan only for an exact DRAFT candidate and keeps render/publish unavailable', async () => {
+    const createBuildPlan = vi.fn(async (_projectId: string, input: { releaseCandidateId: string; expectedVersion: number }, _key?: string) => ({
+      ...buildPlan, releaseCandidateId: input.releaseCandidateId, rowVersion: input.expectedVersion,
+    }))
+    const getReleaseBuildPlans = vi.fn(async () => ({ items: [], projectionSeq: 1 }))
+    const getReleaseBuildPlan = vi.fn(async () => buildPlan)
+    const core = client({
+      getReleaseReadiness: vi.fn(async () => readyReadiness),
+      getReleaseCandidates: vi.fn(async () => ({ items: [candidateDraft], projectionSeq: 1 })),
+      getReleaseBuildPlans, getReleaseBuildPlan, createReleaseBuildPlan: createBuildPlan,
+    })
+    render(<ReleaseView snapshot={snapshot} locale="vi" client={core} />)
+    const planButton = await screen.findByRole('button', { name: 'Lập build plan' })
+    expect(planButton).toHaveProperty('disabled', false)
+    fireEvent.click(planButton)
+    await waitFor(() => expect(createBuildPlan).toHaveBeenCalledWith(projectOne.id, { releaseCandidateId: candidateDraft.id, expectedVersion: 1 }, `release-build-plan:${candidateDraft.id}:v1`))
+    expect(await screen.findByText('build-plan-1')).toBeTruthy()
+    expect(screen.getAllByText('Đã lập kế hoạch')).toHaveLength(2)
+    expect(screen.getByText(/chưa render, chưa tạo master bytes/i)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Export master/ })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /Publish/ })).toHaveProperty('disabled', true)
+    const details = await screen.findByRole('button', { name: 'Chi tiết' })
+    fireEvent.click(details)
+    await waitFor(() => expect(getReleaseBuildPlan).toHaveBeenCalledWith(projectOne.id, buildPlan.id))
+    expect(await screen.findByText('Chi tiết build plan')).toBeTruthy()
+    expect(getReleaseBuildPlans).toHaveBeenCalledWith(projectOne.id, expect.any(AbortSignal))
+  })
+
+  it('keeps build plan creation disabled for CANCELLED and UNKNOWN candidates', async () => {
+    const cancelled = { ...candidateDraft, state: 'CANCELLED' as const }
+    const core = client({
+      getReleaseReadiness: vi.fn(async () => readyReadiness),
+      getReleaseCandidates: vi.fn(async () => ({ items: [cancelled], projectionSeq: 1 })),
+      getReleaseBuildPlans: vi.fn(async () => ({ items: [], projectionSeq: 1 })),
+      createReleaseBuildPlan: vi.fn(async () => buildPlan),
+    })
+    render(<ReleaseView snapshot={snapshot} locale="en" client={core} />)
+    const planButton = await screen.findByRole('button', { name: 'Plan build' })
+    expect(planButton).toHaveProperty('disabled', true)
+    expect(planButton).toHaveProperty('title', 'Only a DRAFT candidate on READY readiness can receive a build plan.')
   })
 
   it('keeps candidate creation disabled for blocked or unknown readiness', async () => {

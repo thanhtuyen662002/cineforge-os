@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { CoreService } from './core.mjs';
+import { CoreError, CoreService } from './core.mjs';
 import { initializeDatabase } from './schema.mjs';
 
 function tempDb() {
@@ -23,6 +23,22 @@ function execute(core, command_type, payload, expected_versions = {}, idempotenc
     ...(idempotency_key ? { idempotency_key } : {}),
   }, `${command_type}-${idempotency_key ?? Math.random()}`));
 }
+
+test('public error details redact absolute filesystem paths', () => {
+  const error = new CoreError('SOURCE_UNREADABLE', 'VALIDATION', 'errors.source_unreadable', { source_name: 'clip.mov' }, {
+    technicalDetails: {
+      message: "EACCES: permission denied, open 'C:\\private\\cineforge\\clip.mov'",
+      nested: { path: '/tmp/cineforge/secret.mov', uri: 'file:///workspace/secret.mov', code: 'EACCES' },
+    },
+  });
+  const envelope = error.toEnvelope();
+  const serialized = JSON.stringify(envelope);
+  assert.equal(serialized.includes('C:\\private\\cineforge'), false);
+  assert.equal(serialized.includes('/tmp/cineforge'), false);
+  assert.equal(serialized.includes('file:///workspace'), false);
+  assert.match(envelope.technical_details.message, /path redacted/);
+  assert.equal(envelope.user_message_args.source_name, 'clip.mov');
+});
 
 test('smoke: create project, close, and reload it from SQLite WAL', () => {
   const { dbPath, directory } = tempDb();
@@ -684,7 +700,7 @@ test('DecisionRequest is a canonical, stale-safe Needs You aggregate', () => {
   const persisted = reopened.handle(request('query.decisions.get', { decision_request_id: decision.id }, 'decision-reopen'));
   assert.equal(persisted.ok, true);
   assert.equal(persisted.result.state, 'RESOLVED');
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 18);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 20);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -826,7 +842,7 @@ test('staging lifecycle is durable, race-safe and startup-reconciled without ado
   assert.equal(reconciled.state, 'ORPHANED');
   const reconciliationAudit = reopened.handle(request('query.audit.list', {}, 'stage-audit'));
   assert.ok(reconciliationAudit.result.records.some((record) => record.action_type === 'storage.staging_reconcile'));
-  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 18);
+  assert.equal(reopened.handle(request('query.system.health')).result.schema_version, 20);
   reopened.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -977,7 +993,7 @@ test('local backup admission, artifact verification, tamper detection and replay
   assert.equal(fs.existsSync(persisted.snapshot_path), true);
   const manifest = JSON.parse(fs.readFileSync(persisted.manifest_path, 'utf8'));
   assert.equal(manifest.format_version, 1);
-  assert.equal(manifest.schema_version, 18);
+  assert.equal(manifest.schema_version, 20);
   assert.equal(manifest.objects.length, 1);
   assert.equal(manifest.objects[0].materialization, 'COPIED');
   assert.equal(fs.existsSync(path.join(persisted.destination_path, manifest.objects[0].relative_path)), true);

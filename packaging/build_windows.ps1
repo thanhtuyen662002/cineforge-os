@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Auto', 'Portable', 'Tauri')]
+    [ValidateSet('Auto', 'Portable', 'SingleFile', 'Tauri')]
     [string]$Mode = 'Auto',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
@@ -12,6 +12,29 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# SingleFile has a separate, deliberately small orchestration layer. It first
+# produces the exact verified portable payload, then embeds that payload into
+# the self-contained bootstrap and runs a smoke test against the resulting
+# lone executable. Keeping the existing Portable path intact avoids changing
+# its manifest contract or release behaviour.
+if ($Mode -eq 'SingleFile') {
+    if ($SkipCoreBundle) {
+        throw 'Single-file packaging always bundles the production Node/Core runtime; -SkipCoreBundle is not supported.'
+    }
+    $singleFileScript = Join-Path $PSScriptRoot 'build_single_file.ps1'
+    if (-not (Test-Path -LiteralPath $singleFileScript)) {
+        throw "Single-file packaging script is missing: $singleFileScript"
+    }
+    $singleParams = @{
+        Configuration = $Configuration
+        SkipTests = $SkipTests
+        NoInstall = $NoInstall
+        KeepBuildFiles = $KeepBuildFiles
+    }
+    & $singleFileScript @singleParams
+    exit $LASTEXITCODE
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $distRoot = Join-Path $repoRoot 'dist'
@@ -99,6 +122,26 @@ function Get-GitHead {
     return $null
 }
 
+function Assert-CleanGitTree {
+    # The packaged payload can contain generated files that are not represented
+    # by HEAD. Refuse to publish a manifest that claims only a commit while the
+    # working tree contributes unreviewed tracked or untracked source. Ignored
+    # build/cache directories remain allowed; they are recreated or excluded
+    # by the packaging boundary below.
+    try {
+        $status = @(& git -C $repoRoot status --porcelain=v1 --untracked-files=all 2>$null)
+    }
+    catch {
+        throw "Could not inspect the source tree before packaging. $($_.Exception.Message)"
+    }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the source tree before packaging: git status failed.' }
+    if ($status.Count -gt 0) {
+        $sample = (($status | Select-Object -First 8) -join '; ')
+        throw "Packaging requires a clean Git worktree so provenance is truthful. Commit or stash source changes first. Detected: $sample"
+    }
+}
+
+Assert-CleanGitTree
 Write-Host "CineForge Windows packaging ($Mode / $Configuration)" -ForegroundColor Green
 Write-Host "Repository: $repoRoot"
 
@@ -112,8 +155,18 @@ if ($null -eq $dotnet) {
     throw '.NET 8 SDK is required to produce the portable CineForge.exe bootstrap.'
 }
 
+# The final artifact must always be rebuilt from an empty package root.  A
+# previous `-KeepBuildFiles` run used to leave stale web/runtime files in
+# `dist/CineForge`, which then made the inventory depend on build history (and
+# could ship deleted source files).  `-KeepBuildFiles` only preserves the
+# intermediate staging directory for diagnostics; it must never weaken the
+# reproducibility boundary of the delivered package.
+Remove-KnownPath $packageRoot $distRoot
+# A previous Tauri build may have left an installer beside the portable
+# artifact. Remove it before every run so a later Portable/Auto build cannot
+# expose a stale installer that is absent from the current manifest.
+Remove-KnownPath (Join-Path $distRoot 'installer') $distRoot
 if (-not $KeepBuildFiles) {
-    Remove-KnownPath $packageRoot $distRoot
     Remove-KnownPath $buildRoot $repoRoot
 }
 New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
@@ -328,6 +381,7 @@ $manifest = [ordered]@{
     version = '0.1.0-portable'
     built_at_utc = [DateTime]::UtcNow.ToString('o')
     source_git_head = $gitHead
+    source_tree_clean = $true
     mode = $Mode
     ui = $uiMode
     core = $coreMode

@@ -1091,6 +1091,91 @@ export interface StorageScrubHealth {
   generatedAt?: string
 }
 
+export type ManagedJobState = 'QUEUED' | 'CLAIMED' | 'RUNNING' | 'CANCELLATION_REQUESTED' | 'CANCELLED_CONFIRMED' | 'CANNOT_CANCEL' | 'COMPLETED' | 'COMPLETED_AFTER_CANCEL' | 'FAILED_RETRYABLE' | 'FAILED_FINAL' | string
+export type ManagedJobEvidenceState = 'PASS' | 'FAIL' | 'UNKNOWN' | string
+
+/**
+ * Redacted local execution evidence. Provider ids, fencing tokens, absolute
+ * paths and raw error details never cross this UI boundary.
+ */
+export interface ManagedJobAttempt {
+  id?: string
+  jobId?: string
+  attemptNo: number
+  retryKind?: string
+  state: string
+  startedAt?: string | null
+  finishedAt?: string | null
+  bytesRead?: number | null
+  errorCode?: string | null
+  createdAt?: string
+}
+
+export interface ManagedJobEvidence {
+  id?: string
+  jobAttemptId?: string
+  projectId?: string | null
+  assetRevisionId?: string
+  state: ManagedJobEvidenceState
+  code?: string | null
+  contentHash?: string
+  expectedByteSize?: number
+  observedHash?: string | null
+  observedByteSize?: number | null
+  bytesRead?: number
+  evidence?: Record<string, unknown>
+  createdAt?: string
+}
+
+export interface ManagedJobUsage {
+  resourceType?: string
+  reservedAmount?: number
+  actualAmount?: number | null
+  state?: string
+}
+
+export interface ManagedAssetIntegrityJob {
+  id: string
+  projectId?: string | null
+  jobType: string
+  semanticCapability: string
+  priority: number
+  state: ManagedJobState
+  subjectAssetRevisionId: string
+  subjectContentHash: string
+  requestedMaxBytes: number
+  pinnedManifestHash: string
+  connectorVersion: string
+  needsUser: boolean
+  nextStep?: string | null
+  rowVersion: number
+  cancelable: boolean
+  retryable: boolean
+  createdAt?: string
+  updatedAt?: string
+  latestAttempt?: ManagedJobAttempt | null
+  evidence?: ManagedJobEvidence | null
+  usage?: ManagedJobUsage | null
+}
+
+export interface ManagedJobList {
+  jobs: ManagedAssetIntegrityJob[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export interface ManagedJobRetryPlan {
+  jobId: string
+  allowed: boolean
+  retryKind: string
+  nextAttemptNo: number
+  maxAttempts: number
+  reasonCode?: string | null
+  nextStep?: string
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 /**
  * Redacted evidence for a durable import staging row.
  *
@@ -1186,14 +1271,81 @@ export interface ReleaseCandidateList {
   generatedAt?: string
 }
 
+/**
+ * Metadata-only instructions for a future release build.  This record pins
+ * the candidate and every exact dependency identity/hash, but it never
+ * contains master bytes, a render capability, or a publish decision.
+ */
+export type ReleaseBuildPlanState = 'PLANNED' | 'UNKNOWN'
+
+export interface ReleaseBuildPlan {
+  id?: string
+  projectId?: string
+  releaseCandidateId?: string
+  timelineRevisionId?: string
+  mediaProfileRevisionId?: string
+  reviewSessionId?: string
+  readinessDigest?: string
+  rightsSnapshotHash?: string
+  planHash?: string
+  state: ReleaseBuildPlanState
+  nextStep?: string
+  rowVersion: number
+  snapshotSchemaVersion: number
+  createdAt?: string
+  updatedAt?: string
+  idempotentReplay?: boolean
+}
+
+export interface ReleaseBuildPlanList {
+  items: ReleaseBuildPlan[]
+  projectionSeq?: number
+  generatedAt?: string
+}
+
+export type RendererToolchainPreflightState = 'READY' | 'BLOCKED' | 'UNKNOWN'
+/** Evidence describes the exact local files only; it never authorizes execution. */
+export type RendererToolchainVerificationState = 'ARTIFACT_VERIFIED' | 'FAIL' | 'UNKNOWN'
+
+export interface RendererToolchainBinaryEvidence {
+  state: 'VERIFIED' | 'FAIL' | 'UNKNOWN'
+  sha256?: string
+  byteSize?: number
+  version?: string
+}
+
+export interface RendererToolchainPreflight {
+  capability?: string
+  state: RendererToolchainPreflightState
+  overallState: RendererToolchainPreflightState
+  verificationState: RendererToolchainVerificationState
+  executionState?: 'DISABLED'
+  toolchainId?: string
+  toolchainVersion?: string
+  manifestSchemaVersion?: number
+  manifestSha256?: string
+  manifestByteSize?: number
+  networkPolicy?: string
+  shellExecution?: string
+  checks: Array<{ id: string; state: string; code?: string }>
+  reasonCodes: string[]
+  binaries: {
+    ffmpeg: RendererToolchainBinaryEvidence
+    ffprobe: RendererToolchainBinaryEvidence
+  }
+  nextStep?: string
+  projectionSeq?: number
+  generatedAt?: string
+}
+
 export interface CoreClient {
   isLive?(): boolean
   getDashboard(signal?: AbortSignal): Promise<DashboardSnapshot>
-  acknowledgeDecision(id: string): Promise<void>
+  acknowledgeDecision(id: string, idempotencyKey?: string): Promise<void>
   resolveDecision?(id: string, choiceId: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
   dismissDecision?(id: string, expectedVersion: number, idempotencyKey?: string): Promise<DecisionRequest>
-  createProject(name: string): Promise<ProjectSummary>
-  addProductionItem(projectId: string, title: string): Promise<ProductionItem>
+  createProject(name: string, idempotencyKey?: string): Promise<ProjectSummary>
+  addProductionItem(projectId: string, title: string, idempotencyKey?: string): Promise<ProductionItem>
   createTask?(projectId: string, title: string, options?: { description?: string; priority?: number; idempotencyKey?: string }): Promise<TaskSummary>
   updateTask?(taskId: string, patch: { title?: string; description?: string; priority?: number; status?: TaskStatus }, expectedVersion: number, idempotencyKey?: string): Promise<TaskSummary>
   createShot?(projectId: string, code: string, title: string, idempotencyKey?: string): Promise<ShotSummary>
@@ -1211,6 +1363,12 @@ export interface CoreClient {
   getStorageScrubHealth?(options?: { limit?: number; maxBytes?: number; after?: string }, signal?: AbortSignal): Promise<StorageScrubHealth>
   createBackup?(input?: { durabilityClass?: string }, idempotencyKey?: string): Promise<BackupCommandResult>
   verifyBackup?(backupId: string, idempotencyKey?: string): Promise<BackupCommandResult>
+  getJobs?(projectId?: string, state?: string, limit?: number, signal?: AbortSignal): Promise<ManagedJobList>
+  getJob?(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedAssetIntegrityJob>
+  getJobRetryPlan?(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedJobRetryPlan>
+  runManagedAssetIntegrityProbe?(projectId: string, assetRevisionId: string, contentHash: string, maxBytes?: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
+  cancelManagedAssetIntegrityProbe?(jobId: string, expectedVersion: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
+  retryManagedAssetIntegrityProbe?(jobId: string, expectedVersion: number, idempotencyKey?: string): Promise<ManagedAssetIntegrityJob>
   getStaging?(state?: string, limit?: number, signal?: AbortSignal): Promise<StagingWorkspace>
   reconcileStaging?(stagingId?: string, idempotencyKey?: string): Promise<StagingWorkspace>
   getReleaseReadiness?(projectId: string, signal?: AbortSignal): Promise<ReleaseReadiness>
@@ -1218,6 +1376,10 @@ export interface CoreClient {
   getReleaseCandidate?(projectId: string, candidateId: string, signal?: AbortSignal): Promise<ReleaseCandidate>
   createReleaseCandidateDraft?(projectId: string, idempotencyKey?: string): Promise<ReleaseCandidate>
   cancelReleaseCandidateDraft?(projectId: string, candidateId: string, expectedVersion: number, idempotencyKey?: string): Promise<ReleaseCandidate>
+  getReleaseBuildPlans?(projectId: string, signal?: AbortSignal): Promise<ReleaseBuildPlanList>
+  getReleaseBuildPlan?(projectId: string, planId: string, signal?: AbortSignal): Promise<ReleaseBuildPlan>
+  createReleaseBuildPlan?(projectId: string, input: { releaseCandidateId: string; expectedVersion: number }, idempotencyKey?: string): Promise<ReleaseBuildPlan>
+  getRendererToolchainPreflight?(signal?: AbortSignal): Promise<RendererToolchainPreflight>
   resolveMediaPreview?(projectId: string, revisionId: string, purpose?: string, signal?: AbortSignal): Promise<MediaPreviewResolution>
   stageAsset?(file: File): Promise<StagedAsset>
   importAsset?(input: ImportAssetInput): Promise<AssetSummary>
