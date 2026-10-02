@@ -335,3 +335,26 @@ test('local integrity probe fails closed before reading a file that exceeds its 
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test('media probe schema is dedicated and additive', () => {
+  const { dbPath, assetStorePath } = tempDb();
+  const core = new CoreService({ dbPath, assetStorePath });
+  try {
+    assert.equal(core.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, 21);
+    const names = core.db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'media_probe_%' ORDER BY name"
+    ).all().map((row) => row.name);
+    assert.deepEqual(names, ['media_probe_attempts', 'media_probe_evidence', 'media_probe_jobs']);
+    const metadataNames = core.db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'technical_metadata%' ORDER BY name"
+    ).all().map((row) => row.name);
+    assert.deepEqual(metadataNames, ['technical_metadata', 'technical_metadata_streams']);
+    const genericSql = core.db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'jobs'"
+    ).get().sql;
+    assert.equal(genericSql.includes('MEDIA_PROBE'), false);
+  } finally {
+    core.close();
+  }
+});

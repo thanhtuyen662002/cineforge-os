@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -2479,6 +2479,239 @@ export function initializeDatabase(db) {
     CREATE TRIGGER IF NOT EXISTS external_edit_contract_diffs_no_delete
       BEFORE DELETE ON external_edit_contract_diffs
       BEGIN SELECT RAISE(ABORT, 'external_edit_contract_diffs are retained for audit'); END;
+  `);
+
+
+  // v21 ProbeMediaAsset persistence is deliberately separate from the generic
+  // Slice 3A integrity jobs. It records exact project/source/toolchain pins,
+  // bounded attempt/evidence data and immutable derived technical metadata.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS media_probe_jobs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+      source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64),
+      source_byte_size INTEGER NOT NULL CHECK (source_byte_size >= 0),
+      materialization_identity_hash TEXT NOT NULL CHECK (length(materialization_identity_hash) = 64),
+      toolchain_manifest_hash TEXT NOT NULL CHECK (length(toolchain_manifest_hash) = 64),
+      toolchain_id TEXT NOT NULL CHECK (length(toolchain_id) BETWEEN 1 AND 120),
+      toolchain_version TEXT NOT NULL CHECK (length(toolchain_version) BETWEEN 1 AND 120),
+      probe_schema_version INTEGER NOT NULL CHECK (probe_schema_version >= 1),
+      parser_policy_version INTEGER NOT NULL CHECK (parser_policy_version >= 1),
+      idempotency_key TEXT NOT NULL UNIQUE CHECK (length(idempotency_key) BETWEEN 1 AND 512),
+      request_hash TEXT NOT NULL CHECK (length(request_hash) = 64),
+      command_id TEXT REFERENCES commands(id),
+      rights_generation INTEGER NOT NULL CHECK (rights_generation >= 0),
+      state TEXT NOT NULL CHECK (state IN (
+        'QUEUED', 'CLAIMED', 'RUNNING', 'PARSING', 'COMPLETED',
+        'FAILED_RETRYABLE', 'FAILED_FINAL', 'UNKNOWN', 'BLOCKED_TOOLCHAIN',
+        'BLOCKED_RIGHTS', 'CANCEL_REQUESTED', 'CANCELLED', 'STALE'
+      )),
+      needs_user INTEGER NOT NULL DEFAULT 0 CHECK (needs_user IN (0, 1)),
+      next_step TEXT CHECK (next_step IS NULL OR length(next_step) <= 1000),
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      created_at_utc_us INTEGER NOT NULL,
+      updated_at_utc_us INTEGER NOT NULL,
+      UNIQUE (
+        project_id, asset_revision_id, source_content_hash,
+        toolchain_manifest_hash, probe_schema_version,
+        parser_policy_version, request_hash
+      )
+    );
+    CREATE INDEX IF NOT EXISTS media_probe_jobs_project_state_idx
+      ON media_probe_jobs(project_id, state, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS media_probe_jobs_asset_idx
+      ON media_probe_jobs(asset_revision_id, created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS media_probe_attempts (
+      id TEXT PRIMARY KEY,
+      media_probe_job_id TEXT NOT NULL REFERENCES media_probe_jobs(id),
+      attempt_no INTEGER NOT NULL CHECK (attempt_no >= 1 AND attempt_no <= 3),
+      retry_kind TEXT NOT NULL CHECK (retry_kind IN ('INITIAL', 'EXACT')),
+      idempotency_key TEXT NOT NULL UNIQUE CHECK (length(idempotency_key) BETWEEN 1 AND 512),
+      fencing_token TEXT NOT NULL UNIQUE CHECK (length(fencing_token) BETWEEN 1 AND 256),
+      state TEXT NOT NULL CHECK (state IN (
+        'CREATED', 'DISPATCHING', 'EXECUTING', 'PARSING',
+        'VERIFYING', 'SUCCEEDED', 'FAILED', 'ABANDONED'
+      )),
+      started_at_utc_us INTEGER,
+      finished_at_utc_us INTEGER,
+      stdout_bytes INTEGER NOT NULL DEFAULT 0 CHECK (stdout_bytes BETWEEN 0 AND 8388608),
+      stderr_bytes INTEGER NOT NULL DEFAULT 0 CHECK (stderr_bytes BETWEEN 0 AND 1048576),
+      wall_time_ms INTEGER NOT NULL DEFAULT 0 CHECK (wall_time_ms BETWEEN 0 AND 120000),
+      exit_code INTEGER,
+      timed_out INTEGER NOT NULL DEFAULT 0 CHECK (timed_out IN (0, 1)),
+      cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+      process_tree_state TEXT NOT NULL DEFAULT 'UNKNOWN'
+        CHECK (process_tree_state IN ('UNKNOWN', 'CLEAN', 'SURVIVOR_DETECTED')),
+      observed_source_hash TEXT CHECK (observed_source_hash IS NULL OR length(observed_source_hash) = 64),
+      observed_source_byte_size INTEGER CHECK (observed_source_byte_size IS NULL OR observed_source_byte_size >= 0),
+      observed_toolchain_manifest_hash TEXT
+        CHECK (observed_toolchain_manifest_hash IS NULL OR length(observed_toolchain_manifest_hash) = 64),
+      observed_toolchain_binary_hash TEXT
+        CHECK (observed_toolchain_binary_hash IS NULL OR length(observed_toolchain_binary_hash) = 64),
+      error_code TEXT CHECK (error_code IS NULL OR length(error_code) <= 160),
+      error_details_json TEXT NOT NULL DEFAULT '{}',
+      row_version INTEGER NOT NULL DEFAULT 1 CHECK (row_version >= 1),
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(media_probe_job_id, attempt_no)
+    );
+    CREATE INDEX IF NOT EXISTS media_probe_attempts_job_idx
+      ON media_probe_attempts(media_probe_job_id, attempt_no DESC);
+
+    CREATE TABLE IF NOT EXISTS technical_metadata (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      source_asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+      source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64),
+      source_byte_size INTEGER NOT NULL CHECK (source_byte_size >= 0),
+      probe_job_id TEXT NOT NULL REFERENCES media_probe_jobs(id),
+      probe_attempt_id TEXT NOT NULL UNIQUE REFERENCES media_probe_attempts(id),
+      toolchain_manifest_hash TEXT NOT NULL CHECK (length(toolchain_manifest_hash) = 64),
+      toolchain_binary_hash TEXT NOT NULL CHECK (length(toolchain_binary_hash) = 64),
+      probe_schema_version INTEGER NOT NULL CHECK (probe_schema_version >= 1),
+      parser_policy_version INTEGER NOT NULL CHECK (parser_policy_version >= 1),
+      raw_evidence_object_id TEXT REFERENCES storage_objects(id),
+      raw_evidence_hash TEXT NOT NULL CHECK (length(raw_evidence_hash) = 64),
+      raw_evidence_byte_size INTEGER NOT NULL CHECK (raw_evidence_byte_size BETWEEN 0 AND 8388608),
+      evidence_state TEXT NOT NULL CHECK (evidence_state IN ('PASS', 'FAIL', 'UNKNOWN', 'CONFLICT', 'STALE')),
+      stale_reason TEXT CHECK (stale_reason IS NULL OR length(stale_reason) <= 240),
+      media_kind TEXT NOT NULL CHECK (length(media_kind) BETWEEN 1 AND 40),
+      container TEXT CHECK (container IS NULL OR length(container) <= 160),
+      codec TEXT CHECK (codec IS NULL OR length(codec) <= 160),
+      width INTEGER CHECK (width IS NULL OR width > 0),
+      height INTEGER CHECK (height IS NULL OR height > 0),
+      pixel_format TEXT CHECK (pixel_format IS NULL OR length(pixel_format) <= 120),
+      bit_depth INTEGER CHECK (bit_depth IS NULL OR bit_depth > 0),
+      frame_rate_num INTEGER CHECK (frame_rate_num IS NULL OR frame_rate_num > 0),
+      frame_rate_den INTEGER CHECK (frame_rate_den IS NULL OR frame_rate_den > 0),
+      time_base_num INTEGER CHECK (time_base_num IS NULL OR time_base_num > 0),
+      time_base_den INTEGER CHECK (time_base_den IS NULL OR time_base_den > 0),
+      frame_count INTEGER CHECK (frame_count IS NULL OR frame_count >= 0),
+      duration_num INTEGER CHECK (duration_num IS NULL OR duration_num >= 0),
+      duration_den INTEGER CHECK (duration_den IS NULL OR duration_den > 0),
+      color_primaries TEXT CHECK (color_primaries IS NULL OR length(color_primaries) <= 120),
+      transfer TEXT CHECK (transfer IS NULL OR length(transfer) <= 120),
+      matrix TEXT CHECK (matrix IS NULL OR length(matrix) <= 120),
+      audio_codec TEXT CHECK (audio_codec IS NULL OR length(audio_codec) <= 160),
+      sample_rate INTEGER CHECK (sample_rate IS NULL OR sample_rate > 0),
+      channel_layout TEXT CHECK (channel_layout IS NULL OR length(channel_layout) <= 160),
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS technical_metadata_project_asset_idx
+      ON technical_metadata(project_id, source_asset_revision_id, created_at_utc_us DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS technical_metadata_probe_job_idx
+      ON technical_metadata(probe_job_id, created_at_utc_us DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS technical_metadata_streams (
+      id TEXT PRIMARY KEY,
+      technical_metadata_id TEXT NOT NULL REFERENCES technical_metadata(id),
+      stream_index INTEGER NOT NULL CHECK (stream_index >= 0 AND stream_index < 256),
+      stream_kind TEXT NOT NULL CHECK (stream_kind IN ('VIDEO', 'AUDIO', 'SUBTITLE')),
+      codec TEXT NOT NULL CHECK (length(codec) BETWEEN 1 AND 160),
+      disposition_default INTEGER NOT NULL DEFAULT 0 CHECK (disposition_default IN (0, 1)),
+      disposition_forced INTEGER NOT NULL DEFAULT 0 CHECK (disposition_forced IN (0, 1)),
+      width INTEGER CHECK (width IS NULL OR width > 0),
+      height INTEGER CHECK (height IS NULL OR height > 0),
+      pixel_format TEXT CHECK (pixel_format IS NULL OR length(pixel_format) <= 120),
+      sample_rate INTEGER CHECK (sample_rate IS NULL OR sample_rate > 0),
+      channels INTEGER CHECK (channels IS NULL OR channels > 0),
+      channel_layout TEXT CHECK (channel_layout IS NULL OR length(channel_layout) <= 160),
+      frame_rate_num INTEGER CHECK (frame_rate_num IS NULL OR frame_rate_num > 0),
+      frame_rate_den INTEGER CHECK (frame_rate_den IS NULL OR frame_rate_den > 0),
+      time_base_num INTEGER NOT NULL CHECK (time_base_num > 0),
+      time_base_den INTEGER NOT NULL CHECK (time_base_den > 0),
+      duration_num INTEGER CHECK (duration_num IS NULL OR duration_num >= 0),
+      duration_den INTEGER CHECK (duration_den IS NULL OR duration_den > 0),
+      frame_count INTEGER CHECK (frame_count IS NULL OR frame_count >= 0),
+      normalized_metadata_hash TEXT NOT NULL CHECK (length(normalized_metadata_hash) = 64),
+      created_at_utc_us INTEGER NOT NULL,
+      UNIQUE(technical_metadata_id, stream_index)
+    );
+    CREATE INDEX IF NOT EXISTS technical_metadata_streams_metadata_idx
+      ON technical_metadata_streams(technical_metadata_id, stream_index);
+
+    CREATE TABLE IF NOT EXISTS media_probe_evidence (
+      id TEXT PRIMARY KEY,
+      media_probe_attempt_id TEXT NOT NULL UNIQUE REFERENCES media_probe_attempts(id),
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+      state TEXT NOT NULL CHECK (state IN ('PASS', 'FAIL', 'UNKNOWN', 'CONFLICT')),
+      code TEXT CHECK (code IS NULL OR length(code) <= 160),
+      source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64),
+      source_byte_size INTEGER NOT NULL CHECK (source_byte_size >= 0),
+      toolchain_manifest_hash TEXT NOT NULL CHECK (length(toolchain_manifest_hash) = 64),
+      toolchain_binary_hash TEXT
+        CHECK (toolchain_binary_hash IS NULL OR length(toolchain_binary_hash) = 64),
+      probe_schema_version INTEGER NOT NULL CHECK (probe_schema_version >= 1),
+      parser_policy_version INTEGER NOT NULL CHECK (parser_policy_version >= 1),
+      observed_source_hash TEXT CHECK (observed_source_hash IS NULL OR length(observed_source_hash) = 64),
+      observed_source_byte_size INTEGER CHECK (observed_source_byte_size IS NULL OR observed_source_byte_size >= 0),
+      stdout_bytes INTEGER NOT NULL DEFAULT 0 CHECK (stdout_bytes BETWEEN 0 AND 8388608),
+      stderr_bytes INTEGER NOT NULL DEFAULT 0 CHECK (stderr_bytes BETWEEN 0 AND 1048576),
+      wall_time_ms INTEGER NOT NULL DEFAULT 0 CHECK (wall_time_ms BETWEEN 0 AND 120000),
+      validation_snapshot_hash TEXT NOT NULL CHECK (length(validation_snapshot_hash) = 64),
+      raw_evidence_object_id TEXT REFERENCES storage_objects(id),
+      raw_evidence_hash TEXT CHECK (raw_evidence_hash IS NULL OR length(raw_evidence_hash) = 64),
+      raw_evidence_byte_size INTEGER
+        CHECK (raw_evidence_byte_size IS NULL OR raw_evidence_byte_size BETWEEN 0 AND 8388608),
+      created_at_utc_us INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS media_probe_evidence_project_idx
+      ON media_probe_evidence(project_id, created_at_utc_us DESC, id DESC);
+
+    CREATE TRIGGER IF NOT EXISTS media_probe_job_identity_no_update
+      BEFORE UPDATE OF
+        project_id, asset_revision_id, source_content_hash, source_byte_size,
+        materialization_identity_hash, toolchain_manifest_hash, toolchain_id,
+        toolchain_version, probe_schema_version, parser_policy_version,
+        idempotency_key, request_hash, command_id, rights_generation, created_at_utc_us
+      ON media_probe_jobs
+      BEGIN SELECT RAISE(ABORT, 'media_probe_job identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS media_probe_attempt_identity_no_update
+      BEFORE UPDATE OF
+        media_probe_job_id, attempt_no, retry_kind, idempotency_key,
+        fencing_token, created_at_utc_us
+      ON media_probe_attempts
+      BEGIN SELECT RAISE(ABORT, 'media_probe_attempt identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS media_probe_attempts_no_delete
+      BEFORE DELETE ON media_probe_attempts
+      BEGIN SELECT RAISE(ABORT, 'media_probe_attempts are retained for audit'); END;
+    CREATE TRIGGER IF NOT EXISTS technical_metadata_identity_no_update
+      BEFORE UPDATE OF
+        project_id, source_asset_revision_id, source_content_hash, source_byte_size,
+        probe_job_id, probe_attempt_id, toolchain_manifest_hash, toolchain_binary_hash,
+        probe_schema_version, parser_policy_version, raw_evidence_object_id,
+        raw_evidence_hash, raw_evidence_byte_size, media_kind, container, codec,
+        width, height, pixel_format, bit_depth, frame_rate_num, frame_rate_den,
+        time_base_num, time_base_den, frame_count, duration_num, duration_den,
+        color_primaries, transfer, matrix, audio_codec, sample_rate, channel_layout,
+        metadata_json, created_at_utc_us
+      ON technical_metadata
+      BEGIN SELECT RAISE(ABORT, 'technical_metadata evidence is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS technical_metadata_stale_transition
+      BEFORE UPDATE OF evidence_state, stale_reason ON technical_metadata
+      WHEN NEW.evidence_state <> 'STALE'
+        OR OLD.evidence_state = 'STALE'
+        OR NEW.stale_reason IS NULL
+        OR length(NEW.stale_reason) = 0
+      BEGIN SELECT RAISE(ABORT, 'technical_metadata may only transition once to STALE'); END;
+    CREATE TRIGGER IF NOT EXISTS technical_metadata_no_delete
+      BEFORE DELETE ON technical_metadata
+      BEGIN SELECT RAISE(ABORT, 'technical_metadata is retained for audit'); END;
+    CREATE TRIGGER IF NOT EXISTS technical_metadata_streams_no_update
+      BEFORE UPDATE ON technical_metadata_streams
+      BEGIN SELECT RAISE(ABORT, 'technical_metadata_streams are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS technical_metadata_streams_no_delete
+      BEFORE DELETE ON technical_metadata_streams
+      BEGIN SELECT RAISE(ABORT, 'technical_metadata_streams are retained for audit'); END;
+    CREATE TRIGGER IF NOT EXISTS media_probe_evidence_no_update
+      BEFORE UPDATE ON media_probe_evidence
+      BEGIN SELECT RAISE(ABORT, 'media_probe_evidence is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS media_probe_evidence_no_delete
+      BEFORE DELETE ON media_probe_evidence
+      BEGIN SELECT RAISE(ABORT, 'media_probe_evidence is retained for audit'); END;
   `);
 
   // Slice 3A local managed-object integrity jobs.  These rows are a small
