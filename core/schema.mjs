@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -2661,6 +2661,77 @@ export function initializeDatabase(db) {
     CREATE INDEX IF NOT EXISTS media_probe_evidence_project_idx
       ON media_probe_evidence(project_id, created_at_utc_us DESC, id DESC);
 
+    /* v22 exact-binding guards for ProbeMediaAsset durable evidence. */
+    CREATE TRIGGER IF NOT EXISTS media_probe_jobs_source_binding_insert_guard BEFORE INSERT ON media_probe_jobs
+      WHEN NOT EXISTS (
+        SELECT 1 FROM asset_revisions ar
+        JOIN assets a ON a.id = ar.asset_id
+        JOIN storage_objects so ON so.id = ar.storage_object_id
+        WHERE ar.id = NEW.asset_revision_id
+          AND a.project_id = NEW.project_id
+          AND lower(so.content_hash) = lower(NEW.source_content_hash)
+          AND so.byte_size = NEW.source_byte_size
+      )
+      BEGIN SELECT RAISE(ABORT, 'media_probe_job source binding mismatch'); END;
+    CREATE TRIGGER IF NOT EXISTS media_probe_evidence_binding_insert_guard BEFORE INSERT ON media_probe_evidence
+      WHEN NOT EXISTS (
+        SELECT 1 FROM media_probe_attempts ma
+        JOIN media_probe_jobs j ON j.id = ma.media_probe_job_id
+        WHERE ma.id = NEW.media_probe_attempt_id
+          AND j.project_id = NEW.project_id
+          AND j.asset_revision_id = NEW.asset_revision_id
+          AND lower(j.source_content_hash) = lower(NEW.source_content_hash)
+          AND j.source_byte_size = NEW.source_byte_size
+          AND lower(j.toolchain_manifest_hash) = lower(NEW.toolchain_manifest_hash)
+          AND j.probe_schema_version = NEW.probe_schema_version
+          AND j.parser_policy_version = NEW.parser_policy_version
+      )
+      BEGIN SELECT RAISE(ABORT, 'media_probe_evidence binding mismatch'); END;
+    CREATE TRIGGER IF NOT EXISTS media_probe_evidence_pass_completeness_guard BEFORE INSERT ON media_probe_evidence
+      WHEN NEW.state = 'PASS' AND (
+        NEW.toolchain_binary_hash IS NULL
+        OR NEW.observed_source_hash IS NULL
+        OR lower(NEW.observed_source_hash) <> lower(NEW.source_content_hash)
+        OR NEW.observed_source_byte_size IS NULL
+        OR NEW.observed_source_byte_size <> NEW.source_byte_size
+        OR NEW.raw_evidence_hash IS NULL
+        OR NEW.raw_evidence_byte_size IS NULL
+      )
+      BEGIN SELECT RAISE(ABORT, 'PASS media_probe_evidence requires exact observed evidence'); END;
+    CREATE TRIGGER IF NOT EXISTS technical_metadata_binding_insert_guard BEFORE INSERT ON technical_metadata
+      WHEN NOT EXISTS (
+        SELECT 1 FROM media_probe_attempts ma
+        JOIN media_probe_jobs j ON j.id = ma.media_probe_job_id
+        WHERE ma.id = NEW.probe_attempt_id
+          AND j.id = NEW.probe_job_id
+          AND j.project_id = NEW.project_id
+          AND j.asset_revision_id = NEW.source_asset_revision_id
+          AND lower(j.source_content_hash) = lower(NEW.source_content_hash)
+          AND j.source_byte_size = NEW.source_byte_size
+          AND lower(j.toolchain_manifest_hash) = lower(NEW.toolchain_manifest_hash)
+          AND j.probe_schema_version = NEW.probe_schema_version
+          AND j.parser_policy_version = NEW.parser_policy_version
+      )
+      BEGIN SELECT RAISE(ABORT, 'technical_metadata probe binding mismatch'); END;
+    CREATE TRIGGER IF NOT EXISTS technical_metadata_pass_evidence_guard BEFORE INSERT ON technical_metadata
+      WHEN NEW.evidence_state = 'PASS' AND NOT EXISTS (
+        SELECT 1 FROM media_probe_evidence e
+        JOIN media_probe_attempts ma ON ma.id = e.media_probe_attempt_id
+        WHERE e.media_probe_attempt_id = NEW.probe_attempt_id
+          AND ma.state = 'SUCCEEDED'
+          AND e.state = 'PASS'
+          AND e.project_id = NEW.project_id
+          AND e.asset_revision_id = NEW.source_asset_revision_id
+          AND lower(e.source_content_hash) = lower(NEW.source_content_hash)
+          AND e.source_byte_size = NEW.source_byte_size
+          AND lower(e.toolchain_manifest_hash) = lower(NEW.toolchain_manifest_hash)
+          AND lower(e.toolchain_binary_hash) = lower(NEW.toolchain_binary_hash)
+          AND e.probe_schema_version = NEW.probe_schema_version
+          AND e.parser_policy_version = NEW.parser_policy_version
+          AND lower(e.raw_evidence_hash) = lower(NEW.raw_evidence_hash)
+          AND e.raw_evidence_byte_size = NEW.raw_evidence_byte_size
+      )
+      BEGIN SELECT RAISE(ABORT, 'PASS technical_metadata requires successful exact evidence'); END;
     CREATE TRIGGER IF NOT EXISTS media_probe_job_identity_no_update
       BEFORE UPDATE OF
         project_id, asset_revision_id, source_content_hash, source_byte_size,

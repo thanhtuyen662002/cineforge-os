@@ -341,7 +341,7 @@ test('media probe schema is dedicated and additive', () => {
   const { dbPath, assetStorePath } = tempDb();
   const core = new CoreService({ dbPath, assetStorePath });
   try {
-    assert.equal(core.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, 21);
+    assert.equal(core.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, 22);
     const names = core.db.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'media_probe_%' ORDER BY name"
     ).all().map((row) => row.name);
@@ -354,6 +354,10 @@ test('media probe schema is dedicated and additive', () => {
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'jobs'"
     ).get().sql;
     assert.equal(genericSql.includes('MEDIA_PROBE'), false);
+    const guardNames = core.db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name IN ('media_probe_jobs_source_binding_insert_guard','media_probe_evidence_binding_insert_guard','media_probe_evidence_pass_completeness_guard','technical_metadata_binding_insert_guard','technical_metadata_pass_evidence_guard') ORDER BY name"
+    ).all().map((row) => row.name);
+    assert.equal(guardNames.length, 5);
   } finally {
     core.close();
   }
