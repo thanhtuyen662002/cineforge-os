@@ -78,7 +78,7 @@ function parseStrictJson(input, limits) {
   const text = decodeUtf8(input, limits.maxBytes);
   let index = 0;
   let nodes = 0;
-  const skip = () => { while (index < text.length && [' ', '\\t', '\\r', '\\n'].includes(text[index])) index += 1; };
+  const skip = () => { while (index < text.length && [' ', '\t', '\r', '\n'].includes(text[index])) index += 1; };
   const count = (depth) => {
     nodes += 1;
     if (nodes > limits.maxNodes) fail('JSON_TOO_MANY_NODES');
