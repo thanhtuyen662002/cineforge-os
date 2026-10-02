@@ -46,6 +46,8 @@ $hash = (Get-FileHash -LiteralPath $exe.FullName -Algorithm SHA256).Hash.ToLower
 Write-Output ('CINEFORGE_EXE_BYTES=' + $exe.Length)
 Write-Output ('CINEFORGE_EXE_SHA256=' + $hash)
 git diff --exit-code
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+git diff --cached --exit-code
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"""
 AGGREGATE = r"""set -euo pipefail
 printf 'policy=%s docs=%s runtime=%s core_app=%s windows=%s\n' "$POLICY" "$DOCS" "$RUNTIME" "$CORE_APP" "$WINDOWS"

@@ -15,6 +15,7 @@ import subprocess
 import sys
 
 from execution_policy import check_execution_contract
+from source_policy import validate_documentation_only
 
 REPO = "thanhtuyen662002/cineforge-os"
 WORKFLOW = ".github/workflows/cineforge-ci.yml"
@@ -124,6 +125,8 @@ def classify(paths: set[str], previous: set[str] | None = None) -> bool:
             require(path in paths, f"Incomplete runtime source: {path}")
         require(any(p.startswith("core/") and p.endswith(".test.mjs") for p in paths), "Core tests missing")
         require(any(p.startswith("app/") and (p.endswith(".test.ts") or p.endswith(".test.tsx")) for p in paths), "UI tests missing")
+    else:
+        validate_documentation_only(paths)
     return runtime
 
 
