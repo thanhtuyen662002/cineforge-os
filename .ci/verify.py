@@ -14,6 +14,8 @@ import re
 import subprocess
 import sys
 
+from execution_policy import check_execution_contract
+
 REPO = "thanhtuyen662002/cineforge-os"
 WORKFLOW = ".github/workflows/cineforge-ci.yml"
 ACTIONS = {
@@ -108,6 +110,7 @@ def check_policy(workflow: dict) -> None:
     for command in required_commands:
         require(command in runs, f"Missing mandatory command: {command}")
     require("-SkipTests" not in runs and "-SkipCoreBundle" not in runs, "Packaging cannot skip test/runtime gates")
+    check_execution_contract(workflow)
 
 
 def classify(paths: set[str], previous: set[str] | None = None) -> bool:
