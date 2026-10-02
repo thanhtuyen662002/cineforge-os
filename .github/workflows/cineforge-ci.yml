@@ -1,0 +1,78 @@
+{
+  "name": "CineForge CI",
+  "on": {
+    "push": {"branches": ["main", "agent/**", "ci/bootstrap-*"]},
+    "pull_request": {"types": ["opened", "synchronize", "reopened", "ready_for_review", "edited"]},
+    "workflow_dispatch": {}
+  },
+  "permissions": {"contents": "read"},
+  "concurrency": {"group": "cineforge-ci-${{ github.event_name }}-${{ github.ref }}", "cancel-in-progress": true},
+  "env": {"CI": "true", "PYTHONDONTWRITEBYTECODE": "1", "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"},
+  "jobs": {
+    "policy": {
+      "name": "Policy and source context",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "outputs": {"runtime": "${{ steps.context.outputs.runtime }}"},
+      "steps": [
+        {"name": "Checkout event SHA (PR merge context or push HEAD)", "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", "with": {"fetch-depth": 0, "persist-credentials": false}},
+        {"name": "Validate CI policy", "run": "python .ci/verify.py policy"},
+        {"name": "Policy regression and negative tests", "run": "python -m unittest discover -s .ci -p 'test_*.py' -v"},
+        {"id": "context", "name": "Record exact source context and required scope", "run": "python .ci/verify.py context"},
+        {"name": "Keep source-context evidence", "if": "always()", "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", "with": {"name": "ci-context-${{ github.run_id }}-${{ github.run_attempt }}", "path": "${{ runner.temp }}/cineforge-ci-context.json", "if-no-files-found": "warn", "retention-days": 3}}
+      ]
+    },
+    "docs": {
+      "name": "Documentation and control gates",
+      "needs": ["policy"],
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "steps": [
+        {"name": "Checkout event SHA (PR merge context or push HEAD)", "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", "with": {"fetch-depth": 0, "persist-credentials": false}},
+        {"name": "Run required documentation and control checks", "run": "python .ci/verify.py docs"}
+      ]
+    },
+    "core-app": {
+      "name": "Core and UI tests",
+      "needs": ["policy"],
+      "if": "needs.policy.outputs.runtime == 'true'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 20,
+      "steps": [
+        {"name": "Checkout event SHA (PR merge context or push HEAD)", "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", "with": {"fetch-depth": 0, "persist-credentials": false}},
+        {"name": "Set up baseline Node 22.16.0", "uses": "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020", "with": {"node-version": "22.16.0"}},
+        {"name": "Core unit and integration tests", "run": "npm test --prefix core"},
+        {"name": "Install locked UI dependencies", "run": "npm ci --prefix app --no-audit --no-fund"},
+        {"name": "UI tests", "run": "npm test --prefix app -- --run"},
+        {"name": "TypeScript and production build", "run": "npm run build --prefix app"},
+        {"name": "Tracked source stays unchanged", "run": "git diff --exit-code && git diff --cached --exit-code"}
+      ]
+    },
+    "windows-package": {
+      "name": "Windows package",
+      "needs": ["policy"],
+      "if": "needs.policy.outputs.runtime == 'true'",
+      "runs-on": "windows-2022",
+      "timeout-minutes": 35,
+      "steps": [
+        {"name": "Checkout event SHA (PR merge context or push HEAD)", "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", "with": {"fetch-depth": 0, "persist-credentials": false}},
+        {"name": "Set up baseline Node 22.16.0", "uses": "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020", "with": {"node-version": "22.16.0"}},
+        {"name": "Set up pinned .NET SDK", "uses": "actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9", "with": {"global-json-file": "global.json"}},
+        {"name": "Record real Windows tools", "shell": "powershell", "run": "$ErrorActionPreference = 'Stop'\nnode --version\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\ndotnet --version\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\npython --version\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n$PSVersionTable.PSVersion.ToString()\ngit status --porcelain=v1 --untracked-files=all"},
+        {"name": "Build one-file EXE and run smoke restart tamper tests", "shell": "powershell", "run": "$ErrorActionPreference = 'Stop'\n& .\\packaging\\build_windows.ps1 -Mode SingleFile\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"},
+        {"name": "Record verified developer artifact identity (no publication)", "shell": "powershell", "run": "$ErrorActionPreference = 'Stop'\n$exe = Get-Item -LiteralPath dist/CineForge-OneFile/CineForge.exe\n$hash = (Get-FileHash -LiteralPath $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()\nWrite-Output ('CINEFORGE_EXE_BYTES=' + $exe.Length)\nWrite-Output ('CINEFORGE_EXE_SHA256=' + $hash)\ngit diff --exit-code\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\ngit diff --cached --exit-code\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"}
+      ]
+    },
+    "required": {
+      "name": "CineForge required",
+      "if": "always()",
+      "needs": ["policy", "docs", "core-app", "windows-package"],
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      "env": {"POLICY": "${{ needs.policy.result }}", "DOCS": "${{ needs.docs.result }}", "RUNTIME": "${{ needs.policy.outputs.runtime }}", "CORE_APP": "${{ needs.core-app.result }}", "WINDOWS": "${{ needs.windows-package.result }}"},
+      "steps": [
+        {"name": "Fail closed on failed cancelled or missing required jobs", "shell": "bash", "run": "set -euo pipefail\nprintf 'policy=%s docs=%s runtime=%s core_app=%s windows=%s\\n' \"$POLICY\" \"$DOCS\" \"$RUNTIME\" \"$CORE_APP\" \"$WINDOWS\"\ntest \"$POLICY\" = success\ntest \"$DOCS\" = success\ncase \"$RUNTIME\" in\n  true) test \"$CORE_APP\" = success; test \"$WINDOWS\" = success ;;\n  false) test \"$CORE_APP\" = skipped; test \"$WINDOWS\" = skipped ;;\n  *) echo 'Missing or invalid scope evidence'; exit 1 ;;\nesac\necho 'CINEFORGE_REQUIRED=PASS (test evidence; not review or release approval)'"}
+      ]
+    }
+  }
+}
