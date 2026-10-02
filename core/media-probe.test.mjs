@@ -128,11 +128,13 @@ test('rejects non-finite JSON numbers', () => {
   expectCode(() => parseMediaProbeJson('{"format":{"format_name":"mp4","duration":"1","size":1e9999},"streams":[{}]}'), 'JSON_NUMBER_NONFINITE');
 });
 
-test('rejects zero, negative and overflowing rational components', () => {
-  for (const rate of ['30000/0', '0/1001', '2147483648/1']) {
+test('rejects zero, negative and overflowing rational components before reduction', () => {
+  for (const rate of ['30000/0', '0/1001', '2147483648/1', '4294967294/2', '2/4294967294']) {
     const value = fixture();
     value.streams[0].avg_frame_rate = rate;
-    const code = rate === '30000/0' ? 'RATIONAL_ZERO_DENOMINATOR' : rate === '2147483648/1' ? 'RATIONAL_OVERFLOW' : 'RATIONAL_INVALID';
+    const code = rate === '30000/0' ? 'RATIONAL_ZERO_DENOMINATOR'
+      : rate === '0/1001' ? 'RATIONAL_INVALID'
+        : 'RATIONAL_OVERFLOW';
     expectCode(() => parseMediaProbeJson(json(value)), code);
   }
   const value = fixture();

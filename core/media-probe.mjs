@@ -205,7 +205,10 @@ function normalizedRational(numerator, denominator, field, maxComponent = MAX_SA
 function parseRational(value, field, maxComponent = MAX_RATE_COMPONENT) {
   if (typeof value !== 'string' || !/^\d+\/\d+$/.test(value)) fail('RATIONAL_INVALID', { field });
   const [rawNum, rawDen] = value.split('/');
-  return normalizedRational(BigInt(rawNum), BigInt(rawDen), field, maxComponent);
+  const numerator = BigInt(rawNum);
+  const denominator = BigInt(rawDen);
+  if (numerator > maxComponent || denominator > maxComponent) fail('RATIONAL_OVERFLOW', { field });
+  return normalizedRational(numerator, denominator, field, maxComponent);
 }
 
 function parseDecimalRational(value, field) {
