@@ -149,6 +149,9 @@ test('enforces stream policy limit independently of the JSON array budget', () =
   expectCode(() => parseMediaProbeJson(json(value), { limits: { maxStreams: 2 } }), 'STREAM_COUNT_EXCEEDED');
 });
 
-test('does not allow callers to widen the repository hard maximum stream budget', () => {
-  expectCode(() => parseMediaProbeJson(json(fixture()), { limits: { maxStreams: MEDIA_PROBE_LIMITS.maxStreams + 1 } }), 'LIMIT_INVALID');
+test('does not allow callers to widen repository hard resource budgets or add limit fields', () => {
+  for (const [field, hardMaximum] of Object.entries(MEDIA_PROBE_LIMITS)) {
+    expectCode(() => parseMediaProbeJson(json(fixture()), { limits: { [field]: hardMaximum + 1 } }), 'LIMIT_INVALID');
+  }
+  expectCode(() => parseMediaProbeJson(json(fixture()), { limits: { maxEverything: 1 } }), 'LIMIT_UNKNOWN_FIELD');
 });

@@ -24,6 +24,7 @@ export const MEDIA_PROBE_LIMITS = Object.freeze({
   maxKeysPerObject: 128,
 });
 
+const LIMIT_KEYS = new Set(Object.keys(MEDIA_PROBE_LIMITS));
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 const MAX_RATE_COMPONENT = 2_147_483_647n;
 const MAX_DIMENSION = 32_768;
@@ -222,6 +223,20 @@ function boundedIdentifier(value, field, pattern = IDENTIFIER) {
   return value;
 }
 
+function resolveLimits(overrides = {}) {
+  if (!objectLike(overrides)) fail('LIMIT_INVALID', { field: 'limits' });
+  requireOnlyKeys(overrides, LIMIT_KEYS, 'LIMIT_UNKNOWN_FIELD', 'limits');
+  const limits = { ...MEDIA_PROBE_LIMITS, ...overrides };
+  for (const [field, hardMaximum] of Object.entries(MEDIA_PROBE_LIMITS)) {
+    const value = limits[field];
+    const minimum = field === 'maxDepth' ? 0 : 1;
+    if (!Number.isSafeInteger(value) || value < minimum || value > hardMaximum) {
+      fail('LIMIT_INVALID', { field });
+    }
+  }
+  return Object.freeze(limits);
+}
+
 function parseDisposition(value, streamIndex) {
   if (value === undefined) return Object.freeze({});
   if (!objectLike(value)) fail('DISPOSITION_INVALID', { stream_index: streamIndex });
@@ -306,10 +321,7 @@ function parseStream(stream, position) {
  * and cannot create verified technical metadata.
  */
 export function parseMediaProbeJson(input, options = {}) {
-  const limits = Object.freeze({ ...MEDIA_PROBE_LIMITS, ...(options.limits ?? {}) });
-  if (!Number.isSafeInteger(limits.maxStreams) || limits.maxStreams < 1 || limits.maxStreams > MEDIA_PROBE_LIMITS.maxStreams) {
-    fail('LIMIT_INVALID', { field: 'maxStreams' });
-  }
+  const limits = resolveLimits(options.limits ?? {});
   const value = parseStrictJson(input, limits);
   if (!objectLike(value)) fail('PROBE_ROOT_INVALID');
   requireOnlyKeys(value, TOP_LEVEL_KEYS, 'PROBE_UNKNOWN_FIELD', 'root');
