@@ -237,6 +237,12 @@ function boundedIdentifier(value, field, pattern = IDENTIFIER) {
   return value;
 }
 
+function deepFreeze(value) {
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
 function resolveLimits(overrides = {}) {
   if (!objectLike(overrides)) fail('LIMIT_INVALID', { field: 'limits' });
   requireOnlyKeys(overrides, LIMIT_KEYS, 'LIMIT_UNKNOWN_FIELD', 'limits');
@@ -362,7 +368,7 @@ export function parseMediaProbeJson(input, options = {}) {
     indexes.add(stream.index);
   }
 
-  return {
+  return deepFreeze({
     schema_version: MEDIA_PROBE_SCHEMA_VERSION,
     parser_policy_version: MEDIA_PROBE_PARSER_POLICY_VERSION,
     container,
@@ -370,5 +376,5 @@ export function parseMediaProbeJson(input, options = {}) {
     byte_size: byteSize,
     bit_rate: bitRate,
     streams,
-  };
+  });
 }

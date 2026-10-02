@@ -66,6 +66,20 @@ test('accepts the fixed bounded video/audio profile and preserves exact rational
   assert.equal(parsed.streams[1].sample_rate, 48000);
 });
 
+test('returns deeply immutable validated metadata so callers cannot mutate evidence after parsing', () => {
+  const parsed = parseMediaProbeJson(json(fixture()));
+  assert.equal(Object.isFrozen(parsed), true);
+  assert.equal(Object.isFrozen(parsed.duration), true);
+  assert.equal(Object.isFrozen(parsed.streams), true);
+  assert.equal(Object.isFrozen(parsed.streams[0]), true);
+  assert.equal(Object.isFrozen(parsed.streams[0].time_base), true);
+  assert.equal(Object.isFrozen(parsed.streams[0].disposition), true);
+  assert.throws(() => { parsed.streams[0].width = 1; }, TypeError);
+  assert.throws(() => { parsed.streams.push(parsed.streams[0]); }, TypeError);
+  assert.equal(parsed.streams[0].width, 1920);
+  assert.equal(parsed.streams.length, 2);
+});
+
 test('rejects malformed JSON and invalid UTF-8', () => {
   expectCode(() => parseMediaProbeJson('{"format":'), 'JSON_VALUE_INVALID');
   expectCode(() => parseMediaProbeJson(Buffer.from([0x7b, 0xff, 0x7d])), 'JSON_INVALID_UTF8');
