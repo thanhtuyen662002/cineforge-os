@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "issue": 67,
+  "attempt": 1,
+  "agent_instance_id": "cineforge-WORK-ci-bootstrap",
+  "slot_id": "WORK-ci-bootstrap",
+  "run_id": "WORK-ci-bootstrap-20261002-01",
+  "base_sha": "20d5a6f1760df3b49cc18e93ba0e938187e25e2a",
+  "task_contract_version": 1,
+  "task_contract_hash": "sha256:e3d4e2ed69b17b3f5360473201e1a9c36902aa32ae8023006789ebedae89a464",
+  "context_base_sha": "20d5a6f1760df3b49cc18e93ba0e938187e25e2a",
+  "context_paths": ["AGENTS.md", "docs/orchestration/CONTEXT_LOADING_PROTOCOL.md", "docs/orchestration/FINAL_GITHUB_AGENT_OPERATING_MODEL.md", "docs/orchestration/BASELINE_LOCK.md", "docs/orchestration/BOOTSTRAP_READINESS.md", "docs/orchestration/CI_REVIEW_MERGE_PROTOCOL.md", "docs/orchestration/GOVERNANCE_AND_CI_SECURITY.md"],
+  "allowed_write_paths": [".ci/", ".cineforge/claims/", ".github/rulesets/", ".github/workflows/cineforge-ci.yml", "global.json"],
+  "runtime_validation_base": "85d7ae1a3e39ee20bdeb3cf0a28b4cf71ed53c4b",
+  "independent_review": "PENDING",
+  "trusted_verifier_promotion": "NOT_APPROVED",
+  "ruleset_activation": "NOT_APPLIED"
+}
