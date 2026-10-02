@@ -71,6 +71,14 @@ test('rejects malformed JSON and invalid UTF-8', () => {
   expectCode(() => parseMediaProbeJson(Buffer.from([0x7b, 0xff, 0x7d])), 'JSON_INVALID_UTF8');
 });
 
+test('accepts only RFC 8259 JSON whitespace and rejects Unicode whitespace', () => {
+  const standard = ` \t\r\n${json(fixture())}\n\r\t `;
+  assert.equal(parseMediaProbeJson(standard).streams.length, 2);
+  for (const whitespace of ['\u00a0', '\u1680', '\u2003', '\u2028', '\u2029', '\u3000']) {
+    expectCode(() => parseMediaProbeJson(`${whitespace}${json(fixture())}`), 'JSON_VALUE_INVALID');
+  }
+});
+
 test('rejects duplicate and unsafe object keys before schema validation', () => {
   expectCode(() => parseMediaProbeJson('{"format":{},"format":{},"streams":[]}'), 'JSON_DUPLICATE_KEY');
   expectCode(() => parseMediaProbeJson('{"__proto__":{},"format":{},"streams":[]}'), 'JSON_UNSAFE_KEY');
