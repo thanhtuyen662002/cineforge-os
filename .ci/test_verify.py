@@ -22,6 +22,11 @@ class ScopeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Incomplete runtime'):
             classify(paths)
 
+    def test_missing_single_file_tamper_test_fails(self):
+        paths = set(BASELINE + RUNTIME) - {'packaging/single_file_tamper_test.ps1'}
+        with self.assertRaisesRegex(ValueError, 'Incomplete runtime'):
+            classify(paths)
+
     def test_partial_runtime_fails(self):
         with self.assertRaisesRegex(ValueError, 'Incomplete runtime'):
             classify(set(BASELINE) | {'core/README.md'})
