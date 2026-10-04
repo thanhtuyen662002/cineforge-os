@@ -486,3 +486,21 @@ fencing tokens, raw diagnostics and provider fields remain internal. This
 slice deliberately excludes generation, provider dispatch, remote jobs,
 arbitrary shell/CLI execution, automatic repair/quarantine, destructive GC,
 restore activation and recovery-epoch machinery.
+
+
+## ProbeMediaAsset parser preparation
+
+`media-probe.mjs` is a pure, bounded parser of producer bytes. The prepared
+profile and proposed limits are documented in
+`FINAL_DETAILED_DESIGN.md#DESIGN-MEDIA-PROBE-PARSER-01`. It accepts exact typed
+audio/video facts, rejects ambiguous or unsafe output, and never grants PASS,
+rights or release authority. Its result has no filesystem/process/DB side effect.
+
+Run adversarial tests with:
+
+`node --test core/media-probe.test.mjs`
+
+This preparation is not connected to Core commands, durable jobs, HTTP or UI.
+Certified producer/process containment, additive migrations, exact source and
+rights binding, independent review and production integration are still required.
+Parser success alone must not be used as a readiness gate.

@@ -7775,3 +7775,22 @@ transaction that appends `technical_metadata`, stream inventory and evidence.
 No PATH lookup, shell interpolation, automatic download, network/provider
 dispatch, render/transcode, master output, release activation or publish effect
 is reachable through this capability.
+
+
+# MEDIA-PROBE-PARSER-TEST-01. Prepared parser adversarial cases
+
+The prepared parser must exercise malformed UTF-8/JSON, decoded duplicate
+keys, prototype keys, unsafe numeric literals, zero and overflowing rationals,
+bounded depth/nodes/strings/arrays/streams/output, unsupported stream kinds,
+unsafe disposition, invalid media dimensions and audio bounds, duplicate
+stream indices, exact rational normalization and contradictory duration or
+frame evidence. Unknown keys or secret/path-bearing fields must fail with a
+fixed redacted code. Failure responses must never echo attacker input.
+
+Profile limits can tighten but cannot be widened through call options.
+Numeric checks occur before arithmetic or allocations based on media facts.
+An accepted parse has no PASS flag or source identity authority. Persistent
+VERIFYING must remain cancellable and a changed fence/pin must prevent binding;
+those Core/migration/process tests remain SPECIFIED, not parser proof. Parser
+unit tests do not prove sandboxing, process-tree containment, rights checks,
+source TOCTOU safety, restart fencing or a certified real toolchain.

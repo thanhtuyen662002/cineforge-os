@@ -581,3 +581,79 @@ idempotency, stale-fencing, rights, project-isolation, redaction and packaging
 negative paths with executable tests. Documentation maturity remains
 `SPECIFIED` until the corresponding code, independent review and exact-head
 evidence exist; prose alone never advances a control to `PRODUCTION_PROVEN`.
+
+
+# DESIGN-MEDIA-PROBE-PARSER-01. Prepared bounded JSON profile
+
+The proposed profile MEDIA_PROBE_PARSER_V1 is prepared for review, not a
+certified descriptor or production promotion. It uses the hardening defaults
+8 MiB stdout, depth 32, 50000 total nodes including object keys, 4096 UTF-8
+bytes per decoded string, 256 streams and 1024 entries per array. Callers can
+only tighten these limits. Numeric JSON tokens must be safe integer literals;
+fractions and exponent forms are rejected. Decimal media durations and
+rational rates arrive as strings and are converted with checked BigInt, never
+floating point. Rational components and normalized API forms cannot exceed
+Number.MAX_SAFE_INTEGER; duration is positive and at most 604800 seconds.
+Proposed physical bounds are 32768 per dimension, 1000 frames/second,
+384000 samples/second and 64 channels; expansion requires a new policy review.
+
+The root allowlist is format and streams. Format permits format_name,
+duration, size, nb_streams. Streams permit index, codec_type, codec_name,
+time_base, duration_ts, duration, r_frame_rate, avg_frame_rate, nb_frames,
+width, height, pix_fmt, sample_aspect_ratio, color_range, color_space,
+color_transfer, color_primaries, sample_rate, channels, channel_layout,
+sample_fmt and disposition. Disposition permits only the declared ffprobe
+integer boolean flags. duration_ts permits a safe integer JSON token or an unsigned decimal string;
+other temporal ratios/durations and nb_frames remain strings.
+No filename, tags, arbitrary metadata or raw output
+can enter the typed result. Tokens must belong to the fixed prepared profile enumerations for codecs,
+container formats, pixel/sample formats, color fields and channel layouts.
+Unrecognized identifiers remain UNKNOWN and cannot project attacker text.
+Video codecs: h264, hevc, av1, vp8, vp9, mpeg4, mpeg2video, prores, dnxhd,
+ffv1, rawvideo, mjpeg, png, jpeg2000. Audio codecs: aac, mp3, opus, vorbis,
+flac, alac, pcm_s16le, pcm_s24le, pcm_s32le, pcm_f32le, pcm_f64le,
+pcm_s16be, pcm_s24be, pcm_s32be, ac3, eac3, dts. Container tokens: mov, mp4,
+m4a, 3gp, 3g2, mj2, matroska, webm, avi, wav, flac, mp3, ogg, mpegts,
+mpeg, nut, image2, image2pipe, aac, ac3, eac3; combinations use commas.
+Pixel formats: yuv420p, yuv422p, yuv444p, yuv420p10le, yuv422p10le,
+yuv444p10le, yuv420p12le, yuv422p12le, yuv444p12le, yuva420p, yuva422p,
+yuva444p, nv12, nv21, p010le, rgb24, bgr24, rgba, bgra, argb, abgr,
+gbrp, gbrp10le, gbrp12le, gbrap, gray, gray16le, gray16be, pal8.
+Sample formats: u8, u8p, s16, s16p, s32, s32p, s64, s64p, flt, fltp,
+dbl, dblp. Channel layouts: mono, stereo, 2.1, 3.0, 3.0(back), quad,
+quad(side), 4.0, 4.1, 5.0, 5.0(side), 5.1, 5.1(side), 6.1, 7.1,
+7.1(wide), 7.1(wide-side), hexagonal, octagonal. Color range: unknown, tv, pc. Color space: unknown, rgb, bt709, fcc, bt470bg,
+smpte170m, smpte240m, ycgco, bt2020nc, bt2020c, smpte2085,
+chroma-derived-nc, chroma-derived-c, ictcp. Transfer: unknown, bt709,
+gamma22, gamma28, smpte170m, smpte240m, linear, log, log_sqrt,
+iec61966-2-4, bt1361e, iec61966-2-1, bt2020-10, bt2020-12, smpte2084,
+smpte428, arib-std-b67. Primaries: unknown, bt709, bt470m, bt470bg,
+smpte170m, smpte240m, film, bt2020, smpte428, smpte431, smpte432, ebu3213; absent
+values stay null and the literal unknown stays unknown, never PASS.
+Tokens are bounded ASCII identifiers; invalid
+values produce fixed codes without echoing attacker content.
+
+Audio/video are the only supported stream kinds in this prepared profile.
+Video requires exact average and nominal rates and dimensions; audio requires
+sample rate and channels. Every stream requires time_base and duration_ts.
+Missing or unsupported facts produce UNKNOWN rather than inferred defaults.
+Rates or aspect ratios with zero denominator, including 0/0 and N/A sentinels,
+are rejected; no audio-specific sentinel exception is silently introduced.
+The certified producer must emit exactly this allowlist or the reviewed
+profile must change before it can be used with real ffprobe output.
+
+Stream duration_ts multiplied by time_base is authoritative. A media clock
+tick must not exceed one second in this prepared profile. Optional decimal
+duration may differ by at most one stream tick plus 1 microsecond for printed
+precision. Frame count with average rate may differ by at most one tick and
+1 microsecond; this does not assert constant frame cadence.
+Container duration cannot be shorter than a stream by more than one stream
+tick plus 1 microsecond. Contradictory facts return CONFLICT, never best effort
+success. Missing color or layout stays null; no format or rate default is
+invented. Streams are ordered by index and duplicate indices are rejected.
+
+A successful parse returns only typed facts and versions. Core must still
+verify exact source/toolchain/rights/fence/process evidence before creating a
+canonical measurement or PASS. There is no additive DB migration in this
+parser-only preparation. Production descriptor, custody and independent
+review remain outstanding; do not expose this module as a working UI action.

@@ -2283,3 +2283,15 @@ become canonical identity. The current renderer preflight may be consumed as a
 toolchain evidence input, but `execution_state=DISABLED` remains the boundary
 until separately reviewed typed renderer, QC, durability, activation, export
 and publish contracts are implemented.
+
+
+# ARCH-MEDIA-PROBE-STATE-01. Probe verification state alignment
+
+The additive media-probe state vocabulary includes VERIFYING, CONFLICT and
+BLOCKED_MEDIA. VERIFYING is a cancellable pre-binding phase; CONFLICT is an
+explicit contradiction and BLOCKED_MEDIA means the exact input lacks usable
+media evidence. None is PASS. Schema, state machine and API must agree before
+any migration or Core binding is implemented. Slice 3A integrity jobs keep
+separate semantics and constraints. The standalone prepared parser is pure:
+it has no process, filesystem, DB, rights or release authority. Parsing success
+is typed untrusted evidence only, never a technical-media gate result.

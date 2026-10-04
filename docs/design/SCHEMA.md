@@ -5356,10 +5356,10 @@ probe. The canonical relational entity remains `technical_metadata`.
   manifest, schema/policy versions and canonical request hash.
 
 Allowed job states are `QUEUED`, `CLAIMED`, `RUNNING`, `PARSING`,
-`COMPLETED`, `FAILED_RETRYABLE`, `FAILED_FINAL`, `UNKNOWN`,
-`BLOCKED_TOOLCHAIN`, `BLOCKED_RIGHTS`, `CANCEL_REQUESTED`, `CANCELLED` and
-`STALE`. `UNKNOWN`, `BLOCKED_*` and `STALE` never satisfy a technical-media
-readiness gate.
+`VERIFYING`, `COMPLETED`, `FAILED_RETRYABLE`, `FAILED_FINAL`, `UNKNOWN`,
+`CONFLICT`, `BLOCKED_TOOLCHAIN`, `BLOCKED_MEDIA`, `BLOCKED_RIGHTS`,
+`CANCEL_REQUESTED`, `CANCELLED` and `STALE`. `UNKNOWN`, `CONFLICT`,
+`BLOCKED_*` and `STALE` never satisfy a technical-media readiness gate.
 
 ## `media_probe_attempts`
 
