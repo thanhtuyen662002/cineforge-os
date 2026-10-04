@@ -415,3 +415,18 @@ test('canonical measurement rejects unsafe scalars and raw extension data before
     assert.equal(f.db.prepare('SELECT count(*) AS n FROM technical_metadata').get().n, 0);
   } finally { f.close(); }
 });
+
+
+test('digest guards reject NUL suffixes in new and previously initialized schema 21', () => {
+  const f = persistenceFixture();
+  try {
+    f.db.exec('DROP TRIGGER media_probe_jobs_hash_bytes_insert');
+    initializeDatabase(f.db);
+    const bad = 'a'.repeat(64) + String.fromCharCode(0) + 'hidden-suffix';
+    assert.throws(() => insert(f.db, 'media_probe_jobs', { ...f.job, id: 'nul-job', idempotency_key: 'nul-job',
+      canonical_request_hash: '0'.repeat(64), rights_generation: bad }), /digest|constraint/i);
+    verifying(f);
+    assert.throws(() => f.db.prepare('UPDATE media_probe_attempts SET input_envelope_hash=?,row_version=row_version+1').run(bad), /digest|constraint/i);
+    assert.equal(f.db.prepare('SELECT count(*) AS n FROM media_probe_jobs').get().n, 1);
+  } finally { f.close(); }
+});

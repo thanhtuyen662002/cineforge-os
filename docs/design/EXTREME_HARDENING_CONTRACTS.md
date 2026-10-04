@@ -7807,3 +7807,8 @@ measurements/streams/evidence must reject updates and deletes. Fixtures that
 write privileged SQL test the relational boundary only: they are not evidence
 that public commands, real toolchain/process isolation or rights gates work.
 Those controls remain SPECIFIED until independently reviewed integration.
+
+
+Prepared hash guards validate 64 ASCII bytes, not SQLite text length alone:
+embedded NUL suffixes must not pass digest checks. Regression fixtures cover
+new inserts and already-created schema-21 databases without rewriting rows.

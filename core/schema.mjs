@@ -2618,7 +2618,7 @@ function assertProbeMigrationCompatible(db) {
 // Kernel-only schema preparation. No commands, producers, routes or PASS
 // authority are activated here; privileged fixtures test relational guards.
 function initializeProbePersistence(db) {
-  const hash = column => `${column} IS NULL OR (length(${column})=64 AND ${column} NOT GLOB '*[^0-9a-f]*')`;
+  const hash = column => `${column} IS NULL OR (length(CAST(${column} AS BLOB))=64 AND ${column} NOT GLOB '*[^0-9a-f]*')`;
   const safe = (column, min = 0) => `${column} IS NULL OR (typeof(${column})='integer' AND ${column} BETWEEN ${min} AND 9007199254740991)`;
   const bounded = (column, max = 128) => `${column} IS NULL OR length(${column}) BETWEEN 1 AND ${max}`;
   db.exec('SAVEPOINT media_probe_schema_21');
@@ -2860,6 +2860,20 @@ function initializeProbePersistence(db) {
         OR (SELECT count(*) FROM json_each(NEW.disposition_json))!=(SELECT count(DISTINCT key) FROM json_each(NEW.disposition_json)))
       BEGIN SELECT RAISE(ABORT,'technical_metadata unsafe disposition'); END;
     `);
+    const hashColumns = {
+      media_probe_jobs: ['source_content_hash','toolchain_manifest_hash','toolchain_binary_hash','rights_generation','canonical_request_hash'],
+      media_probe_attempts: ['input_envelope_hash','output_envelope_hash'],
+      technical_metadata: ['source_content_hash','toolchain_manifest_hash','raw_evidence_hash','normalized_metadata_hash'],
+      technical_metadata_streams: ['normalized_metadata_hash'],
+      media_probe_evidence: ['source_content_hash','toolchain_manifest_hash','observed_source_hash','validation_snapshot_hash'],
+    };
+    for (const [table, digests] of Object.entries(hashColumns)) {
+      const invalid = digests.map(column => 'NEW.' + column + ' IS NOT NULL AND (length(CAST(NEW.' + column
+        + " AS BLOB))!=64 OR NEW." + column + " GLOB '*[^0-9a-f]*')").map(check => '(' + check + ')').join(' OR ');
+      for (const operation of ['INSERT','UPDATE']) db.exec(
+        'CREATE TRIGGER IF NOT EXISTS ' + table + '_hash_bytes_' + operation.toLowerCase() + ' BEFORE ' + operation
+        + ' ON ' + table + ' WHEN ' + invalid + " BEGIN SELECT RAISE(ABORT,'media_probe invalid digest bytes'); END;");
+    }
     const immutable = {
       media_probe_jobs: ['id','project_id','asset_revision_id','storage_object_location_id','command_id','source_content_hash','source_byte_size',
         'toolchain_manifest_hash','toolchain_id','toolchain_version','toolchain_binary_hash','probe_schema_version','parser_policy_version',
