@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -11,6 +11,7 @@ export const SCHEMA_VERSION = 20;
  * never receive the DatabaseSync instance.
  */
 export function initializeDatabase(db) {
+  assertProbeMigrationCompatible(db);
   db.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
@@ -2571,6 +2572,8 @@ export function initializeDatabase(db) {
       BEGIN SELECT RAISE(ABORT, 'job_attempt identity is immutable'); END;
   `);
 
+  initializeProbePersistence(db);
+
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so
   // an interrupted upgrade can be resumed safely; recording every historical
   // version for a fresh installation preserves the baseline.
@@ -2587,5 +2590,298 @@ export function initializeDatabase(db) {
   const generatedAt = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('created_at_utc_us');
   if (!generatedAt) {
     db.prepare('INSERT INTO app_meta(key, value) VALUES (?, ?)').run('created_at_utc_us', String(nowUtcUs()));
+  }
+}
+
+const TECHNICAL_BASE_COLUMNS = [
+  'id', 'media_kind', 'container', 'codec', 'width', 'height', 'pixel_format',
+  'bit_depth', 'frame_rate_num', 'frame_rate_den', 'time_base_num', 'time_base_den',
+  'frame_count', 'duration_num', 'duration_den', 'color_primaries', 'transfer',
+  'matrix', 'audio_codec', 'sample_rate', 'channel_layout', 'metadata_json',
+];
+
+function assertProbeMigrationCompatible(db) {
+  const table = name => db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+  if (table('schema_migrations')) {
+    const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version;
+    if (version !== null && (!Number.isSafeInteger(version) || version < 0 || version > SCHEMA_VERSION)) {
+      throw new Error('DATABASE_SCHEMA_VERSION_UNSUPPORTED');
+    }
+  }
+  if (table('asset_technical_metadata')) throw new Error('AMBIGUOUS_TECHNICAL_METADATA_TABLE');
+  if (table('technical_metadata')) {
+    const columns = new Set(db.prepare('PRAGMA table_info(technical_metadata)').all().map(row => row.name));
+    if (TECHNICAL_BASE_COLUMNS.some(column => !columns.has(column))) throw new Error('TECHNICAL_METADATA_LAYOUT_UNSUPPORTED');
+  }
+}
+
+// Kernel-only schema preparation. No commands, producers, routes or PASS
+// authority are activated here; privileged fixtures test relational guards.
+function initializeProbePersistence(db) {
+  const hash = column => `${column} IS NULL OR (length(${column})=64 AND ${column} NOT GLOB '*[^0-9a-f]*')`;
+  const safe = (column, min = 0) => `${column} IS NULL OR (typeof(${column})='integer' AND ${column} BETWEEN ${min} AND 9007199254740991)`;
+  const bounded = (column, max = 128) => `${column} IS NULL OR length(${column}) BETWEEN 1 AND ${max}`;
+  db.exec('SAVEPOINT media_probe_schema_21');
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS media_probe_jobs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        asset_revision_id TEXT NOT NULL REFERENCES asset_revisions(id),
+        storage_object_location_id TEXT NOT NULL REFERENCES storage_object_locations(id),
+        command_id TEXT NOT NULL REFERENCES commands(id),
+        source_content_hash TEXT NOT NULL CHECK(${hash('source_content_hash')}),
+        source_byte_size INTEGER NOT NULL CHECK(${safe('source_byte_size')}),
+        toolchain_manifest_hash TEXT NOT NULL CHECK(${hash('toolchain_manifest_hash')}),
+        toolchain_id TEXT CHECK(${bounded('toolchain_id')}),
+        toolchain_version TEXT CHECK(${bounded('toolchain_version')}),
+        toolchain_binary_hash TEXT CHECK(${hash('toolchain_binary_hash')}),
+        probe_schema_version TEXT NOT NULL CHECK(${bounded('probe_schema_version')}),
+        parser_policy_version TEXT NOT NULL CHECK(${bounded('parser_policy_version')}),
+        rights_generation TEXT NOT NULL CHECK(${hash('rights_generation')}),
+        canonical_request_hash TEXT NOT NULL CHECK(${hash('canonical_request_hash')}),
+        idempotency_key TEXT NOT NULL CHECK(${bounded('idempotency_key', 200)}),
+        correlation_id TEXT NOT NULL CHECK(${bounded('correlation_id', 200)}),
+        state TEXT NOT NULL CHECK(state IN ('QUEUED','CLAIMED','RUNNING','PARSING','VERIFYING','COMPLETED',
+          'FAILED_RETRYABLE','FAILED_FINAL','UNKNOWN','CONFLICT','BLOCKED_TOOLCHAIN','BLOCKED_MEDIA',
+          'BLOCKED_RIGHTS','CANCEL_REQUESTED','CANCELLED','STALE')),
+        current_attempt_id TEXT REFERENCES media_probe_attempts(id),
+        fencing_token TEXT CHECK(${bounded('fencing_token', 200)}),
+        row_version INTEGER NOT NULL DEFAULT 1 CHECK(${safe('row_version', 1)}),
+        needs_user INTEGER NOT NULL DEFAULT 0 CHECK(needs_user IN (0,1)),
+        next_step TEXT NOT NULL CHECK(length(next_step) BETWEEN 1 AND 512),
+        created_at_utc_us INTEGER NOT NULL CHECK(${safe('created_at_utc_us', 1)}),
+        updated_at_utc_us INTEGER NOT NULL CHECK(${safe('updated_at_utc_us', 1)}),
+        UNIQUE(project_id,idempotency_key),
+        UNIQUE(project_id,asset_revision_id,source_content_hash,toolchain_manifest_hash,
+          probe_schema_version,parser_policy_version,canonical_request_hash)
+      );
+      CREATE INDEX IF NOT EXISTS media_probe_jobs_project_state ON media_probe_jobs(project_id,state,created_at_utc_us);
+      CREATE TABLE IF NOT EXISTS media_probe_attempts (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES media_probe_jobs(id),
+        attempt_no INTEGER NOT NULL CHECK(typeof(attempt_no)='integer' AND attempt_no BETWEEN 1 AND 100),
+        retry_kind TEXT NOT NULL CHECK(retry_kind IN ('INITIAL','RETRY','RESTART')),
+        idempotency_key TEXT NOT NULL CHECK(${bounded('idempotency_key', 200)}),
+        fencing_token TEXT CHECK(${bounded('fencing_token', 200)}),
+        worker_instance_id TEXT CHECK(${bounded('worker_instance_id', 200)}),
+        producer_contract_version TEXT CHECK(${bounded('producer_contract_version')}),
+        input_envelope_hash TEXT CHECK(${hash('input_envelope_hash')}),
+        output_envelope_hash TEXT CHECK(${hash('output_envelope_hash')}),
+        argv_preset_id TEXT CHECK(${bounded('argv_preset_id')}),
+        state TEXT NOT NULL CHECK(state IN ('CREATED','DISPATCHING','EXECUTING','PARSING','VERIFYING','SUCCEEDED','FAILED','ABANDONED')),
+        row_version INTEGER NOT NULL DEFAULT 1 CHECK(${safe('row_version', 1)}),
+        stdout_bytes INTEGER CHECK(${safe('stdout_bytes')} AND stdout_bytes<=8388608),
+        stderr_bytes INTEGER CHECK(${safe('stderr_bytes')} AND stderr_bytes<=8388608),
+        cpu_time_ms INTEGER CHECK(${safe('cpu_time_ms')}),
+        memory_peak_bytes INTEGER CHECK(${safe('memory_peak_bytes')}),
+        created_at_utc_us INTEGER NOT NULL CHECK(${safe('created_at_utc_us', 1)}),
+        updated_at_utc_us INTEGER NOT NULL CHECK(${safe('updated_at_utc_us', 1)}),
+        UNIQUE(job_id,attempt_no), UNIQUE(job_id,idempotency_key)
+      );
+      CREATE TABLE IF NOT EXISTS technical_metadata (
+        id TEXT PRIMARY KEY, media_kind TEXT, container TEXT, codec TEXT,
+        width INTEGER,height INTEGER,pixel_format TEXT,bit_depth INTEGER,
+        frame_rate_num INTEGER,frame_rate_den INTEGER,time_base_num INTEGER,time_base_den INTEGER,
+        frame_count INTEGER,duration_num INTEGER,duration_den INTEGER,
+        color_primaries TEXT,transfer TEXT,matrix TEXT,audio_codec TEXT,
+        sample_rate INTEGER,channel_layout TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(metadata_json) AND json_type(metadata_json)='object' AND length(metadata_json)<=65536)
+      );
+      CREATE TABLE IF NOT EXISTS technical_metadata_streams (
+        id TEXT PRIMARY KEY,
+        technical_metadata_id TEXT NOT NULL REFERENCES technical_metadata(id),
+        stream_index INTEGER NOT NULL CHECK(typeof(stream_index)='integer' AND stream_index BETWEEN 0 AND 2147483647),
+        stream_kind TEXT NOT NULL CHECK(stream_kind IN ('VIDEO','AUDIO')),
+        codec TEXT NOT NULL CHECK(length(codec) BETWEEN 1 AND 128),
+        disposition_json TEXT CHECK(disposition_json IS NULL OR (json_valid(disposition_json) AND json_type(disposition_json)='object' AND length(disposition_json)<=1024)),
+        width INTEGER CHECK(width IS NULL OR (typeof(width)='integer' AND width BETWEEN 1 AND 32768)),
+        height INTEGER CHECK(height IS NULL OR (typeof(height)='integer' AND height BETWEEN 1 AND 32768)),
+        pixel_format TEXT, pixel_aspect_num INTEGER CHECK(${safe('pixel_aspect_num', 1)}),
+        pixel_aspect_den INTEGER CHECK(${safe('pixel_aspect_den', 1)}),
+        color_range TEXT,color_space TEXT,color_transfer TEXT,color_primaries TEXT,
+        frame_rate_num INTEGER CHECK(${safe('frame_rate_num', 1)}), frame_rate_den INTEGER CHECK(${safe('frame_rate_den', 1)}),
+        nominal_frame_rate_num INTEGER CHECK(${safe('nominal_frame_rate_num', 1)}),
+        nominal_frame_rate_den INTEGER CHECK(${safe('nominal_frame_rate_den', 1)}),
+        frame_count INTEGER CHECK(${safe('frame_count', 1)}),
+        time_base_num INTEGER NOT NULL CHECK(${safe('time_base_num', 1)}),
+        time_base_den INTEGER NOT NULL CHECK(${safe('time_base_den', 1)}),
+        duration_num INTEGER NOT NULL CHECK(${safe('duration_num', 1)}),
+        duration_den INTEGER NOT NULL CHECK(${safe('duration_den', 1)}),
+        sample_rate INTEGER CHECK(sample_rate IS NULL OR (typeof(sample_rate)='integer' AND sample_rate BETWEEN 1 AND 384000)),
+        channels INTEGER CHECK(channels IS NULL OR (typeof(channels)='integer' AND channels BETWEEN 1 AND 64)),
+        channel_layout TEXT,sample_format TEXT,
+        normalized_metadata_hash TEXT NOT NULL CHECK(${hash('normalized_metadata_hash')}),
+        CHECK(time_base_num<=time_base_den),
+        CHECK(duration_num/duration_den<604800 OR (duration_num/duration_den=604800 AND duration_num%duration_den=0)),
+        CHECK((pixel_aspect_num IS NULL)=(pixel_aspect_den IS NULL)),
+        CHECK((nominal_frame_rate_num IS NULL)=(nominal_frame_rate_den IS NULL)),
+        CHECK(stream_kind!='VIDEO' OR (width IS NOT NULL AND height IS NOT NULL AND frame_rate_num IS NOT NULL AND frame_rate_den IS NOT NULL AND frame_rate_num<=1000*frame_rate_den)),
+        CHECK(stream_kind!='AUDIO' OR (sample_rate IS NOT NULL AND channels IS NOT NULL)),
+        UNIQUE(technical_metadata_id,stream_index)
+      );
+      CREATE TABLE IF NOT EXISTS media_probe_evidence (
+        id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL REFERENCES media_probe_attempts(id),
+        outcome TEXT NOT NULL CHECK(outcome IN ('PASS','FAIL','UNKNOWN','CONFLICT')),
+        evidence_code TEXT NOT NULL CHECK(${bounded('evidence_code')}),
+        source_content_hash TEXT NOT NULL CHECK(${hash('source_content_hash')}),
+        source_byte_size INTEGER NOT NULL CHECK(${safe('source_byte_size')}),
+        toolchain_manifest_hash TEXT NOT NULL CHECK(${hash('toolchain_manifest_hash')}),
+        probe_schema_version TEXT NOT NULL CHECK(${bounded('probe_schema_version')}),
+        parser_policy_version TEXT NOT NULL CHECK(${bounded('parser_policy_version')}),
+        observed_source_hash TEXT CHECK(${hash('observed_source_hash')}),
+        observed_source_byte_size INTEGER CHECK(${safe('observed_source_byte_size')}),
+        stdout_bytes INTEGER NOT NULL CHECK(${safe('stdout_bytes')} AND stdout_bytes<=8388608),
+        stderr_bytes INTEGER NOT NULL CHECK(${safe('stderr_bytes')} AND stderr_bytes<=8388608),
+        cpu_time_ms INTEGER NOT NULL CHECK(${safe('cpu_time_ms')}),
+        memory_peak_bytes INTEGER NOT NULL CHECK(${safe('memory_peak_bytes')}),
+        process_tree_state TEXT NOT NULL CHECK(process_tree_state IN ('STOPPED','SURVIVED','UNKNOWN')),
+        exit_code INTEGER CHECK(exit_code IS NULL OR (typeof(exit_code)='integer' AND exit_code BETWEEN -2147483648 AND 2147483647)),
+        cancel_outcome TEXT NOT NULL CHECK(cancel_outcome IN ('NOT_REQUESTED','REQUESTED','CONFIRMED','UNKNOWN')),
+        timeout_outcome TEXT NOT NULL CHECK(timeout_outcome IN ('NONE','TRIGGERED','UNKNOWN')),
+        validation_snapshot_hash TEXT NOT NULL CHECK(${hash('validation_snapshot_hash')}),
+        created_at_utc_us INTEGER NOT NULL CHECK(${safe('created_at_utc_us', 1)}),
+        CHECK(outcome!='PASS' OR (process_tree_state='STOPPED' AND exit_code IS NOT NULL AND exit_code=0
+          AND cancel_outcome='NOT_REQUESTED' AND timeout_outcome='NONE' AND stdout_bytes>0 AND source_byte_size>0
+          AND observed_source_hash IS NOT NULL AND observed_source_hash=source_content_hash
+          AND observed_source_byte_size IS NOT NULL AND observed_source_byte_size=source_byte_size))
+      );
+    `);
+    const additions = {
+      stream_count: 'INTEGER CHECK(stream_count IS NULL OR (typeof(stream_count)=\'integer\' AND stream_count BETWEEN 1 AND 256))',
+      project_id: 'TEXT REFERENCES projects(id)', source_asset_revision_id: 'TEXT REFERENCES asset_revisions(id)',
+      source_content_hash: `TEXT CHECK(${hash('source_content_hash')})`, source_byte_size: `INTEGER CHECK(${safe('source_byte_size')})`,
+      toolchain_id: `TEXT CHECK(${bounded('toolchain_id')})`, toolchain_version: `TEXT CHECK(${bounded('toolchain_version')})`,
+      toolchain_manifest_hash: `TEXT CHECK(${hash('toolchain_manifest_hash')})`,
+      probe_schema_version: `TEXT CHECK(${bounded('probe_schema_version')})`, parser_policy_version: `TEXT CHECK(${bounded('parser_policy_version')})`,
+      raw_evidence_object_id: 'TEXT REFERENCES storage_objects(id)', raw_evidence_hash: `TEXT CHECK(${hash('raw_evidence_hash')})`,
+      raw_evidence_byte_size: `INTEGER CHECK(${safe('raw_evidence_byte_size')})`,
+      probe_job_id: 'TEXT REFERENCES media_probe_jobs(id)', probe_attempt_id: 'TEXT REFERENCES media_probe_attempts(id)',
+      evidence_state: "TEXT CHECK(evidence_state IN ('PASS','FAIL','UNKNOWN','CONFLICT'))",
+      stale_reason: `TEXT CHECK(${bounded('stale_reason')})`, normalized_metadata_hash: `TEXT CHECK(${hash('normalized_metadata_hash')})`,
+      created_at_utc_us: `INTEGER CHECK(${safe('created_at_utc_us', 1)})`,
+    };
+    const columns = new Set(db.prepare('PRAGMA table_info(technical_metadata)').all().map(row => row.name));
+    for (const [name, definition] of Object.entries(additions)) {
+      if (!columns.has(name)) db.exec(`ALTER TABLE technical_metadata ADD COLUMN ${name} ${definition}`);
+    }
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS technical_metadata_attempt_unique ON technical_metadata(probe_job_id,probe_attempt_id);
+      CREATE TRIGGER IF NOT EXISTS media_probe_job_scope BEFORE INSERT ON media_probe_jobs
+      WHEN NOT EXISTS (SELECT 1 FROM asset_revisions r JOIN assets a ON a.id=r.asset_id
+        JOIN storage_objects o ON o.id=r.storage_object_id
+        JOIN storage_object_locations l ON l.storage_object_id=o.id
+        JOIN commands c ON c.id=NEW.command_id
+        WHERE r.id=NEW.asset_revision_id AND a.project_id=NEW.project_id AND c.project_id=NEW.project_id
+          AND c.command_type='ProbeMediaAsset' AND l.id=NEW.storage_object_location_id AND l.state='AVAILABLE'
+          AND o.content_hash=NEW.source_content_hash AND o.byte_size=NEW.source_byte_size)
+      BEGIN SELECT RAISE(ABORT,'media_probe source/command scope mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_job_pointer BEFORE UPDATE ON media_probe_jobs
+      WHEN NEW.current_attempt_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM media_probe_attempts a
+        WHERE a.id=NEW.current_attempt_id AND a.job_id=NEW.id AND a.fencing_token=NEW.fencing_token AND a.state!='ABANDONED')
+      BEGIN SELECT RAISE(ABORT,'media_probe attempt fence mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_attempt_terminal BEFORE UPDATE ON media_probe_attempts
+      WHEN OLD.state IN ('SUCCEEDED','FAILED','ABANDONED')
+      BEGIN SELECT RAISE(ABORT,'media_probe terminal attempt immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_attempt_fence BEFORE UPDATE ON media_probe_attempts
+      WHEN (OLD.fencing_token IS NOT NULL AND NEW.fencing_token IS NOT OLD.fencing_token)
+        OR (NEW.state='SUCCEEDED' AND NOT EXISTS (SELECT 1 FROM media_probe_jobs j
+          WHERE j.id=NEW.job_id AND j.state='VERIFYING' AND j.current_attempt_id=NEW.id AND j.fencing_token=NEW.fencing_token))
+      BEGIN SELECT RAISE(ABORT,'media_probe attempt fence mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_evidence_pins BEFORE INSERT ON media_probe_evidence
+      WHEN NOT EXISTS (SELECT 1 FROM media_probe_attempts a JOIN media_probe_jobs j ON j.id=a.job_id
+        WHERE a.id=NEW.attempt_id AND j.source_content_hash=NEW.source_content_hash AND j.source_byte_size=NEW.source_byte_size
+          AND j.toolchain_manifest_hash=NEW.toolchain_manifest_hash AND j.probe_schema_version=NEW.probe_schema_version
+          AND j.parser_policy_version=NEW.parser_policy_version
+          AND (NEW.outcome!='PASS' OR (j.state='VERIFYING' AND a.state='VERIFYING'
+            AND j.current_attempt_id=a.id AND j.fencing_token=a.fencing_token
+            AND j.toolchain_id IS NOT NULL AND j.toolchain_version IS NOT NULL AND j.toolchain_binary_hash IS NOT NULL)))
+      BEGIN SELECT RAISE(ABORT,'media_probe evidence pins/fence mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS technical_metadata_binding BEFORE INSERT ON technical_metadata
+      WHEN NEW.evidence_state IS NOT 'PASS' OR NEW.project_id IS NULL OR NEW.source_asset_revision_id IS NULL
+        OR NEW.created_at_utc_us IS NULL OR NEW.normalized_metadata_hash IS NULL OR NEW.stream_count IS NULL
+        OR NOT EXISTS (SELECT 1 FROM media_probe_jobs j JOIN media_probe_attempts a ON a.job_id=j.id
+          JOIN media_probe_evidence e ON e.attempt_id=a.id AND e.outcome='PASS'
+          JOIN storage_objects raw ON raw.id=NEW.raw_evidence_object_id
+          JOIN asset_revisions revision ON revision.id=j.asset_revision_id
+          JOIN assets source_asset ON source_asset.id=revision.asset_id
+          JOIN storage_objects source_object ON source_object.id=revision.storage_object_id
+          JOIN storage_object_locations source_location ON source_location.id=j.storage_object_location_id AND source_location.storage_object_id=source_object.id
+          WHERE j.id=NEW.probe_job_id AND a.id=NEW.probe_attempt_id AND j.state='VERIFYING'
+            AND j.current_attempt_id=a.id AND a.fencing_token=j.fencing_token AND a.state='SUCCEEDED'
+            AND source_asset.project_id=j.project_id AND source_object.content_hash=j.source_content_hash
+            AND source_object.byte_size=j.source_byte_size AND source_location.state='AVAILABLE'
+            AND j.project_id=NEW.project_id AND j.asset_revision_id=NEW.source_asset_revision_id
+            AND j.source_content_hash=NEW.source_content_hash AND j.source_byte_size=NEW.source_byte_size
+            AND j.toolchain_id=NEW.toolchain_id AND j.toolchain_version=NEW.toolchain_version
+            AND j.toolchain_manifest_hash=NEW.toolchain_manifest_hash AND j.probe_schema_version=NEW.probe_schema_version
+            AND j.parser_policy_version=NEW.parser_policy_version AND raw.content_hash=NEW.raw_evidence_hash
+            AND raw.byte_size=NEW.raw_evidence_byte_size)
+      BEGIN SELECT RAISE(ABORT,'technical_metadata proof/fence mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS technical_metadata_shape BEFORE INSERT ON technical_metadata
+      WHEN NEW.media_kind IS NULL OR NEW.media_kind NOT IN ('VIDEO','AUDIO','AUDIO_VIDEO')
+        OR NEW.duration_num IS NULL OR typeof(NEW.duration_num)!='integer' OR NEW.duration_num NOT BETWEEN 1 AND 9007199254740991
+        OR NEW.duration_den IS NULL OR typeof(NEW.duration_den)!='integer' OR NEW.duration_den NOT BETWEEN 1 AND 9007199254740991
+        OR NOT (NEW.duration_num/NEW.duration_den<604800 OR (NEW.duration_num/NEW.duration_den=604800 AND NEW.duration_num%NEW.duration_den=0))
+        OR NOT json_valid(NEW.metadata_json) OR json_type(NEW.metadata_json)!='object'
+        OR (SELECT count(*) FROM json_each(NEW.metadata_json))!=0
+        OR (NEW.width IS NOT NULL AND (typeof(NEW.width)!='integer' OR NEW.width NOT BETWEEN 1 AND 32768))
+        OR (NEW.height IS NOT NULL AND (typeof(NEW.height)!='integer' OR NEW.height NOT BETWEEN 1 AND 32768))
+        OR (NEW.bit_depth IS NOT NULL AND (typeof(NEW.bit_depth)!='integer' OR NEW.bit_depth NOT BETWEEN 1 AND 64))
+        OR (NEW.sample_rate IS NOT NULL AND (typeof(NEW.sample_rate)!='integer' OR NEW.sample_rate NOT BETWEEN 1 AND 384000))
+        OR (NEW.frame_count IS NOT NULL AND (typeof(NEW.frame_count)!='integer' OR NEW.frame_count NOT BETWEEN 1 AND 9007199254740991))
+        OR ((NEW.frame_rate_num IS NULL)!=(NEW.frame_rate_den IS NULL))
+        OR (NEW.frame_rate_num IS NOT NULL AND (typeof(NEW.frame_rate_num)!='integer' OR NEW.frame_rate_num NOT BETWEEN 1 AND 9007199254740991
+          OR typeof(NEW.frame_rate_den)!='integer' OR NEW.frame_rate_den NOT BETWEEN 1 AND 9007199254740991 OR NEW.frame_rate_num>1000*NEW.frame_rate_den))
+        OR ((NEW.time_base_num IS NULL)!=(NEW.time_base_den IS NULL))
+        OR (NEW.time_base_num IS NOT NULL AND (typeof(NEW.time_base_num)!='integer' OR NEW.time_base_num NOT BETWEEN 1 AND 9007199254740991
+          OR typeof(NEW.time_base_den)!='integer' OR NEW.time_base_den NOT BETWEEN 1 AND 9007199254740991 OR NEW.time_base_num>NEW.time_base_den))
+      BEGIN SELECT RAISE(ABORT,'technical_metadata invalid typed shape'); END;
+      CREATE TRIGGER IF NOT EXISTS technical_stream_binding BEFORE INSERT ON technical_metadata_streams
+      WHEN NOT EXISTS (SELECT 1 FROM technical_metadata m JOIN media_probe_jobs j ON j.id=m.probe_job_id
+        JOIN media_probe_attempts a ON a.id=m.probe_attempt_id
+        WHERE m.id=NEW.technical_metadata_id AND j.state='VERIFYING' AND j.current_attempt_id=a.id
+          AND a.state='SUCCEEDED' AND j.fencing_token=a.fencing_token)
+      BEGIN SELECT RAISE(ABORT,'technical_metadata stream snapshot closed or stale'); END;
+      CREATE TRIGGER IF NOT EXISTS technical_stream_limit BEFORE INSERT ON technical_metadata_streams
+      WHEN (SELECT count(*) FROM technical_metadata_streams WHERE technical_metadata_id=NEW.technical_metadata_id)>=256
+      BEGIN SELECT RAISE(ABORT,'technical_metadata stream limit'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_complete BEFORE UPDATE OF state ON media_probe_jobs
+      WHEN NEW.state='COMPLETED' AND NOT EXISTS (SELECT 1 FROM technical_metadata m
+        WHERE m.probe_job_id=NEW.id AND m.probe_attempt_id=NEW.current_attempt_id AND m.evidence_state='PASS'
+          AND m.stream_count=(SELECT count(*) FROM technical_metadata_streams s WHERE s.technical_metadata_id=m.id))
+      BEGIN SELECT RAISE(ABORT,'media_probe completion missing metadata'); END;
+      CREATE TRIGGER IF NOT EXISTS technical_stream_disposition BEFORE INSERT ON technical_metadata_streams
+      WHEN NEW.disposition_json IS NOT NULL AND (
+        EXISTS (SELECT 1 FROM json_each(NEW.disposition_json) WHERE key NOT IN
+          ('default','dub','original','comment','lyrics','karaoke','forced','hearing_impaired','visual_impaired','clean_effects',
+           'attached_pic','timed_thumbnails','captions','descriptions','metadata','dependent','still_image')
+          OR type!='integer' OR value NOT IN (0,1) OR (key IN ('attached_pic','timed_thumbnails','metadata','still_image') AND value=1))
+        OR (SELECT count(*) FROM json_each(NEW.disposition_json))!=(SELECT count(DISTINCT key) FROM json_each(NEW.disposition_json)))
+      BEGIN SELECT RAISE(ABORT,'technical_metadata unsafe disposition'); END;
+    `);
+    const immutable = {
+      media_probe_jobs: ['id','project_id','asset_revision_id','storage_object_location_id','command_id','source_content_hash','source_byte_size',
+        'toolchain_manifest_hash','toolchain_id','toolchain_version','toolchain_binary_hash','probe_schema_version','parser_policy_version',
+        'rights_generation','canonical_request_hash','idempotency_key','correlation_id','created_at_utc_us'],
+      media_probe_attempts: ['id','job_id','attempt_no','retry_kind','idempotency_key','created_at_utc_us'],
+    };
+    for (const [table, pins] of Object.entries(immutable)) {
+      db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_pins BEFORE UPDATE ON ${table}
+        WHEN ${pins.map(pin => `NEW.${pin} IS NOT OLD.${pin}`).join(' OR ')}
+        BEGIN SELECT RAISE(ABORT,'media_probe immutable identity'); END;
+        CREATE TRIGGER IF NOT EXISTS ${table}_version BEFORE UPDATE ON ${table}
+        WHEN NEW.row_version!=OLD.row_version+1
+        BEGIN SELECT RAISE(ABORT,'media_probe row version must increment'); END;`);
+    }
+    for (const table of ['technical_metadata','technical_metadata_streams','media_probe_evidence']) {
+      for (const operation of ['UPDATE','DELETE']) db.exec(`
+        CREATE TRIGGER IF NOT EXISTS ${table}_no_${operation.toLowerCase()} BEFORE ${operation} ON ${table}
+        BEGIN SELECT RAISE(ABORT,'media_probe evidence is append-only'); END;`);
+    }
+    db.exec('RELEASE media_probe_schema_21');
+  } catch (error) {
+    db.exec('ROLLBACK TO media_probe_schema_21; RELEASE media_probe_schema_21');
+    throw error;
   }
 }

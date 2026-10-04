@@ -657,3 +657,19 @@ verify exact source/toolchain/rights/fence/process evidence before creating a
 canonical measurement or PASS. There is no additive DB migration in this
 parser-only preparation. Production descriptor, custody and independent
 review remain outstanding; do not expose this module as a working UI action.
+
+
+# DESIGN-MEDIA-PROBE-PERSISTENCE-01. Prepared migration and binding
+
+The independent preparation now extends from the pure parser to schema 21;
+this does not enable commands, process execution, HTTP or UI. New measurements
+use the canonical table and exact derived proof fields. Historical unbound
+measurements have null source/evidence pins, remain readable as UNKNOWN and
+cannot satisfy the new binding guard. Do not fabricate a migration backfill.
+Binding occurs inside the owning Core transaction: write validated PASS
+while job/attempt VERIFYING, mark that attempt SUCCEEDED, append measurement
+and streams, then complete the job. Cancellation, source/rights recheck and
+expected row version must be resolved before entering this transaction.
+A current-attempt pointer plus fencing token prevents a late old producer
+from binding even when its source hash is unchanged. Process/resource and
+rights validations are Core obligations beyond these SQL constraints.

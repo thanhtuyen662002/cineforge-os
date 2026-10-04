@@ -5414,3 +5414,55 @@ private filesystem paths or arbitrary command text. Rights/consent and
 materialization decisions are referenced by exact generation/hash, so a later
 revocation makes the projection stale or blocked without deleting original or
 approved evidence.
+
+
+# SCHEMA-MEDIA-PROBE-V21-01. Prepared additive persistence
+
+Schema revision 21 introduces the five canonical probe tables in a dedicated
+transactional migration: media_probe_jobs, media_probe_attempts,
+technical_metadata, technical_metadata_streams and media_probe_evidence.
+The blueprint's technical_metadata name was not executable in schema 20;
+no physical table or asset_technical_metadata alias is silently renamed.
+Existing blueprint-compatible technical_metadata rows remain byte-for-byte
+unchanged; new source/proof fields are nullable for that historical data.
+An incompatible table layout fails closed. Future schema versions are
+rejected before schema initialization can reinterpret them.
+
+Job identity pins project, revision, source hash/byte size, managed storage
+location, exact requested manifest, schema/parser versions, originating
+command, rights-generation digest and canonical request hash. Toolchain
+identity/version/binary hash may be null for BLOCKED_TOOLCHAIN, never a
+fabricated ID. Identity pins are immutable; current_attempt_id and
+fencing_token change only as lifecycle fields with an incremented row version.
+Source and command project scope and managed storage identity must agree.
+Rights generation is a SHA-256 digest of the Core-owned checked decision
+snapshot, not a caller-provided rights approval or a new recovery epoch.
+
+Attempt identity, numbering, retry kind and idempotency key are immutable.
+A fencing token can be assigned once; terminal attempts cannot change.
+Evidence is append-only. PASS requires a stopped process tree, zero exit,
+no cancellation or timeout, observed source identity matching the job, exact
+schema/toolchain pins, and the current VERIFYING job/attempt fence. These
+checks are necessary SQL safeguards, not proof of real process containment.
+Core must produce and validate the facts before writing any evidence.
+
+New technical metadata is append-only and can bind only to the current
+successful attempt of a VERIFYING job with matching PASS evidence, exact
+source/toolchain/parser pins and non-null raw-evidence object identity.
+The raw-evidence hash/size must match its managed object. Streams are
+append-only, unique by metadata/index and bounded to the prepared profile.
+Codec/format/color tokens remain Core/parser allowlisted; DB columns cannot
+substitute for that validation. Canonical metadata_json is a bounded JSON
+object of typed normalized extensions only, never raw producer output.
+Missing clock/frame/dimension/audio facts stay nullable for legacy rows.
+The prepared MEDIA_PROBE_V1 profile defines no metadata_json extensions:
+new rows require an empty JSON object; legacy JSON remains untouched. Stream
+inventory is capped at 256. New measurement stream_count is 1..256;
+COMPLETED requires exactly that many durable stream rows. Stream inventory
+cannot grow after the job leaves VERIFYING, and an attempt binds once. Binding rechecks current asset/project and managed
+location hash/size/availability, in addition to job and evidence pins.
+
+All hashes are lowercase SHA-256, scalar counts use safe integers, rates
+and temporal denominators are positive, and JSON evidence fields are bounded.
+No Core command, worker or public API/UI is enabled by the migration alone.
+All controls retain their existing maturity until integration and review.

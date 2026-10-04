@@ -7794,3 +7794,16 @@ VERIFYING must remain cancellable and a changed fence/pin must prevent binding;
 those Core/migration/process tests remain SPECIFIED, not parser proof. Parser
 unit tests do not prove sandboxing, process-tree containment, rights checks,
 source TOCTOU safety, restart fencing or a certified real toolchain.
+
+
+# MEDIA-PROBE-PERSISTENCE-TEST-01. Prepared persistence adversarial cases
+
+Executable tests must exercise a blueprint-compatible legacy row upgrade,
+repeated initialization, future-version and incompatible-layout rejection,
+unchanged integrity-job semantics, cross-project command/source links,
+immutable job/attempt pins, duplicate attempt identity, unsupported scalar
+values, missing process proof and stale/abandoned/cancelled binding. Accepted
+measurements/streams/evidence must reject updates and deletes. Fixtures that
+write privileged SQL test the relational boundary only: they are not evidence
+that public commands, real toolchain/process isolation or rights gates work.
+Those controls remain SPECIFIED until independently reviewed integration.

@@ -501,6 +501,12 @@ Run adversarial tests with:
 `node --test core/media-probe.test.mjs`
 
 This preparation is not connected to Core commands, durable jobs, HTTP or UI.
-Certified producer/process containment, additive migrations, exact source and
-rights binding, independent review and production integration are still required.
+Schema 21 now prepares the dedicated job/attempt/evidence and immutable
+metadata/stream tables. Privileged SQL fixtures cover an actual v20 upgrade,
+legacy preservation, project/source scope, exact fences, process-fact guards
+and complete stream snapshots. These tests do not certify a real producer.
+
+No public command/worker, HTTP route or metadata UI consumes these tables yet.
+Certified producer/process containment, command authorization, actual source
+and rights rechecks, independent review and integration are still required.
 Parser success alone must not be used as a readiness gate.

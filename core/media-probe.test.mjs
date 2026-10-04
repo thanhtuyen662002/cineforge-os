@@ -1,5 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+import { CoreService } from './core.mjs';
+import { initializeDatabase, SCHEMA_VERSION } from './schema.mjs';
 import { parseMediaProbe, MEDIA_PROBE_LIMITS } from './media-probe.mjs';
 
 function fixture() {
@@ -174,4 +183,235 @@ test('coarse clock ticks and a one-frame count contradiction cannot hide timing 
   const enormousFrame = fixture(); enormousFrame.streams[0].avg_frame_rate = '1/1000000000000';
   enormousFrame.streams[0].nb_frames = '1';
   rejection(enormousFrame, 'PROBE_FRAME_COUNT_CONFLICT', 'CONFLICT');
+});
+
+function command(core, command_type, payload, idempotency_key) {
+  return core.handle({ request_id: idempotency_key, api_version: '1', method: 'command.execute',
+    params: { command_type, payload, expected_versions: {}, idempotency_key } });
+}
+function insert(db, table, row) {
+  const names = Object.keys(row);
+  assert.ok([table, ...names].every(name => /^[a-z][a-z0-9_]*$/.test(name)));
+  db.prepare(`INSERT INTO ${table} (${names.join(',')}) VALUES (${names.map(() => '?').join(',')})`).run(...Object.values(row));
+}
+
+// These are privileged Kernel/SQL fixtures. They do not certify a real
+// producer, parser binding, command authorization, sandbox or rights decision.
+function persistenceFixture() {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-probe-db-'));
+  const core = new CoreService({ dbPath: path.join(directory, 'core.sqlite'), assetStorePath: path.join(directory, 'store') });
+  const db = core.db;
+  const project = command(core, 'CreateProject', { code: 'probe-schema', title: 'Kiểm thử persistence' }, 'schema-project');
+  assert.equal(project.ok, true);
+  const sourcePath = path.join(directory, 'source.txt');
+  const sourceBytes = Buffer.from('privileged relational fixture, not certified media');
+  fs.writeFileSync(sourcePath, sourceBytes);
+  const contentHash = crypto.createHash('sha256').update(sourceBytes).digest('hex');
+  const imported = command(core, 'ImportAsset', { project_id: project.result.id, source_path: sourcePath,
+    asset_type: 'DOCUMENT', content_hash: contentHash }, 'schema-import');
+  assert.equal(imported.ok, true);
+  const revision = imported.result.asset.latest_revision;
+  const location = db.prepare('SELECT l.id,l.storage_object_id FROM storage_object_locations l JOIN asset_revisions r ON r.storage_object_id=l.storage_object_id WHERE r.id=?').get(revision.id);
+  const cmd = db.prepare("SELECT * FROM commands WHERE project_id=? AND command_type='ImportAsset'").get(project.result.id);
+  insert(db, 'commands', { ...cmd, id: 'probe-command', command_type: 'ProbeMediaAsset', status: 'EXECUTING',
+    payload_json: JSON.stringify({ asset_revision_id: revision.id }), idempotency_key: 'probe-command-fixture' });
+  const stamp = Date.now() * 1000;
+  const job = { id: 'probe-job', project_id: project.result.id, asset_revision_id: revision.id,
+    storage_object_location_id: location.id, command_id: 'probe-command', source_content_hash: contentHash,
+    source_byte_size: sourceBytes.byteLength, toolchain_manifest_hash: 'a'.repeat(64),
+    toolchain_id: 'fixture-inspect', toolchain_version: '1', toolchain_binary_hash: 'b'.repeat(64),
+    probe_schema_version: 'MEDIA_PROBE_V1', parser_policy_version: 'MEDIA_PROBE_PARSER_V1',
+    rights_generation: 'c'.repeat(64), canonical_request_hash: 'd'.repeat(64),
+    idempotency_key: 'schema-job', correlation_id: 'schema-correlation', state: 'QUEUED',
+    next_step: 'Chờ kiểm thử', created_at_utc_us: stamp, updated_at_utc_us: stamp };
+  insert(db, 'media_probe_jobs', job);
+  return { core, db, job, stamp, location, directory, close() {
+    core.close();
+    assert.ok(path.resolve(directory).startsWith(path.join(os.tmpdir(), 'cineforge-probe-db-')));
+    fs.rmSync(directory, { recursive: true, force: true });
+  } };
+}
+function verifying(f) {
+  insert(f.db, 'media_probe_attempts', { id: 'attempt-1', job_id: f.job.id, attempt_no: 1, retry_kind: 'INITIAL',
+    idempotency_key: 'attempt-1', fencing_token: 'fence-1', state: 'VERIFYING', created_at_utc_us: f.stamp, updated_at_utc_us: f.stamp });
+  f.db.prepare("UPDATE media_probe_jobs SET state='VERIFYING',current_attempt_id='attempt-1',fencing_token='fence-1',row_version=row_version+1 WHERE id=?").run(f.job.id);
+}
+function proof(f, overrides = {}) {
+  return { id: 'evidence-1', attempt_id: 'attempt-1', outcome: 'PASS', evidence_code: 'PROBE_VALIDATED',
+    source_content_hash: f.job.source_content_hash, source_byte_size: f.job.source_byte_size,
+    toolchain_manifest_hash: f.job.toolchain_manifest_hash, probe_schema_version: f.job.probe_schema_version,
+    parser_policy_version: f.job.parser_policy_version, observed_source_hash: f.job.source_content_hash,
+    observed_source_byte_size: f.job.source_byte_size, stdout_bytes: f.job.source_byte_size, stderr_bytes: 0,
+    cpu_time_ms: 1, memory_peak_bytes: 1024, process_tree_state: 'STOPPED', exit_code: 0,
+    cancel_outcome: 'NOT_REQUESTED', timeout_outcome: 'NONE', validation_snapshot_hash: 'e'.repeat(64),
+    created_at_utc_us: f.stamp, ...overrides };
+}
+function measurement(f, overrides = {}) {
+  return { id: 'metadata-1', project_id: f.job.project_id, source_asset_revision_id: f.job.asset_revision_id,
+    source_content_hash: f.job.source_content_hash, source_byte_size: f.job.source_byte_size,
+    toolchain_id: f.job.toolchain_id, toolchain_version: f.job.toolchain_version, toolchain_manifest_hash: f.job.toolchain_manifest_hash,
+    probe_schema_version: f.job.probe_schema_version, parser_policy_version: f.job.parser_policy_version,
+    probe_job_id: f.job.id, probe_attempt_id: 'attempt-1', raw_evidence_object_id: f.location.storage_object_id,
+    raw_evidence_hash: f.job.source_content_hash, raw_evidence_byte_size: f.job.source_byte_size,
+    evidence_state: 'PASS', normalized_metadata_hash: 'f'.repeat(64), created_at_utc_us: f.stamp,
+    media_kind: 'VIDEO', container: 'mp4', codec: 'h264', width: 1280, height: 720,
+    duration_num: 1, duration_den: 1, metadata_json: '{}', stream_count: 1, ...overrides };
+}
+function accepted(f, count = 1) {
+  verifying(f); insert(f.db, 'media_probe_evidence', proof(f));
+  f.db.prepare("UPDATE media_probe_attempts SET state='SUCCEEDED',row_version=row_version+1 WHERE id='attempt-1'").run();
+  insert(f.db, 'technical_metadata', measurement(f, { stream_count: count }));
+}
+function stream(index = 0, overrides = {}) {
+  return { id: `stream-${index}`, technical_metadata_id: 'metadata-1', stream_index: index,
+    stream_kind: 'VIDEO', codec: 'h264', width: 1280, height: 720, frame_rate_num: 30, frame_rate_den: 1,
+    time_base_num: 1, time_base_den: 30, duration_num: 1, duration_den: 1,
+    disposition_json: '{"default":1}', normalized_metadata_hash: 'f'.repeat(64), ...overrides };
+}
+
+test('schema 21 upgrades the actual v20 initializer and preserves unbound legacy facts without approval', async () => {
+  const original = execFileSync('git', ['show', '78bdc508b28466b77a66b58757da5d3614fec87d:core/schema.mjs'], { encoding: 'utf8', windowsHide: true });
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-schema-v20-'));
+  const fixturePath = path.join(fixtureDirectory, 'schema.mjs');
+  const fixtureSource = original.replace(/from (['"])(\.\/[^'"]+)\1/g,
+    (_, quote, specifier) => 'from ' + JSON.stringify(new URL(specifier, import.meta.url).href));
+  fs.writeFileSync(fixturePath, fixtureSource);
+  const old = await import(pathToFileURL(fixturePath).href);
+  const db = new DatabaseSync(':memory:');
+  try {
+    old.initializeDatabase(db);
+    assert.equal(db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, 20);
+    const integritySql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").get().sql;
+    db.exec(`CREATE TABLE technical_metadata (id TEXT PRIMARY KEY,media_kind TEXT,container TEXT,codec TEXT,
+      width INTEGER,height INTEGER,pixel_format TEXT,bit_depth INTEGER,frame_rate_num INTEGER,frame_rate_den INTEGER,
+      time_base_num INTEGER,time_base_den INTEGER,frame_count INTEGER,duration_num INTEGER,duration_den INTEGER,
+      color_primaries TEXT,transfer TEXT,matrix TEXT,audio_codec TEXT,sample_rate INTEGER,channel_layout TEXT,metadata_json TEXT);
+      INSERT INTO technical_metadata(id,media_kind,codec,width,height,duration_num,duration_den,metadata_json)
+      VALUES('legacy','VIDEO','h264',1280,720,1,1,'{"legacy_hint":"opaque unbound data"}');`);
+    const before = db.prepare('SELECT * FROM technical_metadata').get();
+    initializeDatabase(db); initializeDatabase(db);
+    assert.equal(db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, SCHEMA_VERSION);
+    const after = db.prepare('SELECT * FROM technical_metadata').get();
+    for (const [key, value] of Object.entries(before)) assert.equal(after[key], value, key);
+    for (const key of ['source_content_hash', 'probe_job_id', 'evidence_state', 'stream_count']) assert.equal(after[key], null);
+    assert.equal(db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").get().sql, integritySql);
+    assert.throws(() => db.prepare("UPDATE technical_metadata SET width=1 WHERE id='legacy'").run(), /append-only/);
+  } finally { db.close(); fs.rmSync(fixtureDirectory, { recursive: true, force: true }); }
+});
+
+test('future versions, incompatible layouts and forbidden alias fail before schema writes', () => {
+  for (const [ddl, code] of [
+    ['CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,applied_at_utc_us INTEGER); INSERT INTO schema_migrations VALUES(999,1);', 'DATABASE_SCHEMA_VERSION_UNSUPPORTED'],
+    ['CREATE TABLE technical_metadata(id TEXT PRIMARY KEY,unknown_column TEXT);', 'TECHNICAL_METADATA_LAYOUT_UNSUPPORTED'],
+    ['CREATE TABLE asset_technical_metadata(id TEXT PRIMARY KEY);', 'AMBIGUOUS_TECHNICAL_METADATA_TABLE'],
+  ]) {
+    const db = new DatabaseSync(':memory:');
+    try {
+      db.exec(ddl);
+      const before = db.prepare('SELECT name,sql FROM sqlite_master ORDER BY name').all();
+      assert.throws(() => initializeDatabase(db), new RegExp(code));
+      assert.deepEqual(db.prepare('SELECT name,sql FROM sqlite_master ORDER BY name').all(), before);
+    } finally { db.close(); }
+  }
+});
+
+test('probe jobs enforce source/command scope, immutable pins, version and bounded identity', () => {
+  const f = persistenceFixture();
+  try {
+    const other = command(f.core, 'CreateProject', { code: 'other', title: 'Khác' }, 'other-project');
+    assert.equal(other.ok, true);
+    assert.throws(() => insert(f.db, 'media_probe_jobs', { ...f.job, id: 'cross-job', project_id: other.result.id, idempotency_key: 'cross' }), /scope mismatch/);
+    assert.throws(() => f.db.prepare('UPDATE media_probe_jobs SET source_content_hash=?,row_version=row_version+1').run('0'.repeat(64)), /immutable identity/);
+    assert.throws(() => f.db.prepare("UPDATE media_probe_jobs SET state='PARSING'").run(), /row version/);
+    assert.throws(() => insert(f.db, 'media_probe_jobs', { ...f.job, id: 'overflow', source_byte_size: 1.5 }), /constraint|scope/i);
+    assert.throws(() => f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run(), /missing metadata/);
+    verifying(f);
+    assert.throws(() => insert(f.db, 'media_probe_attempts', { id: 'duplicate', job_id: f.job.id, attempt_no: 1, retry_kind: 'RETRY',
+      idempotency_key: 'duplicate', state: 'CREATED', created_at_utc_us: f.stamp, updated_at_utc_us: f.stamp }), /UNIQUE/);
+    assert.throws(() => f.db.prepare("UPDATE media_probe_attempts SET fencing_token='other',row_version=row_version+1").run(), /fence/);
+  } finally { f.close(); }
+});
+
+test('PASS evidence requires exact pins, stopped tree, uncancelled zero exit and observed source', () => {
+  const f = persistenceFixture();
+  try {
+    verifying(f);
+    for (const overrides of [{ process_tree_state: 'UNKNOWN' }, { process_tree_state: 'SURVIVED' },
+      { exit_code: null }, { exit_code: 1 }, { cancel_outcome: 'REQUESTED' }, { timeout_outcome: 'TRIGGERED' },
+      { observed_source_hash: null }, { observed_source_byte_size: null }, { observed_source_hash: '0'.repeat(64) },
+      { toolchain_manifest_hash: '0'.repeat(64) }, { stdout_bytes: 0 }]) {
+      assert.throws(() => insert(f.db, 'media_probe_evidence', proof(f, overrides)), /constraint|pins/i);
+    }
+    insert(f.db, 'media_probe_evidence', proof(f, { outcome: 'UNKNOWN', process_tree_state: 'UNKNOWN', exit_code: null }));
+    assert.throws(() => f.db.prepare("UPDATE media_probe_evidence SET outcome='PASS'").run(), /append-only/);
+    assert.throws(() => insert(f.db, 'technical_metadata', measurement(f)), /proof/);
+  } finally { f.close(); }
+});
+
+test('exact relational proof binds once and completion freezes the stream inventory', () => {
+  const f = persistenceFixture();
+  try {
+    accepted(f, 2);
+    assert.throws(() => insert(f.db, 'technical_metadata', measurement(f, { id: 'duplicate-metadata' })), /UNIQUE/);
+    insert(f.db, 'technical_metadata_streams', stream());
+    assert.throws(() => f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run(), /missing metadata/);
+    insert(f.db, 'technical_metadata_streams', stream(1));
+    f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run();
+    assert.throws(() => insert(f.db, 'technical_metadata_streams', stream(2)), /closed|stale/);
+    for (const table of ['technical_metadata', 'technical_metadata_streams', 'media_probe_evidence']) {
+      assert.throws(() => f.db.prepare(`UPDATE ${table} SET id=id`).run(), /append-only/);
+      assert.throws(() => f.db.prepare(`DELETE FROM ${table}`).run(), /append-only/);
+    }
+    assert.throws(() => f.db.prepare("UPDATE media_probe_attempts SET state='VERIFYING',row_version=row_version+1").run(), /terminal/);
+  } finally { f.close(); }
+});
+
+test('cancelled, abandoned and relocated-source attempts cannot bind canonical metadata', () => {
+  for (const kind of ['cancelled', 'abandoned', 'relocated']) {
+    const f = persistenceFixture();
+    try {
+      verifying(f); insert(f.db, 'media_probe_evidence', proof(f));
+      if (kind === 'abandoned') {
+        f.db.prepare("UPDATE media_probe_attempts SET state='ABANDONED',row_version=row_version+1").run();
+      } else {
+        f.db.prepare("UPDATE media_probe_attempts SET state='SUCCEEDED',row_version=row_version+1").run();
+        if (kind === 'cancelled') f.db.prepare("UPDATE media_probe_jobs SET state='CANCELLED',row_version=row_version+1").run();
+        else f.db.prepare("UPDATE storage_object_locations SET state='MISSING' WHERE id=?").run(f.location.id);
+      }
+      assert.throws(() => insert(f.db, 'technical_metadata', measurement(f)), /proof/);
+    } finally { f.close(); }
+  }
+});
+
+test('typed stream guards reject unsafe disposition, partial rationals, excess inventory and non-media facts', () => {
+  const f = persistenceFixture();
+  try {
+    accepted(f, 256);
+    for (const overrides of [{ stream_kind: 'DATA' }, { width: -1 }, { duration_den: 0 },
+      { time_base_num: 31 }, { pixel_aspect_num: 1, pixel_aspect_den: null },
+      { disposition_json: '{"default":1,"default":1}' }, { disposition_json: '{"attached_pic":1}' },
+      { disposition_json: '{"secret":"credentials"}' }]) {
+      assert.throws(() => insert(f.db, 'technical_metadata_streams', stream(0, overrides)), /constraint|disposition/i);
+    }
+    f.db.exec('BEGIN');
+    for (let i = 0; i < 256; i++) insert(f.db, 'technical_metadata_streams', stream(i));
+    f.db.exec('COMMIT');
+    assert.throws(() => insert(f.db, 'technical_metadata_streams', stream(256)), /stream limit/);
+  } finally { f.close(); }
+});
+
+
+test('canonical measurement rejects unsafe scalars and raw extension data before any row binds', () => {
+  const f = persistenceFixture();
+  try {
+    verifying(f); insert(f.db, 'media_probe_evidence', proof(f));
+    f.db.prepare("UPDATE media_probe_attempts SET state='SUCCEEDED',row_version=row_version+1").run();
+    for (const overrides of [{ width: 1.5 }, { height: 40000 }, { duration_num: 1.5 }, { duration_den: 0 },
+      { duration_num: 604801 }, { bit_depth: 1.5 }, { sample_rate: 384001 },
+      { frame_rate_num: 1001, frame_rate_den: 1 }, { time_base_num: 2, time_base_den: 1 },
+      { metadata_json: '{"secret":"credentials"}' }, { raw_evidence_hash: '0'.repeat(64) }]) {
+      assert.throws(() => insert(f.db, 'technical_metadata', measurement(f, overrides)), /shape|proof|constraint/i);
+    }
+    assert.equal(f.db.prepare('SELECT count(*) AS n FROM technical_metadata').get().n, 0);
+  } finally { f.close(); }
 });

@@ -2295,3 +2295,14 @@ any migration or Core binding is implemented. Slice 3A integrity jobs keep
 separate semantics and constraints. The standalone prepared parser is pure:
 it has no process, filesystem, DB, rights or release authority. Parsing success
 is typed untrusted evidence only, never a technical-media gate result.
+
+
+# ARCH-MEDIA-PROBE-PERSISTENCE-01. Prepared Core persistence boundary
+
+Schema 21 separates technical-media jobs from Slice 3A integrity jobs.
+Only the owning Core initializes or writes these relations. UI/connectors
+receive projections, never a database handle. Parser success is not binding
+permission; proof, current fence, rights snapshot and exact source identity
+must be reconciled by Core. SQL guards reject cross-project links, immutable
+pin changes, stale/terminal attempt binding and unverified PASS insertion.
+The migration preserves legacy measurements without inferring approvals.
