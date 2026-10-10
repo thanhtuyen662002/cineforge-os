@@ -800,9 +800,12 @@ export interface ActivityItem {
   projectId?: string
   projectName: string
   label: string
+  labelEn?: string
   detail: string
+  detailEn?: string
   state: WorkState
   milestone?: string
+  milestoneEn?: string
   updatedAt: string
   actionable?: boolean
 }

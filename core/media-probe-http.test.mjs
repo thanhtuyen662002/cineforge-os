@@ -63,6 +63,11 @@ test('media probe admission is audited and blocked without executable authority;
   assert.equal(read.rights_generation, job.rights_generation);
   assert.equal(read.state, 'BLOCKED_TOOLCHAIN');
   assert.ok(!JSON.stringify(read).includes(f.directory));
+  const activity = good(query(f.core, 'query.project.activity', { project_id: f.project.id })).events.find(event => event.aggregate_id === job.id);
+  assert.equal(activity.project_id, f.project.id); assert.equal(activity.state, 'blocked'); assert.equal(activity.human_state.needs_user, true);
+  assert.equal(activity.milestone_en, 'Resolve prerequisites before analysis');
+  assert.ok(!good(query(f.core, 'query.project.activity', { project_id: f.second.id })).events.some(event => event.aggregate_id === job.id));
+  assert.ok(good(query(f.core, 'query.project.summary', { project_id: f.project.id })).activity.some(event => event.aggregate_id === job.id));
 });
 
 test('probe admission validates exact source, asset version, scope, strict identities and redacted rejected commands', t => {
@@ -167,6 +172,10 @@ test('HTTP probe routes reject conflicting identities, paths, bad pagination and
   assert.equal(injection.status, 400); assert.ok(!JSON.stringify(injection.body).includes('secret-http-token'));
   const admitted = await request(route + '/probes', { ...body, expected_version: 1 });
   assert.equal(admitted.status, 200); const job = admitted.body.result.job; assert.equal(job.state, 'BLOCKED_TOOLCHAIN');
+  const dashboard = await request('/v1/dashboard');
+  const activity = dashboard.body.activity.find(event => event.labelEn === 'Media inspection request not executed');
+  assert.equal(activity.projectId, f.project.id); assert.equal(activity.state, 'blocked');
+  assert.equal(activity.milestoneEn, 'Resolve prerequisites before analysis');
   assert.equal((await request(route + '/probes?limit=101')).status, 400);
   assert.equal((await request(route + '/probes?limit=1&limit=2')).status, 400);
   assert.equal((await request(route + '?path=C%3A%5Csecret')).status, 400);
@@ -175,5 +184,8 @@ test('HTTP probe routes reject conflicting identities, paths, bad pagination and
   assert.equal((await request(jobRoute + '/retry', { expected_version: 1 }, 'http-retry')).body.error.code, 'PROBE_RETRY_NOT_AVAILABLE');
   const cancelled = await request(jobRoute + '/cancel', { expected_version: 1 }, 'http-cancel');
   assert.equal(cancelled.body.result.job.state, 'CANCELLED');
+  const cancelledActivity = (await request('/v1/dashboard')).body.activity.find(event => event.labelEn === 'Media inspection request cancelled');
+  assert.equal(cancelledActivity.projectId, f.project.id); assert.equal(cancelledActivity.state, 'complete');
+  assert.equal(cancelledActivity.actionable, false); assert.equal(cancelledActivity.milestoneEn, 'Request cancelled');
   assert.equal(count(f.core, 'media_probe_attempts'), 0); assert.equal(count(f.core, 'technical_metadata'), 0);
 });

@@ -1848,9 +1848,12 @@ function mapActivityRecord(value: unknown, projectId: string, index: number): Ac
     projectId: stringValue(source.project_id ?? source.projectId) ?? projectId,
     projectName: stringValue(source.project_name ?? source.projectName) ?? projectId,
     label: stringValue(source.label ?? source.title ?? source.event_type) ?? 'Core activity',
+    labelEn: stringValue(source.label_en ?? source.labelEn),
     detail: stringValue(source.detail ?? source.description) ?? 'Activity recorded by Core',
+    detailEn: stringValue(source.detail_en ?? source.detailEn),
     state,
     milestone: stringValue(source.milestone ?? source.message),
+    milestoneEn: stringValue(source.milestone_en ?? source.milestoneEn),
     updatedAt: stringValue(source.updated_at ?? source.updatedAt ?? source.created_at) ?? 'Vừa cập nhật',
     actionable: Boolean(source.actionable ?? source.needs_user),
   }

@@ -8739,8 +8739,9 @@ export class CoreService {
        UNION SELECT id FROM asset_revisions WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?)
        UNION SELECT id FROM release_candidates WHERE project_id = ?
        UNION SELECT id FROM release_build_plans WHERE project_id = ?
+       UNION SELECT id FROM media_probe_jobs WHERE project_id = ?
        UNION SELECT ?)
-      ORDER BY seq DESC LIMIT 20`).all(projectId, projectId, projectId, projectId, projectId, projectId, projectId).map((row) => this._publicActivity(row));
+      ORDER BY seq DESC LIMIT 20`).all(projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId).map((row) => this._publicActivity(row));
     return { project: publicProject(project), counts: { tasks, shots, notes, assets }, activity, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
@@ -8778,6 +8779,7 @@ export class CoreService {
     if (aggregateType === 'HANDOFF_MANIFEST') return this.db.prepare('SELECT project_id FROM handoff_manifests WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'RELEASE_CANDIDATE') return this.db.prepare('SELECT project_id FROM release_candidates WHERE id = ?').get(aggregateId)?.project_id ?? null;
     if (aggregateType === 'RELEASE_BUILD_PLAN') return this.db.prepare('SELECT project_id FROM release_build_plans WHERE id = ?').get(aggregateId)?.project_id ?? null;
+    if (aggregateType === 'MEDIA_PROBE_JOB') return this.db.prepare('SELECT project_id FROM media_probe_jobs WHERE id = ?').get(aggregateId)?.project_id ?? null;
     return null;
   }
 
@@ -8787,6 +8789,22 @@ export class CoreService {
     if (projectId) {
       event.project_id = projectId;
       event.project_name = this.db.prepare('SELECT title FROM projects WHERE id = ?').get(projectId)?.title ?? projectId;
+    }
+    if (event.aggregate_type === 'MEDIA_PROBE_JOB'
+      && ['MEDIA_PROBE_ADMISSION_BLOCKED', 'MEDIA_PROBE_INTENT_CANCELLED'].includes(event.event_type)) {
+      const current = this.db.prepare('SELECT state FROM media_probe_jobs WHERE id=?').get(event.aggregate_id);
+      const needsUser = MEDIA_PROBE_BLOCKED_STATES.has(current?.state);
+      const cancelled = event.event_type === 'MEDIA_PROBE_INTENT_CANCELLED';
+      event.state = needsUser ? 'blocked' : 'complete';
+      event.needs_user = needsUser;
+      event.human_state.needs_user = needsUser;
+      event.human_state.blocking = needsUser;
+      event.label = cancelled ? 'Đã hủy yêu cầu kiểm tra media' : 'Yêu cầu kiểm tra media chưa chạy';
+      event.label_en = cancelled ? 'Media inspection request cancelled' : 'Media inspection request not executed';
+      event.detail = needsUser ? 'CineForge đã lưu yêu cầu; chưa có kết quả phân tích.' : 'Yêu cầu chưa chạy đã được hủy.';
+      event.detail_en = needsUser ? 'CineForge recorded the request; no analysis result is available.' : 'The unexecuted request was cancelled.';
+      event.milestone = needsUser ? 'Cần xử lý trước khi phân tích' : 'Đã hủy yêu cầu';
+      event.milestone_en = needsUser ? 'Resolve prerequisites before analysis' : 'Request cancelled';
     }
     return event;
   }
@@ -10677,9 +10695,10 @@ export class CoreService {
         UNION SELECT id FROM project_media_profiles WHERE project_id = ?
          UNION SELECT id FROM release_candidates WHERE project_id = ?
          UNION SELECT id FROM release_build_plans WHERE project_id = ?
+         UNION SELECT id FROM media_probe_jobs WHERE project_id = ?
         ) ORDER BY seq DESC LIMIT ?`).all(
       projectId, projectId, projectId, projectId, projectId,
-       projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit,
+       projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, projectId, limit,
     );
     return { events: rows.map((row) => this._publicActivity(row)), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }

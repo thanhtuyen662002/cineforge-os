@@ -232,9 +232,12 @@ function mapActivity(source, index) {
     projectId: readString(source, 'project_id', 'projectId'),
     projectName: readString(source, 'project_name', 'projectName', 'project_id', 'projectId') ?? 'CineForge',
     label: readString(source, 'label', 'title') ?? eventType,
+    labelEn: readString(source, 'label_en'),
     detail: readString(source, 'detail', 'description') ?? `Core recorded ${eventType.toLowerCase()}`,
+    detailEn: readString(source, 'detail_en'),
     state,
     milestone: readString(source, 'milestone', 'message') ?? readString(payload, 'display_name', 'title'),
+    milestoneEn: readString(source, 'milestone_en'),
     updatedAt: readString(source, 'occurred_at', 'created_at', 'updated_at') ?? 'Vừa cập nhật',
     actionable: Boolean(source?.human_state?.needs_user || source?.needs_user),
   };
