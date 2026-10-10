@@ -646,3 +646,25 @@ Transport uncertainty, stale callbacks, audit failure and closing Core remain
 auditable/recoverable through the existing startup retirement. Native fixture
 integration uses a fake executable and ephemeral test signer; it does not
 certify ffprobe or promote SPECIFIED controls or production closure.
+
+### Prepared binding guard prerequisite
+
+`runNativeProbeBroker` has an opt-in private `onResult` callback. It requests
+`MEDIA_PROBE_BINDING_GUARD_V1`, verifies exact pins and the actual Core PID,
+and accepts clean stopped zero-exit AppContainer output before invoking that
+callback. The callback returns `{ committed, value }`; its return/rollback
+precedes authenticated `BINDING_DONE` and exact `BINDING_RELEASED` acceptance.
+
+The Windows broker pins source/binary files with ShareRead-only handles and
+duplicates them into the OS-verified Core process. Broker death or channel loss
+cannot release those Core-owned file references; unconfirmed release requires
+Core exit and blocks further binding work in the eventual dispatcher. Guard
+messages contain no native handles or paths. Callback completion releases both
+the Core duplicates and broker originals before acknowledging release.
+
+Actual Windows fixtures cover write/rename/delete denial, normal/aborted
+release, cancellation without callback, stale completion rejection, lost
+transport and broker termination followed by Core exit. Authenticated malformed
+guard tests reject missing/wrong PID/hash/size/version/phase. These fixtures do
+not certify ffprobe. Core still uses the unbound lane: canonical binding and
+the one-lease recovery guard must be integrated before any public activation.

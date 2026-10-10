@@ -86,21 +86,42 @@ internal sealed class NativeProbeBroker : IDisposable
             string dispatchHash = "";
             using var probeDoc = await ReadAsync(outer.Token, onDigest: value => dispatchHash = value);
             var probe = probeDoc.RootElement;
-            CheckCommon(probe, "PROBE", 1, clientNonce, serverNonce, ["scope", "pins", "input", "budgets"]);
+            bool bindingRequested = probe.TryGetProperty("binding_guard_version", out var bindingVersion);
+            const string guardVersion = "MEDIA_PROBE_BINDING_GUARD_V1";
+            CheckCommon(probe, "PROBE", 1, clientNonce, serverNonce, bindingRequested
+                ? ["scope", "pins", "input", "budgets", "binding_guard_version"] : ["scope", "pins", "input", "budgets"]);
+            if (bindingRequested && (bindingVersion.ValueKind != JsonValueKind.String || bindingVersion.GetString() != guardVersion))
+                throw Failure("PROBE_BINDING_GUARD_REJECTED");
             var input = ValidateRequest(probe);
+            using var bindingPins = bindingRequested ? new NativeMediaProbe.BindingPins(input, expectedCore) : null;
+            var bindingDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            int bindingReady = 0;
             control = ReadControlAsync();
             async Task ReadControlAsync()
             {
                 try
                 {
                     using var doc = await ReadAsync(controlStop.Token, 150000);
-                    CheckCommon(doc.RootElement, "CANCEL", 2, clientNonce, serverNonce, ["dispatch_hash"]);
-                    if (Text(doc.RootElement, "dispatch_hash") != dispatchHash) throw Failure("PROBE_BROKER_DISPATCH_REJECTED");
-                    nativeStop.Cancel();
+                    var frame = doc.RootElement;
+                    if (bindingRequested && Text(frame, "type") == "BINDING_DONE")
+                    {
+                        CheckCommon(frame, "BINDING_DONE", 2, clientNonce, serverNonce,
+                            ["dispatch_hash", "binding_guard_version", "lease_id", "outcome"]);
+                        if (Volatile.Read(ref bindingReady) != 1 || Text(frame, "dispatch_hash") != dispatchHash
+                            || Text(frame, "binding_guard_version") != guardVersion || Text(frame, "lease_id") != bindingPins!.LeaseId
+                            || Text(frame, "outcome") is not ("COMMITTED" or "ABORTED")) throw Failure("PROBE_BINDING_GUARD_REJECTED");
+                        bindingPins.ReleaseFromCore(); bindingDone.TrySetResult();
+                    }
+                    else
+                    {
+                        CheckCommon(frame, "CANCEL", 2, clientNonce, serverNonce, ["dispatch_hash"]);
+                        if (Text(frame, "dispatch_hash") != dispatchHash) throw Failure("PROBE_BROKER_DISPATCH_REJECTED");
+                        nativeStop.Cancel(); bindingDone.TrySetCanceled();
+                    }
                 }
                 catch (OperationCanceledException) when (controlStop.IsCancellationRequested) { }
-                catch (BrokerFailure failure) { controlError = failure.Code; nativeStop.Cancel(); }
-                catch { disconnected = true; nativeStop.Cancel(); }
+                catch (BrokerFailure failure) { controlError = failure.Code; nativeStop.Cancel(); bindingDone.TrySetException(failure); }
+                catch { disconnected = true; nativeStop.Cancel(); bindingDone.TrySetCanceled(); }
             }
             int sequence = 0; Task started = Task.CompletedTask;
             observation = await NativeMediaProbe.InspectAsync(input, nativeStop.Token, pid =>
@@ -120,7 +141,24 @@ internal sealed class NativeProbeBroker : IDisposable
                 failure_type = observation.FailureType, app_container_verified = observation.AppContainerVerified,
                 stdout_bytes = observation.Stdout.Length, stderr_bytes = observation.Stderr.Length,
                 stdout_sha256 = Sha(observation.Stdout), stderr_sha256 = Sha(observation.Stderr) };
+            bool guarded = bindingRequested && !nativeStop.IsCancellationRequested && observation is
+                { Code: "PROBE_PROCESS_STOPPED", TreeStopped: true, ExitCode: 0, AppContainerVerified: true, ProfileReleased: true };
+            if (guarded)
+            {
+                bindingPins!.TransferToCore();
+                await WriteAsync(Envelope("BINDING_GUARD", ++sequence, ("dispatch_hash", dispatchHash),
+                    ("binding_guard_version", guardVersion), ("lease_id", bindingPins.LeaseId), ("core_process_id", expectedCore.Id),
+                    ("source_hash", input.SourceHash), ("source_bytes", bindingPins.SourceBytes),
+                    ("binary_hash", input.BinaryHash), ("binary_bytes", bindingPins.BinaryBytes)), outer.Token);
+                Volatile.Write(ref bindingReady, 1);
+            }
             await WriteAsync(Envelope("RESULT", ++sequence, ("dispatch_hash", dispatchHash), ("observation", facts)), outer.Token);
+            if (guarded)
+            {
+                await bindingDone.Task.WaitAsync(outer.Token);
+                await WriteAsync(Envelope("BINDING_RELEASED", ++sequence, ("dispatch_hash", dispatchHash),
+                    ("binding_guard_version", guardVersion), ("lease_id", bindingPins!.LeaseId)), outer.Token);
+            }
             return new("PROBE_BROKER_OBSERVED", peer, authenticated, disconnected, observation);
         }
         catch (BrokerFailure failure) { return new(failure.Code, peer, authenticated, disconnected, observation); }

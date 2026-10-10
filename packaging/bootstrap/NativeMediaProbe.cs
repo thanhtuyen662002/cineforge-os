@@ -223,6 +223,64 @@ internal static class NativeMediaProbe
     }
 
     private static NativeProbeObservation Empty(string code) => new("NATIVE_MEDIA_PROBE_V1", code, false, null, [], [], 0, 0, true, null, null, "ADMISSION", null, null, false);
+    // Opt-in binding extension. Remote read handles belong to the verified Core
+    // OS process; disposing/crashing this broker cannot release those pins.
+    internal sealed class BindingPins : IDisposable
+    {
+        private readonly NativeProbeInput input;
+        private readonly System.Diagnostics.Process core;
+        private readonly FileStream source, binary;
+        private IntPtr coreSource, coreBinary;
+        internal string LeaseId { get; } = Guid.NewGuid().ToString();
+        internal long SourceBytes => source.Length;
+        internal long BinaryBytes => binary.Length;
+        internal BindingPins(NativeProbeInput request, System.Diagnostics.Process target)
+        {
+            input = request; core = target;
+            source = OpenPinned(input.SourcePath, input.SourceHash, input.SourceBytes);
+            try
+            {
+                binary = OpenPinned(input.BinaryPath, input.BinaryHash, null);
+                if (binary.Length > 536870912) { binary.Dispose(); throw Failure("PROBE_BINARY_SIZE_LIMIT"); }
+            }
+            catch { source.Dispose(); throw; }
+        }
+        internal void TransferToCore()
+        {
+            if (coreSource != IntPtr.Zero || coreBinary != IntPtr.Zero || core.HasExited) throw Failure("PROBE_BINDING_PIN_REJECTED");
+            CheckPinned(source, input.SourceHash, input.SourceBytes);
+            CheckPinned(binary, input.BinaryHash, binary.Length);
+            // If the second transfer fails, the first pin intentionally remains
+            // owned by Core until its exit. Never race a timeout against commit.
+            Check(DuplicateHandle(new IntPtr(-1), source.SafeFileHandle.DangerousGetHandle(), core.Handle,
+                out coreSource, 0, false, 2));
+            Check(DuplicateHandle(new IntPtr(-1), binary.SafeFileHandle.DangerousGetHandle(), core.Handle,
+                out coreBinary, 0, false, 2));
+        }
+        internal void ReleaseFromCore()
+        {
+            void CloseRemote(ref IntPtr handle)
+            {
+                if (handle == IntPtr.Zero) return;
+                if (!core.HasExited)
+                {
+                    Check(DuplicateHandle(core.Handle, handle, new IntPtr(-1), out var local, 0, false, 3));
+                    Check(CloseHandle(local));
+                }
+                handle = IntPtr.Zero;
+            }
+            CloseRemote(ref coreSource); CloseRemote(ref coreBinary);
+            // RELEASED must describe both Core duplicates and this broker's
+            // originals; do not acknowledge while an original still pins bytes.
+            Dispose();
+        }
+        public void Dispose() { source.Dispose(); binary.Dispose(); }
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr sourceHandle, IntPtr targetProcess,
+            out IntPtr targetHandle, uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint options);
+    }
+
     private static bool Digest(string value) => value.Length == 64 && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
     private static void VerifyContainerToken(IntPtr process, IntPtr expectedSid)
     {

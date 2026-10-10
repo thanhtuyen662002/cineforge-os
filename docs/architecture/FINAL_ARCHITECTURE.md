@@ -2489,3 +2489,25 @@ transport or failed authority remains UNKNOWN. No automatic retry, cleanup,
 public activation, metadata binding or certified-pack claim is introduced.
 Native/broker paths remain proposed task-scope extensions, pending trusted
 custody/contract and independent review; registry maturity stays SPECIFIED.
+
+# ARCH-MEDIA-PROBE-BINDING-GUARD-01. Core-owned OS file pins
+
+Canonical binding must not consume a RESULT after its source/binary handles
+were released. An opt-in MEDIA_PROBE_BINDING_GUARD_V1 broker extension opens
+exact regular non-reparse/non-hardlink source and binary files with ShareRead
+only, validates hashes/sizes, and duplicates these read handles into the
+OS-verified Core process. These pins survive broker crash, timeout or channel
+loss until Core exits; physical byte identity cannot change during Core commit.
+
+The authenticated guard binds dispatch/session/scope and exact source/binary
+pins to the actual Core PID. A Core-owned callback may parse/stage/bind while
+these OS references exist. Only after that callback finishes or rolls back may
+the client send authenticated BINDING_DONE and the broker close the Core's
+duplicate handles. Release is separately acknowledged. No forced timeout
+release is allowed while Core remains alive. Missing/unconfirmed release
+requires bounded resource ownership and restart; it is not a successful cleanup.
+
+This extension is private, explicitly versioned and absent from public startup.
+Legacy unbound transport remains supported and cannot produce canonical PASS.
+It conveys stable file identity, not certification, rights approval, parser
+acceptance or a producer-supplied metadata verdict. Those remain Core checks.

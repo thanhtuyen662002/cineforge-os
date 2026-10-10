@@ -7932,3 +7932,14 @@ after unbound completion. Cover descriptor/authority/source/right/version
 rejection before mutation, duplicate/concurrent dispatch, transport loss, close,
 stale callbacks and audit rollback. No fake executable or fixture signing key
 certifies real ffprobe, trusted production time, metadata binding or closure.
+
+# MEDIA-PROBE-BINDING-GUARD-TEST-01. OS pin lifetime under binding failure
+
+Use the actual Windows broker/client and fake native executable to prove
+source/binary write/delete/rename rejection during the Core callback, normal
+release after callback completion, aborted callback release, and pin survival
+after broker death or channel failure until Core process exit. Reject missing,
+forged, stale, wrong-PID/hash/size/version guard and invalid/replayed completion.
+No guard callback may run on cancel/timeout/nonzero exit/uncertain native tree.
+Legacy transport and Core unbound tests must continue to pass. Fixture authority
+does not certify real ffprobe, production time, canonical binding or closure.

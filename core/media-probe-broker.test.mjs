@@ -10,6 +10,47 @@ const key = crypto.randomBytes(32);
 const uuid = () => crypto.randomUUID();
 const hash = () => crypto.randomBytes(32).toString('hex');
 const consume = async (chunks, secret = key) => { const result = []; for await (const frame of readProbeBrokerFrames(Readable.from(chunks), secret)) result.push(frame.payload); return result; };
+
+for (const [variant, expected] of [['MISSING', 'PROBE_BINDING_GUARD_REQUIRED'], ['PID', 'PROBE_BINDING_GUARD_REJECTED'],
+  ['HASH', 'PROBE_BINDING_GUARD_REJECTED'], ['SIZE', 'PROBE_BINDING_GUARD_REJECTED'],
+  ['VERSION', 'PROBE_BINDING_GUARD_REJECTED'], ['EARLY', 'PROBE_BINDING_GUARD_REJECTED']]) {
+  test('binding callback refuses authenticated ' + variant.toLowerCase() + ' guard', { skip: process.platform !== 'win32' }, async () => {
+    const input = request(); const descriptor = { pipe_name: 'CineForge.MediaProbe.' + hash(), broker_process_id: process.pid,
+      installation_id: uuid(), library_id: uuid(), core_epoch: uuid(), session_id: uuid(), key };
+    let peer; let work; let callback = false;
+    const server = net.createServer(socket => {
+      peer = socket; socket.on('error', () => {});
+      work = (async () => {
+        const iterator = readProbeBrokerFrames(socket, key); const hello = (await iterator.next()).value.payload;
+        const common = { ...hello, role: 'SERVER', server_nonce: hash() };
+        const send = frame => socket.write(encodeProbeBrokerFrame(frame, key));
+        send({ ...common, type: 'CHALLENGE', sequence: 0, broker_process_id: process.pid });
+        await iterator.next(); const dispatch = (await iterator.next()).value;
+        assert.equal(dispatch.payload.binding_guard_version, 'MEDIA_PROBE_BINDING_GUARD_V1');
+        common.dispatch_hash = crypto.createHash('sha256').update(dispatch.bytes).digest('hex');
+        let sequence = 0;
+        if (variant !== 'EARLY') send({ ...common, type: 'STARTED', sequence: ++sequence, process_id: 123 });
+        if (variant !== 'MISSING') send({ ...common, type: 'BINDING_GUARD', sequence: ++sequence,
+          binding_guard_version: variant === 'VERSION' ? 'UNKNOWN_GUARD_V2' : 'MEDIA_PROBE_BINDING_GUARD_V1', lease_id: uuid(),
+          core_process_id: variant === 'PID' ? process.pid + 1 : process.pid,
+          source_hash: variant === 'HASH' ? hash() : input.pins.source_hash, source_bytes: variant === 'SIZE' ? 11 : 10,
+          binary_hash: input.pins.binary_hash, binary_bytes: 123 });
+        const bytes = Buffer.from('untrusted');
+        send({ ...common, type: 'OUTPUT', sequence: ++sequence, channel: 'STDOUT', data: bytes.toString('base64') });
+        send({ ...common, type: 'RESULT', sequence: ++sequence, observation: { contract: 'NATIVE_MEDIA_PROBE_V1', code: 'PROBE_PROCESS_STOPPED',
+          tree_stopped: true, exit_code: 0, cpu_time_ms: 1, peak_memory_bytes: 1, profile_released: true,
+          retained_attempt_root: null, retained_profile: null, phase: 'OBSERVE', native_error: null, failure_type: null,
+          app_container_verified: true, stdout_bytes: bytes.length, stderr_bytes: 0,
+          stdout_sha256: crypto.createHash('sha256').update(bytes).digest('hex'), stderr_sha256: crypto.createHash('sha256').update('').digest('hex') } });
+      })();
+    });
+    server.listen('\\\\.\\pipe\\' + descriptor.pipe_name); await once(server, 'listening');
+    try {
+      await assert.rejects(runNativeProbeBroker({ descriptor, request: input, onResult() { callback = true; } }), { code: expected });
+      assert.equal(callback, false); await work;
+    } finally { peer?.destroy(); await new Promise(resolve => server.close(resolve)); }
+  });
+}
 function rawFrame(text) {
   const bytes = Buffer.from(text); const header = Buffer.alloc(4); header.writeUInt32LE(bytes.length);
   const signature = crypto.createHmac('sha256', key).update('CINEFORGE_MEDIA_PROBE_BROKER_FRAME_V1\0').update(bytes).digest();

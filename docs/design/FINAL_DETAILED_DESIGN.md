@@ -922,3 +922,27 @@ No raw paths, PID, pipe descriptor, key, stdout/stderr or native diagnostics are
 projected or placed in commands. Only digests, counts and typed failure codes
 are durable. Native observation binding and canonical metadata remain future
 integration, not implied by a successful process exit.
+
+# DESIGN-MEDIA-PROBE-BINDING-GUARD-01. Opt-in broker callback lifetime
+
+The private client may request binding_guard_version=MEDIA_PROBE_BINDING_GUARD_V1
+on the authenticated PROBE frame. It is included in the exact dispatch digest.
+The broker obtains ShareRead-only source/binary handles before native execution.
+For a clean stopped AppContainer result only, duplicate handles into the exact
+verified Core process, emit BINDING_GUARD before RESULT, and retain ownership.
+Guard fields are version, opaque lease UUID, actual Core PID, source hash/size
+and binary hash/size; no paths or native handle values leave the broker.
+
+The client validates guard scope, sequence, pins and target PID before running
+its Core callback. RESULT still contains untrusted bounded producer bytes.
+Once the callback has returned or thrown, send BINDING_DONE sequence 2 with
+dispatch hash, guard version, lease ID and COMMITTED or ABORTED outcome.
+Accept BINDING_RELEASED only for that exact lease/session/dispatch/sequence.
+The broker closes remote duplicates only after this authenticated completion;
+disconnect, malformed completion, timeout or broker death leave OS pins owned
+by Core until process exit. A client must not start another binding request
+after unconfirmed pin release; this bounds retained resources to one lease.
+Cancellation cannot grant binding; no callback starts without a valid guard
+and clean stopped zero-exit native evidence. Existing no-guard callers retain
+their unbound behavior. No HTTP/UI/native activation or metadata PASS follows
+from adding this prerequisite alone.

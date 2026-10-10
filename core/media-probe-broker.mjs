@@ -102,12 +102,13 @@ export function validateProbeBrokerDescriptor(descriptor) {
   }
 }
 
-export async function runNativeProbeBroker({ descriptor, request, signal, onStarted } = {}) {
+export async function runNativeProbeBroker({ descriptor, request, signal, onStarted, onResult } = {}) {
   let socket; let timer; let key;
   let cancel;
   try {
     if (process.platform !== 'win32') fail('PROBE_BROKER_PLATFORM_UNSUPPORTED');
     if (signal?.aborted) fail('PROBE_BROKER_CANCELLED_BEFORE_CONNECT');
+    if (onResult !== undefined && typeof onResult !== 'function') fail('PROBE_BINDING_CALLBACK_INVALID');
     validateProbeBrokerDescriptor(descriptor);
     key = Buffer.from(descriptor.key);
     const common = { contract: MEDIA_PROBE_BROKER_VERSION, installation_id: descriptor.installation_id,
@@ -133,9 +134,14 @@ export async function runNativeProbeBroker({ descriptor, request, signal, onStar
     if (!matches(HASH, challenge.server_nonce) || challenge.broker_process_id !== descriptor.broker_process_id) fail('PROBE_BROKER_SERVER_MISMATCH');
     common.server_nonce = challenge.server_nonce; send('AUTH', 0);
     if (signal?.aborted) fail('PROBE_BROKER_CANCELLED_BEFORE_DISPATCH');
-    const probe = { ...common, role: 'CLIENT', type: 'PROBE', sequence: 1, ...request };
+    const guardVersion = 'MEDIA_PROBE_BINDING_GUARD_V1';
+    const probe = { ...common, role: 'CLIENT', type: 'PROBE', sequence: 1, ...request,
+      ...(onResult ? { binding_guard_version: guardVersion } : {}) };
     const dispatchHash = digest(Buffer.from(canonicalJson(probe))); socket.write(encodeProbeBrokerFrame(probe, key));
-    cancel = () => { if (!socket.destroyed) send('CANCEL', 2, { dispatch_hash: dispatchHash }); };
+    let guard = null;
+    // After guard transfer, callback completion/rollback releases the OS pins.
+    // Cancellation must not race a release against a still-running callback.
+    cancel = () => { if (!guard && !socket.destroyed) send('CANCEL', 2, { dispatch_hash: dispatchHash }); };
     signal?.addEventListener('abort', cancel, { once: true }); if (signal?.aborted) cancel();
     let sequence = 0; let started = false;
     const chunks = { STDOUT: [], STDERR: [] }; const sizes = { STDOUT: 0, STDERR: 0 };
@@ -156,6 +162,14 @@ export async function runNativeProbeBroker({ descriptor, request, signal, onStar
         sizes[frame.channel] += bytes.length;
         if (sizes[frame.channel] > request.budgets[frame.channel === 'STDOUT' ? 'stdout_limit' : 'stderr_limit']) fail('PROBE_BROKER_OUTPUT_LIMIT');
         chunks[frame.channel].push(bytes); hashes[frame.channel].update(bytes);
+      } else if (frame.type === 'BINDING_GUARD') {
+        exact(frame, [...COMMON, 'dispatch_hash', 'binding_guard_version', 'lease_id', 'core_process_id',
+          'source_hash', 'source_bytes', 'binary_hash', 'binary_bytes']);
+        if (!onResult || !started || guard || frame.binding_guard_version !== guardVersion || !matches(UUID, frame.lease_id)
+          || frame.core_process_id !== process.pid || frame.source_hash !== request.pins.source_hash
+          || frame.source_bytes !== request.pins.source_bytes || frame.binary_hash !== request.pins.binary_hash
+          || !integer(frame.binary_bytes, 1, 536870912)) fail('PROBE_BINDING_GUARD_REJECTED');
+        guard = Object.freeze(frame);
       } else if (frame.type === 'RESULT') {
         exact(frame, [...COMMON, 'dispatch_hash', 'observation']); observation(frame.observation);
         const result = frame.observation;
@@ -165,8 +179,38 @@ export async function runNativeProbeBroker({ descriptor, request, signal, onStar
           if (result[channel.toLowerCase() + '_bytes'] !== sizes[channel]
             || result[channel.toLowerCase() + '_sha256'] !== hashes[channel].digest('hex')) fail('PROBE_BROKER_OUTPUT_HASH_MISMATCH');
         }
-        return Object.freeze({ dispatch_hash: dispatchHash, observation: Object.freeze(result),
+        const observed = Object.freeze({ dispatch_hash: dispatchHash, observation: Object.freeze(result),
           stdout: Buffer.concat(chunks.STDOUT, sizes.STDOUT), stderr: Buffer.concat(chunks.STDERR, sizes.STDERR) });
+        if (!onResult) return observed;
+        const clean = started && result.code === 'PROBE_PROCESS_STOPPED' && result.tree_stopped
+          && result.exit_code === 0 && result.app_container_verified && result.profile_released;
+        if (!clean) {
+          if (guard) fail('PROBE_BINDING_GUARD_REJECTED');
+          return Object.freeze({ ...observed, binding_guard: null, binding_result: null, binding_released: true });
+        }
+        if (!guard) fail('PROBE_BINDING_GUARD_REQUIRED');
+        let callback; let callbackError;
+        try {
+          if (signal?.aborted) fail('PROBE_BINDING_CANCELLED');
+          callback = await onResult(Object.freeze({ ...observed, binding_guard: guard }));
+          exact(callback, ['committed', 'value']);
+          if (typeof callback.committed !== 'boolean') fail('PROBE_BINDING_CALLBACK_INVALID');
+        } catch (error) { callbackError = error; }
+        let released = false;
+        try {
+          send('BINDING_DONE', 2, { dispatch_hash: dispatchHash, binding_guard_version: guardVersion,
+            lease_id: guard.lease_id, outcome: !callbackError && callback.committed ? 'COMMITTED' : 'ABORTED' });
+          const ack = await reader.next();
+          if (!ack.done) {
+            const frame = ack.value.payload;
+            exact(frame, [...COMMON, 'dispatch_hash', 'binding_guard_version', 'lease_id']);
+            released = frame.type === 'BINDING_RELEASED' && frame.role === 'SERVER' && frame.sequence === sequence + 1
+              && frame.dispatch_hash === dispatchHash && frame.binding_guard_version === guardVersion && frame.lease_id === guard.lease_id
+              && Object.entries(common).every(([k, v]) => frame[k] === v);
+          }
+        } catch { /* Core owns unresolved pins until its process exits. */ }
+        if (callbackError) throw callbackError;
+        return Object.freeze({ ...observed, binding_guard: guard, binding_result: callback.value, binding_released: released });
       } else fail('PROBE_BROKER_SEQUENCE_INVALID');
     }
     fail('PROBE_BROKER_DISCONNECTED');
