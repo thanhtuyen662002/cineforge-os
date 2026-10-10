@@ -696,3 +696,32 @@ hash in both new evidence and measurements. Missing or mismatched pins prevent
 PASS binding/completion. Legacy null pins remain UNKNOWN with no fabricated
 backfill. Process containment, rights rechecks and descriptor verification are
 still required independently; matching hashes alone authorize no execution.
+
+# DESIGN-MEDIA-PROBE-NATIVE-01. Prepared native observations
+
+NativeMediaProbe receives exact source hash/size, executable hash, private
+attempt root and bounded budgets through an internal typed call. The argv is
+one fixed ffprobe preset. Neither shell text nor arbitrary options are accepted.
+AppContainer has no capability grants; the attempt SID receives read/execute
+access to private input/binary copies. Environment is explicitly rebuilt.
+Job Object limits include memory, active processes and kill-on-close; timeout,
+cancel and output overflow terminate the job and verify active-process count.
+Unconfirmed teardown produces UNKNOWN and preserves the attempt namespace.
+Even a clean zero exit returns process evidence, not metadata PASS or rights.
+Core admission remains blocked until a reviewed broker and certified-pack
+contract bind this component to durable attempts and source/rights rechecks.
+
+The broker supplies a lowercase 32-hex attempt ID already journaled by Core.
+The AppContainer moniker is derived from that explicit identity; a pre-existing
+profile is rejected. Before resuming, native token queries independently verify
+AppContainer state, zero capability groups and the exact expected package SID.
+Unreleased profile/root identities are returned privately for reconciliation.
+Attempt staging has lifecycle class MEDIA_PROBE_ATTEMPT_TEMP and a proposed
+24-hour TTL after terminal reconciliation; TTL never authorizes deletion while
+process/resource ownership is uncertain. Native preparation retains its files;
+the future Core retention/reference graph must own cleanup.
+
+Effective Job Object limits are read back before process creation. Cancellation
+is checked before preparation, spawn and resume. A private start callback carries
+the observed PID after resume for trusted broker progress/cancel coordination;
+it conveys no metadata, authority, persisted state or PASS verdict.

@@ -7833,3 +7833,20 @@ pins, non-ASCII/embedded-NUL digests, append-only retention and completion
 rejection for historical unpinned rows. New matching job/evidence/measurement
 pins must permit the existing relational fixture binding. These privileged
 fixtures prove database guards, not real executable attestation or runtime PASS.
+
+# MEDIA-PROBE-NATIVE-TEST-01. Prepared Windows containment cases
+
+Native tests use an explicitly hashed local fixture executable, not a certified
+ffprobe pack. Exercise stopped zero exit, inherited-secret absence, private input
+access, denied source/user-file and network access, timeout, explicit cancel,
+stdout/stderr overflow and process-tree cleanup. Source/binary hash mismatch,
+hardlinks/reparse paths and pre-existing attempt roots fail before launch.
+Fixture evidence cannot certify real ffprobe, Core rights/attempt binding, or
+complete Task #64. Packaging/core/UI promotion remains separately gated.
+
+Network timeout alone is insufficient proof of isolation. The fixture must
+establish a live parent-loopback positive control, observe no accepted child
+connection and bind the observation to independently queried zero-capability
+AppContainer/SID evidence. It records timeout versus explicit access denial
+separately. Owner/ACL setup requires no elevation or ownership change: check
+the creating user's existing ownership and modify only the private DACL.

@@ -2347,3 +2347,22 @@ backfilled from jobs: that would invent an observation absent from the original
 evidence. A later verified projection must treat rows lacking either persisted
 pin as UNKNOWN. Their immutable history and stored lifecycle state remain intact.
 The prepared admission lane still cannot execute or expose PASS metadata.
+
+# ARCH-MEDIA-PROBE-NATIVE-01. Prepared Windows process boundary
+
+The native preparation in packaging/bootstrap/NativeMediaProbe.cs is internal,
+unreachable from public commands and not certified execution authority. Its
+input is a trusted Core-resolved source/binary tuple, never browser paths or
+argv. It stages private copies, checks exact SHA-256/size and regular-file
+identity, launches a zero-capability AppContainer suspended, attaches a bounded
+kill-on-close Job Object before resuming, and inherits only three pipe handles.
+Source and staged executable handles deny write/delete sharing during execution.
+Output and wall-time budgets only tighten the hardening defaults. Results are
+untrusted process observations; Core still owns rights/fences/parser/binding.
+
+Attempt roots are exclusively created, scoped by a random identity, and retained
+for explicit reconciliation if cleanup or process-tree stop is uncertain. No
+original file is deleted. A new native source/test path is a proposed scope
+extension beyond #64's current claim; promotion requires the trusted task/path
+contract and custody to be updated. Preparation changes neither existing claim
+ownership nor control maturity, and enables no renderer/export/publish action.
