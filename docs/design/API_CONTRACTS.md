@@ -4499,3 +4499,17 @@ current runtime status. Exact original-key replay cannot enqueue another job.
 Unknown rights/source/trust, stale versions, duplicate live intent, insufficient
 storage or failed audit leave no partial private admission. Public admission and
 retry retain their existing blocked contracts pending authorized activation.
+
+# API-MEDIA-PROBE-WORKFLOW-01. Private runner and operation-history receipt
+
+runMediaProbeJob and reconcileMediaProbeWorkflows have no HTTP/RPC routes. The
+runner accepts exact project/job/expected-version/key identity only; reconciliation
+accepts no arguments. PREPARED_MEDIA_PROBE_WORKFLOW_V1 contains contract, job_id,
+nullable attempt_id, state/code, job_version, execution_started, physical_tree,
+binding_pin_state, logical_only and needs_user. Human-readable next steps remain
+in the existing job projection. No paths, raw results,
+handles, credentials or caller verdicts appear. Exact-key replay is read-only.
+Recovery reports PREPARED_MEDIA_PROBE_WORKFLOW_RECOVERY_V1 UNKNOWN/logical_only;
+the reconcile summary is recovered_workflows/batches/ready. Failed/recovered
+parents cannot be mistaken for a live runner. Existing V1 public projections use
+UNKNOWN or independently verified COMPLETED plus recovery_required as appropriate.

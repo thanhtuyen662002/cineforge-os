@@ -5528,6 +5528,11 @@ ASSET_REVISION scope, payload project/revision/hash/size/manifest/parser/schema
 pins and the current exact ASSET expected version. No historical job/authorization
 backfill is introduced. Reservation may resolve this audited command as owner.
 
+PREPARED_RUN_MEDIA_PROBE_V1 also uses a private versioned identity fingerprint
+and is excluded from generic legacy backfill. Parent progress/result and logical
+recovery use existing command statuses/events/audits, with no table/constraint
+widening or historical job/evidence repair. Schema remains 24.
+
 New stderr observations are bounded to 1 MiB. Existing larger diagnostic rows
 remain untouched; updates that change that field cannot introduce a larger
 new observation. New PASS proof cannot use an over-budget stderr observation.

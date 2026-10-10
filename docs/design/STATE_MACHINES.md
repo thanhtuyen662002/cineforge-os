@@ -3131,3 +3131,13 @@ QUEUED. Fresh private reservation may subsequently claim that job using all
 existing checks. No runner, cancellation success or retry is inferred from
 queue admission. Replayed receipt is immutable history; current state is read
 from the job projection. Public activation remains a separate integration step.
+
+# STATE-MEDIA-PROBE-WORKFLOW-01. Parent command lifetime
+
+Owned explicit runner journals EXECUTING before reservation, records the exact
+child attempt, then finishes SUCCEEDED/SUCCEEDED_WITH_WARNINGS only from recorded
+child completion. Exceptions finish PARTIAL/UNKNOWN with a human next step.
+Foreign interrupted EXECUTING parents become PARTIAL through logical recovery;
+no child/job/canonical state is rewritten by that reconciliation. A current live
+runner remains active. A lost/failed parent gives a derived human warning, never
+fake progress or a cancellation/cleanup success. No implicit retry is permitted.

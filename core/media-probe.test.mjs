@@ -761,6 +761,132 @@ function admissionFixture(t, change = () => {}) {
     parser_policy_version:'MEDIA_PROBE_PARSER_V1',expected_version:source.row_version,idempotency_key:'admit-1'}};
 }
 
+function workflowFixture(t) {
+  const f=admissionFixture(t,(_c,o)=>{o.coreOptions.mediaProbeBrokerSource=()=>null;});
+  const admitted=f.core.prepareMediaProbeAdmission(f.admissionRequest);
+  return {...f,workflowRequest:{project_id:admitted.project_id,job_id:admitted.job_id,expected_version:1,idempotency_key:'workflow-test'}};
+}
+
+test('Core workflow owns dispatch prerequisite failures, exposes UNKNOWN and replays without authority or native callbacks', async t=>{
+  const f=workflowFixture(t);
+  await assert.rejects(f.core.runMediaProbeJob(f.workflowRequest));
+  const root=f.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get();
+  assert.equal(root.status,'PARTIAL');const receipt=JSON.parse(root.result_json);
+  assert.equal(receipt.state,'UNKNOWN');assert.equal(receipt.needs_user,true);assert.equal(receipt.physical_tree,'UNKNOWN');
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_attempts').get().n,1);
+  assert.equal(f.db.prepare('SELECT state FROM media_probe_jobs WHERE id=?').get(receipt.job_id).state,'CLAIMED');
+  const projected=f.core.handle({api_version:'1',request_id:'workflow-query',method:'query.media_probe.list',params:{project_id:f.workflowRequest.project_id,asset_revision_id:f.admissionRequest.asset_revision_id}});
+  assert.equal(projected.ok,true);assert.equal(projected.result.jobs[0].state,'UNKNOWN');assert.equal(projected.result.jobs[0].needs_user,true);
+  const before=reservationSnapshot(f);const loads=f.control.loads;f.control.throwOnLoad=true;
+  assert.deepEqual(await f.core.runMediaProbeJob(f.workflowRequest),receipt);
+  assert.deepEqual(reservationSnapshot(f),before);assert.equal(f.control.loads,loads);
+  await assert.rejects(f.core.runMediaProbeJob({...f.workflowRequest,expected_version:2}),{code:'IDEMPOTENCY_KEY_REUSE_CONFLICT'});
+  const secret={...receipt,path:'private-source'};f.db.prepare('UPDATE commands SET result_json=? WHERE id=?').run(JSON.stringify(secret),root.id);
+  await assert.rejects(f.core.runMediaProbeJob(f.workflowRequest),{code:'PROBE_WORKFLOW_INCONSISTENT'});
+});
+
+test('Core workflow records pre-reservation failure without blocking explicit independent work or retrying native execution',async t=>{
+  const f=workflowFixture(t);f.control.revoked=true;
+  await assert.rejects(f.core.runMediaProbeJob(f.workflowRequest));
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_attempts').get().n,0);
+  assert.equal(f.db.prepare('SELECT state FROM media_probe_jobs').get().state,'QUEUED');
+  const receipt=JSON.parse(f.db.prepare("SELECT result_json FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get().result_json);
+  const loads=f.control.loads;assert.deepEqual(await f.core.runMediaProbeJob(f.workflowRequest),receipt);assert.equal(f.control.loads,loads);
+  f.control.revoked=false;
+  await assert.rejects(f.core.runMediaProbeJob({...f.workflowRequest,idempotency_key:'explicit-new-workflow'}));
+  assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get().n,2);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_attempts').get().n,1);
+});
+
+test('Core workflow recovery rejects a retargeted deterministic child without inventing parent completion',async t=>{
+  const f=workflowFixture(t);
+  f.db.exec("CREATE TRIGGER workflow_reserved_fail BEFORE INSERT ON audit_records WHEN NEW.action_type IN ('media_probe.workflow_reserved','media_probe.workflow_failed') BEGIN SELECT RAISE(ABORT,'reserved fail'); END;");
+  await assert.rejects(f.core.runMediaProbeJob(f.workflowRequest));f.db.exec('DROP TRIGGER workflow_reserved_fail');
+  const parent=f.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get();
+  f.db.prepare("UPDATE commands SET payload_json=json_set(payload_json,'$.job_id','other-job') WHERE command_type='PREPARED_AUTHORIZE_MEDIA_PROBE_V1'").run();
+  f.core.close();
+  const reopened=new CoreService({dbPath:path.join(f.directory,'core.sqlite'),assetStorePath:path.join(f.directory,'store')});
+  try{
+    assert.deepEqual(reopened.db.prepare('SELECT * FROM commands WHERE id=?').get(parent.id),parent);
+    assert.throws(()=>reopened.reconcileMediaProbeWorkflows(),{code:'PROBE_WORKFLOW_INCONSISTENT'});
+    assert.equal(reopened.db.prepare("SELECT COUNT(*) AS n FROM commands WHERE command_type='PREPARED_RECONCILE_MEDIA_PROBE_WORKFLOWS_V1'").get().n,0);
+    await assert.rejects(reopened.runMediaProbeJob({...f.workflowRequest,idempotency_key:'other-root'}),{code:'PROBE_RECOVERY_REQUIRED'});
+  }finally{reopened.close();}
+});
+
+test('Core workflow validates identity and scope before any new command and has no RPC route',async t=>{
+  const f=workflowFixture(t);const before=reservationSnapshot(f);
+  for(const patch of [{path:'bad'},{job_id:'unknown-job'},{project_id:'other-project'},{expected_version:2},{expected_version:0},{idempotency_key:'bad:key'}])
+    await assert.rejects(f.core.runMediaProbeJob({...f.workflowRequest,...patch}));
+  assert.deepEqual(reservationSnapshot(f),before);
+  assert.equal(f.core.handle({api_version:'1',request_id:'no-private-workflow',method:'runMediaProbeJob',params:f.workflowRequest}).ok,false);
+  f.db.exec("CREATE TRIGGER workflow_start_fail BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.workflow_started' BEGIN SELECT RAISE(ABORT,'start fail'); END;");
+  await assert.rejects(f.core.runMediaProbeJob(f.workflowRequest),/start fail/);assert.deepEqual(reservationSnapshot(f),before);
+});
+
+test('Core workflow survives interrupted reservation journaling without redispatch or authorizations being rewritten',async t=>{
+  const f=workflowFixture(t);
+  f.db.exec("CREATE TRIGGER workflow_reserved_fail BEFORE INSERT ON audit_records WHEN NEW.action_type IN ('media_probe.workflow_reserved','media_probe.workflow_failed') BEGIN SELECT RAISE(ABORT,'reserved fail'); END;");
+  await assert.rejects(f.core.runMediaProbeJob(f.workflowRequest),/reserved fail/);
+  const parent=f.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get();assert.equal(parent.status,'EXECUTING');
+  const authorization=f.db.prepare('SELECT * FROM media_probe_authorizations').get();
+  f.db.exec('DROP TRIGGER workflow_reserved_fail');f.core.close();
+  const reopened=new CoreService({dbPath:path.join(f.directory,'core.sqlite'),assetStorePath:path.join(f.directory,'store')});
+  try {
+    const c=reopened.db.prepare('SELECT * FROM commands WHERE id=?').get(parent.id);assert.equal(c.status,'PARTIAL');
+    const receipt=JSON.parse(c.result_json);assert.equal(receipt.contract,'PREPARED_MEDIA_PROBE_WORKFLOW_RECOVERY_V1');
+    assert.equal(receipt.state,'UNKNOWN');assert.equal(receipt.logical_only,true);assert.equal(receipt.execution_started,false);
+    assert.deepEqual(reopened.db.prepare('SELECT * FROM media_probe_authorizations').get(),authorization);
+    assert.equal(reopened.db.prepare('SELECT state FROM media_probe_attempts').get().state,'ABANDONED');
+    assert.equal(reopened.db.prepare('SELECT state FROM media_probe_jobs').get().state,'UNKNOWN');
+    assert.equal(reopened.db.prepare("SELECT COUNT(*) AS n FROM commands WHERE command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1'").get().n,0);
+    assert.deepEqual(await reopened.runMediaProbeJob(f.workflowRequest),receipt);
+    assert.deepEqual(reopened.reconcileMediaProbeWorkflows(),{recovered_workflows:0,batches:0,ready:true});
+  }finally{reopened.close();}
+});
+
+test('Core workflow recovery rejects damaged private identity without generic backfill or partial batch audit',async t=>{
+  const f=workflowFixture(t);f.control.revoked=true;
+  f.db.exec("CREATE TRIGGER workflow_failed_fail BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.workflow_failed' BEGIN SELECT RAISE(ABORT,'failed journal'); END;");
+  await assert.rejects(f.core.runMediaProbeJob(f.workflowRequest));f.db.exec('DROP TRIGGER workflow_failed_fail');
+  const parent=f.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get();
+  f.db.prepare('UPDATE commands SET idempotency_fingerprint=NULL WHERE id=?').run(parent.id);
+  const damaged=f.db.prepare('SELECT * FROM commands WHERE id=?').get(parent.id);f.core.close();
+  const reopened=new CoreService({dbPath:path.join(f.directory,'core.sqlite'),assetStorePath:path.join(f.directory,'store')});
+  try{
+    assert.deepEqual(reopened.db.prepare('SELECT * FROM commands WHERE id=?').get(parent.id),damaged);
+    assert.throws(()=>reopened.reconcileMediaProbeWorkflows(),{code:'PROBE_WORKFLOW_INCONSISTENT'});
+    assert.equal(reopened.db.prepare("SELECT COUNT(*) AS n FROM commands WHERE command_type='PREPARED_RECONCILE_MEDIA_PROBE_WORKFLOWS_V1'").get().n,0);
+    assert.equal(reopened.db.prepare('SELECT COUNT(*) AS n FROM media_probe_attempts').get().n,0);
+    await assert.rejects(reopened.runMediaProbeJob({...f.workflowRequest,idempotency_key:'other'}),{code:'PROBE_RECOVERY_REQUIRED'});
+  }finally{reopened.close();}
+});
+
+test('Core workflow recovery is bounded to 1000 parents and atomically rolls back a failing batch',async t=>{
+  const f=workflowFixture(t);f.control.revoked=true;
+  f.db.exec("CREATE TRIGGER workflow_failed_fail BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.workflow_failed' BEGIN SELECT RAISE(ABORT,'failed journal'); END;");
+  await assert.rejects(f.core.runMediaProbeJob(f.workflowRequest));f.db.exec('DROP TRIGGER workflow_failed_fail');
+  const parent=f.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get();
+  f.core._transaction(()=>{
+    for(let i=0;i<1000;i++){
+      const id='workflow-backlog-'+String(i).padStart(4,'0');insert(f.db,'commands',{...parent,id,idempotency_key:id});
+      f.core._insertAudit({actionType:'media_probe.workflow_started',targetType:'MEDIA_PROBE_JOB',targetId:f.workflowRequest.job_id,
+        payload:{core_owner_epoch:f.core.instanceEpoch,job_version:1}},id,f.core.actorId,'SUCCEEDED');
+    }
+  });
+  f.db.exec("CREATE TRIGGER workflow_recovery_fail BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.workflow_recovered' BEGIN SELECT RAISE(ABORT,'recovery fail'); END;");
+  f.core.close();
+  const reopened=new CoreService({dbPath:path.join(f.directory,'core.sqlite'),assetStorePath:path.join(f.directory,'store')});
+  try{
+    assert.throws(()=>reopened.reconcileMediaProbeWorkflows(),/recovery fail/);
+    assert.equal(reopened.db.prepare("SELECT COUNT(*) AS n FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1' AND status='EXECUTING'").get().n,1001);
+    reopened.db.exec('DROP TRIGGER workflow_recovery_fail');
+    assert.deepEqual(reopened.reconcileMediaProbeWorkflows(),{recovered_workflows:1000,batches:10,ready:false});
+    assert.deepEqual(reopened.reconcileMediaProbeWorkflows(),{recovered_workflows:1,batches:1,ready:true});
+    assert.equal(reopened.db.prepare('SELECT COUNT(*) AS n FROM media_probe_attempts').get().n,0);
+  }finally{reopened.close();}
+});
+
 test('Core admission creates one audited exact queue intent without SQL job seed then reserves fresh authority', t => {
   const f = admissionFixture(t); assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_jobs').get().n,0);
   const receipt = f.core.prepareMediaProbeAdmission(f.admissionRequest);

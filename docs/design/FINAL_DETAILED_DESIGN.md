@@ -1062,3 +1062,33 @@ authority verdict. Exact-key replay validates stored scope/job/receipt and retur
 the original intent read-only without callbacks, new job or automatic retry.
 Core reservation accepts this audited owner command as well as the existing
 ProbeMediaAsset owner. All subsequent rights/trust/epoch/fence checks still apply.
+
+# DESIGN-MEDIA-PROBE-WORKFLOW-01. Durable composition and interrupted parent
+
+runMediaProbeJob accepts project_id/job_id/expected_version/idempotency_key only.
+Validate writable ACTIVE scope, exact queued version, no prior attempt and owned
+Core before PREPARED_RUN_MEDIA_PROBE_V1 is journaled. Store original identity,
+Core epoch and singleton JOB expected map; fingerprint only the caller identity.
+Keys workflow-<parent-id>-reserve/dispatch bind deterministic child commands.
+Journal parent start/reservation/completion with exact child IDs, impacts and
+events. Actual execution/parsing/verification progress stays in the child job.
+No scheduler loop, automatic retry or public route is introduced.
+
+Completion copies only scoped child receipt facts into the parent versioned
+receipt. A recorded child result can yield parent SUCCEEDED or warnings; an
+exception produces PARTIAL/UNKNOWN with a redacted reason and needs_user/next_step.
+Never rewrite child measurements or invent cleanup. Unrecordable audit failure
+or an unfinished child dispatch keeps admission fenced. Exact terminal replay
+validates fingerprint, scope and completion/failure/recovery audit; no callbacks
+or native work run, even under a later Core epoch.
+
+Startup processes at most 10 batches of 100 foreign-epoch EXECUTING parents after
+retiring attempts and dispatch commands. Validate original identity/map/start
+audit and deterministic child ownership. Reconcile the parent to PARTIAL with
+UNKNOWN physical/pin/outcome and an exact logical-only receipt, leaving children,
+job rows, authorization, original/canonical/raw bytes unchanged. Malformed scope,
+missing proof or audit failure rolls back the batch and blocks admission.
+For the exact job version, an audited failed/recovered or orphaned parent gives
+a derived needs-user warning. Active nonterminal projection becomes UNKNOWN;
+independently verified COMPLETED metadata stays immutable/PASS with the existing
+recovery_required message. Live owned runners and unrelated jobs remain intact.

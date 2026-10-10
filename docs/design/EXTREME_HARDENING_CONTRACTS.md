@@ -8003,3 +8003,15 @@ domain after a trust callback. Exact-key replay is read-only, never fresh author
 Verify blocked public intents remain unchanged, no HTTP/private admission route,
 and no attempt/authorization/evidence exists before reservation. Retain explicit
 fake-producer/ephemeral-signer scope and pending public/certification boundaries.
+
+# MEDIA-PROBE-WORKFLOW-TEST-01. Actual owned runner and interrupted parent
+
+Exercise audited admission followed by one Core runner call and real guarded
+native binding; do not manually seed a queue or compose child calls in this lane.
+Verify read-only replay, duplicate/busy/stale/scope rejection and redaction. Fault
+parent reservation/completion audits, Core exit and process crash before/after
+child binding. Fresh startup closes the parent logically, preserves every child,
+canonical/raw identity and exposes honest needs-user state. No restart is proof
+of cleanup. Current live work, different job scope and valid histories remain
+unchanged. Malformed identity/child link/audit and bounded backlog fence admission.
+Fake producer/signer scope still cannot certify production or public activation.

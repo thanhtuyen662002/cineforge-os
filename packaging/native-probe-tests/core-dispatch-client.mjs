@@ -48,7 +48,7 @@ export async function exerciseCoreDispatch(descriptor, config) {
   let core; let rightsId; let loads = 0; let revokeAfterResult = false; let closeTimer;
   let projectionTime = null; let revokeDuringQuery = false; let observedProjection = null;
   const projectionChecks = [];
-  const crashPhase = config.mode.startsWith('CORE_BIND_CRASH_') ? config.mode.slice('CORE_BIND_CRASH_'.length) : null;
+  const crashPhase = config.mode.startsWith('CORE_BIND_CRASH_') ? config.mode.slice('CORE_BIND_CRASH_'.length).replace('WORKFLOW_','') : null;
   const options = { dbPath: path.join(root, 'core.sqlite'), assetStorePath: path.join(root, 'assets'),
     instanceEpoch: descriptor.core_epoch, rendererToolchainRoot: toolRoot, rendererToolchainManifest: manifestPath,
     mediaProbeBrokerSource: () => descriptor, mediaProbeTrustSource: () => {
@@ -119,7 +119,8 @@ export async function exerciseCoreDispatch(descriptor, config) {
     execute('RecordConsent', { rights_identity_id: rightsId, consent_type: 'SOURCE_USE', granted_by: 'fixture-owner' });
     const revision = asset.latest_revision;
     let jobId;
-    if (config.mode === 'CORE_BIND_ADMISSION') {
+    const workflowMode = config.mode === 'CORE_BIND_WORKFLOW' || config.mode.startsWith('CORE_BIND_CRASH_WORKFLOW_');
+    if (config.mode === 'CORE_BIND_ADMISSION' || workflowMode) {
       assert.equal(core.db.prepare('SELECT COUNT(*) AS n FROM media_probe_jobs').get().n,0);
       const current = core._mediaProbeSource(project.id,revision.id);
       const admission = core.prepareMediaProbeAdmission({project_id:project.id,asset_revision_id:revision.id,
@@ -146,18 +147,19 @@ export async function exerciseCoreDispatch(descriptor, config) {
       canonical_request_hash: digest('privileged queued fixture'), idempotency_key: crypto.randomUUID(), correlation_id: crypto.randomUUID(),
       state: 'QUEUED', next_step: 'Fixture', created_at_utc_us: stamp, updated_at_utc_us: stamp });
     }
-    const reservation = core.prepareMediaProbeAttempt({ project_id: project.id, job_id: jobId, expected_version: 1, idempotency_key: 'reserve-fixture' });
-    const request = { project_id: project.id, job_id: jobId, attempt_id: reservation.attempt_id, expected_version: reservation.job_version, idempotency_key: 'dispatch-fixture' };
+    let reservation = workflowMode ? null : core.prepareMediaProbeAttempt({ project_id: project.id, job_id: jobId, expected_version: 1, idempotency_key: 'reserve-fixture' });
+    let request = reservation && { project_id: project.id, job_id: jobId, attempt_id: reservation.attempt_id, expected_version: reservation.job_version, idempotency_key: 'dispatch-fixture' };
+    const workflowRequest = {project_id:project.id,job_id:jobId,expected_version:1,idempotency_key:'native-owned-workflow'};
     const managedSource = path.join(options.assetStorePath, core._objectRelativePath('SHA-256', digest(source)));
     if (crashPhase) {
       const crash = phase => {
         assert.equal(phase, crashPhase);
         const command = core.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1'").get();
-        assert.equal(command.status, 'EXECUTING');
-        if (!['RUNNING','RELEASED'].includes(phase)) {
+        assert.equal(command.status, phase==='COMPLETED'?'SUCCEEDED':'EXECUTING');
+        if (!['RUNNING','RELEASED','COMPLETED'].includes(phase)) {
           assert.throws(() => { const fd = fs.openSync(manifest.binaries.ffprobe.path, 'r+'); fs.closeSync(fd); }, e => ['EBUSY','EACCES','EPERM'].includes(e.code));
         }
-        if (phase === 'RELEASED') { const fd = fs.openSync(manifest.binaries.ffprobe.path, 'r+'); fs.closeSync(fd); }
+        if (['RELEASED','COMPLETED'].includes(phase)) { const fd = fs.openSync(manifest.binaries.ffprobe.path, 'r+'); fs.closeSync(fd); }
         const tables = ['assets','asset_revisions','rights_records','consents','media_probe_authorizations',
           'media_probe_evidence','technical_metadata','technical_metadata_streams','storage_objects','storage_object_locations'];
         const canonical = Object.fromEntries(tables.map(table => [table, core.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
@@ -170,7 +172,8 @@ export async function exerciseCoreDispatch(descriptor, config) {
           schema: 'OWNED_CORE_CRASH_FIXTURE_V1', phase, root, options: { dbPath: options.dbPath, assetStorePath: options.assetStorePath,
             rendererToolchainRoot: toolRoot, rendererToolchainManifest: manifestPath },
           envelope: envelopeBytes.toString('base64'), policy: trustPolicyBytes.toString('base64'), request,
-          command, job: core.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(jobId),
+          command, workflow:workflowMode?{request:workflowRequest,parent:core.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get()}:null,
+          job: core.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(jobId),
           attempt: core.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(request.attempt_id), canonical, stages, files }));
         fs.writeSync(1, JSON.stringify({ mode: config.mode, core_dispatch: 'CRASH_CHECKPOINT', phase,
           command_state: command.status, metadata_rows: canonical.technical_metadata.length, certified_ffprobe: false })+'\n');
@@ -197,13 +200,25 @@ export async function exerciseCoreDispatch(descriptor, config) {
         const audit = core._insertAudit.bind(core);
         core._insertAudit = (...args) => { if (args[0].actionType === 'media_probe.binding_completed') crash('RELEASED'); return audit(...args); };
       }
+      if (crashPhase === 'COMPLETED') {
+        const audit=core._insertAudit.bind(core);
+        core._insertAudit=(...args)=>{if(args[0].actionType==='media_probe.workflow_completed')crash('COMPLETED');return audit(...args);};
+      }
     }
     if (config.mode === 'CORE_SOURCE_SWAP') fs.writeFileSync(managedSource, Buffer.alloc(source.length, 120));
     revokeAfterResult = config.mode === 'CORE_RIGHTS';
     if (config.mode === 'CORE_AUDIT') core.db.exec("CREATE TRIGGER fixture_start_audit BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.dispatch_executing' BEGIN SELECT RAISE(ABORT,'fixture started audit failure'); END;");
     if (config.mode === 'CORE_TERMINAL_AUDIT') core.db.exec("CREATE TRIGGER fixture_terminal_audit BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.dispatch_unknown' BEGIN SELECT RAISE(ABORT,'fixture terminal audit failure'); END;");
     if (['CORE_TERMINAL_AUDIT', 'CORE_BIND_AUDIT'].includes(config.mode)) core.db.exec("CREATE TRIGGER fixture_bind_audit BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.bind_evidence' BEGIN SELECT RAISE(ABORT,'fixture bind audit failure'); END;");
-    const pending = core.dispatchMediaProbeAttempt(request);
+    const pending = workflowMode ? core.runMediaProbeJob(workflowRequest) : core.dispatchMediaProbeAttempt(request);
+    if (workflowMode) {
+      const parent=core.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get();
+      assert.equal(parent.status,'EXECUTING');
+      reservation=JSON.parse(core.db.prepare("SELECT result_json FROM commands WHERE command_type='PREPARED_AUTHORIZE_MEDIA_PROBE_V1'").get().result_json);
+      request={project_id:project.id,job_id:jobId,attempt_id:reservation.attempt_id,expected_version:reservation.job_version,
+        idempotency_key:'workflow-'+parent.id+'-dispatch'};
+      await assert.rejects(core.runMediaProbeJob(workflowRequest),{code:'PROBE_WORKFLOW_BUSY'});
+    }
     // The method must journal before it can yield or send through the pipe.
     assert.equal(core.db.prepare('SELECT state FROM media_probe_attempts WHERE id=?').get(request.attempt_id).state, 'DISPATCHING');
     await assert.rejects(core.dispatchMediaProbeAttempt(request), { code: 'PROBE_DISPATCH_BUSY' });
@@ -225,10 +240,21 @@ export async function exerciseCoreDispatch(descriptor, config) {
       }
       core = new CoreService({ ...options, instanceEpoch: crypto.randomUUID(), mediaProbeBrokerSource: null });
     } else receipt = await pending;
+    if (workflowMode) {
+      assert.equal(receipt.contract,'PREPARED_MEDIA_PROBE_WORKFLOW_V1');
+      assert.equal(receipt.state,'COMPLETED');assert.equal(receipt.needs_user,false);
+      assert.equal(receipt.logical_only,false);assert.equal(receipt.physical_tree,'STOPPED');
+      const parent=core.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'").get();
+      assert.equal(parent.status,'SUCCEEDED');
+      const baseline=JSON.stringify(core.db.prepare('SELECT * FROM commands ORDER BY rowid').all());
+      assert.deepEqual(await core.runMediaProbeJob(workflowRequest),receipt);
+      assert.equal(JSON.stringify(core.db.prepare('SELECT * FROM commands ORDER BY rowid').all()),baseline);
+      receipt=JSON.parse(core.db.prepare("SELECT result_json FROM commands WHERE command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1'").get().result_json);
+    }
     const job = core.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(jobId);
     const attempt = core.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(request.attempt_id);
     const disconnected = config.mode === 'CORE_BIND_DISCONNECT';
-    const bound = ['CORE_BIND_AUDIO','CORE_BIND_ADMISSION'].includes(config.mode) || disconnected;
+    const bound = ['CORE_BIND_AUDIO','CORE_BIND_ADMISSION','CORE_BIND_WORKFLOW'].includes(config.mode) || disconnected;
     assert.equal(job.state, bound ? 'COMPLETED' : 'UNKNOWN'); assert.equal(job.needs_user, Number(!bound || disconnected));
     assert.equal(job.current_attempt_id, bound ? attempt.id : null); assert.equal(job.fencing_token, bound ? attempt.fencing_token : null);
     assert.equal(attempt.state, bound ? 'SUCCEEDED' : 'ABANDONED');
@@ -318,7 +344,7 @@ export async function exerciseCoreDispatch(descriptor, config) {
         ...core.db.prepare('SELECT * FROM audit_records WHERE command_id=?').all(dispatch.id)];
       const text = JSON.stringify(rows); assert.equal(text.includes(root), false); assert.equal(text.includes(descriptor.pipe_name), false);
     }
-    if (['CORE_BIND_AUDIO','CORE_BIND_ADMISSION'].includes(config.mode)) {
+    if (['CORE_BIND_AUDIO','CORE_BIND_ADMISSION','CORE_BIND_WORKFLOW'].includes(config.mode)) {
       const baseline = JSON.stringify(core.db.prepare('SELECT * FROM technical_metadata').all());
       // A private request context with its aggregate I/O budget already spent.
       // No fake canonical measurement is created to exercise this boundary.
@@ -390,7 +416,8 @@ export async function exerciseCoreDispatch(descriptor, config) {
     }
     return { mode: config.mode, core_dispatch: 'PASS', code: receipt?.code ?? config.mode,
       native_started: receipt?.execution_started ?? true, state: job.state, metadata_rows: metadataCount,
-      privileged_queued_fixture: config.mode !== 'CORE_BIND_ADMISSION', prepared_core_admission: config.mode === 'CORE_BIND_ADMISSION', certified_ffprobe: false,
+      privileged_queued_fixture: !['CORE_BIND_ADMISSION','CORE_BIND_WORKFLOW'].includes(config.mode), prepared_core_admission: ['CORE_BIND_ADMISSION','CORE_BIND_WORKFLOW'].includes(config.mode),
+      prepared_core_workflow: workflowMode, certified_ffprobe: false,
       projection_checks: projectionChecks, technical_metadata_projection: observedProjection };
   } finally {
     clearInterval(closeTimer); core?.close();

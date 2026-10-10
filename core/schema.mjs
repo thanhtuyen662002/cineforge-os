@@ -1826,7 +1826,7 @@ export function initializeDatabase(db) {
   // lane. Their identity hash differs; missing hashes must remain fail-closed.
   const legacyCommands = db.prepare(`SELECT id, payload_json, expected_versions_json
     FROM commands WHERE idempotency_key IS NOT NULL AND idempotency_fingerprint IS NULL
-      AND command_type NOT IN ('PREPARED_AUTHORIZE_MEDIA_PROBE_V1','PREPARED_DISPATCH_MEDIA_PROBE_V1','PREPARED_ADMIT_MEDIA_PROBE_V1')`).all();
+      AND command_type NOT IN ('PREPARED_AUTHORIZE_MEDIA_PROBE_V1','PREPARED_DISPATCH_MEDIA_PROBE_V1','PREPARED_ADMIT_MEDIA_PROBE_V1','PREPARED_RUN_MEDIA_PROBE_V1')`).all();
   const setFingerprint = db.prepare('UPDATE commands SET idempotency_fingerprint = ? WHERE id = ?');
   for (const row of legacyCommands) {
     try {

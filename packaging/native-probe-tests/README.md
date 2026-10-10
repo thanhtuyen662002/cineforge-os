@@ -109,6 +109,16 @@ and reopening Core inside the same Node process cannot bypass the next-dispatch
 gate. These are local fixture signatures and a fake producer; real ffprobe
 certification, public admission and whole-film production remain unproven.
 
+CORE_BIND_WORKFLOW creates its queue through actual Core admission, then invokes
+one private runMediaProbeJob command. It verifies durable parent/child ownership,
+busy rejection, canonical metadata, read-only parent replay and public projection.
+CORE_BIND_CRASH_WORKFLOW_CANONICAL and CORE_BIND_CRASH_WORKFLOW_COMPLETED exit the
+owned Node process after canonical binding and after terminal child completion.
+Fresh processes reconcile the parent logically to PARTIAL/UNKNOWN, preserve
+canonical/raw identities and expose needs_user/recovery_required. The completed
+child journal and job remain byte-for-byte unchanged in the latter case. These
+private test paths remain proposed extensions pending trusted scope/custody.
+
 The pipe is created with a user-only protected DACL, network/anonymous deny
 entries, non-inheritable handle, exclusive first-instance and
 PIPE_REJECT_REMOTE_CLIENTS. Native queries the connected OS client PID. Client

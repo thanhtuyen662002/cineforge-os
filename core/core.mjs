@@ -1607,6 +1607,7 @@ function isCoreOwnershipFailure(error) {
 export class CoreService {
   #mediaProbeTrustSource = null;
   #mediaProbeRecoveryReady = false;
+  #mediaProbeWorkflow = null;
   #mediaProbeBrokerSource = null;
   #mediaProbeDispatch = null;
   // Duplicated OS handles belong to this Node process, including other Core
@@ -2057,6 +2058,7 @@ export class CoreService {
     this._assertCoreOwner();
     this.#mediaProbeRecoveryReady = !this.db.prepare(`SELECT id FROM media_probe_attempts WHERE ${stale} LIMIT 1`).get(this.instanceEpoch);
     if (this.#mediaProbeRecoveryReady) this.#mediaProbeRecoveryReady = this.reconcileMediaProbeDispatchCommands().ready;
+    if (this.#mediaProbeRecoveryReady) this.#mediaProbeRecoveryReady = this.reconcileMediaProbeWorkflows().ready;
     return Object.freeze({ reconciled_attempts: attempts, changed_jobs: jobs, batches, ready: this.#mediaProbeRecoveryReady });
   }
 
@@ -5068,6 +5070,284 @@ export class CoreService {
     return id;
   }
 
+  #mediaProbeWorkflowIdentity(command) {
+    const fail = () => { throw new CoreError('PROBE_WORKFLOW_INCONSISTENT', 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
+    let payload; let expected;
+    try {
+      payload = decodeBoundedMediaProbeJson(Buffer.from(command.payload_json), { maxBytes: 4096, maxDepth: 2, maxNodes: 16 });
+      expected = decodeBoundedMediaProbeJson(Buffer.from(command.expected_versions_json), { maxBytes: 128, maxDepth: 2, maxNodes: 8 });
+    } catch { fail(); }
+    if (!payload || Array.isArray(payload) || Object.keys(payload).length !== 4
+      || Object.keys(payload).some(k => !['project_id','job_id','expected_version','core_owner_epoch'].includes(k))
+      || !expected || Array.isArray(expected) || Object.keys(expected).length !== 1
+      || !Number.isSafeInteger(payload.expected_version) || payload.expected_version < 1 || expected.JOB !== payload.expected_version
+      || !['project_id','job_id','core_owner_epoch'].every(k => typeof payload[k] === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(payload[k]))
+      || command.studio_id !== this.studioId || command.schema_version !== 1 || command.command_type !== 'PREPARED_RUN_MEDIA_PROBE_V1'
+      || command.scope_type !== 'MEDIA_PROBE_JOB' || command.scope_id !== payload.job_id || command.project_id !== payload.project_id) fail();
+    const identity = { project_id: payload.project_id, job_id: payload.job_id, expected_version: payload.expected_version };
+    const fingerprint = crypto.createHash('sha256').update(canonicalJson(identity)).digest('hex');
+    if (command.idempotency_fingerprint !== fingerprint || !this.db.prepare(`SELECT 1 FROM audit_records
+      WHERE command_id=? AND action_type='media_probe.workflow_started' AND target_type='MEDIA_PROBE_JOB' AND target_id=?
+        AND json_extract(payload_json,'$.core_owner_epoch')=? AND json_extract(payload_json,'$.job_version')=? LIMIT 1`)
+      .get(command.id, payload.job_id, payload.core_owner_epoch, payload.expected_version)) fail();
+    return { ...payload };
+  }
+
+  #mediaProbeWorkflowChildren(command, identity) {
+    const fail = () => { throw new CoreError('PROBE_WORKFLOW_INCONSISTENT', 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
+    const reserve = this.db.prepare(`SELECT * FROM commands WHERE actor_id=? AND command_type='PREPARED_AUTHORIZE_MEDIA_PROBE_V1'
+      AND idempotency_key=?`).get(command.actor_id, 'workflow-' + command.id + '-reserve');
+    const dispatch = this.db.prepare(`SELECT * FROM commands WHERE actor_id=? AND command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1'
+      AND idempotency_key=?`).get(command.actor_id, 'workflow-' + command.id + '-dispatch');
+    let attempt = null;
+    if (reserve) {
+      let receipt; let payload; let expected;
+      try {
+        receipt = decodeBoundedMediaProbeJson(Buffer.from(reserve.result_json), { maxBytes: 4096, maxDepth: 2, maxNodes: 32 });
+        payload = decodeBoundedMediaProbeJson(Buffer.from(reserve.payload_json), { maxBytes: 4096, maxDepth: 2, maxNodes: 32 });
+        expected = decodeBoundedMediaProbeJson(Buffer.from(reserve.expected_versions_json), { maxBytes: 128, maxDepth: 2, maxNodes: 8 });
+      } catch { fail(); }
+      attempt = receipt && this.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(receipt.attempt_id);
+      const authorization = attempt && this.db.prepare('SELECT * FROM media_probe_authorizations WHERE id=?').get(attempt.authorization_id);
+      if (reserve.studio_id !== command.studio_id || reserve.project_id !== command.project_id || reserve.schema_version !== 1
+        || reserve.scope_type !== 'MEDIA_PROBE_JOB' || reserve.scope_id !== identity.job_id || reserve.status !== 'SUCCEEDED'
+        || !payload || Object.keys(payload).length !== 3 || Object.keys(payload).some(k => !['project_id','job_id','expected_version'].includes(k))
+        || payload.project_id !== identity.project_id || payload.job_id !== identity.job_id || payload.expected_version !== identity.expected_version
+        || !expected || Object.keys(expected).length !== 1 || expected.JOB !== identity.expected_version
+        || reserve.idempotency_fingerprint !== crypto.createHash('sha256').update(canonicalJson({ project_id: identity.project_id,
+          job_id: identity.job_id, expected_version: identity.expected_version })).digest('hex')
+        || !receipt || Object.keys(receipt).length !== 7
+        || Object.keys(receipt).some(k=>!['contract','state','job_id','attempt_id','authorization_id','job_version','execution_started'].includes(k))
+        || receipt.contract !== 'PREPARED_MEDIA_PROBE_AUTHORIZATION_V1' || receipt.state !== 'PREPARED' || receipt.job_id !== identity.job_id
+        || receipt.job_version !== identity.expected_version + 1 || receipt.execution_started !== false
+        || !attempt || !authorization || attempt.job_id !== identity.job_id || attempt.core_owner_epoch !== identity.core_owner_epoch
+        || authorization.job_id !== identity.job_id || authorization.attempt_id !== attempt.id
+        || authorization.core_owner_epoch !== identity.core_owner_epoch || authorization.fencing_token !== attempt.fencing_token
+        || receipt.authorization_id !== authorization.id || !this.db.prepare(`SELECT 1 FROM audit_records
+          WHERE command_id=? AND action_type='media_probe.prepare_attempt' AND target_id=? AND json_extract(payload_json,'$.attempt_id')=?`)
+          .get(reserve.id, identity.job_id, attempt.id)) fail();
+    }
+    if (dispatch) {
+      let payload; let expected;
+      try {
+        payload = decodeBoundedMediaProbeJson(Buffer.from(dispatch.payload_json), { maxBytes: 4096, maxDepth: 2, maxNodes: 32 });
+        expected = decodeBoundedMediaProbeJson(Buffer.from(dispatch.expected_versions_json), { maxBytes: 128, maxDepth: 2, maxNodes: 8 });
+      } catch { fail(); }
+      const childIdentity = { project_id: identity.project_id, job_id: identity.job_id, attempt_id: attempt?.id,
+        expected_version: identity.expected_version + 1 };
+      if (!attempt || dispatch.studio_id !== command.studio_id || dispatch.project_id !== command.project_id || dispatch.schema_version !== 1
+        || dispatch.scope_type !== 'MEDIA_PROBE_ATTEMPT' || dispatch.scope_id !== attempt.id || !payload
+        || Object.keys(payload).some(k => !['project_id','job_id','attempt_id','expected_version','estimated_storage_bytes'].includes(k))
+        || ('estimated_storage_bytes' in payload && (!Number.isSafeInteger(payload.estimated_storage_bytes) || payload.estimated_storage_bytes < 0))
+        || Object.entries(childIdentity).some(([k,v]) => payload[k] !== v) || !expected || Object.keys(expected).length !== 1
+        || expected.JOB !== childIdentity.expected_version
+        || dispatch.idempotency_fingerprint !== crypto.createHash('sha256').update(canonicalJson(childIdentity)).digest('hex')) fail();
+    }
+    return { reserve, dispatch, attempt };
+  }
+
+  #mediaProbeWorkflowReceipt(command) {
+    const fail = () => { throw new CoreError('PROBE_WORKFLOW_INCONSISTENT', 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
+    const identity = this.#mediaProbeWorkflowIdentity(command);
+    let receipt;
+    try { receipt = decodeBoundedMediaProbeJson(Buffer.from(command.result_json), { maxBytes: 4096, maxDepth: 2, maxNodes: 32 }); } catch { fail(); }
+    const keys = ['contract','state','code','job_id','job_version','attempt_id','execution_started','physical_tree','binding_pin_state','logical_only','needs_user'];
+    const recovered = receipt?.contract === 'PREPARED_MEDIA_PROBE_WORKFLOW_RECOVERY_V1';
+    if (!receipt || Object.keys(receipt).length !== keys.length || Object.keys(receipt).some(k => !keys.includes(k))
+      || ![ 'PREPARED_MEDIA_PROBE_WORKFLOW_V1', 'PREPARED_MEDIA_PROBE_WORKFLOW_RECOVERY_V1' ].includes(receipt.contract)
+      || receipt.job_id !== identity.job_id || !Number.isSafeInteger(receipt.job_version) || receipt.job_version < identity.expected_version
+      || !['COMPLETED','UNKNOWN'].includes(receipt.state) || !/^[A-Z][A-Z0-9_]{1,80}$/.test(receipt.code)
+      || (receipt.attempt_id !== null && (typeof receipt.attempt_id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(receipt.attempt_id)))
+      || typeof receipt.execution_started !== 'boolean' || typeof receipt.needs_user !== 'boolean'
+      || !['STOPPED','UNKNOWN'].includes(receipt.physical_tree) || !['RELEASED','UNKNOWN'].includes(receipt.binding_pin_state)
+      || receipt.logical_only !== recovered || (recovered && (receipt.state !== 'UNKNOWN' || receipt.physical_tree !== 'UNKNOWN'
+        || receipt.binding_pin_state !== 'UNKNOWN' || receipt.code !== 'PROBE_WORKFLOW_RECOVERED' || !receipt.needs_user))
+      || !['SUCCEEDED','SUCCEEDED_WITH_WARNINGS','PARTIAL'].includes(command.status)
+      || (recovered && command.status !== 'PARTIAL')
+      || (command.status === 'SUCCEEDED' && (receipt.state !== 'COMPLETED' || receipt.needs_user))) fail();
+    const audits = this.db.prepare(`SELECT a.*,c.command_type AS owner_type,c.status AS owner_status FROM audit_records a
+      JOIN commands c ON c.id=a.command_id WHERE a.target_id=? AND
+      ((a.command_id=? AND a.action_type IN ('media_probe.workflow_completed','media_probe.workflow_failed'))
+        OR (a.action_type='media_probe.workflow_recovered' AND json_extract(a.payload_json,'$.parent_command_id')=?)) LIMIT 3`)
+      .all(identity.job_id, command.id, command.id);
+    const matched = audits.some(a => {
+      try { const p = JSON.parse(a.payload_json); return canonicalJson(p.receipt) === canonicalJson(receipt)
+        && (recovered ? a.owner_type === 'PREPARED_RECONCILE_MEDIA_PROBE_WORKFLOWS_V1' && a.owner_status === 'SUCCEEDED'
+          : a.command_id === command.id); } catch { return false; }
+    });
+    if (!matched) fail();
+    return Object.freeze({ ...receipt });
+  }
+
+  reconcileMediaProbeWorkflows() {
+    if (arguments.length !== 0) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.media_probe_identity_only', {});
+    this.#mediaProbeRecoveryReady = false;
+    if (this._closed || !this.db) throw new CoreError('PROBE_CORE_CLOSED', 'CONFLICT', 'errors.media_probe_identity_unknown', {});
+    this._assertCoreOwner();
+    const fail = () => { throw new CoreError('PROBE_WORKFLOW_INCONSISTENT', 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
+    if (this.db.prepare(`SELECT 1 FROM media_probe_attempts WHERE state IN ('CREATED','DISPATCHING','EXECUTING','PARSING','VERIFYING')
+      AND (core_owner_epoch IS NULL OR core_owner_epoch!=?) LIMIT 1`).get(this.instanceEpoch)
+      || this.db.prepare(`SELECT 1 FROM commands c LEFT JOIN media_probe_attempts a ON a.id=c.scope_id
+        WHERE c.command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1' AND c.status='EXECUTING'
+        AND (a.id IS NULL OR a.core_owner_epoch IS NULL OR a.core_owner_epoch!=?) LIMIT 1`).get(this.instanceEpoch)) {
+      return Object.freeze({ recovered_workflows: 0, batches: 0, ready: false });
+    }
+    let recovered = 0; let batches = 0;
+    for (let batch = 0; batch < 10; batch++) {
+      const count = this._transaction(() => {
+        this._assertCoreOwner();
+        const rows = this.db.prepare(`SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1' AND status='EXECUTING'
+          AND (json_valid(payload_json)=0 OR COALESCE(json_extract(payload_json,'$.core_owner_epoch'),'')!=?)
+          ORDER BY created_at_utc_us,id LIMIT 100`).all(this.instanceEpoch);
+        if (!rows.length) return 0;
+        const recoveryId = uuidv7(); const stamp = nowUtcUs();
+        this.db.prepare(`INSERT INTO commands (id,studio_id,actor_id,command_type,schema_version,scope_type,payload_json,
+          expected_versions_json,reversibility,status,created_at_utc_us,started_at_utc_us)
+          VALUES (?,?,?,'PREPARED_RECONCILE_MEDIA_PROBE_WORKFLOWS_V1',1,'SYSTEM',?,'{}','COMPENSATABLE','EXECUTING',?,?)`)
+          .run(recoveryId,this.studioId,this.actorId,json({command_ids:rows.map(c=>c.id),logical_only:true}),stamp,stamp);
+        for (const command of rows) {
+          const identity = this.#mediaProbeWorkflowIdentity(command);
+          const job = this.db.prepare('SELECT * FROM media_probe_jobs WHERE id=? AND project_id=?').get(identity.job_id, identity.project_id);
+          const children = this.#mediaProbeWorkflowChildren(command,identity);
+          if (!job || (children.attempt && !['SUCCEEDED','FAILED','ABANDONED'].includes(children.attempt.state))
+            || (children.dispatch && children.dispatch.status === 'EXECUTING')) fail();
+          const receipt = Object.freeze({contract:'PREPARED_MEDIA_PROBE_WORKFLOW_RECOVERY_V1',state:'UNKNOWN',code:'PROBE_WORKFLOW_RECOVERED',
+            job_id:job.id,job_version:job.row_version,attempt_id:children.attempt?.id??null,
+            execution_started:Boolean(children.dispatch && this.db.prepare(`SELECT 1 FROM audit_records WHERE command_id=?
+              AND action_type='media_probe.dispatch_executing' AND target_id=?`).get(children.dispatch.id,job.id)),
+            physical_tree:'UNKNOWN',binding_pin_state:'UNKNOWN',logical_only:true,needs_user:true});
+          this._insertAudit({actionType:'media_probe.workflow_recovered',targetType:'MEDIA_PROBE_JOB',targetId:job.id,
+            payload:{parent_command_id:command.id,reservation_command_id:children.reserve?.id??null,dispatch_command_id:children.dispatch?.id??null,
+              job_version:job.row_version,receipt}},recoveryId,this.actorId,'SUCCEEDED');
+          this.db.prepare(`INSERT INTO command_impacts (command_id,entity_type,entity_id,impact_type,severity,details_json)
+            VALUES (?,'COMMAND',?,'FENCES','MEDIUM',?)`).run(recoveryId,command.id,json({logical_only:true}));
+          this._insertEvent({aggregateType:'COMMAND',aggregateId:command.id,aggregateVersion:4,eventType:'MEDIA_PROBE_WORKFLOW_RECOVERED',
+            payload:receipt},recoveryId,this.actorId,job.correlation_id,command.id);
+          this.db.prepare(`UPDATE commands SET status='PARTIAL',error_code='PROBE_WORKFLOW_RECOVERED',result_json=?,finished_at_utc_us=? WHERE id=?`)
+            .run(json(receipt),stamp,command.id);
+        }
+        this.db.prepare("UPDATE commands SET status='SUCCEEDED',finished_at_utc_us=?,result_json=? WHERE id=?")
+          .run(stamp,json({recovered_workflows:rows.length,logical_only:true}),recoveryId);
+        return rows.length;
+      });
+      if (!count) break;
+      recovered += count; batches++;
+    }
+    const pending = this.db.prepare(`SELECT id FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1' AND status='EXECUTING' LIMIT 2`).all();
+    this.#mediaProbeRecoveryReady = !pending.length || (pending.length === 1 && pending[0].id === this.#mediaProbeWorkflow?.commandId);
+    return Object.freeze({recovered_workflows:recovered,batches,ready:this.#mediaProbeRecoveryReady});
+  }
+
+  // One explicit job only. No scheduler, retry, renderer route, or provider authority.
+  async runMediaProbeJob(request) {
+    const fail = code => { throw new CoreError(code,'CONFLICT','errors.media_probe_identity_unknown',{}, {needsUser:true}); };
+    if (this._closed || !this.db) fail('PROBE_CORE_CLOSED');
+    if (!request || typeof request !== 'object' || Array.isArray(request)) fail('INVALID_ARGUMENT');
+    this._mediaProbeFields(request,['project_id','job_id','expected_version','idempotency_key']);
+    for (const k of ['project_id','job_id','idempotency_key']) this._mediaProbeId(request[k],k);
+    if (!Number.isSafeInteger(request.expected_version) || request.expected_version < 1) fail('EXPECTED_VERSION_REQUIRED');
+    this._assertCoreOwner();
+    const identity = {project_id:request.project_id,job_id:request.job_id,expected_version:request.expected_version};
+    const fingerprint = crypto.createHash('sha256').update(canonicalJson(identity)).digest('hex');
+    const type = 'PREPARED_RUN_MEDIA_PROBE_V1';
+    const prior = this.db.prepare('SELECT * FROM commands WHERE actor_id=? AND command_type=? AND idempotency_key=?')
+      .get(this.actorId,type,request.idempotency_key);
+    if (prior) {
+      if (prior.idempotency_fingerprint !== fingerprint) fail('IDEMPOTENCY_KEY_REUSE_CONFLICT');
+      this.#mediaProbeWorkflowIdentity(prior);
+      if (prior.status === 'EXECUTING') fail('PROBE_WORKFLOW_BUSY');
+      return this.#mediaProbeWorkflowReceipt(prior);
+    }
+    if (!this.#mediaProbeRecoveryReady) fail('PROBE_RECOVERY_REQUIRED');
+    if (this.#mediaProbeWorkflow || this.#mediaProbeDispatch || CoreService.#mediaProbeBindingOwner) fail('PROBE_WORKFLOW_BUSY');
+    if (CoreService.#mediaProbeBindingUncertain) fail('PROBE_BINDING_RESTART_REQUIRED');
+    if (process.platform !== 'win32' || !this._ownershipEnabled) fail('PROBE_BROKER_PLATFORM_UNSUPPORTED');
+    if (!this.#mediaProbeBrokerSource) fail('PROBE_BROKER_UNAVAILABLE');
+    const commandId = uuidv7();
+    this._transaction(() => {
+      this._assertCoreOwner();
+      const project=this._project(request.project_id);this._assertProjectWritable(project);
+      if (project.lifecycle_state!=='ACTIVE') fail('PROJECT_NOT_WRITABLE');
+      const job=this._mediaProbeJob(request.job_id,request.project_id);
+      if (job.state!=='QUEUED' || job.row_version!==request.expected_version || job.current_attempt_id!==null
+        || this.db.prepare('SELECT 1 FROM media_probe_attempts WHERE job_id=? LIMIT 1').get(job.id)) fail('PROBE_WORKFLOW_STALE');
+      const stamp=nowUtcUs();
+      this.db.prepare(`INSERT INTO commands (id,studio_id,project_id,actor_id,command_type,schema_version,scope_type,scope_id,payload_json,
+        expected_versions_json,reversibility,status,idempotency_key,idempotency_fingerprint,created_at_utc_us,started_at_utc_us)
+        VALUES (?,?,?,?,?,1,'MEDIA_PROBE_JOB',?, ?,?,'COMPENSATABLE','EXECUTING',?,?,?,?)`).run(commandId,this.studioId,job.project_id,
+          this.actorId,type,job.id,json({...identity,core_owner_epoch:this.instanceEpoch}),json({JOB:identity.expected_version}),request.idempotency_key,fingerprint,stamp,stamp);
+      this._insertAudit({actionType:'media_probe.workflow_started',targetType:'MEDIA_PROBE_JOB',targetId:job.id,
+        payload:{core_owner_epoch:this.instanceEpoch,job_version:job.row_version}},commandId,this.actorId,'SUCCEEDED');
+      this._insertEvent({aggregateType:'COMMAND',aggregateId:commandId,aggregateVersion:1,eventType:'MEDIA_PROBE_WORKFLOW_STARTED',
+        payload:{job_id:job.id,execution_started:false}},commandId,this.actorId,job.correlation_id,job.command_id);
+      this.db.prepare(`INSERT INTO command_impacts (command_id,entity_type,entity_id,impact_type,severity,details_json)
+        VALUES (?,'MEDIA_PROBE_JOB',?,'MUTATES','MEDIUM',?)`).run(commandId,job.id,json({explicit_one_job:true}));
+    });
+    this.#mediaProbeWorkflow = {commandId,jobId:request.job_id};
+    let reserved = false;
+    try {
+      const reservation=this.prepareMediaProbeAttempt({...identity,idempotency_key:'workflow-'+commandId+'-reserve'});reserved=true;
+      this._transaction(() => {
+        this._assertCoreOwner();
+        const parent=this.db.prepare('SELECT * FROM commands WHERE id=?').get(commandId);
+        const children=this.#mediaProbeWorkflowChildren(parent,this.#mediaProbeWorkflowIdentity(parent));
+        if(children.attempt?.id!==reservation.attempt_id)fail('PROBE_WORKFLOW_INCONSISTENT');
+        this._insertAudit({actionType:'media_probe.workflow_reserved',targetType:'MEDIA_PROBE_JOB',targetId:request.job_id,
+          payload:{reservation_command_id:children.reserve.id,attempt_id:reservation.attempt_id,job_version:reservation.job_version}},commandId,this.actorId,'SUCCEEDED');
+        this._insertEvent({aggregateType:'COMMAND',aggregateId:commandId,aggregateVersion:2,eventType:'MEDIA_PROBE_WORKFLOW_RESERVED',
+          payload:{job_id:request.job_id,attempt_id:reservation.attempt_id,execution_started:false}},commandId,this.actorId,commandId,commandId);
+      });
+      const child=await this.dispatchMediaProbeAttempt({project_id:request.project_id,job_id:request.job_id,attempt_id:reservation.attempt_id,
+        expected_version:reservation.job_version,idempotency_key:'workflow-'+commandId+'-dispatch'});
+      return this._transaction(() => {
+        this._assertCoreOwner();
+        const command=this.db.prepare('SELECT * FROM commands WHERE id=?').get(commandId);
+        const parent=this.#mediaProbeWorkflowIdentity(command);const children=this.#mediaProbeWorkflowChildren(command,parent);
+        if (command.status!=='EXECUTING' || parent.core_owner_epoch!==this.instanceEpoch || !children.dispatch
+          || !['SUCCEEDED','SUCCEEDED_WITH_WARNINGS'].includes(children.dispatch.status)
+          || canonicalJson(JSON.parse(children.dispatch.result_json))!==canonicalJson(child)) fail('PROBE_WORKFLOW_INCONSISTENT');
+        const job=this._mediaProbeJob(request.job_id,request.project_id);
+        if (child.job_id!==job.id || child.job_version!==job.row_version || child.attempt_id!==children.attempt.id) fail('PROBE_WORKFLOW_STALE');
+        const completed=child.contract==='PREPARED_MEDIA_PROBE_BINDING_V1' && child.state==='COMPLETED';
+        const success=completed && child.binding_pin_state==='RELEASED' && child.physical_tree==='STOPPED';
+        const receipt=Object.freeze({contract:'PREPARED_MEDIA_PROBE_WORKFLOW_V1',state:completed?'COMPLETED':'UNKNOWN',
+          code:completed?'PROBE_METADATA_VERIFIED':child.code,job_id:job.id,job_version:job.row_version,attempt_id:children.attempt.id,
+          execution_started:child.execution_started===true,physical_tree:child.physical_tree==='STOPPED'?'STOPPED':'UNKNOWN',
+          binding_pin_state:child.binding_pin_state==='RELEASED'?'RELEASED':'UNKNOWN',logical_only:false,needs_user:!success});
+        this._insertAudit({actionType:'media_probe.workflow_completed',targetType:'MEDIA_PROBE_JOB',targetId:job.id,
+          payload:{reservation_command_id:children.reserve.id,dispatch_command_id:children.dispatch.id,receipt}},commandId,this.actorId,'SUCCEEDED');
+        this._insertEvent({aggregateType:'COMMAND',aggregateId:commandId,aggregateVersion:3,eventType:'MEDIA_PROBE_WORKFLOW_COMPLETED',
+          payload:receipt},commandId,this.actorId,job.correlation_id,job.command_id);
+        this.db.prepare('UPDATE commands SET status=?,result_json=?,finished_at_utc_us=? WHERE id=?')
+          .run(success?'SUCCEEDED':'SUCCEEDED_WITH_WARNINGS',json(receipt),nowUtcUs(),commandId);
+        return receipt;
+      });
+    } catch(error) {
+      try {
+        this._transaction(() => {
+          this._assertCoreOwner();
+          const command=this.db.prepare('SELECT * FROM commands WHERE id=?').get(commandId);
+          if (!command || command.status!=='EXECUTING') fail('PROBE_WORKFLOW_INCONSISTENT');
+          const parent=this.#mediaProbeWorkflowIdentity(command);const children=this.#mediaProbeWorkflowChildren(command,parent);
+          const job=this._mediaProbeJob(request.job_id,request.project_id);
+          const reason=/^[A-Z][A-Z0-9_]{1,80}$/.test(error.code??'')?error.code:'PROBE_WORKFLOW_FAILED';
+          const receipt={contract:'PREPARED_MEDIA_PROBE_WORKFLOW_V1',state:'UNKNOWN',code:reason,job_id:job.id,job_version:job.row_version,
+            attempt_id:children.attempt?.id??null,execution_started:Boolean(children.dispatch && this.db.prepare(`SELECT 1 FROM audit_records
+              WHERE command_id=? AND action_type='media_probe.dispatch_executing' AND target_id=?`).get(children.dispatch.id,job.id)),
+            physical_tree:'UNKNOWN',binding_pin_state:'UNKNOWN',logical_only:false,needs_user:true};
+          this._insertAudit({actionType:'media_probe.workflow_failed',targetType:'MEDIA_PROBE_JOB',targetId:job.id,
+            payload:{reservation_command_id:children.reserve?.id??null,dispatch_command_id:children.dispatch?.id??null,receipt}},commandId,this.actorId,'FAILED');
+          this._insertEvent({aggregateType:'COMMAND',aggregateId:commandId,aggregateVersion:3,eventType:'MEDIA_PROBE_WORKFLOW_FAILED',
+            payload:receipt},commandId,this.actorId,job.correlation_id,job.command_id);
+          this.db.prepare("UPDATE commands SET status='PARTIAL',error_code=?,result_json=?,finished_at_utc_us=? WHERE id=?")
+            .run(reason,json(receipt),nowUtcUs(),commandId);
+        });
+      } catch { this.#mediaProbeRecoveryReady=false; }
+      if (reserved) this.#mediaProbeRecoveryReady=false;
+      throw error;
+    } finally { if (this.#mediaProbeWorkflow?.commandId===commandId) this.#mediaProbeWorkflow=null; }
+  }
+
   // PREPARED internal lane; intentionally absent from handle and HTTP.
   async dispatchMediaProbeAttempt(request) {
     const fail = code => { throw new CoreError(code, 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
@@ -5613,11 +5893,21 @@ export class CoreService {
     const cancelAllowed = MEDIA_PROBE_BLOCKED_STATES.has(row.state) && row.current_attempt_id === null
       && ['ACTIVE','PAUSED'].includes(project.lifecycle_state)
       && !this.db.prepare('SELECT 1 FROM media_probe_attempts WHERE job_id=? LIMIT 1').get(row.id);
-    const restartRequired = outcome === 'PASS' && row.needs_user === 1;
-    const recoveredCommand = restartRequired && Boolean(this.db.prepare(`SELECT 1 FROM audit_records a JOIN commands c ON c.id=a.command_id
+    const workflow = this.db.prepare(`SELECT * FROM commands WHERE command_type='PREPARED_RUN_MEDIA_PROBE_V1'
+      AND project_id=? AND scope_type='MEDIA_PROBE_JOB' AND scope_id=? ORDER BY created_at_utc_us DESC,id DESC LIMIT 1`).get(row.project_id,row.id);
+    let workflowNeedsUser = false;
+    if (workflow?.status === 'EXECUTING') workflowNeedsUser = this.#mediaProbeWorkflow?.commandId !== workflow.id;
+    else if (workflow && ['PARTIAL','SUCCEEDED_WITH_WARNINGS'].includes(workflow.status)) {
+      try { const receipt=this.#mediaProbeWorkflowReceipt(workflow);
+        workflowNeedsUser=receipt.needs_user && receipt.job_version===row.row_version;
+      } catch { workflowNeedsUser=true; }
+    }
+    if (workflowNeedsUser && ['QUEUED','CLAIMED','RUNNING','PARSING','VERIFYING'].includes(state)) state='UNKNOWN';
+    const restartRequired = outcome === 'PASS' && (row.needs_user === 1 || workflowNeedsUser);
+    const recoveredCommand = restartRequired && (workflowNeedsUser || Boolean(this.db.prepare(`SELECT 1 FROM audit_records a JOIN commands c ON c.id=a.command_id
       WHERE a.action_type='media_probe.command_recovery_warning' AND a.target_id=?
         AND json_extract(a.payload_json,'$.job_version')=?
-        AND c.command_type='PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1' AND c.status='SUCCEEDED' LIMIT 1`).get(row.id, row.row_version));
+        AND c.command_type='PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1' AND c.status='SUCCEEDED' LIMIT 1`).get(row.id, row.row_version)));
     const nextStepKey = recoveredCommand ? 'media_probe.next_step.recovery_required'
       : restartRequired ? 'media_probe.next_step.restart_required' : `media_probe.next_step.${state.toLowerCase()}`;
     if (outcome === 'PASS') code = 'PROBE_METADATA_VERIFIED';
@@ -5630,7 +5920,7 @@ export class CoreService {
       toolchain_verified: outcome === 'PASS', probe_schema_version: row.probe_schema_version, parser_policy_version: row.parser_policy_version,
       rights_generation: row.rights_generation, state, stored_state: row.state, outcome, evidence_code: code,
       attempt_id: outcome === 'PASS' ? measured.attempt.id : null, execution_started: started, metadata, streams,
-      needs_user: restartRequired || !['CANCELLED','COMPLETED','QUEUED','CLAIMED','RUNNING','PARSING','VERIFYING'].includes(state),
+      needs_user: workflowNeedsUser || restartRequired || !['CANCELLED','COMPLETED','QUEUED','CLAIMED','RUNNING','PARSING','VERIFYING'].includes(state),
       next_step: recoveredCommand ? 'CineForge đã phục hồi yêu cầu sau gián đoạn; kiểm tra evidence và runtime trước khi phân tích lại.'
         : restartRequired ? 'Cần khởi động lại CineForge để giải phóng khóa runtime chưa xác minh được.' : MEDIA_PROBE_NEXT_STEPS[state],
       next_step_key: nextStepKey, row_version: row.row_version,

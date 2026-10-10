@@ -2597,3 +2597,19 @@ This admission creates no attempt, authorization, raw evidence or measurement
 and launches no process. Its immutable replay is intent history, not current
 execution authority. Reservation/dispatch/binding still revalidate their own
 gates. No HTTP/bootstrap/UI activation or certified production pack is implied.
+
+# ARCH-MEDIA-PROBE-WORKFLOW-01. Owned one-job execution coordinator
+
+An internal identity-only Core runner may execute one admitted QUEUED job by
+composing the existing fresh reservation and guarded dispatcher. An audited
+versioned parent command binds project/job/original expected version/Core epoch;
+deterministic child keys bind its reservation and dispatch. Only one runner can
+execute in a Core instance; process-wide uncertain binding still blocks native
+work. The runner cannot supply paths, authority, results or arbitrary commands.
+
+Parent receipts are immutable operation history, not current authority. Replay
+never reserves or dispatches again. Errors require human inspection and remain
+UNKNOWN; interrupted parents are retired logically in bounded audited startup
+batches after attempt/dispatch reconciliation. No process-stop, cancellation,
+retry or cleanup is inferred. Canonical evidence, raw custody and job pins are
+untouched. Public activation and a production-certified pack remain separate.
