@@ -1822,8 +1822,11 @@ export function initializeDatabase(db) {
   if (!commandColumns.has('idempotency_fingerprint')) {
     db.exec('ALTER TABLE commands ADD COLUMN idempotency_fingerprint TEXT');
   }
+  // Versioned private probe commands never belonged to the generic legacy
+  // lane. Their identity hash differs; missing hashes must remain fail-closed.
   const legacyCommands = db.prepare(`SELECT id, payload_json, expected_versions_json
-    FROM commands WHERE idempotency_key IS NOT NULL AND idempotency_fingerprint IS NULL`).all();
+    FROM commands WHERE idempotency_key IS NOT NULL AND idempotency_fingerprint IS NULL
+      AND command_type NOT IN ('PREPARED_AUTHORIZE_MEDIA_PROBE_V1','PREPARED_DISPATCH_MEDIA_PROBE_V1')`).all();
   const setFingerprint = db.prepare('UPDATE commands SET idempotency_fingerprint = ? WHERE id = ?');
   for (const row of legacyCommands) {
     try {

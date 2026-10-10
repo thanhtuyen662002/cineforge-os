@@ -666,9 +666,11 @@ Actual Windows fixtures cover write/rename/delete denial, normal/aborted
 release, cancellation without callback, stale completion rejection, lost
 transport and broker termination followed by Core exit. Authenticated malformed
 guard tests reject missing/wrong PID/hash/size/version/phase. These fixtures do
-not certify ffprobe. Core still uses the unbound lane: canonical binding and
-the one-lease recovery guard must be integrated before any public activation.
-# Prepared interrupted dispatch recovery
+not certify ffprobe. The private prepared dispatcher now binds canonical
+measurements under these guards; public startup remains disabled pending trusted
+custody/certification, review and authorized integration.
+
+## Prepared interrupted dispatch recovery
 
 Owned startup additionally closes interrupted foreign-epoch private dispatch
 commands as PARTIAL, with an audited UNKNOWN/logical-only receipt. It preserves
@@ -676,6 +678,9 @@ attempt identity, authorization, canonical measurements and all private raw
 staging/CAS bytes. No trust callback, filesystem adoption, cleanup, native launch
 or automatic retry is used. Missing scope, failed audit or bounded backlog keeps
 private admission blocked. Exact original-key replay is read-only.
+Original identity fingerprints and singleton JOB expected-version maps must
+agree. Generic legacy fingerprint backfill excludes private probe commands;
+missing hashes and contradictory identities remain unchanged and block recovery.
 
 An already completed current binding can receive an auditable needs-user warning;
 its measurement remains immutable. Library uses recovery_required to explain

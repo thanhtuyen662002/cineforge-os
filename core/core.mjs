@@ -2091,12 +2091,22 @@ export class CoreService {
           if (!attempt || !job || command.studio_id !== this.studioId || command.schema_version !== 1
             || command.scope_type !== 'MEDIA_PROBE_ATTEMPT' || command.project_id !== job.project_id
             || !['SUCCEEDED','FAILED','ABANDONED'].includes(attempt.state) || attempt.core_owner_epoch === this.instanceEpoch) fail();
-          let identity;
-          try { identity = decodeBoundedMediaProbeJson(Buffer.from(command.payload_json), { maxBytes: 4096, maxDepth: 3, maxNodes: 32 }); }
+          let identity; let expected;
+          try {
+            identity = decodeBoundedMediaProbeJson(Buffer.from(command.payload_json), { maxBytes: 4096, maxDepth: 3, maxNodes: 32 });
+            expected = decodeBoundedMediaProbeJson(Buffer.from(command.expected_versions_json), { maxBytes: 128, maxDepth: 2, maxNodes: 8 });
+          }
           catch { fail(); }
-          if (identity.project_id !== job.project_id || identity.job_id !== job.id || identity.attempt_id !== attempt.id
+          if (!identity || typeof identity !== 'object' || Array.isArray(identity)
+            || !expected || typeof expected !== 'object' || Array.isArray(expected)
+            || identity.project_id !== job.project_id || identity.job_id !== job.id || identity.attempt_id !== attempt.id
             || !Number.isSafeInteger(identity.expected_version) || identity.expected_version < 1
+            || Object.keys(expected).length !== 1 || expected.JOB !== identity.expected_version
+            || ('estimated_storage_bytes' in identity && (!Number.isSafeInteger(identity.estimated_storage_bytes) || identity.estimated_storage_bytes < 0))
             || Object.keys(identity).some(k => !['project_id','job_id','attempt_id','expected_version','estimated_storage_bytes'].includes(k))) fail();
+          const fingerprint = crypto.createHash('sha256').update(canonicalJson({ project_id: identity.project_id,
+            job_id: identity.job_id, attempt_id: identity.attempt_id, expected_version: identity.expected_version })).digest('hex');
+          if (command.idempotency_fingerprint !== fingerprint) fail();
           const stage = this.db.prepare('SELECT * FROM staging_objects WHERE command_id=?').get(command.id);
           if (stage && (stage.job_attempt_id !== attempt.id || stage.row_version >= Number.MAX_SAFE_INTEGER)) fail();
           const retained = stage ? { id: stage.id, state: stage.state, row_version: stage.row_version, retained: true } : null;

@@ -1012,6 +1012,14 @@ Internal startup first retires stale active attempts, then processes at most
 Join scope_id to the immutable attempt owner; foreign/null epochs are eligible,
 while current-owner rows are excluded. Missing attempt/job or contradictory
 project/studio/schema/payload scope is an inconsistency, not permission to guess.
+Strict bounded decoding applies to payload and expected_versions_json, including
+duplicate-key rejection. Both must be objects; the exact expected map is one JOB
+version equal to payload.expected_version. Verify the stored SHA-256 fingerprint
+against canonical project/job/attempt/expected-version identity before mutation.
+Do not repair malformed identities or compare the original version with the
+current job version, which legitimately advanced while executing. Any optional
+storage estimate remains a nonnegative safe integer. A bad row rolls back earlier
+rows in the same batch and keeps admission fenced.
 Each transaction reasserts Core ownership, journals an exact recovery command,
 and changes the original command to PARTIAL with a versioned recovery receipt,
 error code, finish time, impact, event and audit. Original claim/idempotency/

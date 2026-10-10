@@ -2566,7 +2566,11 @@ changes database state, repairs files or grants render/export/release authority.
 After retiring foreign-epoch active attempts, owned Core startup also reconciles
 foreign/null-epoch EXECUTING private dispatch commands, including terminal
 attempts whose canonical binding already committed. Exact command/attempt/job
-scope must agree. Current-owner work and unrelated commands remain untouched.
+scope must agree. The stored fingerprint must equal the canonical original
+project/job/attempt/expected-version identity, and the original exact JOB version
+map must agree with that identity. Malformed or contradictory journal identity
+blocks the whole batch; recovery never reconstructs or repairs a fingerprint.
+Current-owner work and unrelated commands remain untouched.
 Recovery records PARTIAL with a versioned UNKNOWN/logical-only receipt and an
 audited bounded scope. It never fabricates process stop or pin-release evidence.
 

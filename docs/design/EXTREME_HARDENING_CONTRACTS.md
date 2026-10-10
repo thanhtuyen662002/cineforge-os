@@ -7983,3 +7983,11 @@ Current-owner work, unrelated commands and different live job pointers remain
 safe. Scope/orphan/audit failures and bounded backlogs must block admission with
 atomic batches. Exact original-key replay cannot dispatch. Prove older prepared
 EXE database recovery and retain explicit fake-producer/ephemeral-signer scope.
+Reject contradictory/null fingerprints, changed expected versions, extra version
+keys, duplicate JSON keys and non-object/malformed payloads before retirement.
+Prove that a valid earlier row plus a bad later row rolls back the whole batch,
+retains all raw custody and leaves private admission blocked. Legitimately
+advanced current job versions do not invalidate the original immutable identity.
+Exercise restart with missing authorization/dispatch fingerprints: generic legacy
+backfill must preserve their null values while genuine generic legacy requests
+retain their established migration/replay behavior.

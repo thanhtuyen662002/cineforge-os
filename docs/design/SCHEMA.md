@@ -5513,6 +5513,12 @@ command-status widening, authorization rewrite or historical evidence backfill
 is required. Private staging identity/state and registered raw objects remain
 unchanged. Existing append-only measurement/evidence/stream guards still apply.
 
+The resumable generic legacy idempotency backfill must exclude the versioned
+PREPARED_AUTHORIZE_MEDIA_PROBE_V1 and PREPARED_DISPATCH_MEDIA_PROBE_V1 commands.
+They use their own canonical identity fingerprints, not the generic legacy
+payload/precondition hash. Missing fingerprints remain unchanged and fail closed;
+startup never silently converts a damaged private journal into a legacy request.
+
 New stderr observations are bounded to 1 MiB. Existing larger diagnostic rows
 remain untouched; updates that change that field cannot introduce a larger
 new observation. New PASS proof cannot use an over-budget stderr observation.

@@ -4476,6 +4476,9 @@ project/job/attempt identities, stored job/attempt states, job version,
 PROBE_DISPATCH_RECOVERED code, UNKNOWN outcome/physical_tree/binding_pin_state,
 logical_only/needs_user, optional historical evidence/metadata IDs and bounded
 retained staging ID/state/version. No path, PID, raw data or credentials appear.
+Recovery validates the exact original identity fingerprint and singleton JOB
+expected-version map. Malformed or inconsistent journal identity fails with
+PROBE_RECOVERY_INCONSISTENT and produces no partial batch receipt.
 Exact original-key replay is read-only and returns this historical recovery
 receipt; it does not imply current authority or executable admission.
 For an exact completed job with the recovery warning audit, the V1 public read
