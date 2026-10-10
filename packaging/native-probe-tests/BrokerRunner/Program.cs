@@ -25,6 +25,8 @@ try
     }
     var modes = new[] { "GOOD", "CANCEL", "DISCONNECT", "WRONG_KEY", "WRONG_PID", "STALE_SESSION", "WRONG_CANCEL", "REPLAY", "BAD_LENGTH", "CORE_GOOD", "CORE_RIGHTS", "CORE_AUDIT", "CORE_CLOSE", "CORE_STALE", "CORE_TERMINAL_AUDIT", "CORE_SOURCE_SWAP", "CORE_BIND_AUDIO", "CORE_BIND_RIGHTS", "CORE_BIND_AUDIT", "CORE_SIZE_CONFLICT", "PIN_GOOD", "PIN_ABORT", "PIN_DISCONNECT", "PIN_CANCEL", "PIN_BAD_LEASE", "PIN_DEATH" };
     modes = [.. modes, "CORE_BIND_DISCONNECT", "CORE_BIND_EXPIRED"];
+    modes = [.. modes, "CORE_BIND_CRASH_RUNNING", "CORE_BIND_CRASH_PARSING", "CORE_BIND_CRASH_RAW_WRITTEN",
+        "CORE_BIND_CRASH_VERIFYING", "CORE_BIND_CRASH_CANONICAL", "CORE_BIND_CRASH_RELEASED"];
     if (args.Length == 5 && !modes.Contains(args[4])) throw new InvalidOperationException("Unknown fixture case.");
     foreach (var mode in modes.Where(mode => args.Length == 4 ? mode != "PIN_DEATH" : mode == args[4]))
     {
@@ -78,6 +80,13 @@ try
             using var sourceWrite = File.Open(source, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
             using var binaryWrite = File.Open(fixture, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
         }
+        else if (mode.StartsWith("CORE_BIND_CRASH_"))
+        {
+            Require(clientReport.RootElement.GetProperty("core_dispatch").GetString() == "CRASH_CHECKPOINT"
+                && observed.PeerVerified && observed.Authenticated, "Owned Core crash checkpoint missing.");
+            Require(observed.Observation is { TreeStopped: true, ProfileReleased: true }, "Parent native teardown is unresolved.");
+            if (mode != "CORE_BIND_CRASH_RUNNING") Require(observed.Observation is { ExitCode: 0, AppContainerVerified: true }, "Crash binding lacked clean native evidence.");
+        }
         else if (mode.StartsWith("CORE_"))
         {
             Require(clientReport.RootElement.GetProperty("core_dispatch").GetString() == "PASS"
@@ -99,9 +108,27 @@ try
         else if (mode is "DISCONNECT" or "WRONG_CANCEL" or "REPLAY") Require(observed.Code != "PROBE_BROKER_OBSERVED"
             && observed.Observation is { Code: "PROBE_CANCELLED", TreeStopped: true, ProfileReleased: true }, "Broken channel left a live native tree.");
         else Require(observed.Code != "PROBE_BROKER_OBSERVED" && observed.Observation == null, "Rejected client launched native work.");
+        JsonElement? crashRecovery = null;
+        if (mode.StartsWith("CORE_BIND_CRASH_"))
+        {
+            var checkpoint = Path.Combine(guardRoot, "core-crash-checkpoint.json");
+            Require(File.Exists(checkpoint), "Owned crash image was not persisted.");
+            var recoverStart = new ProcessStartInfo(node) { UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true };
+            recoverStart.ArgumentList.Add("--disable-warning=ExperimentalWarning"); recoverStart.ArgumentList.Add(script);
+            recoverStart.Environment["CINEFORGE_TEST_CRASH_RECOVERY"] = checkpoint;
+            using var recovering = Process.Start(recoverStart) ?? throw new InvalidOperationException("Recovery Core did not start.");
+            var recoveryOutput = recovering.StandardOutput.ReadToEndAsync(); var recoveryErrors = recovering.StandardError.ReadToEndAsync();
+            try { await recovering.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)); }
+            catch { recovering.Kill(true); throw; }
+            Require(recovering.ExitCode == 0, "Owned crash recovery failed: " + await recoveryErrors);
+            using var recoveredJson = JsonDocument.Parse(await recoveryOutput);
+            Require(recoveredJson.RootElement.GetProperty("core_recovery").GetString() == "PASS", "Core recovery checks failed.");
+            crashRecovery = recoveredJson.RootElement.Clone();
+        }
         reports.Add(new { name = mode, broker_code = observed.Code, observed.PeerVerified, observed.Authenticated,
             observed.Disconnected, native_code = observed.Observation?.Code, tree_stopped = observed.Observation?.TreeStopped,
-            profile_released = observed.Observation?.ProfileReleased, client = clientReport.RootElement.Clone() });
+            profile_released = observed.Observation?.ProfileReleased, client = clientReport.RootElement.Clone(), crash_recovery = crashRecovery });
         Console.WriteLine($"{mode}: {observed.Code}, native={observed.Observation?.Code}, stopped={observed.Observation?.TreeStopped}");
     }
     File.WriteAllText(Path.Combine(output, "broker-verification.json"), JsonSerializer.Serialize(new { status = "PASS", certified_ffprobe = false,

@@ -1038,6 +1038,9 @@ function AssetPreview({ asset, locale, client, purpose = 'LIBRARY_PREVIEW' }: { 
 }
 
 function technicalMediaStep(state: MediaProbeAdmissionState, locale: Locale, nextStepKey?: string) {
+  if (nextStepKey === 'media_probe.next_step.recovery_required') return locale === 'vi'
+    ? 'CineForge đã phục hồi yêu cầu sau gián đoạn và giữ nguyên thông tin đã ghi. Bạn cần kiểm tra bằng chứng và runtime trước khi phân tích lại.'
+    : 'CineForge recovered the interrupted request and retained recorded information. Review evidence and runtime before another analysis.'
   if (nextStepKey === 'media_probe.next_step.restart_required') return locale === 'vi'
     ? 'Thông tin kỹ thuật đã được xác minh. Bạn cần khởi động lại CineForge để giải phóng khóa runtime chưa xác minh được.'
     : 'Technical information was verified. Restart CineForge to release runtime pins whose cleanup could not be confirmed.'

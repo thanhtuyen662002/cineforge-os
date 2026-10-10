@@ -5505,6 +5505,14 @@ a safe positive Core validation timestamp inside its validity window. New
 metadata and COMPLETED transitions resolve the same PASS evidence chain.
 Existing binary/source/rights/fence/process/stream guards continue to apply.
 
+## SCHEMA-MEDIA-PROBE-COMMAND-RECOVERY-01. Existing journal compatibility
+
+Interrupted-dispatch recovery uses existing commands PARTIAL status and versioned
+private result JSON, plus command impacts/events/audit. No schema migration,
+command-status widening, authorization rewrite or historical evidence backfill
+is required. Private staging identity/state and registered raw objects remain
+unchanged. Existing append-only measurement/evidence/stream guards still apply.
+
 New stderr observations are bounded to 1 MiB. Existing larger diagnostic rows
 remain untouched; updates that change that field cannot introduce a larger
 new observation. New PASS proof cannot use an over-budget stderr observation.

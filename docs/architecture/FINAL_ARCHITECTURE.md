@@ -2456,8 +2456,10 @@ An owned Core reconciles non-terminal media attempts from a foreign or missing
 Core epoch before admitting a new private reservation. It marks them ABANDONED
 without changing their identity/fence/authorization or historical evidence.
 Only the affected active job pointer is retired; its state becomes UNKNOWN
-with needs_user and a next step. Completed/cancelled/terminal jobs and a current
-owner's live attempt remain intact. No original/canon/metadata is changed.
+with needs_user and a next step. Completed/cancelled/terminal job state and a
+current owner's live attempt remain intact. Matching completed jobs may receive
+the audited warning in ARCH-MEDIA-PROBE-COMMAND-RECOVERY-01.
+No original/canon/metadata is changed.
 
 Logical retirement is not physical teardown evidence or successful cancellation.
 No process, retry, cleanup or new authorization is launched. Core epoch reuse
@@ -2558,3 +2560,20 @@ measurement proof projects UNKNOWN. Historical rows remain immutable. Active
 states describe only durable phases, without percentage/ETA. Request-local
 bounded verification caches do not survive a query. No query executes a tool,
 changes database state, repairs files or grants render/export/release authority.
+
+# ARCH-MEDIA-PROBE-COMMAND-RECOVERY-01. Interrupted dispatch completion
+
+After retiring foreign-epoch active attempts, owned Core startup also reconciles
+foreign/null-epoch EXECUTING private dispatch commands, including terminal
+attempts whose canonical binding already committed. Exact command/attempt/job
+scope must agree. Current-owner work and unrelated commands remain untouched.
+Recovery records PARTIAL with a versioned UNKNOWN/logical-only receipt and an
+audited bounded scope. It never fabricates process stop or pin-release evidence.
+
+Canonical metadata/evidence/streams, authorization and terminal attempt state
+remain immutable. An exact completed current attempt with an audited canonical
+binding may receive a needs_user recovery warning without changing its result.
+Private raw staging remains private and retained in its recorded state; no file
+is read, repaired, deleted, adopted or registered during reconciliation. Missing
+or inconsistent ownership/proof rolls back the batch and blocks private admission.
+The reservation readiness gate includes pending dispatch-command recovery.

@@ -1004,3 +1004,29 @@ verification from strict decoding. Do not persist verification freshness,
 mutate measurement state, auto-select another revision or fall back to another
 measurement. A cancelled unexecuted intent remains cancelled. Public execution
 remains unavailable; successful metadata and cleanup-needs-user are independent.
+
+# DESIGN-MEDIA-PROBE-COMMAND-RECOVERY-01. Durable command and raw custody checkpoint
+
+Internal startup first retires stale active attempts, then processes at most
+10 batches of 100 exact EXECUTING PREPARED_DISPATCH_MEDIA_PROBE_V1 commands.
+Join scope_id to the immutable attempt owner; foreign/null epochs are eligible,
+while current-owner rows are excluded. Missing attempt/job or contradictory
+project/studio/schema/payload scope is an inconsistency, not permission to guess.
+Each transaction reasserts Core ownership, journals an exact recovery command,
+and changes the original command to PARTIAL with a versioned recovery receipt,
+error code, finish time, impact, event and audit. Original claim/idempotency/
+payload and attempt identity remain unchanged. Atomic audit failure rolls back.
+
+Receipt outcome, physical_tree and binding_pin_state stay UNKNOWN. The receipt
+may identify an already audited immutable canonical binding, without authorizing
+fresh measurement PASS. A matching current completed job gets needs_user and a
+next step; its state/pointer/fence and canonical data remain unchanged. A different
+current attempt/job or terminal history is not updated. Exact original-key replay
+returns the recorded recovery receipt read-only and cannot launch another tool.
+
+Checkpoint the at-most-one private staging row's ID/state/version and retained
+custody. Preserve every staging identity/state/path/byte and raw CAS byte. Partial
+or verified files are not adopted; registered evidence is not downgraded. No
+signing/trust callback, filesystem probe, native transport, retry or cleanup runs.
+Readiness requires no stale active attempt or pending foreign dispatch command;
+failure/backlog leaves admission blocked until internal reconciliation succeeds.

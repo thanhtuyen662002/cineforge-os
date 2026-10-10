@@ -3001,3 +3001,9 @@ Cancel/retry controls send the current row version and an idempotency key. A
 stale response refreshes the projection and explains the conflict; it never
 silently retries. Technical metadata is read-only evidence and the panel keeps
 render, master, export, release and publish actions outside this workspace.
+
+The completed-job media_probe.next_step.recovery_required warning explains that
+CineForge recovered the interrupted request and retained recorded information;
+the user must inspect evidence/runtime before another analysis. It keeps valid
+measurement facts visible and does not pretend cleanup was confirmed or request
+repeated restarts as proof of physical reconciliation.

@@ -48,6 +48,7 @@ export async function exerciseCoreDispatch(descriptor, config) {
   let core; let rightsId; let loads = 0; let revokeAfterResult = false; let closeTimer;
   let projectionTime = null; let revokeDuringQuery = false; let observedProjection = null;
   const projectionChecks = [];
+  const crashPhase = config.mode.startsWith('CORE_BIND_CRASH_') ? config.mode.slice('CORE_BIND_CRASH_'.length) : null;
   const options = { dbPath: path.join(root, 'core.sqlite'), assetStorePath: path.join(root, 'assets'),
     instanceEpoch: descriptor.core_epoch, rendererToolchainRoot: toolRoot, rendererToolchainManifest: manifestPath,
     mediaProbeBrokerSource: () => descriptor, mediaProbeTrustSource: () => {
@@ -132,6 +133,55 @@ export async function exerciseCoreDispatch(descriptor, config) {
     const reservation = core.prepareMediaProbeAttempt({ project_id: project.id, job_id: jobId, expected_version: 1, idempotency_key: 'reserve-fixture' });
     const request = { project_id: project.id, job_id: jobId, attempt_id: reservation.attempt_id, expected_version: reservation.job_version, idempotency_key: 'dispatch-fixture' };
     const managedSource = path.join(options.assetStorePath, core._objectRelativePath('SHA-256', digest(source)));
+    if (crashPhase) {
+      const crash = phase => {
+        assert.equal(phase, crashPhase);
+        const command = core.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1'").get();
+        assert.equal(command.status, 'EXECUTING');
+        if (!['RUNNING','RELEASED'].includes(phase)) {
+          assert.throws(() => { const fd = fs.openSync(manifest.binaries.ffprobe.path, 'r+'); fs.closeSync(fd); }, e => ['EBUSY','EACCES','EPERM'].includes(e.code));
+        }
+        if (phase === 'RELEASED') { const fd = fs.openSync(manifest.binaries.ffprobe.path, 'r+'); fs.closeSync(fd); }
+        const tables = ['assets','asset_revisions','rights_records','consents','media_probe_authorizations',
+          'media_probe_evidence','technical_metadata','technical_metadata_streams','storage_objects','storage_object_locations'];
+        const canonical = Object.fromEntries(tables.map(table => [table, core.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+        const stages = core.db.prepare('SELECT * FROM staging_objects WHERE command_id=?').all(command.id);
+        const files = [...new Set([managedSource,manifest.binaries.ffprobe.path,...stages.flatMap(stage => [stage.temp_path,
+          ...(stage.sha256 ? [path.join(options.assetStorePath,core._objectRelativePath('SHA-256',stage.sha256))] : [])])])]
+          .map(file => { assert.ok(path.resolve(file).startsWith(path.resolve(root)+path.sep));
+            return { file, hash: fs.existsSync(file) ? digest(fs.readFileSync(file)) : null }; });
+        fs.writeFileSync(path.join(config.guard_test_root, 'core-crash-checkpoint.json'), JSON.stringify({
+          schema: 'OWNED_CORE_CRASH_FIXTURE_V1', phase, root, options: { dbPath: options.dbPath, assetStorePath: options.assetStorePath,
+            rendererToolchainRoot: toolRoot, rendererToolchainManifest: manifestPath },
+          envelope: envelopeBytes.toString('base64'), policy: trustPolicyBytes.toString('base64'), request,
+          command, job: core.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(jobId),
+          attempt: core.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(request.attempt_id), canonical, stages, files }));
+        fs.writeSync(1, JSON.stringify({ mode: config.mode, core_dispatch: 'CRASH_CHECKPOINT', phase,
+          command_state: command.status, metadata_rows: canonical.technical_metadata.length, certified_ffprobe: false })+'\n');
+        process.exit(0); // Abrupt owned process exit: no Core.close/finally/journal completion.
+      };
+      const transact = core._transaction.bind(core);
+      core._transaction = fn => {
+        const result = transact(fn);
+        if (crashPhase === 'RUNNING' && result?.cursor?.jobState === 'RUNNING') crash('RUNNING');
+        if (crashPhase === 'PARSING' && result?.cursor?.jobState === 'PARSING') crash('PARSING');
+        if (crashPhase === 'VERIFYING' && result?.cursor?.jobState === 'VERIFYING') crash('VERIFYING');
+        if (crashPhase === 'CANONICAL' && result?.cursor?.jobState === 'COMPLETED') crash('CANONICAL');
+        return result;
+      };
+      if (crashPhase === 'RAW_WRITTEN') {
+        const hashFile = core._hashLocalFile.bind(core);
+        core._hashLocalFile = file => {
+          const stage = core.db.prepare("SELECT * FROM staging_objects WHERE job_attempt_id=? AND state='WRITING'").get(request.attempt_id);
+          if (stage && path.resolve(file) === path.resolve(stage.temp_path) && fs.existsSync(file)) crash('RAW_WRITTEN');
+          return hashFile(file);
+        };
+      }
+      if (crashPhase === 'RELEASED') {
+        const audit = core._insertAudit.bind(core);
+        core._insertAudit = (...args) => { if (args[0].actionType === 'media_probe.binding_completed') crash('RELEASED'); return audit(...args); };
+      }
+    }
     if (config.mode === 'CORE_SOURCE_SWAP') fs.writeFileSync(managedSource, Buffer.alloc(source.length, 120));
     revokeAfterResult = config.mode === 'CORE_RIGHTS';
     if (config.mode === 'CORE_AUDIT') core.db.exec("CREATE TRIGGER fixture_start_audit BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.dispatch_executing' BEGIN SELECT RAISE(ABORT,'fixture started audit failure'); END;");

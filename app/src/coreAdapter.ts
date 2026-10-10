@@ -1950,7 +1950,8 @@ function readTypedMediaProjection(source: Record<string, unknown>) {
   const state = mediaProbeAdmissionState(source.state)
   const outcome = source.outcome as 'UNKNOWN' | 'PASS' | 'CONFLICT'
   const expectedStep = `media_probe.next_step.${state.toLowerCase()}`
-  if (source.next_step_key !== expectedStep && !(state === 'COMPLETED' && source.needs_user && source.next_step_key === 'media_probe.next_step.restart_required')) invalidProbeProjection()
+  if (source.next_step_key !== expectedStep && !(state === 'COMPLETED' && source.needs_user
+    && ['media_probe.next_step.restart_required','media_probe.next_step.recovery_required'].includes(String(source.next_step_key)))) invalidProbeProjection()
   if (!Array.isArray(source.streams) || source.streams.length > 256) invalidProbeProjection()
   let streams: TechnicalMediaStream[] = []; let metadata: TechnicalMediaMeasurement | null = null
   if (outcome === 'PASS') {

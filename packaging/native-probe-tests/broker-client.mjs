@@ -9,6 +9,11 @@ import { canonicalJson } from '../../core/canonical.mjs';
 import { runNativeProbeBroker, encodeProbeBrokerFrame, readProbeBrokerFrames } from '../../core/media-probe-broker.mjs';
 
 // Trusted local test harness, not a product command or authority fixture.
+if (process.env.CINEFORGE_TEST_CRASH_RECOVERY) {
+  const checkpoint=process.env.CINEFORGE_TEST_CRASH_RECOVERY; delete process.env.CINEFORGE_TEST_CRASH_RECOVERY;
+  try { const {exerciseCoreCrashRecovery}=await import('./core-crash-recovery-client.mjs'); console.log(JSON.stringify(await exerciseCoreCrashRecovery(checkpoint))); process.exit(0); }
+  catch(error){ console.error(error); process.exit(1); }
+}
 const config = JSON.parse(process.env.CINEFORGE_TEST_BROKER);
 delete process.env.CINEFORGE_TEST_BROKER;
 const { key_hex, request, mode, guard_test_root, ...fields } = config;

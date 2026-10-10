@@ -7970,3 +7970,16 @@ rejects unknown versions, partial/contradictory PASS, mismatched pins/counts,
 unsafe tokens/numbers and oversized/duplicate stream inventory. UI must display
 real phases, verified facts and cleanup warning, hide stale/offline/obsolete
 facts, and respect cancel_allowed independently of the derived blocked badge.
+
+# MEDIA-PROBE-COMMAND-RECOVERY-TEST-01. Actual interrupted command windows
+
+Exercise actual owned Core/native crashes after durable dispatch/parsing/
+verification/raw staging/canonical commit and before completion audit, including
+an acknowledged release whose audit did not commit. Restart under a fresh Core
+owner: exact command retirement is audited/idempotent, immutable history and raw
+bytes/state/custody remain unchanged, and no process-stop/cleanup/adoption/PASS
+is invented. Recover commands for terminal as well as retired active attempts.
+Current-owner work, unrelated commands and different live job pointers remain
+safe. Scope/orphan/audit failures and bounded backlogs must block admission with
+atomic batches. Exact original-key replay cannot dispatch. Prove older prepared
+EXE database recovery and retain explicit fake-producer/ephemeral-signer scope.

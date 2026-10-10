@@ -165,6 +165,16 @@ describe('Library technical information', () => {
     openPanel(container); expect(await screen.findByText('0.002 s')).toBeTruthy()
     expect(screen.getByText(/Restart CineForge/)).toBeTruthy(); expect(screen.queryByRole('progressbar')).toBeNull()
   })
+  it('shows interrupted command recovery alongside verified facts without suggesting repeated restart proves cleanup', async () => {
+    const value = measuredRaw(); value.needs_user = value.job.needs_user = true
+    value.next_step_key = value.job.next_step_key = 'media_probe.next_step.recovery_required'
+    const result = await readMeasured(value)
+    const { container } = render(<AssetTechnicalMetadataPanel asset={asset} locale="en" client={bridge(vi.fn(async () => result))} connected />)
+    openPanel(container); expect(await screen.findByText('0.002 s')).toBeTruthy()
+    expect(screen.getByText(/CineForge recovered the interrupted request/)).toBeTruthy()
+    expect(screen.queryByText(/Restart CineForge/)).toBeNull(); expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel unexecuted request' })).toBeNull()
+  })
   it.each(['RUNNING','PARSING','VERIFYING','CONFLICT','STALE','BLOCKED_RIGHTS'] as const)('shows actual %s state without old measurements or cancelling historical work', async state => {
     const result: AssetTechnicalMetadata = { ...projection, projectionContract: 'MEDIA_PROBE_PROJECTION_V1', state,
       outcome: state === 'CONFLICT' ? 'CONFLICT' : 'UNKNOWN', nextStepKey: `media_probe.next_step.${state.toLowerCase()}`,

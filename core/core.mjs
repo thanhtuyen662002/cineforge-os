@@ -1982,10 +1982,9 @@ export class CoreService {
       // Older databases are upgraded before this point; keep startup read-only
       // if an interrupted migration cannot expose the recovery marker.
     }
-    // Local probe attempts have no external provider ambiguity.  A process
-    // fence therefore safely abandons an in-flight attempt and requeues the
-    // exact pinned revision on the next launch before the bounded runner is
-    // started.  No bytes are adopted or mutated during reconciliation.
+    // Technical-media recovery retires logical ownership without retry or
+    // physical-stop inference. The separate local integrity runner uses its
+    // own exact-source reconciliation contract. Neither path adopts raw bytes.
     try { this.reconcileMediaProbeAttempts(); } catch { /* keep probe reservation blocked; read/recovery remains available */ }
     try { this._reconcileLocalProbeJobs(); } catch { /* keep read-only Core available */ }
     this._scheduleLocalProbeRunner();
@@ -2056,7 +2055,118 @@ export class CoreService {
     }
     this._assertCoreOwner();
     this.#mediaProbeRecoveryReady = !this.db.prepare(`SELECT id FROM media_probe_attempts WHERE ${stale} LIMIT 1`).get(this.instanceEpoch);
+    if (this.#mediaProbeRecoveryReady) this.#mediaProbeRecoveryReady = this.reconcileMediaProbeDispatchCommands().ready;
     return Object.freeze({ reconciled_attempts: attempts, changed_jobs: jobs, batches, ready: this.#mediaProbeRecoveryReady });
+  }
+
+  reconcileMediaProbeDispatchCommands() {
+    if (arguments.length !== 0) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.media_probe_identity_only', {});
+    this.#mediaProbeRecoveryReady = false;
+    if (this._closed || !this.db) throw new CoreError('PROBE_CORE_CLOSED', 'CONFLICT', 'errors.media_probe_identity_unknown', {});
+    const fail = () => { throw new CoreError('PROBE_RECOVERY_INCONSISTENT', 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
+    const staleAttempt = `state IN ('CREATED','DISPATCHING','EXECUTING','PARSING','VERIFYING')
+      AND (core_owner_epoch IS NULL OR core_owner_epoch!=?)`;
+    this._assertCoreOwner();
+    if (this.db.prepare(`SELECT 1 FROM media_probe_attempts WHERE ${staleAttempt} LIMIT 1`).get(this.instanceEpoch)) {
+      return Object.freeze({ recovered_commands: 0, changed_jobs: 0, retained_staging: 0, batches: 0, ready: false });
+    }
+    const pending = `c.command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1' AND c.status='EXECUTING'
+      AND (a.id IS NULL OR a.core_owner_epoch IS NULL OR a.core_owner_epoch!=?)`;
+    let commands = 0; let jobs = 0; let stages = 0; let batches = 0;
+    for (let batch = 0; batch < 10; batch++) {
+      const result = this._transaction(() => {
+        this._assertCoreOwner();
+        const rows = this.db.prepare(`SELECT c.* FROM commands c LEFT JOIN media_probe_attempts a ON a.id=c.scope_id
+          WHERE ${pending} ORDER BY c.created_at_utc_us,c.id LIMIT 100`).all(this.instanceEpoch);
+        if (!rows.length) return { commands: 0, jobs: 0, stages: 0 };
+        const recoveryId = uuidv7(); const stamp = nowUtcUs(); const scope = { command_ids: rows.map(c => c.id), logical_only: true };
+        this.db.prepare(`INSERT INTO commands (id,studio_id,actor_id,command_type,schema_version,scope_type,payload_json,
+          expected_versions_json,reversibility,status,created_at_utc_us,started_at_utc_us)
+          VALUES (?,?,?,'PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1',1,'SYSTEM',?,'{}','COMPENSATABLE','EXECUTING',?,?)`)
+          .run(recoveryId, this.studioId, this.actorId, json(scope), stamp, stamp);
+        let changedJobs = 0; let retainedStages = 0;
+        for (const command of rows) {
+          const attempt = this.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(command.scope_id);
+          const job = attempt && this.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(attempt.job_id);
+          if (!attempt || !job || command.studio_id !== this.studioId || command.schema_version !== 1
+            || command.scope_type !== 'MEDIA_PROBE_ATTEMPT' || command.project_id !== job.project_id
+            || !['SUCCEEDED','FAILED','ABANDONED'].includes(attempt.state) || attempt.core_owner_epoch === this.instanceEpoch) fail();
+          let identity;
+          try { identity = decodeBoundedMediaProbeJson(Buffer.from(command.payload_json), { maxBytes: 4096, maxDepth: 3, maxNodes: 32 }); }
+          catch { fail(); }
+          if (identity.project_id !== job.project_id || identity.job_id !== job.id || identity.attempt_id !== attempt.id
+            || !Number.isSafeInteger(identity.expected_version) || identity.expected_version < 1
+            || Object.keys(identity).some(k => !['project_id','job_id','attempt_id','expected_version','estimated_storage_bytes'].includes(k))) fail();
+          const stage = this.db.prepare('SELECT * FROM staging_objects WHERE command_id=?').get(command.id);
+          if (stage && (stage.job_attempt_id !== attempt.id || stage.row_version >= Number.MAX_SAFE_INTEGER)) fail();
+          const retained = stage ? { id: stage.id, state: stage.state, row_version: stage.row_version, retained: true } : null;
+          let metadataId = null; let evidenceId = null;
+          const currentCompleted = job.state === 'COMPLETED' && attempt.state === 'SUCCEEDED'
+            && job.current_attempt_id === attempt.id && job.fencing_token === attempt.fencing_token;
+          if (currentCompleted) {
+            const m = this.db.prepare('SELECT * FROM technical_metadata WHERE probe_job_id=? AND probe_attempt_id=?').get(job.id, attempt.id);
+            const evidence = this.db.prepare("SELECT * FROM media_probe_evidence WHERE attempt_id=? AND outcome='PASS' LIMIT 2").all(attempt.id);
+            if (!m || evidence.length !== 1 || m.project_id !== job.project_id || m.source_asset_revision_id !== job.asset_revision_id
+              || m.evidence_state !== 'PASS' || m.source_content_hash !== job.source_content_hash || m.source_byte_size !== job.source_byte_size
+              || m.raw_evidence_byte_size !== evidence[0].stdout_bytes
+              || !this.db.prepare(`SELECT 1 FROM storage_objects WHERE id=? AND content_hash=? AND byte_size=? AND storage_class='LOCAL_MANAGED'`)
+                .get(m.raw_evidence_object_id, m.raw_evidence_hash, m.raw_evidence_byte_size)
+              || !this.db.prepare(`SELECT 1 FROM audit_records WHERE command_id=? AND action_type='media_probe.bind_evidence'
+                AND target_id=? AND json_extract(payload_json,'$.technical_metadata_id')=? AND json_extract(payload_json,'$.evidence_id')=? LIMIT 1`)
+                .get(command.id, job.id, m.id, evidence[0].id)) fail();
+            metadataId = m.id; evidenceId = evidence[0].id;
+            if (job.row_version >= Number.MAX_SAFE_INTEGER) fail();
+            const updated = this.db.prepare(`UPDATE media_probe_jobs SET needs_user=1,row_version=row_version+1,updated_at_utc_us=?,
+              next_step='CineForge đã phục hồi yêu cầu sau gián đoạn. Thông tin đã ghi được giữ nguyên; kiểm tra evidence và runtime trước khi phân tích lại.'
+              WHERE id=? AND row_version=? AND state='COMPLETED' AND current_attempt_id=? AND fencing_token=?`)
+              .run(stamp, job.id, job.row_version, attempt.id, attempt.fencing_token);
+            if (Number(updated.changes) !== 1) fail();
+            this._insertAudit({ actionType: 'media_probe.command_recovery_warning', targetType: 'MEDIA_PROBE_JOB', targetId: job.id,
+              payload: { command_id: command.id, attempt_id: attempt.id, job_version: job.row_version + 1, logical_only: true,
+                physical_tree: 'UNKNOWN', binding_pin_state: 'UNKNOWN' } }, recoveryId, this.actorId, 'SUCCEEDED');
+            this._insertEvent({ aggregateType: 'MEDIA_PROBE_JOB', aggregateId: job.id, aggregateVersion: job.row_version + 1,
+              eventType: 'MEDIA_PROBE_COMMAND_RECOVERY_WARNING', payload: { project_id: job.project_id, job_id: job.id,
+                command_id: command.id, attempt_id: attempt.id, logical_only: true, physical_tree: 'UNKNOWN', binding_pin_state: 'UNKNOWN' } },
+              recoveryId, this.actorId, job.correlation_id, command.id);
+            this.db.prepare(`INSERT INTO command_impacts(command_id,entity_type,entity_id,impact_type,severity,details_json)
+              VALUES (?,'MEDIA_PROBE_JOB',?,'MUTATES','MEDIUM',?)`).run(recoveryId, job.id, json({ needs_user: true, logical_only: true }));
+            changedJobs++;
+          }
+          const receipt = { contract: 'PREPARED_MEDIA_PROBE_COMMAND_RECOVERY_V1', command_id: command.id,
+            project_id: job.project_id, job_id: job.id, attempt_id: attempt.id, job_state: job.state, attempt_state: attempt.state,
+            job_version: job.row_version + Number(currentCompleted), code: 'PROBE_DISPATCH_RECOVERED', outcome: 'UNKNOWN',
+            physical_tree: 'UNKNOWN', binding_pin_state: 'UNKNOWN', logical_only: true, needs_user: true,
+            historical_technical_metadata_id: metadataId, historical_evidence_id: evidenceId, retained_staging: retained };
+          const changed = this.db.prepare(`UPDATE commands SET status='PARTIAL',finished_at_utc_us=?,error_code='PROBE_DISPATCH_RECOVERED',
+            result_json=? WHERE id=? AND status='EXECUTING'`).run(stamp, json(receipt), command.id);
+          if (Number(changed.changes) !== 1) fail();
+          this.db.prepare(`INSERT INTO command_impacts(command_id,entity_type,entity_id,impact_type,severity,details_json)
+            VALUES (?,'COMMAND',?,'FENCES','MEDIUM',?)`).run(recoveryId, command.id, json({ logical_only: true, physical_tree: 'UNKNOWN' }));
+          if (stage) {
+            this.db.prepare(`INSERT INTO command_impacts(command_id,entity_type,entity_id,impact_type,severity,details_json)
+              VALUES (?,'STAGING_OBJECT',?,'RETAINS','MEDIUM',?)`).run(recoveryId, stage.id, json(retained)); retainedStages++;
+          }
+          this._insertEvent({ aggregateType: 'MEDIA_PROBE_DISPATCH_COMMAND', aggregateId: command.id, aggregateVersion: 1,
+            eventType: 'MEDIA_PROBE_COMMAND_RECOVERED', payload: receipt }, recoveryId, this.actorId, job.correlation_id, command.id);
+          this._insertAudit({ actionType: 'media_probe.recover_dispatch', targetType: 'COMMAND', targetId: command.id,
+            payload: receipt }, recoveryId, this.actorId, 'SUCCEEDED');
+        }
+        this._assertCoreOwner();
+        const summary = { recovered_commands: rows.length, changed_jobs: changedJobs, retained_staging: retainedStages, logical_only: true };
+        this._insertAudit({ actionType: 'media_probe.reconcile_dispatch_commands', targetType: 'MEDIA_PROBE_RECOVERY', targetId: recoveryId,
+          payload: { ...scope, ...summary, physical_tree: 'UNKNOWN' } }, recoveryId, this.actorId, 'SUCCEEDED');
+        this.db.prepare("UPDATE commands SET status='SUCCEEDED',finished_at_utc_us=?,result_json=? WHERE id=?")
+          .run(stamp, json(summary), recoveryId);
+        return { commands: rows.length, jobs: changedJobs, stages: retainedStages };
+      });
+      if (!result.commands) break;
+      commands += result.commands; jobs += result.jobs; stages += result.stages; batches++;
+    }
+    this._assertCoreOwner();
+    this.#mediaProbeRecoveryReady = !this.db.prepare(`SELECT 1 FROM commands c LEFT JOIN media_probe_attempts a ON a.id=c.scope_id
+      WHERE ${pending} LIMIT 1`).get(this.instanceEpoch)
+      && !this.db.prepare(`SELECT 1 FROM media_probe_attempts WHERE ${staleAttempt} LIMIT 1`).get(this.instanceEpoch);
+    return Object.freeze({ recovered_commands: commands, changed_jobs: jobs, retained_staging: stages, batches, ready: this.#mediaProbeRecoveryReady });
   }
 
   _jobRow(jobId) {
@@ -4975,6 +5085,17 @@ export class CoreService {
         this._assertCoreOwner();
         const existing = this.db.prepare('SELECT * FROM commands WHERE actor_id=? AND command_type=? AND idempotency_key=?').get(this.actorId, type, request.idempotency_key);
         if (existing) {
+          if (existing.idempotency_fingerprint === fingerprint && existing.status === 'PARTIAL'
+            && existing.error_code === 'PROBE_DISPATCH_RECOVERED') {
+            const receipt = JSON.parse(existing.result_json);
+            if (receipt.contract !== 'PREPARED_MEDIA_PROBE_COMMAND_RECOVERY_V1' || receipt.command_id !== existing.id
+              || receipt.project_id !== request.project_id || receipt.job_id !== request.job_id || receipt.attempt_id !== request.attempt_id
+              || existing.scope_id !== request.attempt_id || existing.project_id !== request.project_id
+              || !this.db.prepare(`SELECT 1 FROM audit_records a JOIN commands c ON c.id=a.command_id
+                WHERE a.action_type='media_probe.recover_dispatch' AND a.target_id=?
+                  AND c.command_type='PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1' AND c.status='SUCCEEDED' LIMIT 1`).get(existing.id)) fail('PROBE_DISPATCH_STALE');
+            return Object.freeze(receipt);
+          }
           if (existing.idempotency_fingerprint !== fingerprint || !['SUCCEEDED','SUCCEEDED_WITH_WARNINGS'].includes(existing.status)) fail('IDEMPOTENCY_KEY_REUSE_CONFLICT');
           const receipt = JSON.parse(existing.result_json);
           const job = this._mediaProbeJob(request.job_id, request.project_id);
@@ -5369,7 +5490,12 @@ export class CoreService {
       && ['ACTIVE','PAUSED'].includes(project.lifecycle_state)
       && !this.db.prepare('SELECT 1 FROM media_probe_attempts WHERE job_id=? LIMIT 1').get(row.id);
     const restartRequired = outcome === 'PASS' && row.needs_user === 1;
-    const nextStepKey = restartRequired ? 'media_probe.next_step.restart_required' : `media_probe.next_step.${state.toLowerCase()}`;
+    const recoveredCommand = restartRequired && Boolean(this.db.prepare(`SELECT 1 FROM audit_records a JOIN commands c ON c.id=a.command_id
+      WHERE a.action_type='media_probe.command_recovery_warning' AND a.target_id=?
+        AND json_extract(a.payload_json,'$.job_version')=?
+        AND c.command_type='PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1' AND c.status='SUCCEEDED' LIMIT 1`).get(row.id, row.row_version));
+    const nextStepKey = recoveredCommand ? 'media_probe.next_step.recovery_required'
+      : restartRequired ? 'media_probe.next_step.restart_required' : `media_probe.next_step.${state.toLowerCase()}`;
     if (outcome === 'PASS') code = 'PROBE_METADATA_VERIFIED';
     else code = state === 'BLOCKED_TOOLCHAIN' ? 'PROBE_EXECUTION_UNAVAILABLE' : `PROBE_${state}`;
     return { id: row.id, project_id: row.project_id, asset_revision_id: row.asset_revision_id,
@@ -5381,7 +5507,8 @@ export class CoreService {
       rights_generation: row.rights_generation, state, stored_state: row.state, outcome, evidence_code: code,
       attempt_id: outcome === 'PASS' ? measured.attempt.id : null, execution_started: started, metadata, streams,
       needs_user: restartRequired || !['CANCELLED','COMPLETED','QUEUED','CLAIMED','RUNNING','PARSING','VERIFYING'].includes(state),
-      next_step: restartRequired ? 'Cần khởi động lại CineForge để giải phóng khóa runtime chưa xác minh được.' : MEDIA_PROBE_NEXT_STEPS[state],
+      next_step: recoveredCommand ? 'CineForge đã phục hồi yêu cầu sau gián đoạn; kiểm tra evidence và runtime trước khi phân tích lại.'
+        : restartRequired ? 'Cần khởi động lại CineForge để giải phóng khóa runtime chưa xác minh được.' : MEDIA_PROBE_NEXT_STEPS[state],
       next_step_key: nextStepKey, row_version: row.row_version,
       created_at: rfc3339FromUs(row.created_at_utc_us), updated_at: rfc3339FromUs(row.updated_at_utc_us) };
   }

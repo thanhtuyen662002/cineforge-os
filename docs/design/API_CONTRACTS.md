@@ -4464,3 +4464,21 @@ this exact projection version, consistent PASS/job/source identities, bounded
 typed facts and complete stream count before displaying verified measurements.
 Unknown/partial verified contracts are rejected. Arbitrary diagnostics, paths,
 certificates, credentials, producer extras and free-form metadata are discarded.
+
+# API-MEDIA-PROBE-COMMAND-RECOVERY-01. Private interrupted-command receipt
+
+Internal reconcileMediaProbeDispatchCommands accepts no caller scope or verdict
+and returns recovered_commands/changed_jobs/retained_staging/batches/ready.
+No HTTP/RPC route is added. Its exact scoped recovery command is
+PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1. The original dispatch command becomes
+PARTIAL with PREPARED_MEDIA_PROBE_COMMAND_RECOVERY_V1 result: original command,
+project/job/attempt identities, stored job/attempt states, job version,
+PROBE_DISPATCH_RECOVERED code, UNKNOWN outcome/physical_tree/binding_pin_state,
+logical_only/needs_user, optional historical evidence/metadata IDs and bounded
+retained staging ID/state/version. No path, PID, raw data or credentials appear.
+Exact original-key replay is read-only and returns this historical recovery
+receipt; it does not imply current authority or executable admission.
+For an exact completed job with the recovery warning audit, the V1 public read
+uses media_probe.next_step.recovery_required. It may still return independently
+verified metadata, but asks the user to inspect evidence/runtime rather than
+claiming that repeating restart proves physical cleanup.

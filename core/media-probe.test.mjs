@@ -740,6 +740,135 @@ function dispatchFixture(t, change = () => {}) {
     attempt_id: receipt.attempt_id, expected_version: receipt.job_version, idempotency_key: 'dispatch-fixture' } };
 }
 
+// Privileged interruption images for journal/retention tests. These do not
+// fabricate native execution or canonical measurement PASS.
+function interruptedDispatch(f, { phase = 'VERIFYING', stageState = null } = {}) {
+  const identity = { project_id: f.dispatchRequest.project_id, job_id: f.dispatchRequest.job_id,
+    attempt_id: f.dispatchRequest.attempt_id, expected_version: f.dispatchRequest.expected_version };
+  const original = f.db.prepare('SELECT * FROM commands LIMIT 1').get(); const id = crypto.randomUUID();
+  insert(f.db, 'commands', { ...original, id, project_id: f.job.project_id, actor_id: f.core.actorId,
+    command_type: 'PREPARED_DISPATCH_MEDIA_PROBE_V1', schema_version: 1, scope_type: 'MEDIA_PROBE_ATTEMPT', scope_id: identity.attempt_id,
+    payload_json: canonicalJson(identity), expected_versions_json: JSON.stringify({ JOB: identity.expected_version }),
+    reversibility: 'COMPENSATABLE', status: 'EXECUTING', idempotency_key: f.dispatchRequest.idempotency_key,
+    idempotency_fingerprint: crypto.createHash('sha256').update(canonicalJson(identity)).digest('hex'),
+    finished_at_utc_us: null, result_json: null, error_code: null, error_details_json: null });
+  f.db.prepare('UPDATE media_probe_attempts SET state=?,row_version=row_version+1 WHERE id=?').run(phase, identity.attempt_id);
+  f.db.prepare('UPDATE media_probe_jobs SET state=?,row_version=row_version+1,current_attempt_id=?,fencing_token=? WHERE id=?')
+    .run(phase === 'ABANDONED' ? 'UNKNOWN' : phase === 'EXECUTING' ? 'RUNNING' : phase === 'DISPATCHING' ? 'CLAIMED' : phase,
+      phase === 'ABANDONED' ? null : identity.attempt_id,
+      phase === 'ABANDONED' ? null : f.db.prepare('SELECT fencing_token FROM media_probe_attempts WHERE id=?').get(identity.attempt_id).fencing_token, f.job.id);
+  let rawPath = null;
+  if (stageState) {
+    rawPath = path.join(f.directory, 'owned-partial-raw.json'); fs.writeFileSync(rawPath, '{');
+    insert(f.db, 'staging_objects', { id: crypto.randomUUID(), command_id: id, job_attempt_id: identity.attempt_id,
+      temp_path: rawPath, current_size: 1, state: stageState, created_at_utc_us: Date.now() * 1000, updated_at_utc_us: Date.now() * 1000 });
+  }
+  return { id, rawPath };
+}
+
+for (const [phase, stageState] of [['DISPATCHING', null], ['PARSING', 'WRITING'], ['VERIFYING', 'VERIFIED'], ['ABANDONED', 'REGISTERED']]) {
+  test(`dispatch command recovery retires ${phase} image and retains ${stageState ?? 'absent'} raw custody`, async t => {
+    const f = dispatchFixture(t); const image = interruptedDispatch(f, { phase, stageState });
+    const stage = f.db.prepare('SELECT * FROM staging_objects WHERE command_id=?').get(image.id);
+    const authorizations = f.db.prepare('SELECT * FROM media_probe_authorizations').all(); const loads = f.control.loads;
+    const original = f.db.prepare('SELECT * FROM commands WHERE id=?').get(image.id); f.core.close();
+    const recovered = new CoreService({ dbPath: path.join(f.directory, 'core.sqlite'), assetStorePath: path.join(f.directory, 'store'),
+      mediaProbeTrustSource: () => { throw new Error('Recovery must not load trust'); } });
+    try {
+      const command = recovered.db.prepare('SELECT * FROM commands WHERE id=?').get(image.id);
+      assert.equal(command.status, 'PARTIAL'); assert.equal(command.error_code, 'PROBE_DISPATCH_RECOVERED');
+      for (const field of ['actor_id','project_id','scope_id','payload_json','idempotency_key','idempotency_fingerprint']) assert.equal(command[field], original[field]);
+      const receipt = JSON.parse(command.result_json);
+      assert.equal(receipt.contract, 'PREPARED_MEDIA_PROBE_COMMAND_RECOVERY_V1'); assert.equal(receipt.outcome, 'UNKNOWN');
+      assert.equal(receipt.physical_tree, 'UNKNOWN'); assert.equal(receipt.binding_pin_state, 'UNKNOWN');
+      assert.equal(receipt.historical_technical_metadata_id, null); assert.equal(receipt.historical_evidence_id, null);
+      assert.equal(receipt.retained_staging?.state ?? null, stageState);
+      assert.equal(JSON.stringify(receipt).includes(f.directory), false);
+      assert.deepEqual(recovered.db.prepare('SELECT * FROM staging_objects WHERE command_id=?').get(image.id), stage);
+      if (image.rawPath) assert.equal(fs.readFileSync(image.rawPath, 'utf8'), '{');
+      assert.deepEqual(recovered.db.prepare('SELECT * FROM media_probe_authorizations').all(), authorizations); assert.equal(f.control.loads, loads);
+      assert.equal(recovered.db.prepare('SELECT state FROM media_probe_attempts WHERE id=?').get(f.dispatchRequest.attempt_id).state, 'ABANDONED');
+      assert.equal(recovered.db.prepare('SELECT state FROM media_probe_jobs WHERE id=?').get(f.job.id).state, 'UNKNOWN');
+      assert.equal(recovered.db.prepare('SELECT COUNT(*) AS n FROM technical_metadata').get().n, 0);
+      assert.equal(recovered.db.prepare('SELECT COUNT(*) AS n FROM media_probe_evidence').get().n, 0);
+      const audit = recovered.db.prepare("SELECT * FROM audit_records WHERE action_type='media_probe.recover_dispatch' AND target_id=?").get(image.id);
+      assert.equal(recovered.db.prepare('SELECT command_type FROM commands WHERE id=?').get(audit.command_id).command_type, 'PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1');
+      const changes = recovered.db.prepare('SELECT total_changes() AS n').get().n;
+      assert.deepEqual(recovered.reconcileMediaProbeDispatchCommands(), { recovered_commands: 0, changed_jobs: 0, retained_staging: 0, batches: 0, ready: true });
+      assert.deepEqual(await recovered.dispatchMediaProbeAttempt(f.dispatchRequest), receipt);
+      assert.equal(recovered.db.prepare('SELECT total_changes() AS n').get().n, changes);
+      if (stage) assert.equal(recovered._stagingObjects().items.some(item => item.id === stage.id), false);
+    } finally { recovered.close(); }
+  });
+}
+
+test('dispatch command recovery leaves current owner work unchanged and rejects public scope', t => {
+  const f = dispatchFixture(t); interruptedDispatch(f, { phase: 'VERIFYING', stageState: 'WRITING' });
+  const before = reservationSnapshot(f);
+  assert.deepEqual(f.core.reconcileMediaProbeDispatchCommands(), { recovered_commands: 0, changed_jobs: 0, retained_staging: 0, batches: 0, ready: true });
+  assert.deepEqual(reservationSnapshot(f), before);
+  assert.throws(() => f.core.reconcileMediaProbeDispatchCommands({ scope: '*' }), { code: 'INVALID_ARGUMENT' });
+  assert.equal(f.core.handle({ api_version: '1', request_id: 'no-command-recovery-rpc', method: 'reconcileMediaProbeDispatchCommands', params: {} }).ok, false);
+});
+
+test('dispatch command recovery rolls back journal and custody on final audit failure then resumes idempotently', t => {
+  const f = dispatchFixture(t); const image = interruptedDispatch(f, { phase: 'ABANDONED', stageState: 'WRITING' });
+  f.db.exec("CREATE TRIGGER fixture_dispatch_recovery_audit BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.reconcile_dispatch_commands' BEGIN SELECT RAISE(ABORT,'owned recovery audit failure'); END;");
+  const stage = f.db.prepare('SELECT * FROM staging_objects WHERE command_id=?').get(image.id); f.core.close();
+  const recovered = new CoreService({ dbPath: path.join(f.directory, 'core.sqlite'), assetStorePath: path.join(f.directory, 'store') });
+  try {
+    assert.equal(recovered.db.prepare('SELECT status FROM commands WHERE id=?').get(image.id).status, 'EXECUTING');
+    assert.equal(recovered.db.prepare("SELECT COUNT(*) AS n FROM commands WHERE command_type='PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1'").get().n, 0);
+    assert.deepEqual(recovered.db.prepare('SELECT * FROM staging_objects WHERE command_id=?').get(image.id), stage);
+    assert.throws(() => recovered.prepareMediaProbeAttempt(f.request), { code: 'PROBE_RECOVERY_REQUIRED' });
+    recovered.db.exec('DROP TRIGGER fixture_dispatch_recovery_audit');
+    assert.deepEqual(recovered.reconcileMediaProbeDispatchCommands(), { recovered_commands: 1, changed_jobs: 0, retained_staging: 1, batches: 1, ready: true });
+    assert.equal(fs.readFileSync(image.rawPath, 'utf8'), '{');
+  } finally { recovered.close(); }
+});
+
+test('dispatch command recovery rejects missing or contradictory scope and keeps admission fenced', t => {
+  const f = dispatchFixture(t); const image = interruptedDispatch(f, { phase: 'ABANDONED' });
+  f.db.prepare("UPDATE commands SET scope_id='missing-owned-attempt' WHERE id=?").run(image.id);
+  assert.throws(() => f.core.reconcileMediaProbeDispatchCommands(), { code: 'PROBE_RECOVERY_INCONSISTENT' });
+  assert.equal(f.db.prepare('SELECT status FROM commands WHERE id=?').get(image.id).status, 'EXECUTING');
+  assert.throws(() => f.core.prepareMediaProbeAttempt(f.request), { code: 'PROBE_RECOVERY_REQUIRED' });
+  f.db.prepare('UPDATE commands SET scope_id=? WHERE id=?').run(f.dispatchRequest.attempt_id, image.id);
+  const payload = JSON.parse(f.db.prepare('SELECT payload_json FROM commands WHERE id=?').get(image.id).payload_json); payload.project_id = 'wrong-project';
+  f.db.prepare('UPDATE commands SET payload_json=? WHERE id=?').run(JSON.stringify(payload), image.id);
+  assert.equal(f.core.reconcileMediaProbeDispatchCommands().recovered_commands, 0); // same current owner is never taken over
+  f.core.close();
+  const recovered = new CoreService({ dbPath: path.join(f.directory, 'core.sqlite'), assetStorePath: path.join(f.directory, 'store') });
+  try {
+    assert.throws(() => recovered.reconcileMediaProbeDispatchCommands(), { code: 'PROBE_RECOVERY_INCONSISTENT' });
+    assert.throws(() => recovered.prepareMediaProbeAttempt(f.request), { code: 'PROBE_RECOVERY_REQUIRED' });
+  } finally { recovered.close(); }
+});
+
+test('dispatch command recovery bounds backlog scope and keeps readiness false until the remainder is recovered', t => {
+  const f = dispatchFixture(t); const image = interruptedDispatch(f, { phase: 'ABANDONED' });
+  const original = f.db.prepare('SELECT * FROM commands WHERE id=?').get(image.id);
+  // Legacy interrupted command images, never native work or automatic retries.
+  f.db.exec('BEGIN');
+  try {
+    for (let i=0;i<1000;i++) insert(f.db,'commands',{...original,id:crypto.randomUUID(),idempotency_key:`owned-backlog-${i}`});
+    f.db.exec('COMMIT');
+  } catch(error){f.db.exec('ROLLBACK');throw error;}
+  const authorizations=f.db.prepare('SELECT * FROM media_probe_authorizations').all();f.core.close();
+  const recovered=new CoreService({dbPath:path.join(f.directory,'core.sqlite'),assetStorePath:path.join(f.directory,'store')});
+  try {
+    const batches=recovered.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RECONCILE_MEDIA_PROBE_COMMANDS_V1'").all();
+    assert.equal(batches.length,10);
+    for(const command of batches){assert.equal(JSON.parse(command.payload_json).command_ids.length,100);assert.equal(command.status,'SUCCEEDED');}
+    assert.equal(recovered.db.prepare("SELECT COUNT(*) AS n FROM commands WHERE command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1' AND status='EXECUTING'").get().n,1);
+    assert.throws(()=>recovered.prepareMediaProbeAttempt(f.request),{code:'PROBE_RECOVERY_REQUIRED'});
+    assert.deepEqual(recovered.reconcileMediaProbeDispatchCommands(),{recovered_commands:1,changed_jobs:0,retained_staging:0,batches:1,ready:true});
+    assert.deepEqual(recovered.db.prepare('SELECT * FROM media_probe_authorizations').all(),authorizations);
+    assert.equal(recovered.db.prepare('SELECT COUNT(*) AS n FROM media_probe_attempts').get().n,1);
+    assert.equal(recovered.db.prepare('SELECT COUNT(*) AS n FROM media_probe_evidence').get().n,0);
+  } finally{recovered.close();}
+});
+
 test('private Core dispatcher rejects injected fields and stale identities before journaling', { skip: process.platform !== 'win32' }, async t => {
   const f = dispatchFixture(t); const before = reservationSnapshot(f);
   for (const field of ['descriptor', 'argv', 'source_path', 'signal', 'producer', 'trustContext']) {

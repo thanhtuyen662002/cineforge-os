@@ -3111,3 +3111,14 @@ evidence and moves the attempt to ABANDONED and job UNKNOWN with cleared pointer
 Failed binding leaves its phase fenced for logical retirement/recovery. Pin
 release completion is independently audited; UNKNOWN ownership blocks the next
 binding lease until Core process exit, without rewriting historical metadata.
+
+# STATE-MEDIA-PROBE-COMMAND-RECOVERY-01. Interrupted command retirement
+
+Foreign/null-owner private dispatch command EXECUTING becomes PARTIAL through
+an audited logical recovery transaction. Its recovery outcome/physical tree/pin
+release remain UNKNOWN. Already SUCCEEDED/ABANDONED attempts and immutable bound
+data keep their states. A matching current COMPLETED job can receive a versioned
+needs_user warning; completion is not downgraded. Current-owner work remains
+live. Private staging/CAS retain their exact state and custody. No retry, adoption,
+cleanup or physical cancellation success is inferred. Failed/backlogged recovery
+keeps the private readiness gate false.

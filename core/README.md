@@ -668,3 +668,18 @@ transport and broker termination followed by Core exit. Authenticated malformed
 guard tests reject missing/wrong PID/hash/size/version/phase. These fixtures do
 not certify ffprobe. Core still uses the unbound lane: canonical binding and
 the one-lease recovery guard must be integrated before any public activation.
+# Prepared interrupted dispatch recovery
+
+Owned startup additionally closes interrupted foreign-epoch private dispatch
+commands as PARTIAL, with an audited UNKNOWN/logical-only receipt. It preserves
+attempt identity, authorization, canonical measurements and all private raw
+staging/CAS bytes. No trust callback, filesystem adoption, cleanup, native launch
+or automatic retry is used. Missing scope, failed audit or bounded backlog keeps
+private admission blocked. Exact original-key replay is read-only.
+
+An already completed current binding can receive an auditable needs-user warning;
+its measurement remains immutable. Library uses recovery_required to explain
+inspection of evidence/runtime rather than infer cleanup from repeated restart.
+Actual owned crash fixtures cover runtime, parsing, raw write, verification,
+canonical commit and release-before-completion-audit windows. Fixture evidence
+does not certify a real production ffprobe pack or close the full product goal.
