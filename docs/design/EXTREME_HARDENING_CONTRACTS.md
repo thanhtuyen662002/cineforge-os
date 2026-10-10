@@ -7850,3 +7850,21 @@ connection and bind the observation to independently queried zero-capability
 AppContainer/SID evidence. It records timeout versus explicit access denial
 separately. Owner/ACL setup requires no elevation or ownership change: check
 the creating user's existing ownership and modify only the private DACL.
+
+# MEDIA-PROBE-ATTESTATION-TEST-01. Prepared certification rejection cases
+
+Use ephemeral fixture keys only; never commit a private signing key or ship it
+as trusted authority. Verify domain-separated Ed25519 signatures and reject
+tampered statements/signatures, unknown/revoked/expired keys, wrong key purpose
+or toolchain scope, mismatched SPKI pins, unsupported algorithms/profiles,
+revoked packs, policy/pack epoch rollback, invalid validity boundaries,
+untrusted time/stale trust and mismatched current artifact pins. Strict
+canonical JSON, UTF-8, size/depth/node/string, duplicate/unknown-key and
+projection redaction tests are required. Even a valid fixture signature must
+retain execution DISABLED and create no process/DB effect.
+
+These tests do not establish production signing authority, a certified ffprobe
+binary, trusted-time health, rollback-resistant storage, software license
+approval, native module loading or runtime/Core binding. I1, AY, BV, CT and DP
+remain applicable boundaries; the verifier consumes their trusted observations
+and cannot claim to implement them merely by accepting typed test fixtures.

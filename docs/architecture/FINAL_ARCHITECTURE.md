@@ -2366,3 +2366,28 @@ original file is deleted. A new native source/test path is a proposed scope
 extension beyond #64's current claim; promotion requires the trusted task/path
 contract and custody to be updated. Preparation changes neither existing claim
 ownership nor control maturity, and enables no renderer/export/publish action.
+
+# ARCH-MEDIA-PROBE-ATTESTATION-01. Prepared capability certification verifier
+
+Artifact hash verification and capability certification are separate evidence.
+The prepared verifier accepts a canonical MEDIA_PROBE_ATTESTATION_V1 envelope
+signed by Ed25519 over a domain-separated statement. It binds one read-only
+PROBE_MEDIA_ASSET_V1 capability, win32-x64, exact toolchain/manifest/ffprobe pins,
+versioned parser/argv/native/sandbox/resource profiles, certification epoch,
+license/runtime-evidence digests and a validity window. It grants no rendering,
+publication, shell, source/rights or DB authority.
+
+Trust comes from a startup-approved MEDIA_PROBE_TRUST_V1 policy with its exact
+externally pinned hash. Keys supplied by the envelope are never accepted.
+Core must supply current trusted-time and fresh-trust observations and the
+durable minimum policy epoch; missing/stale/rollback evidence blocks. Key
+purpose, toolchain scope, state/validity, minimum pack epoch and explicit pack
+revocations are checked before a signature can be accepted. A verified
+signature must also match current renderer artifact-preflight evidence.
+
+The pure verifier starts no process and owns no database handle. Its positive
+result is ATTESTATION_VERIFIED with execution DISABLED, not a metadata PASS
+or certification of the local fixture. The actual broker must revalidate
+this exact policy/certificate/file tuple at launch and binding. New attestation
+source/test paths are proposed #64 scope extensions; trusted contract/custody,
+independent review and production trust provisioning still precede promotion.

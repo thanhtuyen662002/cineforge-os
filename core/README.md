@@ -524,3 +524,28 @@ binding, independent review and integration are still required.
 Parser success alone must not be used as a readiness gate.
 
 Admission/HTTP negative tests: `node --test core/media-probe-http.test.mjs`.
+
+## Media probe capability-attestation preparation
+
+`media-probe-attestation.mjs` verifies a bounded canonical signed envelope
+against an externally pinned startup trust policy and current artifact
+preflight. It checks Ed25519 key purpose/scope/state, policy/pack epoch floors,
+revocations, validity windows and the exact ffprobe manifest/hash/size/version
+and execution profiles. The authority is absent by default; missing trusted
+time/fresh-trust observations block. No HTTP/UI value may provide trust inputs.
+
+Run `node --test core/media-probe-attestation.test.mjs`. Tests create inert
+local binary files, perform actual file preflight, generate an ephemeral key
+in memory, sign fixture statements and exercise signature/scope/revocation,
+canonical JSON/resource bounds, rollback/time and tampered-file rejection.
+These keys are never persisted or provisioned to product startup. Verification
+uses the built-in [Node crypto API](https://nodejs.org/docs/latest-v22.x/api/crypto.html#cryptoverifyalgorithm-data-key-signature).
+
+The positive result is ATTESTATION_VERIFIED with execution DISABLED. It is not
+a metadata PASS, a production certificate, license approval or proof of trusted
+time/rollback-resistant storage. The verifier has no filesystem/process/DB
+effect and is not wired into the blocked admission lane. Actual native broker,
+durable attempts, source/rights rechecks, raw evidence and transactional
+metadata binding still have to be integrated and independently reviewed.
+The new module/test paths are proposed Task #64 extensions requiring the
+trusted path contract and custody before promotion. Control maturity is unchanged.

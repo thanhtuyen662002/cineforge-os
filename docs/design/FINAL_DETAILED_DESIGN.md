@@ -725,3 +725,47 @@ Effective Job Object limits are read back before process creation. Cancellation
 is checked before preparation, spawn and resume. A private start callback carries
 the observed PID after resume for trusted broker progress/cancel coordination;
 it conveys no metadata, authority, persisted state or PASS verdict.
+
+# DESIGN-MEDIA-PROBE-ATTESTATION-01. Prepared signed envelope and trust policy
+
+The envelope has exactly envelope_version, statement and signature. Signature
+has algorithm ED25519, key_id and a lowercase 128-hex signature_hex. Its message
+is UTF-8 `CINEFORGE_MEDIA_PROBE_ATTESTATION_V1` plus NUL plus the repository's
+canonicalJson(statement). No algorithm negotiation or key from the envelope
+is permitted. The statement has exactly capability, platform, toolchain_id,
+toolchain_version, manifest_sha256, ffprobe_sha256, ffprobe_byte_size,
+ffprobe_version, probe_schema_version, parser_policy_version, native_contract,
+argv_profile_version, sandbox_profile_version, resource_profile_version,
+certification_epoch, license_snapshot_sha256, runtime_evidence_sha256,
+not_before_utc_ms and expires_at_utc_ms. Fixed profiles are MEDIA_PROBE_V1,
+MEDIA_PROBE_PARSER_V1, NATIVE_MEDIA_PROBE_V1, MEDIA_PROBE_ARGV_V1,
+WINDOWS_APPCONTAINER_PROBE_V1 and MEDIA_PROBE_RESOURCE_V1. The resource profile
+binds the current native/parser hard maxima; actual policy may only tighten.
+Certificates cannot introduce arbitrary argv, module directories or budgets.
+
+Trust policy has exactly policy_version, policy_epoch, not_before_utc_ms,
+expires_at_utc_ms, keys and revoked_pack_hashes. A key has exactly key_id,
+purpose, public_key_spki_base64, public_key_spki_sha256, state, toolchain_ids,
+minimum_pack_epoch, not_before_utc_ms and expires_at_utc_ms. SPKI must be canonical
+Ed25519 DER (44 bytes); ACTIVE is the only currently accepted key state. Key
+purpose is PROBE_MEDIA_ASSET_V1. IDs/toolchain lists are bounded, distinct and
+language-neutral. The policy accepts at most 16 keys, 64 IDs per key and 1024
+sorted unique revoked envelope hashes; no URLs or private keys are accepted.
+All digests use lowercase SHA-256; integer epochs/timestamps/sizes are safe and
+positive. Validity windows use inclusive not-before and exclusive expiration;
+the statement's lifetime cannot exceed the key's declared validity window.
+
+Envelope bytes are bounded to 64 KiB, policy bytes to 256 KiB, depth to 8,
+nodes to 10000 and decoded strings to 4096 UTF-8 bytes. Strict UTF-8 and exact
+canonical JSON reject BOM, duplicate/unknown keys, malformed and ambiguous
+representations. Trusted Core inputs include policy hash, minimum durable
+policy epoch, fresh trust state, trusted time health and current UTC time;
+caller HTTP/UI values cannot supply these observations. Clock/trust freshness
+and anti-rollback journal implementations are still required independently.
+
+The verifier compares signed toolchain/manifest/binary identities against
+current ARTIFACT_VERIFIED renderer-preflight fields, including the binary's
+VERIFIED state, observed size and version. It returns only typed fixed codes and exact identity digests,
+no paths, keys, signatures or raw certificate text. A positive signature
+verdict creates no job, attempt, measurement or process. Software rights and
+runtime evidence are digest-bound, not inferred approved from opaque hashes.
