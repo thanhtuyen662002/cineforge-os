@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, FormEvent } from 'react'
 import type { AssetTechnicalMetadata, MediaProbeAdmissionState } from './types'
 import {
@@ -1823,7 +1823,10 @@ export function TimelineView({ snapshot, locale, client, onToast }: { snapshot: 
     return () => controller.abort()
   }, [loadWorkingSession, projectId, selectedTimelineId])
 
-  useEffect(() => {
+  // Fence history before the new session's controls become interactive.
+  // A passive reset could otherwise abort a fresh click after its request
+  // has started, leaving the user on an empty history page.
+  useLayoutEffect(() => {
     historyAbortRef.current?.abort()
     historyAbortRef.current = null
     historyGenerationRef.current += 1
