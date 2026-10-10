@@ -5483,3 +5483,31 @@ evidence. A job can newly transition to COMPLETED only with that same identity
 bound in its measurement/evidence. Existing source, fence, stream-count and
 append-only guards stay applicable. Repeated initialization is idempotent and
 does not change generic integrity-job constraints or historical rows.
+# SCHEMA-MEDIA-PROBE-V23-01. Prepared authorization journal
+
+Add media_probe_authorizations with immutable id/job_id/attempt_id/fencing_token,
+core_owner_epoch, certificate_hash, trust_generation, key_id/key_spki_hash,
+policy_epoch/certification_epoch, source hash/size, manifest/binary hashes,
+rights_generation, fixed producer/argv/sandbox/resource profiles, effective
+not_before_utc_us/expires_at_utc_us and created_at_utc_us. One authorization
+reserves one attempt ID; an unused authorization remains historical rather
+than granting another attempt. Its job/source/toolchain/rights tuple must match
+the pinned job at insert. The interval is the intersection of the currently
+verified certificate, key and trust policy validity windows. The table is
+append-only and unavailable to UI/worker writers.
+
+Add nullable authorization_id and core_owner_epoch to media_probe_attempts,
+and nullable validated_at_utc_us to media_probe_evidence. Existing rows remain
+null, without approval/backfill. New native attempts require the exact reserved
+authorization/attempt/fence/epoch and fixed producer/argv profiles. These new
+attempt pins cannot change. New PASS evidence always requires this chain and
+a safe positive Core validation timestamp inside its validity window. New
+metadata and COMPLETED transitions resolve the same PASS evidence chain.
+Existing binary/source/rights/fence/process/stream guards continue to apply.
+
+New stderr observations are bounded to 1 MiB. Existing larger diagnostic rows
+remain untouched; updates that change that field cannot introduce a larger
+new observation. New PASS proof cannot use an over-budget stderr observation.
+Legacy rows/columns and generic Slice 3A jobs retain their identities/constraints.
+Actual v22 and earlier migration fixtures must prove preservation, idempotent
+reopen and missing-authority rejection; SQL does not prove cryptographic trust.

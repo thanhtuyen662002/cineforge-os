@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -2574,6 +2574,7 @@ export function initializeDatabase(db) {
 
   initializeProbePersistence(db);
   initializeProbeBinaryPins(db);
+  initializeProbeAuthorizations(db);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so
   // an interrupted upgrade can be resumed safely; recording every historical
@@ -2898,6 +2899,109 @@ function initializeProbePersistence(db) {
   } catch (error) {
     db.exec('ROLLBACK TO media_probe_schema_21; RELEASE media_probe_schema_21');
     throw error;
+  }
+}
+
+// Prepared per-attempt journal; Core/runtime verification is still required.
+function initializeProbeAuthorizations(db) {
+  const hash = name => `length(CAST(${name} AS BLOB))=64 AND ${name} NOT GLOB '*[^0-9a-f]*'`;
+  const safe = name => `typeof(${name})='integer' AND ${name} BETWEEN 1 AND 9007199254740991`;
+  db.exec('SAVEPOINT media_probe_schema_23');
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS media_probe_authorizations (
+      id TEXT NOT NULL PRIMARY KEY CHECK(length(id) BETWEEN 1 AND 200),
+      job_id TEXT NOT NULL REFERENCES media_probe_jobs(id),
+      attempt_id TEXT NOT NULL UNIQUE CHECK(length(attempt_id) BETWEEN 1 AND 200),
+      fencing_token TEXT NOT NULL CHECK(${hash('fencing_token')}),
+      core_owner_epoch TEXT NOT NULL CHECK(length(core_owner_epoch) BETWEEN 1 AND 200),
+      certificate_hash TEXT NOT NULL CHECK(${hash('certificate_hash')}),
+      trust_generation TEXT NOT NULL CHECK(${hash('trust_generation')}),
+      key_id TEXT NOT NULL CHECK(length(key_id) BETWEEN 1 AND 128),
+      key_spki_hash TEXT NOT NULL CHECK(${hash('key_spki_hash')}),
+      policy_epoch INTEGER NOT NULL CHECK(${safe('policy_epoch')}),
+      certification_epoch INTEGER NOT NULL CHECK(${safe('certification_epoch')}),
+      source_content_hash TEXT NOT NULL CHECK(${hash('source_content_hash')}),
+      source_byte_size INTEGER NOT NULL CHECK(typeof(source_byte_size)='integer' AND source_byte_size BETWEEN 1 AND 1073741824),
+      toolchain_manifest_hash TEXT NOT NULL CHECK(${hash('toolchain_manifest_hash')}),
+      toolchain_binary_hash TEXT NOT NULL CHECK(${hash('toolchain_binary_hash')}),
+      rights_generation TEXT NOT NULL CHECK(${hash('rights_generation')}),
+      producer_contract_version TEXT NOT NULL CHECK(producer_contract_version='NATIVE_MEDIA_PROBE_BROKER_V1'),
+      argv_preset_id TEXT NOT NULL CHECK(argv_preset_id='MEDIA_PROBE_ARGV_V1'),
+      sandbox_profile_version TEXT NOT NULL CHECK(sandbox_profile_version='WINDOWS_APPCONTAINER_PROBE_V1'),
+      resource_profile_version TEXT NOT NULL CHECK(resource_profile_version='MEDIA_PROBE_RESOURCE_V1'),
+      not_before_utc_us INTEGER NOT NULL CHECK(${safe('not_before_utc_us')}),
+      expires_at_utc_us INTEGER NOT NULL CHECK(${safe('expires_at_utc_us')} AND expires_at_utc_us>not_before_utc_us),
+      created_at_utc_us INTEGER NOT NULL CHECK(${safe('created_at_utc_us')} AND created_at_utc_us>=not_before_utc_us AND created_at_utc_us<expires_at_utc_us)
+    );
+    CREATE INDEX IF NOT EXISTS media_probe_authorizations_job ON media_probe_authorizations(job_id);
+    CREATE TRIGGER IF NOT EXISTS media_probe_authorization_scope BEFORE INSERT ON media_probe_authorizations
+    WHEN NOT EXISTS (SELECT 1 FROM media_probe_jobs j WHERE j.id=NEW.job_id
+      AND j.state IN ('QUEUED','CLAIMED','FAILED_RETRYABLE','UNKNOWN')
+      AND j.source_content_hash=NEW.source_content_hash AND j.source_byte_size=NEW.source_byte_size
+      AND j.toolchain_manifest_hash=NEW.toolchain_manifest_hash AND j.toolchain_binary_hash=NEW.toolchain_binary_hash
+      AND j.toolchain_id IS NOT NULL AND j.toolchain_version IS NOT NULL
+      AND j.probe_schema_version='MEDIA_PROBE_V1' AND j.parser_policy_version='MEDIA_PROBE_PARSER_V1'
+      AND j.rights_generation=NEW.rights_generation)
+    BEGIN SELECT RAISE(ABORT,'media_probe authorization scope mismatch'); END;`);
+    for (const operation of ['UPDATE','DELETE']) db.exec(`CREATE TRIGGER IF NOT EXISTS media_probe_authorization_no_${operation.toLowerCase()}
+      BEFORE ${operation} ON media_probe_authorizations BEGIN SELECT RAISE(ABORT,'media_probe authorization is append-only'); END;`);
+    const additions = {
+      media_probe_attempts: { authorization_id: 'TEXT REFERENCES media_probe_authorizations(id)',
+        core_owner_epoch: 'TEXT CHECK(core_owner_epoch IS NULL OR length(core_owner_epoch) BETWEEN 1 AND 200)' },
+      media_probe_evidence: { validated_at_utc_us: `INTEGER CHECK(validated_at_utc_us IS NULL OR (${safe('validated_at_utc_us')}))` },
+    };
+    for (const [table, columns] of Object.entries(additions)) {
+      const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name));
+      for (const [name, type] of Object.entries(columns)) if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
+    const attemptPin = `EXISTS (SELECT 1 FROM media_probe_authorizations z WHERE z.id=NEW.authorization_id
+      AND z.job_id=NEW.job_id AND z.attempt_id=NEW.id AND z.fencing_token=NEW.fencing_token
+      AND z.core_owner_epoch=NEW.core_owner_epoch AND NEW.producer_contract_version=z.producer_contract_version
+      AND NEW.argv_preset_id=z.argv_preset_id)`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS media_probe_attempt_authorization_insert BEFORE INSERT ON media_probe_attempts
+      WHEN (NEW.producer_contract_version='NATIVE_MEDIA_PROBE_BROKER_V1' OR NEW.authorization_id IS NOT NULL OR NEW.core_owner_epoch IS NOT NULL)
+        AND NOT ${attemptPin}
+      BEGIN SELECT RAISE(ABORT,'media_probe attempt authorization pin mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_attempt_authorization_immutable BEFORE UPDATE ON media_probe_attempts
+      WHEN NEW.authorization_id IS NOT OLD.authorization_id OR NEW.core_owner_epoch IS NOT OLD.core_owner_epoch
+        OR (OLD.authorization_id IS NOT NULL AND (NEW.fencing_token IS NOT OLD.fencing_token
+          OR NEW.producer_contract_version IS NOT OLD.producer_contract_version OR NEW.argv_preset_id IS NOT OLD.argv_preset_id))
+      BEGIN SELECT RAISE(ABORT,'media_probe immutable authorization/fence identity'); END;`);
+    const evidencePin = `EXISTS (SELECT 1 FROM media_probe_attempts a JOIN media_probe_authorizations z ON z.id=a.authorization_id
+      WHERE a.id=NEW.attempt_id AND z.attempt_id=a.id AND z.job_id=a.job_id
+        AND z.core_owner_epoch=a.core_owner_epoch AND z.fencing_token=a.fencing_token
+        AND NEW.validated_at_utc_us IS NOT NULL AND NEW.validated_at_utc_us>=z.not_before_utc_us
+        AND NEW.validated_at_utc_us<z.expires_at_utc_us)`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS media_probe_evidence_authorization BEFORE INSERT ON media_probe_evidence
+      WHEN NEW.outcome='PASS' AND (NEW.stderr_bytes>1048576 OR NOT ${evidencePin})
+      BEGIN SELECT RAISE(ABORT,'media_probe evidence authorization/time pin mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS technical_metadata_authorization BEFORE INSERT ON technical_metadata
+      WHEN NOT EXISTS (SELECT 1 FROM media_probe_attempts a JOIN media_probe_authorizations z ON z.id=a.authorization_id
+        JOIN media_probe_evidence e ON e.attempt_id=a.id AND e.outcome='PASS'
+        WHERE a.id=NEW.probe_attempt_id AND z.attempt_id=a.id AND z.job_id=NEW.probe_job_id
+          AND z.core_owner_epoch=a.core_owner_epoch AND z.fencing_token=a.fencing_token
+          AND e.validated_at_utc_us>=z.not_before_utc_us AND e.validated_at_utc_us<z.expires_at_utc_us)
+      BEGIN SELECT RAISE(ABORT,'technical_metadata proof authorization pin missing'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_complete_authorization BEFORE UPDATE OF state ON media_probe_jobs
+      WHEN NEW.state='COMPLETED' AND NOT EXISTS (
+        SELECT 1 FROM media_probe_attempts a JOIN media_probe_authorizations z ON z.id=a.authorization_id
+          JOIN media_probe_evidence e ON e.attempt_id=a.id AND e.outcome='PASS'
+          JOIN technical_metadata m ON m.probe_attempt_id=a.id AND m.evidence_state='PASS'
+        WHERE a.id=NEW.current_attempt_id AND a.job_id=NEW.id AND z.attempt_id=a.id AND z.job_id=NEW.id
+          AND m.probe_job_id=NEW.id AND z.core_owner_epoch=a.core_owner_epoch AND z.fencing_token=a.fencing_token
+          AND e.validated_at_utc_us>=z.not_before_utc_us AND e.validated_at_utc_us<z.expires_at_utc_us)
+      BEGIN SELECT RAISE(ABORT,'media_probe completion missing metadata authorization/binary pin'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_attempt_stderr_insert BEFORE INSERT ON media_probe_attempts
+      WHEN NEW.stderr_bytes>1048576 BEGIN SELECT RAISE(ABORT,'media_probe stderr limit'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_evidence_stderr_insert BEFORE INSERT ON media_probe_evidence
+      WHEN NEW.stderr_bytes>1048576 BEGIN SELECT RAISE(ABORT,'media_probe stderr limit'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_attempt_stderr_update BEFORE UPDATE OF stderr_bytes ON media_probe_attempts
+      WHEN NEW.stderr_bytes IS NOT OLD.stderr_bytes AND NEW.stderr_bytes>1048576
+      BEGIN SELECT RAISE(ABORT,'media_probe stderr limit'); END;
+    `);
+    db.exec('RELEASE media_probe_schema_23');
+  } catch (error) {
+    db.exec('ROLLBACK TO media_probe_schema_23; RELEASE media_probe_schema_23'); throw error;
   }
 }
 

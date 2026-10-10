@@ -231,10 +231,26 @@ function persistenceFixture(Core = CoreService) {
     fs.rmSync(directory, { recursive: true, force: true });
   } };
 }
+function authorization(f, overrides = {}) {
+  return { id: 'authorization-1', job_id: f.job.id, attempt_id: 'attempt-1', fencing_token: '1'.repeat(64),
+    core_owner_epoch: 'fixture-core-epoch', certificate_hash: '2'.repeat(64), trust_generation: '3'.repeat(64),
+    key_id: 'fixture-key', key_spki_hash: '4'.repeat(64), policy_epoch: 1, certification_epoch: 1,
+    source_content_hash: f.job.source_content_hash, source_byte_size: f.job.source_byte_size,
+    toolchain_manifest_hash: f.job.toolchain_manifest_hash, toolchain_binary_hash: f.job.toolchain_binary_hash,
+    rights_generation: f.job.rights_generation, producer_contract_version: 'NATIVE_MEDIA_PROBE_BROKER_V1',
+    argv_preset_id: 'MEDIA_PROBE_ARGV_V1', sandbox_profile_version: 'WINDOWS_APPCONTAINER_PROBE_V1',
+    resource_profile_version: 'MEDIA_PROBE_RESOURCE_V1', not_before_utc_us: f.stamp,
+    expires_at_utc_us: f.stamp + 1000000, created_at_utc_us: f.stamp, ...overrides };
+}
 function verifying(f) {
+  const current = f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v >= 23;
+  const fence = current ? '1'.repeat(64) : 'fence-1';
+  if (current) insert(f.db, 'media_probe_authorizations', authorization(f));
   insert(f.db, 'media_probe_attempts', { id: 'attempt-1', job_id: f.job.id, attempt_no: 1, retry_kind: 'INITIAL',
-    idempotency_key: 'attempt-1', fencing_token: 'fence-1', state: 'VERIFYING', created_at_utc_us: f.stamp, updated_at_utc_us: f.stamp });
-  f.db.prepare("UPDATE media_probe_jobs SET state='VERIFYING',current_attempt_id='attempt-1',fencing_token='fence-1',row_version=row_version+1 WHERE id=?").run(f.job.id);
+    idempotency_key: 'attempt-1', fencing_token: fence, state: 'VERIFYING', created_at_utc_us: f.stamp, updated_at_utc_us: f.stamp,
+    ...(current ? { authorization_id: 'authorization-1', core_owner_epoch: 'fixture-core-epoch',
+      producer_contract_version: 'NATIVE_MEDIA_PROBE_BROKER_V1', argv_preset_id: 'MEDIA_PROBE_ARGV_V1' } : {}) });
+  f.db.prepare("UPDATE media_probe_jobs SET state='VERIFYING',current_attempt_id='attempt-1',fencing_token=?,row_version=row_version+1 WHERE id=?").run(fence, f.job.id);
 }
 function proof(f, overrides = {}) {
   return { id: 'evidence-1', attempt_id: 'attempt-1', outcome: 'PASS', evidence_code: 'PROBE_VALIDATED',
@@ -245,7 +261,8 @@ function proof(f, overrides = {}) {
     observed_source_byte_size: f.job.source_byte_size, stdout_bytes: f.job.source_byte_size, stderr_bytes: 0,
     cpu_time_ms: 1, memory_peak_bytes: 1024, process_tree_state: 'STOPPED', exit_code: 0,
     cancel_outcome: 'NOT_REQUESTED', timeout_outcome: 'NONE', validation_snapshot_hash: 'e'.repeat(64),
-    created_at_utc_us: f.stamp, ...overrides };
+    created_at_utc_us: f.stamp,
+    ...(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v >= 23 ? { validated_at_utc_us: f.stamp } : {}), ...overrides };
 }
 function measurement(f, overrides = {}) {
   return { id: 'metadata-1', project_id: f.job.project_id, source_asset_revision_id: f.job.asset_revision_id,
@@ -462,7 +479,7 @@ test('schema 22 upgrades real v21 PASS history without fabricating binary observ
         'technical_metadata_streams'].map(table => [table, f.db.prepare(`SELECT * FROM ${table}`).all()]));
       const integritySql = f.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").get().sql;
       initializeDatabase(f.db); initializeDatabase(f.db);
-      assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, 22);
+      assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, SCHEMA_VERSION);
       for (const [table, rows] of Object.entries(before)) {
         const after = f.db.prepare(`SELECT * FROM ${table}`).all();
         assert.equal(after.length, rows.length);
@@ -502,4 +519,131 @@ test('new evidence and canonical metadata require the exact persisted binary pin
     assert.equal(f.db.prepare('SELECT toolchain_binary_hash FROM technical_metadata').get().toolchain_binary_hash, f.job.toolchain_binary_hash);
     assert.equal(f.db.prepare('SELECT state FROM media_probe_jobs').get().state, 'COMPLETED');
   } finally { f.close(); }
+});
+
+test('authorization reservation rejects altered scope, unsafe digests, epochs and execution profiles', () => {
+  const f = persistenceFixture();
+  try {
+    initializeDatabase(f.db);
+    for (const field of ['source_content_hash', 'toolchain_manifest_hash', 'toolchain_binary_hash', 'rights_generation']) {
+      assert.throws(() => insert(f.db, 'media_probe_authorizations', authorization(f, { [field]: '0'.repeat(64) })), /scope/);
+    }
+    for (const field of ['certificate_hash', 'trust_generation', 'key_spki_hash', 'fencing_token']) {
+      for (const value of ['a'.repeat(64) + '\0suffix', 'A'.repeat(64), 'é'.repeat(64), null]) {
+        assert.throws(() => insert(f.db, 'media_probe_authorizations', authorization(f, { [field]: value })), /constraint/i);
+      }
+    }
+    for (const overrides of [{ source_byte_size: f.job.source_byte_size + 1 }, { source_byte_size: 1073741825 },
+      { policy_epoch: 0 }, { certification_epoch: 1.5 }, { policy_epoch: 9007199254740992 }, { core_owner_epoch: '' },
+      { producer_contract_version: 'SHELL' }, { argv_preset_id: 'ARBITRARY' }, { sandbox_profile_version: 'NONE' },
+      { resource_profile_version: 'UNBOUNDED' }, { not_before_utc_us: f.stamp + 1 }, { expires_at_utc_us: f.stamp },
+      { created_at_utc_us: f.stamp + 1000000 }, { job_id: 'missing' }, { id: null }]) {
+      assert.throws(() => insert(f.db, 'media_probe_authorizations', authorization(f, overrides)), /scope|constraint/i);
+    }
+    insert(f.db, 'media_probe_authorizations', authorization(f));
+    assert.throws(() => insert(f.db, 'media_probe_authorizations', authorization(f, { id: 'reservation-replay' })), /UNIQUE/);
+    assert.throws(() => f.db.prepare('UPDATE media_probe_authorizations SET certification_epoch=2').run(), /append-only/);
+    assert.throws(() => f.db.prepare('DELETE FROM media_probe_authorizations').run(), /append-only/);
+    assert.equal(f.db.prepare('SELECT count(*) AS n FROM media_probe_authorizations').get().n, 1);
+  } finally { f.close(); }
+});
+
+test('a native attempt resolves its reserved identity and cannot change authorization, owner or profile', () => {
+  const f = persistenceFixture();
+  try {
+    insert(f.db, 'media_probe_authorizations', authorization(f));
+    const row = { id: 'attempt-1', job_id: f.job.id, attempt_no: 1, retry_kind: 'INITIAL', idempotency_key: 'attempt-1',
+      fencing_token: '1'.repeat(64), authorization_id: 'authorization-1', core_owner_epoch: 'fixture-core-epoch',
+      producer_contract_version: 'NATIVE_MEDIA_PROBE_BROKER_V1', argv_preset_id: 'MEDIA_PROBE_ARGV_V1',
+      state: 'CREATED', created_at_utc_us: f.stamp, updated_at_utc_us: f.stamp };
+    for (const overrides of [{ id: 'wrong-attempt' }, { authorization_id: null }, { authorization_id: 'missing' },
+      { core_owner_epoch: null }, { core_owner_epoch: 'new-owner' }, { fencing_token: '0'.repeat(64) },
+      { producer_contract_version: 'other' }, { argv_preset_id: 'other' }]) {
+      assert.throws(() => insert(f.db, 'media_probe_attempts', { ...row, ...overrides }), /authorization/);
+    }
+    insert(f.db, 'media_probe_attempts', row);
+    for (const [field, value] of [['authorization_id', null], ['core_owner_epoch', 'new-owner'],
+      ['producer_contract_version', 'other'], ['argv_preset_id', 'other'], ['fencing_token', '0'.repeat(64)]]) {
+      assert.throws(() => f.db.prepare(`UPDATE media_probe_attempts SET ${field}=?,row_version=row_version+1`).run(value), /authorization|fence/);
+    }
+    assert.equal(f.db.prepare('SELECT core_owner_epoch FROM media_probe_attempts').get().core_owner_epoch, row.core_owner_epoch);
+  } finally { f.close(); }
+});
+
+test('PASS requires an in-window Core observation and enforces bounded new stderr facts', () => {
+  const f = persistenceFixture();
+  try {
+    verifying(f);
+    for (const validated_at_utc_us of [null, f.stamp - 1, f.stamp + 1000000, 9007199254740992, f.stamp + 0.5]) {
+      assert.throws(() => insert(f.db, 'media_probe_evidence', proof(f, { validated_at_utc_us })), /authorization|constraint/i);
+    }
+    for (const outcome of ['PASS', 'UNKNOWN']) {
+      assert.throws(() => insert(f.db, 'media_probe_evidence', proof(f, { outcome, stderr_bytes: 1048577 })), /limit|authorization/);
+    }
+    assert.throws(() => f.db.prepare('UPDATE media_probe_attempts SET stderr_bytes=1048577,row_version=row_version+1').run(), /limit/);
+    insert(f.db, 'media_probe_evidence', proof(f, { validated_at_utc_us: f.stamp + 999999, stderr_bytes: 1048576 }));
+    f.db.prepare("UPDATE media_probe_attempts SET state='SUCCEEDED',row_version=row_version+1").run();
+    insert(f.db, 'technical_metadata', measurement(f)); insert(f.db, 'technical_metadata_streams', stream());
+    f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run();
+    assert.equal(f.db.prepare('SELECT state FROM media_probe_jobs').get().state, 'COMPLETED');
+  } finally { f.close(); }
+});
+
+test('schema 23 preserves actual v22 history without inventing authorization or validation time', async () => {
+  const sourceCommit = '57d66d6b06b06fb72c944efa6cb16088fcf426d7';
+  const modules = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-schema-v22-'));
+  const modulePath = name => path.join(modules, name);
+  for (const name of ['schema.mjs', 'core.mjs']) {
+    const old = execFileSync('git', ['show', `${sourceCommit}:core/${name}`], { encoding: 'utf8', windowsHide: true });
+    fs.writeFileSync(modulePath(name), old.replace(/from (['"])(\.\/[^'"]+)\1/g, (_, quote, specifier) => {
+      const target = specifier === './schema.mjs' ? pathToFileURL(modulePath('schema.mjs')) : new URL(specifier, import.meta.url);
+      return 'from ' + JSON.stringify(target.href);
+    }));
+  }
+  let f;
+  try {
+    const old = await import(pathToFileURL(modulePath('core.mjs')).href);
+    for (const historicalState of ['VERIFYING', 'COMPLETED']) {
+      f = persistenceFixture(old.CoreService);
+      assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, 22);
+      accepted(f); insert(f.db, 'technical_metadata_streams', stream());
+      // v22 allowed a larger diagnostic; it must survive without granting new authority.
+      const diagnostic = { ...f.db.prepare('SELECT * FROM media_probe_attempts').get(), id: 'legacy-diagnostic', attempt_no: 2,
+        idempotency_key: 'legacy-diagnostic', state: 'CREATED', stderr_bytes: 2097152 };
+      insert(f.db, 'media_probe_attempts', diagnostic);
+      if (historicalState === 'COMPLETED') f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run();
+      const tables = ['media_probe_jobs', 'media_probe_attempts', 'media_probe_evidence', 'technical_metadata', 'technical_metadata_streams'];
+      const before = Object.fromEntries(tables.map(table => [table, f.db.prepare(`SELECT * FROM ${table}`).all()]));
+      const genericJobsSql = f.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").get().sql;
+      initializeDatabase(f.db); initializeDatabase(f.db);
+      assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, 23);
+      for (const table of tables) {
+        const rows = f.db.prepare(`SELECT * FROM ${table}`).all();
+        assert.equal(rows.length, before[table].length);
+        for (let i = 0; i < rows.length; i++) for (const [key, value] of Object.entries(before[table][i])) {
+          assert.equal(rows[i][key], value, `${table}.${key}`);
+        }
+      }
+      assert.equal(f.db.prepare('SELECT count(*) AS n FROM media_probe_authorizations').get().n, 0);
+      const attempt = f.db.prepare("SELECT * FROM media_probe_attempts WHERE id='attempt-1'").get();
+      assert.equal(attempt.authorization_id, null); assert.equal(attempt.core_owner_epoch, null);
+      assert.equal(f.db.prepare('SELECT validated_at_utc_us FROM media_probe_evidence').get().validated_at_utc_us, null);
+      assert.equal(f.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").get().sql, genericJobsSql);
+      assert.throws(() => insert(f.db, 'media_probe_evidence', proof(f, { id: 'new-legacy-pass' })), /authorization/);
+      assert.throws(() => insert(f.db, 'technical_metadata', measurement(f, { id: 'new-legacy-metadata' })), /authorization/);
+      assert.throws(() => f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run(), /authorization/);
+      assert.throws(() => f.db.prepare("UPDATE media_probe_attempts SET authorization_id='fabricated',row_version=row_version+1").run(), /authorization/);
+      assert.throws(() => f.db.prepare('UPDATE media_probe_evidence SET validated_at_utc_us=?').run(f.stamp), /append-only/);
+      // An unchanged legacy diagnostic can be checkpointed; no enlarged observation can be added.
+      f.db.prepare("UPDATE media_probe_attempts SET stderr_bytes=stderr_bytes,row_version=row_version+1 WHERE id='legacy-diagnostic'").run();
+      assert.throws(() => f.db.prepare("UPDATE media_probe_attempts SET stderr_bytes=2097153,row_version=row_version+1 WHERE id='legacy-diagnostic'").run(), /limit/);
+      assert.throws(() => insert(f.db, 'media_probe_attempts', { ...diagnostic, id: 'legacy-overflow', attempt_no: 3,
+        idempotency_key: 'legacy-overflow', state: 'CREATED' }), /limit/);
+      f.close(); f = null;
+    }
+  } finally {
+    f?.close();
+    assert.ok(path.resolve(modules).startsWith(path.join(os.tmpdir(), 'cineforge-schema-v22-')));
+    fs.rmSync(modules, { recursive: true, force: true });
+  }
 });

@@ -7883,3 +7883,17 @@ These fixtures establish transport/process observations only. Core durable
 journals, rights/certification rechecks, transactional metadata/evidence binding,
 restart reconciliation and final packaged execution remain separate required
 gates. Do not present a transport fixture as a completed ProbeMediaAsset action.
+
+# MEDIA-PROBE-AUTHORIZATION-TEST-01. Prepared authorization persistence cases
+
+Test exact authorization/attempt/fence/Core epoch/source/toolchain/rights links,
+immutable authorization and attempt pins, validity-boundary and absent proof
+rejection, stderr limits, certificate/trust digest byte validation and metadata/
+completion through the same chain. Exercise actual v22 initializer migration
+for historical VERIFYING and COMPLETED rows; preserve all old columns and leave
+new pins null. Reopening is idempotent. Legacy null pins never become new PASS
+or completion authority. Retain generic job constraints and append-only history.
+
+Cryptographic signatures, actual current Core ownership, trusted clocks, fresh
+revocations, current consent and real native/source observations are separate
+Core/runtime requirements. A synthetic SQL authorization cannot close them.

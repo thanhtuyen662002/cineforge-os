@@ -566,3 +566,22 @@ neither execution nor PASS authority. Audited durable Core dispatch/attempts,
 attestation/rights rechecks and final binding remain required before enabling
 ProbeMediaAsset. This new transport is PREPARED; its source/test scope extension
 and promotion require trusted custody/contract and independent review.
+
+## Prepared media-probe authorization persistence (schema 23)
+
+The additive `media_probe_authorizations` journal reserves one attempt ID and
+pins its certificate, trust generation/key/epochs, source/toolchain/rights,
+Core owner/fence and fixed execution profiles. New native attempt identities
+are immutable. New PASS evidence, metadata and completion require this exact
+chain and a Core validation timestamp within the effective validity window.
+The attestation verifier returns the intersection of certificate/key/policy
+windows for a future trusted Core writer. New stderr observations are capped
+at 1 MiB; historical larger diagnostics and all old columns remain unchanged.
+
+Run `node --test core/media-probe.test.mjs core/media-probe-attestation.test.mjs`.
+Migration tests load actual committed schema 20/21/22 initializers, reopen twice
+and check preservation without fabricating authorization or validation time.
+The privileged SQL fixtures prove relational guards, not cryptographic trust.
+No public command writes this journal or dispatches the native broker yet.
+Trusted authority/time/ownership, fresh rights, audited dispatch/reconciliation,
+raw evidence custody and transactional canonical binding remain required.

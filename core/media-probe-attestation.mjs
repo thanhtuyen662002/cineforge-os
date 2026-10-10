@@ -150,6 +150,8 @@ export function verifyMediaProbeAttestation({ envelopeBytes, trustPolicyBytes, t
       certification_epoch: s.certification_epoch, key_id: key.key_id, key_spki_sha256: key.public_key_spki_sha256,
       toolchain_id: s.toolchain_id, toolchain_version: s.toolchain_version, manifest_sha256: s.manifest_sha256,
       ffprobe_sha256: s.ffprobe_sha256, ffprobe_byte_size: s.ffprobe_byte_size, expires_at_utc_ms: s.expires_at_utc_ms,
+      valid_from_utc_ms: Math.max(s.not_before_utc_ms, key.not_before_utc_ms, policy.not_before_utc_ms),
+      valid_until_utc_ms: Math.min(s.expires_at_utc_ms, key.expires_at_utc_ms, policy.expires_at_utc_ms),
       probe_schema_version: s.probe_schema_version, parser_policy_version: s.parser_policy_version,
       native_contract: s.native_contract, argv_profile_version: s.argv_profile_version,
       sandbox_profile_version: s.sandbox_profile_version, resource_profile_version: s.resource_profile_version,

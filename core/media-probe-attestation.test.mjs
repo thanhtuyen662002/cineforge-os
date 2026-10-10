@@ -80,6 +80,27 @@ test('an altered signed statement is rejected', () => {
   const input = fixture(); editEnvelope(input, (value) => { value.statement.ffprobe_sha256 = '0'.repeat(64); });
   blocked(input, 'PROBE_ATTESTATION_SIGNATURE_REJECTED');
 });
+
+test('persisted authorization window intersects the signed pack, key and current policy', () => {
+  const usual = verifyMediaProbeAttestation(fixture());
+  assert.equal(usual.valid_from_utc_ms, NOW - 1000);
+  assert.equal(usual.valid_until_utc_ms, NOW + 1000);
+  const input = fixture(undefined, policy => {
+    policy.not_before_utc_ms = NOW - 50; policy.expires_at_utc_ms = NOW + 75;
+  });
+  const result = verifyMediaProbeAttestation(input);
+  assert.equal(result.state, 'ATTESTATION_VERIFIED');
+  assert.equal(result.valid_from_utc_ms, NOW - 50); assert.equal(result.valid_until_utc_ms, NOW + 75);
+  input.trustContext.nowUtcMs = NOW + 75;
+  blocked(input, 'PROBE_TRUST_POLICY_EXPIRED_OR_EARLY');
+  const boundedKey = verifyMediaProbeAttestation(fixture(statement => {
+    statement.not_before_utc_ms = NOW - 20; statement.expires_at_utc_ms = NOW + 30;
+  }, policy => {
+    policy.keys[0].not_before_utc_ms = NOW - 20; policy.keys[0].expires_at_utc_ms = NOW + 30;
+  }));
+  assert.equal(boundedKey.state, 'ATTESTATION_VERIFIED');
+  assert.equal(boundedKey.valid_from_utc_ms, NOW - 20); assert.equal(boundedKey.valid_until_utc_ms, NOW + 30);
+});
 test('signature from a different authority is rejected', () => {
   const input = fixture(); const other = crypto.generateKeyPairSync('ed25519');
   editEnvelope(input, (value) => { value.signature.signature_hex = crypto.sign(null,

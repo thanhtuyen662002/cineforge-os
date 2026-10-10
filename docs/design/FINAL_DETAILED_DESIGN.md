@@ -809,3 +809,20 @@ caller has UNKNOWN until Core reconciles the retained attempt and physical
 teardown, even when the local native host confirmed stop. Handshake/request
 reads are limited to 10 seconds. The untrusted media child inherits no pipe,
 Core key, DB handle or session environment.
+
+# DESIGN-MEDIA-PROBE-AUTHORIZATION-01. Prepared journal and binding floor
+
+The attestation verifier returns effective valid_from_utc_ms/valid_until_utc_ms
+as the certificate/key/policy intersection. Core converts exact safe timestamps
+to UTC microseconds and journals one authorization for the reserved attempt ID,
+fence and Core epoch before dispatch. Fresh policy and rights evaluation are
+still required at binding: an in-window timestamp alone is insufficient.
+PASS evidence carries validated_at_utc_us and resolves immutable authorization
+through its attempt. Metadata uses this relational chain rather than redundant
+provider-specific fields. Completion must not reinterpret historical PASS rows
+with a missing authorization as currently verified.
+
+Schema fixtures use privileged synthetic authorization rows to exercise guards,
+not real certificates or producer authority. The new journal does not by itself
+implement audited dispatch/retry/restart/recovery, native listener bootstrap or
+canonical producer binding; those remain necessary before a public probe works.

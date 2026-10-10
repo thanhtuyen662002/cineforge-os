@@ -2410,3 +2410,22 @@ disconnect/restart. Process observations and output bytes remain untrusted.
 Public commands/bootstrap remain disconnected from this PREPARED component.
 New broker/client/test paths are proposed #64 extensions pending trusted scope,
 custody and independent review. No metadata PASS or control promotion follows.
+
+# ARCH-MEDIA-PROBE-AUTHORIZATION-01. Prepared per-attempt authorization journal
+
+Schema 23 adds an append-only media_probe_authorizations record for each exact
+attempt/fence and Core owner epoch. It binds the certified envelope/trust
+generation, key fingerprint, policy/certification epochs, exact source/toolchain/
+rights pins and the intersection of certificate/key/policy validity windows.
+The producer and argv/sandbox/resource profiles remain fixed read-only probe
+contracts. Authorization is journaled by Core before native dispatch; workers
+receive no database handle and cannot self-certify by returning these fields.
+
+New PASS evidence must resolve the attempt's immutable authorization and owner
+epoch and include a Core revalidation timestamp within that interval. Metadata
+and completion resolve that same immutable evidence/authorization chain.
+Opaque hashes and SQL fixtures do not establish actual authority, rights or
+time health; Core must independently recheck them before dispatch and binding.
+Historical authorizations are not fabricated, old evidence remains unchanged,
+and rows missing the chain remain UNKNOWN. Existing blocked admission continues
+to create no executable attempt; this migration alone activates no producer.
