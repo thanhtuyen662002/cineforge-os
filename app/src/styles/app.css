@@ -206,6 +206,11 @@ h3 { font-size: 13px; font-weight: 600; }
 .asset-import-form input:disabled, .asset-import-form select:disabled { opacity: .55; cursor: not-allowed; }
 .card-heading-actions { display: inline-flex; align-items: center; gap: 8px; }
 .asset-record .record-state { color: var(--green); background: var(--green-dim); }
+.asset-record { flex-wrap: wrap; align-items: flex-start; }
+.asset-record .library-record-main { flex: 1 1 calc(100% - 42px); }
+.asset-record > .asset-preview { min-width: 0; flex: 1 1 120px; justify-content: flex-start; }
+.asset-record > .asset-integrity-action { align-items: flex-start; }
+.library-record-list > div { min-width: 0; }
 .asset-preview { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 150px; flex-wrap: wrap; }
 .asset-preview-surface { display: flex; align-items: center; justify-content: center; min-width: 96px; max-width: 180px; min-height: 30px; border: 1px solid var(--line); border-radius: 7px; padding: 3px; background: var(--canvas-raised); }
 .asset-preview-surface img { display: block; max-width: 172px; max-height: 76px; border-radius: 4px; object-fit: contain; }
