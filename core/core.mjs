@@ -8,7 +8,7 @@ import { initializeDatabase, SCHEMA_VERSION } from './schema.mjs';
 import { isUuid, nowUtcUs, rfc3339FromUs, uuidv7 } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 import { preflightRendererToolchain } from './renderer-toolchain.mjs';
-import { MEDIA_PROBE_SCHEMA_VERSION, MEDIA_PROBE_PARSER_VERSION, decodeBoundedMediaProbeJson } from './media-probe.mjs';
+import { MEDIA_PROBE_SCHEMA_VERSION, MEDIA_PROBE_PARSER_VERSION, decodeBoundedMediaProbeJson, parseMediaProbe } from './media-probe.mjs';
 import { verifyMediaProbeAttestation } from './media-probe-attestation.mjs';
 import { runNativeProbeBroker, validateProbeBrokerDescriptor, validateProbeBrokerRequest } from './media-probe-broker.mjs';
 
@@ -1598,6 +1598,10 @@ export class CoreService {
   #mediaProbeRecoveryReady = false;
   #mediaProbeBrokerSource = null;
   #mediaProbeDispatch = null;
+  // Duplicated OS handles belong to this Node process, including other Core
+  // instances. Uncertain release therefore survives close/reopen in process.
+  static #mediaProbeBindingOwner = null;
+  static #mediaProbeBindingUncertain = false;
 
   constructor(options = {}) {
     if (options.mediaProbeTrustSource !== undefined && options.mediaProbeTrustSource !== null
@@ -3408,6 +3412,14 @@ export class CoreService {
     return row;
   }
 
+  #isMediaProbeRawStage(row) {
+    return Boolean(row.job_attempt_id && this.db.prepare("SELECT 1 FROM commands WHERE id=? AND command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1'").get(row.command_id));
+  }
+
+  #assertPublicStaging(row) {
+    if (this.#isMediaProbeRawStage(row)) throw new CoreError('STAGING_PRIVATE_EVIDENCE', 'CONFLICT', 'errors.staging_not_ready', {}, { needsUser: true });
+  }
+
   _setStagingState(id, state, patch = {}) {
     if (!STAGING_STATES.has(state)) throw new CoreError('INVALID_STAGING_STATE', 'INTERNAL', 'errors.invalid_staging_state', { state }, { needsUser: false });
     const current = this._stagingRow(id);
@@ -3521,6 +3533,7 @@ export class CoreService {
   _useExistingImportStaging(payload) {
     const stagingId = requiredString(payload.staging_id ?? payload.stagingId ?? payload.source_handle ?? payload.sourceHandle, 'staging_id', 200);
     const row = this._stagingRow(stagingId);
+    this.#assertPublicStaging(row);
     if (!['COMPLETE', 'VERIFIED'].includes(String(row.state))) {
       throw new CoreError('STAGING_NOT_READY', 'CONFLICT', 'errors.staging_not_ready', { staging_id: stagingId, state: row.state }, { needsUser: true });
     }
@@ -3801,7 +3814,10 @@ export class CoreService {
           WHERE state IN ('WRITING', 'COMPLETE', 'VERIFIED')
           ORDER BY updated_at_utc_us ASC, id ASC LIMIT 200`).all();
     const changes = [];
+    let checkedCount = 0;
     for (const row of rows) {
+      if (this.#isMediaProbeRawStage(row)) continue;
+      checkedCount++;
       if (!['WRITING', 'COMPLETE', 'VERIFIED'].includes(row.state)) continue;
       let state = 'VERIFIED';
       let reason = 'VERIFIED_CONTENT';
@@ -3839,7 +3855,7 @@ export class CoreService {
         changes.push({ id: row.id, previous_state: row.state, state: current.state, reason });
       }
     }
-    const result = { items: changes.map((change) => ({ ...change })), checked_count: rows.length, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+    const result = { items: changes.map((change) => ({ ...change })), checked_count: checkedCount, projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
     return {
       projectId: null,
       result,
@@ -4703,7 +4719,149 @@ export class CoreService {
     });
   }
 
-  // PREPARED internal unbound lane; intentionally absent from handle and HTTP.
+  #bindMediaProbeEvidence({ observed, check, journal, setCursor, commandId, brokerRequest }) {
+    const fail = code => { throw new CoreError(code, 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
+    const hash = value => crypto.createHash('sha256').update(value instanceof Uint8Array ? value : canonicalJson(value)).digest('hex');
+    check();
+    const raw = Buffer.from(observed.stdout); const rawHash = hash(raw); const stagingId = uuidv7();
+    const { root, candidate } = this._stagingPath(stagingId);
+    const attemptId = brokerRequest.scope.attempt_id;
+    if (raw.length > 8388608 || raw.length !== observed.observation.stdout_bytes) fail('PROBE_RAW_EVIDENCE_LIMIT');
+    fs.mkdirSync(root, { recursive: true }); this._assertNoReparsePath(root);
+    const parsing = this._transaction(() => {
+      check(); const step = journal('PARSING', 'PROBE_PARSING', observed); const stamp = nowUtcUs();
+      this.db.prepare(`INSERT INTO staging_objects (id,command_id,job_attempt_id,temp_path,expected_size,current_size,
+        hash_algorithm,source_file_identity_json,reparse_state,state,row_version,created_at_utc_us,updated_at_utc_us)
+        VALUES (?,?,?,?,?,0,'SHA-256',?,'NOT_REPARSE','WRITING',1,?,?)`).run(stagingId, commandId, attemptId,
+        candidate, raw.length, json({ kind: 'MEDIA_PROBE_RAW_EVIDENCE_V1', attempt_id: attemptId }), stamp, stamp);
+      this._insertAudit({ actionType: 'media_probe.raw_reserved', targetType: 'STAGING_OBJECT', targetId: stagingId,
+        payload: { attempt_id: attemptId, byte_size: raw.length } }, commandId, this.actorId, 'SUCCEEDED');
+      this.db.prepare(`INSERT INTO command_impacts (command_id,entity_type,entity_id,impact_type,severity,details_json)
+        VALUES (?,'STAGING_OBJECT',?,'MUTATES','MEDIUM',?)`).run(commandId, stagingId, json({ attempt_id: attemptId, byte_size: raw.length }));
+      return step;
+    }); setCursor(parsing.cursor);
+    let fd;
+    try {
+      fd = fs.openSync(candidate, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+      for (let offset = 0; offset < raw.length;) {
+        const n = fs.writeSync(fd, raw, offset, raw.length - offset);
+        if (n < 1) fail('PROBE_RAW_EVIDENCE_WRITE_FAILED'); offset += n;
+      }
+      fs.fsyncSync(fd);
+    } finally { if (fd !== undefined) fs.closeSync(fd); }
+    const stat = fs.lstatSync(candidate); this._assertNoReparsePath(candidate);
+    const rawDigest = this._hashLocalFile(candidate);
+    if (!stat.isFile() || stat.nlink !== 1 || rawDigest.content_hash !== rawHash || rawDigest.byte_size !== raw.length) fail('PROBE_RAW_EVIDENCE_CHANGED');
+    this._protectManagedObject(candidate, rawHash);
+    let parsed = parseMediaProbe(raw);
+    if (parsed.ok && parsed.metadata.reported_byte_size !== null && parsed.metadata.reported_byte_size !== brokerRequest.pins.source_bytes) {
+      parsed = { ok: false, outcome: 'CONFLICT', code: 'PROBE_SOURCE_SIZE_CONFLICT' };
+    }
+    const verifying = this._transaction(() => {
+      check();
+      this._setStagingState(stagingId, 'COMPLETE', { current_size: raw.length, sha256: rawHash,
+        os_file_identity_json: json(this._sourceIdentity(fs.lstatSync(candidate))) });
+      this._verifyStagingObject(stagingId);
+      return journal('VERIFYING', 'PROBE_VERIFYING', observed);
+    }); setCursor(verifying.cursor);
+    const committed = this._transaction(() => {
+      const { job, attempt, authorization } = check();
+      const source = this._hashLocalFile(brokerRequest.input.source_path);
+      if (source.content_hash !== job.source_content_hash || source.byte_size !== job.source_byte_size) fail('PROBE_SOURCE_STALE');
+      const materialized = this._materializeStagedObject(stagingId, 'SHA-256', rawHash, raw.length);
+      this._protectManagedObject(materialized.target, rawHash);
+      this._setStagingState(stagingId, 'REGISTERED', { finalization_identity_json: json(this._sourceIdentity(fs.lstatSync(materialized.target))) });
+      const actual = this._hashLocalFile(materialized.target);
+      if (actual.content_hash !== rawHash || actual.byte_size !== raw.length) fail('PROBE_RAW_EVIDENCE_CHANGED');
+      const stamp = nowUtcUs();
+      let rawObject = this.db.prepare("SELECT * FROM storage_objects WHERE hash_algorithm='SHA-256' AND content_hash=?").get(rawHash);
+      if (rawObject && (rawObject.byte_size !== raw.length || rawObject.storage_class !== 'LOCAL_MANAGED')) fail('PROBE_RAW_IDENTITY_CONFLICT');
+      if (!rawObject) {
+        rawObject = { id: uuidv7() };
+        this.db.prepare(`INSERT INTO storage_objects (id,hash_algorithm,content_hash,byte_size,storage_class,verified_at_utc_us,created_at_utc_us)
+          VALUES (?,'SHA-256',?,?,'LOCAL_MANAGED',?,?)`).run(rawObject.id, rawHash, raw.length, stamp, stamp);
+      }
+      const relative = materialized.relativePath.split(path.sep).join('/');
+      const primary = this.db.prepare("SELECT * FROM storage_object_locations WHERE storage_object_id=? AND location_role='PRIMARY'").get(rawObject.id);
+      if (primary && (primary.storage_root !== 'asset-store' || primary.relative_path !== relative || primary.state !== 'AVAILABLE')) fail('PROBE_RAW_LOCATION_CONFLICT');
+      if (!primary) this.db.prepare(`INSERT INTO storage_object_locations (id,storage_object_id,storage_root,relative_path,location_role,state,last_verified_at_utc_us,created_at_utc_us)
+        VALUES (?,?,'asset-store',?,'PRIMARY','AVAILABLE',?,?)`).run(uuidv7(), rawObject.id, relative, stamp, stamp);
+      // Copying/hashing can consume the remaining authority window. Validate
+      // again after filesystem work, before accepting any PASS evidence.
+      const { validatedAt } = check();
+      const evidenceId = uuidv7(); const outcome = parsed.ok ? 'PASS' : parsed.outcome;
+      const code = parsed.ok ? 'PROBE_METADATA_VERIFIED' : parsed.code; const metrics = observed.observation;
+      const snapshot = hash({ authorization_id: authorization.id, certificate_hash: authorization.certificate_hash,
+        trust_generation: authorization.trust_generation, rights_generation: job.rights_generation, validated_at: validatedAt,
+        scope: brokerRequest.scope, pins: brokerRequest.pins, raw_hash: rawHash, raw_bytes: raw.length,
+        outcome, code, observation: metrics, normalized_metadata_hash: parsed.ok ? hash(parsed.metadata) : null });
+      this.db.prepare(`INSERT INTO media_probe_evidence (id,attempt_id,outcome,evidence_code,source_content_hash,source_byte_size,
+        toolchain_manifest_hash,toolchain_binary_hash,probe_schema_version,parser_policy_version,observed_source_hash,
+        observed_source_byte_size,stdout_bytes,stderr_bytes,cpu_time_ms,memory_peak_bytes,process_tree_state,exit_code,
+        cancel_outcome,timeout_outcome,validation_snapshot_hash,created_at_utc_us,validated_at_utc_us)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'STOPPED',0,'NOT_REQUESTED','NONE',?,?,?)`).run(evidenceId, attempt.id,
+        outcome, code, job.source_content_hash, job.source_byte_size, job.toolchain_manifest_hash, job.toolchain_binary_hash,
+        job.probe_schema_version, job.parser_policy_version, source.content_hash, source.byte_size, metrics.stdout_bytes,
+        metrics.stderr_bytes, metrics.cpu_time_ms, metrics.peak_memory_bytes, snapshot, stamp, validatedAt);
+      this.db.prepare('UPDATE media_probe_attempts SET state=?,row_version=row_version+1,updated_at_utc_us=? WHERE id=?')
+        .run(parsed.ok ? 'SUCCEEDED' : 'ABANDONED', stamp, attempt.id);
+      const metadataId = parsed.ok ? this.#insertMediaProbeMetadata(parsed.metadata, job, attempt, rawObject.id, rawHash, raw.length, stamp) : null;
+      const state = parsed.ok ? 'COMPLETED' : 'UNKNOWN';
+      this.db.prepare(`UPDATE media_probe_jobs SET state=?,row_version=row_version+1,updated_at_utc_us=?,needs_user=?,next_step=?,current_attempt_id=?,fencing_token=? WHERE id=?`)
+        .run(state, stamp, Number(!parsed.ok), parsed.ok ? 'CineForge đã xác minh thông tin kỹ thuật.' : 'Cần kiểm tra evidence và định dạng nguồn trước khi chạy lại.',
+          parsed.ok ? attempt.id : null, parsed.ok ? attempt.fencing_token : null, job.id);
+      const payload = { job_id: job.id, attempt_id: attempt.id, evidence_id: evidenceId, technical_metadata_id: metadataId,
+        raw_evidence_object_id: rawObject.id, raw_evidence_hash: rawHash, raw_evidence_byte_size: raw.length, outcome, code };
+      for (const [entity, id, version] of [['MEDIA_PROBE_ATTEMPT', attempt.id, attempt.row_version + 1], ['MEDIA_PROBE_JOB', job.id, job.row_version + 1]]) {
+        this._insertEvent({ aggregateType: entity, aggregateId: id, aggregateVersion: version, eventType: 'MEDIA_PROBE_EVIDENCE_BOUND', payload },
+          commandId, this.actorId, job.correlation_id, job.command_id);
+      }
+      for (const [entity, id] of [['STAGING_OBJECT', stagingId], ['STORAGE_OBJECT', rawObject.id], ['MEDIA_PROBE_EVIDENCE', evidenceId], ...(metadataId ? [['TECHNICAL_METADATA', metadataId]] : [])]) {
+        this.db.prepare(`INSERT OR IGNORE INTO command_impacts (command_id,entity_type,entity_id,impact_type,severity,details_json) VALUES (?,?,?,'MUTATES','MEDIUM',?)`)
+          .run(commandId, entity, id, json(payload));
+      }
+      this._insertAudit({ actionType: 'media_probe.bind_evidence', targetType: 'MEDIA_PROBE_JOB', targetId: job.id, payload }, commandId, this.actorId, 'SUCCEEDED');
+      this._assertCoreOwner();
+      return { receipt: Object.freeze({ contract: 'PREPARED_MEDIA_PROBE_BINDING_V1', state, job_id: job.id, attempt_id: attempt.id,
+        job_version: job.row_version + 1, code, execution_started: true, physical_tree: 'STOPPED', evidence_id: evidenceId,
+        technical_metadata_id: metadataId, binding_pin_state: 'UNKNOWN' }), cursor: { jobVersion: job.row_version + 1,
+        attemptVersion: attempt.row_version + 1, jobState: state, attemptState: parsed.ok ? 'SUCCEEDED' : 'ABANDONED' } };
+    });
+    setCursor(committed.cursor); return committed.receipt;
+  }
+
+  #insertMediaProbeMetadata(metadata, job, attempt, rawObjectId, rawHash, rawBytes, stamp) {
+    const hash = value => crypto.createHash('sha256').update(canonicalJson(value)).digest('hex');
+    const insert = (table, row) => { const keys = Object.keys(row); this.db.prepare(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`).run(...Object.values(row)); };
+    const id = uuidv7();
+    const video = metadata.streams.find(s => s.stream_kind === 'VIDEO'); const audio = metadata.streams.find(s => s.stream_kind === 'AUDIO');
+    insert('technical_metadata', { id, media_kind: video && audio ? 'AUDIO_VIDEO' : video ? 'VIDEO' : 'AUDIO',
+      container: metadata.container, codec: video?.codec ?? audio?.codec ?? null, width: video?.width ?? null, height: video?.height ?? null,
+      pixel_format: video?.pixel_format ?? null, frame_rate_num: video?.frame_rate.num ?? null, frame_rate_den: video?.frame_rate.den ?? null,
+      time_base_num: (video ?? audio).time_base.num, time_base_den: (video ?? audio).time_base.den, frame_count: video?.frame_count ?? null,
+      duration_num: metadata.duration.num, duration_den: metadata.duration.den, color_primaries: video?.color_primaries ?? null,
+      transfer: video?.color_transfer ?? null, matrix: video?.color_space ?? null, audio_codec: audio?.codec ?? null,
+      sample_rate: audio?.sample_rate ?? null, channel_layout: audio?.channel_layout ?? null, metadata_json: '{}',
+      stream_count: metadata.streams.length, project_id: job.project_id, source_asset_revision_id: job.asset_revision_id,
+      source_content_hash: job.source_content_hash, source_byte_size: job.source_byte_size, toolchain_id: job.toolchain_id,
+      toolchain_version: job.toolchain_version, toolchain_manifest_hash: job.toolchain_manifest_hash, toolchain_binary_hash: job.toolchain_binary_hash,
+      probe_schema_version: job.probe_schema_version, parser_policy_version: job.parser_policy_version, probe_job_id: job.id,
+      probe_attempt_id: attempt.id, raw_evidence_object_id: rawObjectId, raw_evidence_hash: rawHash,
+      raw_evidence_byte_size: rawBytes, evidence_state: 'PASS', normalized_metadata_hash: hash(metadata), created_at_utc_us: stamp });
+    for (const s of metadata.streams) insert('technical_metadata_streams', {
+      id: uuidv7(), technical_metadata_id: id, stream_index: s.stream_index, stream_kind: s.stream_kind,
+      codec: s.codec, disposition_json: s.disposition === null ? null : canonicalJson(s.disposition), width: s.width ?? null, height: s.height ?? null,
+      pixel_format: s.pixel_format ?? null, pixel_aspect_num: s.pixel_aspect?.num ?? null, pixel_aspect_den: s.pixel_aspect?.den ?? null,
+      color_range: s.color_range ?? null, color_space: s.color_space ?? null, color_transfer: s.color_transfer ?? null,
+      color_primaries: s.color_primaries ?? null, frame_rate_num: s.frame_rate?.num ?? null, frame_rate_den: s.frame_rate?.den ?? null,
+      nominal_frame_rate_num: s.nominal_frame_rate?.num ?? null, nominal_frame_rate_den: s.nominal_frame_rate?.den ?? null,
+      frame_count: s.frame_count ?? null, time_base_num: s.time_base.num, time_base_den: s.time_base.den,
+      duration_num: s.duration.num, duration_den: s.duration.den, sample_rate: s.sample_rate ?? null, channels: s.channels ?? null,
+      channel_layout: s.channel_layout ?? null, sample_format: s.sample_format ?? null, normalized_metadata_hash: hash(s) });
+    return id;
+  }
+
+  // PREPARED internal lane; intentionally absent from handle and HTTP.
   async dispatchMediaProbeAttempt(request) {
     const fail = code => { throw new CoreError(code, 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
     if (this._closed || !this.db) fail('PROBE_CORE_CLOSED');
@@ -4718,6 +4876,8 @@ export class CoreService {
     const hash = value => crypto.createHash('sha256').update(typeof value === 'string' || value instanceof Uint8Array ? value : canonicalJson(value)).digest('hex');
     const fingerprint = hash(identity); const type = 'PREPARED_DISPATCH_MEDIA_PROBE_V1';
     let descriptor; let brokerRequest; let current; let commandId; let started = false;
+    let bindingReceipt = null; let callbackFailure = null; let bindingToken = null; let lastObserved = null;
+    let bindingMayHavePins = false;
     const controller = new AbortController();
     const check = (freshAuthority = true, domain = true) => {
       if (this._closed || !this.db) fail('PROBE_CORE_CLOSED');
@@ -4748,10 +4908,11 @@ export class CoreService {
         return location;
       };
       let location = domain ? validateDomain() : null;
-      let binaryBytes = null;
+      let binaryBytes = null; let validatedAt = null;
       if (freshAuthority) {
-        const { pins, proof } = this.#verifiedMediaProbeAuthority(job);
+        const { pins, proof, stamp } = this.#verifiedMediaProbeAuthority(job);
         binaryBytes = proof.ffprobe_byte_size;
+        validatedAt = stamp;
         if (Object.entries(pins).some(([field, value]) => authorization[field] !== value)) fail('PROBE_DISPATCH_AUTHORITY_STALE');
         location = validateDomain(); this._assertCoreOwner();
         const j = this._mediaProbeJob(job.id, job.project_id);
@@ -4760,13 +4921,14 @@ export class CoreService {
           || ['row_version','state','fencing_token','authorization_id','core_owner_epoch'].some(field => a[field] !== attempt[field])) fail('PROBE_DISPATCH_STALE');
       }
       if (job.row_version >= Number.MAX_SAFE_INTEGER || attempt.row_version >= Number.MAX_SAFE_INTEGER) fail('PROBE_JOB_VERSION_LIMIT');
-      return { job, attempt, authorization, location, binaryBytes };
+      return { job, attempt, authorization, location, binaryBytes, validatedAt };
     };
     const journal = (phase, code, result = null) => {
       const { job, attempt } = check(false, phase !== 'UNKNOWN'); const stamp = nowUtcUs();
       const terminal = phase === 'UNKNOWN';
       const aState = terminal ? 'ABANDONED' : phase;
-      const jState = terminal ? 'UNKNOWN' : phase === 'EXECUTING' ? 'RUNNING' : 'CLAIMED';
+      const jState = terminal ? 'UNKNOWN' : phase === 'EXECUTING' ? 'RUNNING'
+        : ['PARSING', 'VERIFYING'].includes(phase) ? phase : 'CLAIMED';
       const metrics = result?.observation;
       this.db.prepare(`UPDATE media_probe_attempts SET state=?,row_version=row_version+1,updated_at_utc_us=?,
         worker_instance_id=COALESCE(worker_instance_id,?),input_envelope_hash=COALESCE(input_envelope_hash,?),
@@ -4775,7 +4937,10 @@ export class CoreService {
         metrics ? hash(metrics) : null, metrics?.stdout_bytes ?? null, metrics?.stderr_bytes ?? null,
         metrics?.cpu_time_ms ?? null, metrics?.peak_memory_bytes ?? null, attempt.id);
       const next = terminal ? 'CineForge chưa xác minh metadata. Kiểm tra evidence và runtime trước khi chạy lại.'
-        : phase === 'EXECUTING' ? 'CineForge đang đọc thông tin kỹ thuật trong runtime cục bộ.' : 'CineForge đang gửi lượt kiểm tra tới runtime cục bộ.';
+        : phase === 'EXECUTING' ? 'CineForge đang đọc thông tin kỹ thuật trong runtime cục bộ.'
+        : phase === 'PARSING' ? 'CineForge đang đọc và lưu evidence kỹ thuật.'
+        : phase === 'VERIFYING' ? 'CineForge đang xác minh metadata và quyền sử dụng.'
+        : 'CineForge đang gửi lượt kiểm tra tới runtime cục bộ.';
       this.db.prepare(`UPDATE media_probe_jobs SET state=?,row_version=row_version+1,updated_at_utc_us=?,needs_user=?,next_step=?,
         current_attempt_id=?,fencing_token=? WHERE id=?`).run(jState, stamp, Number(terminal), next,
         terminal ? null : attempt.id, terminal ? null : attempt.fencing_token, job.id);
@@ -4800,17 +4965,24 @@ export class CoreService {
         this._assertCoreOwner();
         const existing = this.db.prepare('SELECT * FROM commands WHERE actor_id=? AND command_type=? AND idempotency_key=?').get(this.actorId, type, request.idempotency_key);
         if (existing) {
-          if (existing.idempotency_fingerprint !== fingerprint || existing.status !== 'SUCCEEDED_WITH_WARNINGS') fail('IDEMPOTENCY_KEY_REUSE_CONFLICT');
+          if (existing.idempotency_fingerprint !== fingerprint || !['SUCCEEDED','SUCCEEDED_WITH_WARNINGS'].includes(existing.status)) fail('IDEMPOTENCY_KEY_REUSE_CONFLICT');
           const receipt = JSON.parse(existing.result_json);
           const job = this._mediaProbeJob(request.job_id, request.project_id);
           const attempt = this.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(request.attempt_id);
-          if (!attempt || attempt.core_owner_epoch !== this.instanceEpoch || attempt.state !== 'ABANDONED'
-            || job.state !== 'UNKNOWN' || job.current_attempt_id !== null || job.fencing_token !== null || job.row_version !== receipt.job_version) fail('PROBE_DISPATCH_STALE');
+          const complete = receipt.state === 'COMPLETED';
+          if (!attempt || attempt.core_owner_epoch !== this.instanceEpoch || attempt.job_id !== job.id
+            || receipt.job_id !== job.id || receipt.attempt_id !== attempt.id || job.row_version !== receipt.job_version
+            || (complete ? attempt.state !== 'SUCCEEDED' || job.state !== 'COMPLETED'
+              || job.current_attempt_id !== attempt.id || job.fencing_token !== attempt.fencing_token
+              : attempt.state !== 'ABANDONED' || job.state !== 'UNKNOWN' || job.current_attempt_id !== null || job.fencing_token !== null)) fail('PROBE_DISPATCH_STALE');
           return Object.freeze(receipt);
         }
         const { job, attempt, authorization, location, binaryBytes } = check();
         this._mediaProbeVersion({ JOB: request.expected_version }, 'JOB', job.id, job.row_version);
         if (job.state !== 'CLAIMED' || attempt.state !== 'CREATED') fail('PROBE_DISPATCH_STALE');
+        if (CoreService.#mediaProbeBindingUncertain) fail('PROBE_BINDING_RELEASE_UNCERTAIN');
+        if (CoreService.#mediaProbeBindingOwner) fail('PROBE_DISPATCH_BUSY');
+        bindingToken = {}; CoreService.#mediaProbeBindingOwner = bindingToken;
         if (!this.#mediaProbeBrokerSource) fail('PROBE_BROKER_UNAVAILABLE');
         let supplied; try { supplied = this.#mediaProbeBrokerSource(); } catch { fail('PROBE_BROKER_UNAVAILABLE'); }
         validateProbeBrokerDescriptor(supplied);
@@ -4857,22 +5029,68 @@ export class CoreService {
       try {
         check();
         fs.mkdirSync(path.dirname(brokerRequest.input.attempt_root), { recursive: true });
+        bindingMayHavePins = true;
         result = await runNativeProbeBroker({ descriptor, request: brokerRequest, signal: controller.signal, onStarted: () => {
           started = true;
           check();
           const step = this._transaction(() => journal('EXECUTING', 'PROBE_NATIVE_STARTED')); current = step.cursor;
+        }, onResult: observed => {
+          lastObserved = observed;
+          try {
+            const guardCheck = () => {
+              if (controller.signal.aborted) fail('PROBE_BINDING_CANCELLED');
+              if (CoreService.#mediaProbeBindingOwner !== bindingToken) fail('PROBE_BINDING_OWNER_STALE');
+              const facts = check();
+              if (observed.binding_guard.binary_bytes !== facts.binaryBytes) fail('PROBE_BINDING_BINARY_SIZE_STALE');
+              return facts;
+            };
+            bindingReceipt = this.#bindMediaProbeEvidence({ observed, check: guardCheck, journal,
+              setCursor: cursor => { current = cursor; }, commandId, brokerRequest });
+            return { committed: true, value: bindingReceipt };
+          } catch (error) { callbackFailure = error; throw error; }
         } });
-        check();
+        if (!bindingReceipt) check();
         if (result.observation.code !== 'PROBE_PROCESS_STOPPED') code = result.observation.code;
       } catch (error) {
-        code = /^[A-Z][A-Z0-9_]{1,80}$/.test(error?.code ?? '') ? error.code : 'PROBE_BROKER_UNAVAILABLE';
+        if (!bindingMayHavePins || result?.binding_released === true || error.binding_released === true || error.binding_pins_possible === false) {
+          bindingMayHavePins = false; CoreService.#mediaProbeBindingOwner = null;
+        }
+        else CoreService.#mediaProbeBindingUncertain = true;
+        const failure = callbackFailure ?? error;
+        code = /^[A-Z][A-Z0-9_]{1,80}$/.test(failure?.code ?? '') ? failure.code : 'PROBE_BROKER_UNAVAILABLE';
       }
+      if (result?.binding_released === true) { bindingMayHavePins = false; CoreService.#mediaProbeBindingOwner = null; }
+      else if (result) CoreService.#mediaProbeBindingUncertain = true;
       if (this._closed || !this.db) fail('PROBE_CORE_CLOSED');
-      const step = this._transaction(() => journal('UNKNOWN', code, result)); current = step.cursor;
+      if (bindingReceipt) return this._transaction(() => {
+        this._assertCoreOwner();
+        const job = this._mediaProbeJob(request.job_id, request.project_id);
+        const attempt = this.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(request.attempt_id);
+        if (job.row_version !== current.jobVersion || attempt.row_version !== current.attemptVersion || job.state !== current.jobState
+          || attempt.state !== current.attemptState || attempt.core_owner_epoch !== this.instanceEpoch) fail('PROBE_DISPATCH_STALE');
+        const released = result?.binding_released === true;
+        if (!released && job.row_version >= Number.MAX_SAFE_INTEGER) fail('PROBE_JOB_VERSION_LIMIT');
+        const receipt = Object.freeze({ ...bindingReceipt, binding_pin_state: released ? 'RELEASED' : 'UNKNOWN' });
+        if (!released) this.db.prepare(`UPDATE media_probe_jobs SET row_version=row_version+1,updated_at_utc_us=?,needs_user=1,next_step=? WHERE id=?`)
+          .run(nowUtcUs(), 'Cần khởi động lại CineForge để giải phóng khóa runtime chưa xác minh được.', job.id);
+        const finalReceipt = released ? receipt : Object.freeze({ ...receipt, job_version: receipt.job_version + 1 });
+        if (!released) this._insertEvent({ aggregateType: 'MEDIA_PROBE_JOB', aggregateId: job.id, aggregateVersion: finalReceipt.job_version,
+          eventType: 'MEDIA_PROBE_PIN_RELEASE_UNKNOWN', payload: finalReceipt }, commandId, this.actorId, job.correlation_id, job.command_id);
+        this._insertAudit({ actionType: 'media_probe.binding_completed', targetType: 'MEDIA_PROBE_JOB', targetId: job.id,
+          payload: finalReceipt }, commandId, this.actorId, 'SUCCEEDED');
+        this.db.prepare('UPDATE commands SET status=?,finished_at_utc_us=?,result_json=? WHERE id=?')
+          .run(finalReceipt.state === 'COMPLETED' && released ? 'SUCCEEDED' : 'SUCCEEDED_WITH_WARNINGS', nowUtcUs(), json(finalReceipt), commandId);
+        return finalReceipt;
+      });
+      const step = this._transaction(() => journal('UNKNOWN', code, result ?? lastObserved)); current = step.cursor;
       return step.receipt;
     } finally {
       descriptor?.key.fill(0); controller.abort();
       if (this.#mediaProbeDispatch?.controller === controller) this.#mediaProbeDispatch = null;
+      if (bindingToken && CoreService.#mediaProbeBindingOwner === bindingToken) {
+        if (bindingMayHavePins) CoreService.#mediaProbeBindingUncertain = true;
+        CoreService.#mediaProbeBindingOwner = null;
+      }
     }
   }
 
@@ -6641,6 +6859,7 @@ export class CoreService {
       // location and the staging proof that was just registered; callers
       // cannot smuggle an arbitrary path through this internal field.
       staged = this._stagingRow(stagingId);
+      this.#assertPublicStaging(staged);
       const expectedRelativePath = this._objectRelativePath('SHA-256', context.documentHash);
       const expectedTarget = path.resolve(this.assetStorePath, expectedRelativePath);
       const preparedDigest = prepared.digest;
@@ -8756,6 +8975,7 @@ export class CoreService {
     if (storageMode === 'COPY') {
       if (!stagingId) throw new CoreError('STAGING_REQUIRED', 'CONFLICT', 'errors.staging_required', {}, { needsUser: true });
       staged = this._stagingRow(stagingId);
+      this.#assertPublicStaging(staged);
       const suppliedSourcePath = payload.source_path ?? payload.sourcePath ?? payload.path ?? payload.file_path;
       // Browser intake only has the opaque staging handle.  Resolve its
       // private candidate path inside Core; callers cannot rebind the handle
@@ -11727,8 +11947,9 @@ export class CoreService {
     const state = stateInput === null || stateInput === undefined || stateInput === '' ? null : String(stateInput).trim().toUpperCase();
     if (state !== null && !STAGING_STATES.has(state)) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_staging_state', { state });
     const limit = Math.min(Math.max(asInt(params.limit, 100), 1), 200);
-    const rows = this.db.prepare(`SELECT * FROM staging_objects
-      WHERE (? IS NULL OR state = ?)
+    const rows = this.db.prepare(`SELECT * FROM staging_objects s
+      WHERE (? IS NULL OR state = ?) AND NOT EXISTS
+        (SELECT 1 FROM commands c WHERE c.id=s.command_id AND s.job_attempt_id IS NOT NULL AND c.command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1')
       ORDER BY updated_at_utc_us DESC, id DESC LIMIT ?`).all(state, state, limit);
     return { items: rows.map(publicStagingObject), projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }

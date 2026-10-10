@@ -4421,9 +4421,20 @@ is incomplete. There is no HTTP/RPC method, retry permission or PASS receipt.
 
 No HTTP/RPC route exposes dispatchMediaProbeAttempt. Its identity-only request
 contains project_id, job_id, attempt_id, expected_version and idempotency_key.
-The frozen PREPARED_MEDIA_PROBE_DISPATCH_V1 receipt contains UNKNOWN state,
+The unbound/failure PREPARED_MEDIA_PROBE_DISPATCH_V1 receipt contains UNKNOWN state,
 job/attempt IDs, job version, typed code, execution_started and physical_tree
 (STOPPED or UNKNOWN). It contains no broker credentials, paths, PID, producer
 output, signature or metadata. A successful receipt is an unbound observation,
 not a certification or permission for render/export/release. Active duplicate
 requests fail closed; completed exact replay is read-only and never dispatches.
+
+# API-MEDIA-PROBE-CORE-BINDING-01. Private binding receipt and raw custody
+
+PREPARED_MEDIA_PROBE_BINDING_V1 is private and adds evidence_id, nullable
+technical_metadata_id and binding_pin_state (RELEASED or UNKNOWN) to exact
+job/attempt/version, state, code and execution_started identity. It contains no
+paths, PID, lease/handle, credentials or diagnostic bytes. Canonical measurement
+completion does not approve an asset, authorize render/export or certify a pack.
+Raw MEDIA_PROBE_RAW_EVIDENCE_V1 staging is omitted from public staging queries,
+cannot be imported by staging handle, and is retained through failed binding.
+No new HTTP/RPC method or public executable admission is introduced here.

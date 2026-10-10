@@ -23,7 +23,8 @@ try
         catch (InvalidOperationException failure) { rejected = failure.Message == "PROBE_BROKER_ENDPOINT_REJECTED"; }
         Require(rejected, "Pre-existing pipe was reused."); reports.Add(new { name = "ENDPOINT_COLLISION", rejected });
     }
-    var modes = new[] { "GOOD", "CANCEL", "DISCONNECT", "WRONG_KEY", "WRONG_PID", "STALE_SESSION", "WRONG_CANCEL", "REPLAY", "BAD_LENGTH", "CORE_GOOD", "CORE_RIGHTS", "CORE_AUDIT", "CORE_CLOSE", "CORE_STALE", "CORE_TERMINAL_AUDIT", "CORE_SOURCE_SWAP", "PIN_GOOD", "PIN_ABORT", "PIN_DISCONNECT", "PIN_CANCEL", "PIN_BAD_LEASE", "PIN_DEATH" };
+    var modes = new[] { "GOOD", "CANCEL", "DISCONNECT", "WRONG_KEY", "WRONG_PID", "STALE_SESSION", "WRONG_CANCEL", "REPLAY", "BAD_LENGTH", "CORE_GOOD", "CORE_RIGHTS", "CORE_AUDIT", "CORE_CLOSE", "CORE_STALE", "CORE_TERMINAL_AUDIT", "CORE_SOURCE_SWAP", "CORE_BIND_AUDIO", "CORE_BIND_RIGHTS", "CORE_BIND_AUDIT", "CORE_SIZE_CONFLICT", "PIN_GOOD", "PIN_ABORT", "PIN_DISCONNECT", "PIN_CANCEL", "PIN_BAD_LEASE", "PIN_DEATH" };
+    modes = [.. modes, "CORE_BIND_DISCONNECT", "CORE_BIND_EXPIRED"];
     if (args.Length == 5 && !modes.Contains(args[4])) throw new InvalidOperationException("Unknown fixture case.");
     foreach (var mode in modes.Where(mode => args.Length == 4 ? mode != "PIN_DEATH" : mode == args[4]))
     {
@@ -48,7 +49,7 @@ try
         using var client = Process.Start(start) ?? throw new InvalidOperationException("Fixture client did not start.");
         var stdout = client.StandardOutput.ReadToEndAsync(); var stderr = client.StandardError.ReadToEndAsync();
         using var current = Process.GetCurrentProcess();
-        var disconnect = mode is "PIN_DISCONNECT" or "PIN_DEATH" ? Task.Run(async () => {
+        var disconnect = mode is "PIN_DISCONNECT" or "PIN_DEATH" or "CORE_BIND_DISCONNECT" ? Task.Run(async () => {
             if (!OperatingSystem.IsWindows()) throw new InvalidOperationException("Windows guard fixture required.");
             for (int i = 0; i < 500 && !File.Exists(Path.Combine(guardRoot, "guard-ready")); i++) await Task.Delay(20);
             Require(File.Exists(Path.Combine(guardRoot, "guard-ready")), "Guard callback never entered."); broker.Dispose();
@@ -56,12 +57,14 @@ try
         var observed = await broker.RunOneAsync(mode == "WRONG_PID" ? current : client);
         await disconnect;
         broker.Dispose();
-        if (mode is "PIN_DISCONNECT" or "PIN_DEATH") File.WriteAllText(Path.Combine(guardRoot, "broker-disposed"), "DISPOSED");
+        if (mode is "PIN_DISCONNECT" or "PIN_DEATH" or "CORE_BIND_DISCONNECT") File.WriteAllText(Path.Combine(guardRoot, "broker-disposed"), "DISPOSED");
         try { await client.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10)); }
         catch { client.Kill(true); throw; }
         using var clientReport = JsonDocument.Parse(await stdout);
         Console.WriteLine($"{mode}: {observed.Code}, peer={observed.PeerVerified}, auth={observed.Authenticated}, native={observed.Observation?.Code}, phase={observed.Observation?.Phase}, client={clientReport.RootElement.GetRawText()}");
         var clientErrors = await stderr;
+        if (client.ExitCode != 0 && observed.Observation is { ExitCode: not 0 } diagnostic)
+            File.WriteAllBytes(Path.Combine(output, mode + "-fixture-stderr.bin"), diagnostic.Stderr);
         Require(client.ExitCode == 0 && clientErrors.Length == 0, "Fixture client failed: " + clientErrors);
         if (mode.StartsWith("PIN_"))
         {
@@ -78,12 +81,15 @@ try
         else if (mode.StartsWith("CORE_"))
         {
             Require(clientReport.RootElement.GetProperty("core_dispatch").GetString() == "PASS"
-                && observed.PeerVerified && observed.Authenticated && observed.Observation is { ProfileReleased: true }, "Core/native integration failed.");
-            if (mode == "CORE_SOURCE_SWAP") Require(observed.Code == "PROBE_BROKER_OBSERVED"
-                && observed.Observation is { Code: "PROBE_FILE_HASH_MISMATCH", ExitCode: null, AppContainerVerified: false }, "Source substitution launched native work.");
+                && observed.PeerVerified && observed.Authenticated, "Core/native integration failed.");
+            if (mode == "CORE_SOURCE_SWAP") Require(observed.Observation == null, "Source substitution launched native work.");
             else Require(observed.Observation is { TreeStopped: true }, "Core native tree remains unresolved.");
+            if (mode != "CORE_SOURCE_SWAP") Require(observed.Observation is { ProfileReleased: true }, "Core native profile remains unresolved.");
             if (mode is "CORE_GOOD" or "CORE_RIGHTS" or "CORE_STALE" or "CORE_TERMINAL_AUDIT") Require(observed.Code == "PROBE_BROKER_OBSERVED"
                 && observed.Observation is { Code: "PROBE_PROCESS_STOPPED", ExitCode: 0, AppContainerVerified: true }, "Core native result missing.");
+            if (mode == "CORE_BIND_DISCONNECT") Require(observed.Code != "PROBE_BROKER_OBSERVED", "Disconnected binding was treated as acknowledged.");
+            else if (mode.StartsWith("CORE_BIND_") || mode == "CORE_SIZE_CONFLICT") Require(observed.Code == "PROBE_BROKER_OBSERVED"
+                && observed.Observation is { Code: "PROBE_PROCESS_STOPPED", ExitCode: 0, AppContainerVerified: true }, "Guarded Core native result missing.");
         }
         else if (mode == "GOOD") Require(observed.Code == "PROBE_BROKER_OBSERVED" && observed.PeerVerified && observed.Authenticated
             && observed.Observation is { TreeStopped: true, ExitCode: 0, AppContainerVerified: true, ProfileReleased: true }

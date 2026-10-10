@@ -105,6 +105,8 @@ export function validateProbeBrokerDescriptor(descriptor) {
 export async function runNativeProbeBroker({ descriptor, request, signal, onStarted, onResult } = {}) {
   let socket; let timer; let key;
   let cancel;
+  let bindingPinsPossible = false;
+  let bindingReleased = false;
   try {
     if (process.platform !== 'win32') fail('PROBE_BROKER_PLATFORM_UNSUPPORTED');
     if (signal?.aborted) fail('PROBE_BROKER_CANCELLED_BEFORE_CONNECT');
@@ -137,7 +139,9 @@ export async function runNativeProbeBroker({ descriptor, request, signal, onStar
     const guardVersion = 'MEDIA_PROBE_BINDING_GUARD_V1';
     const probe = { ...common, role: 'CLIENT', type: 'PROBE', sequence: 1, ...request,
       ...(onResult ? { binding_guard_version: guardVersion } : {}) };
-    const dispatchHash = digest(Buffer.from(canonicalJson(probe))); socket.write(encodeProbeBrokerFrame(probe, key));
+    const dispatchHash = digest(Buffer.from(canonicalJson(probe)));
+    bindingPinsPossible = Boolean(onResult);
+    socket.write(encodeProbeBrokerFrame(probe, key));
     let guard = null;
     // After guard transfer, callback completion/rollback releases the OS pins.
     // Cancellation must not race a release against a still-running callback.
@@ -209,13 +213,18 @@ export async function runNativeProbeBroker({ descriptor, request, signal, onStar
               && Object.entries(common).every(([k, v]) => frame[k] === v);
           }
         } catch { /* Core owns unresolved pins until its process exits. */ }
+        bindingReleased = released;
         if (callbackError) throw callbackError;
         return Object.freeze({ ...observed, binding_guard: guard, binding_result: callback.value, binding_released: released });
       } else fail('PROBE_BROKER_SEQUENCE_INVALID');
     }
     fail('PROBE_BROKER_DISCONNECTED');
   } catch (error) {
-    throw error instanceof BrokerError ? error : new BrokerError('PROBE_BROKER_UNAVAILABLE');
+    const failure = error instanceof BrokerError ? error : new BrokerError('PROBE_BROKER_UNAVAILABLE');
+    // Private transport facts, never a claim that native execution was safe.
+    failure.binding_pins_possible = bindingPinsPossible;
+    failure.binding_released = bindingReleased;
+    throw failure;
   } finally {
     if (cancel) signal?.removeEventListener('abort', cancel);
     clearTimeout(timer); socket?.destroy(); key?.fill(0);

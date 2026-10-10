@@ -3100,3 +3100,14 @@ pointer/fence into UNKNOWN with needs_user. Native process success is not
 metadata success. If a callback is stale or its atomic audit fails, it makes no
 transition; existing startup recovery fences interrupted phases. Replay never
 launches another process and no retry is queued automatically.
+
+# STATE-MEDIA-PROBE-CORE-BINDING-01. Prepared guarded commit
+
+Authenticated clean native completion advances EXECUTING/RUNNING to
+PARSING/PARSING and VERIFYING/VERIFYING while the Core-owned OS pins are held.
+Atomic valid binding advances the exact attempt to SUCCEEDED and job COMPLETED,
+with immutable evidence/metadata/streams. Parser rejection binds only failure
+evidence and moves the attempt to ABANDONED and job UNKNOWN with cleared pointer.
+Failed binding leaves its phase fenced for logical retirement/recovery. Pin
+release completion is independently audited; UNKNOWN ownership blocks the next
+binding lease until Core process exit, without rewriting historical metadata.

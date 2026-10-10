@@ -911,17 +911,18 @@ ffprobe path. Check safe non-reparse parent and available storage for source
 copy + exact verified binary copy + bounded stdout/stderr + fixed overhead;
 retained staging is not deleted.
 
-One active request per Core; concurrent/duplicate dispatch is rejected before
+One active request per process; concurrent/duplicate dispatch is rejected before
 mutation. One PREPARED_DISPATCH_MEDIA_PROBE_V1 command journals initial
-DISPATCHING, authenticated STARTED and terminal UNKNOWN with atomic impacts,
+DISPATCHING, authenticated STARTED and unbound terminal UNKNOWN with atomic impacts,
 events and audit. Replay never sends another request. Before-launch failures
 leave the reservation unchanged. Post-dispatch failure retains uncertainty,
 clears the active pointer/fence and logically retires the unbound attempt.
 Audit failure rolls back its transition and leaves restart recovery responsible.
 No raw paths, PID, pipe descriptor, key, stdout/stderr or native diagnostics are
 projected or placed in commands. Only digests, counts and typed failure codes
-are durable. Native observation binding and canonical metadata remain future
-integration, not implied by a successful process exit.
+are durable in this unbound path. Guarded raw custody and canonical metadata
+are specified by DESIGN-MEDIA-PROBE-CORE-BINDING-01 below; they are not implied
+by a successful process exit alone.
 
 # DESIGN-MEDIA-PROBE-BINDING-GUARD-01. Opt-in broker callback lifetime
 
@@ -946,3 +947,37 @@ Cancellation cannot grant binding; no callback starts without a valid guard
 and clean stopped zero-exit native evidence. Existing no-guard callers retain
 their unbound behavior. No HTTP/UI/native activation or metadata PASS follows
 from adding this prerequisite alone.
+
+# DESIGN-MEDIA-PROBE-CORE-BINDING-01. Guarded evidence and metadata transaction
+
+Core requests MEDIA_PROBE_BINDING_GUARD_V1 and owns a process-wide single-lease
+fence. The private callback validates exact source/binary pins and fresh signed
+authorization, audits PARSING, reserves a private staging row owned by the
+dispatch command and attempt, writes bounded stdout with exclusive creation,
+fsync/hash/identity checks, and protects the bytes. No UI import or public
+staging reconciliation may consume this purpose. There is no auto-delete path.
+
+Strict parsing determines typed facts or an explicit rejection. VERIFYING is
+an actual evidence-validation phase, never approval. A final owning Core
+transaction rechecks authority/rights/source bytes/versions/fence, materializes
+immutable raw CAS and registers exact object/location identity. It appends
+media_probe_evidence with trusted validation time and native bounded resource,
+zero-exit/stopped-tree/no-cancel/no-timeout facts. PASS additionally requires
+parser success and any reported source byte size matching the actual pin.
+
+For PASS, mark the exact VERIFYING attempt SUCCEEDED, append technical_metadata
+and stream rows with canonical normalized hashes, and complete the job with
+the same pointer/fence. Parser rejection appends UNKNOWN/CONFLICT/FAIL evidence,
+retires the unbound attempt and clears its job pointer into UNKNOWN/needs_user.
+No measurement, asset, approval or canon mutation follows a parser rejection.
+All binding impacts/events/audit and row transitions commit atomically. Any
+failure rolls back the canonical transaction and retains private staging/CAS
+bytes for explicit recovery; no physical compensation deletes evidence.
+
+The dispatch command remains EXECUTING until the callback ends and pin-release
+acknowledgement is resolved. A separate atomic audited completion records
+RELEASED or UNKNOWN resource ownership and the frozen receipt; successful
+metadata remains historical PASS even when runtime cleanup needs user action.
+Exact replay never starts a process and requires unchanged terminal job/attempt
+identity and version. Public commands continue blocked; no production pack or
+independent review is fabricated by fixture signatures.

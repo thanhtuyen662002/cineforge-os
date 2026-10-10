@@ -7943,3 +7943,16 @@ forged, stale, wrong-PID/hash/size/version guard and invalid/replayed completion
 No guard callback may run on cancel/timeout/nonzero exit/uncertain native tree.
 Legacy transport and Core unbound tests must continue to pass. Fixture authority
 does not certify real ffprobe, production time, canonical binding or closure.
+
+# MEDIA-PROBE-CORE-BINDING-TEST-01. Actual guarded Core measurement fixtures
+
+Run actual Core/Windows broker/AppContainer fixtures with deterministic WAV
+facts and an explicit fake executable/ephemeral signer. Prove exact typed
+metadata/streams/raw identity, audit and idempotency; malformed/duplicate/
+contradictory stdout preserves non-PASS evidence only. Exercise rights/trust/
+source/version/fence changes, cancellation, staging/storage/audit failure,
+private raw intake/query exclusion, restart and process-wide uncertain-pin
+backpressure. No failed canonical transaction may leave partial measurement,
+streams or PASS evidence, or change originals/canon/timeline. Pin release
+and its uncertainty are separately recorded. Fixture PASS is not real ffprobe
+certification, trusted production time, independent review or product closure.

@@ -69,6 +69,10 @@ promotion; it changes no existing claim owner or control maturity.
 
 ## Prepared private broker fixture
 
+Use a fresh publish output directory for the single-file Fixture EXE. Sharing
+the same output directory with `dotnet build` can leave an apphost that needs
+ProbeFixture.dll, which the private runtime intentionally does not copy.
+
 `BrokerRunner` links the native worker and private named-pipe broker; its Node
 client imports `core/media-probe-broker.mjs`. Supply an explicitly chosen local
 absolute Node executable path, never a PATH-discovered product fallback:
@@ -89,6 +93,21 @@ tests exercise fragmented/coalesced frames, strict JSON/UTF-8/MAC/length and
 private request bounds, plus authenticated malicious-producer output hash,
 budget, sequence and missing-start evidence. These latter producer cases start
 no media tool and are distinct from the actual native fixture.
+
+The prepared Core cases now include actual guarded canonical writing from an
+owned PCM WAV fixture, parser rejection, reported source size conflict, rights
+revocation immediately before binding, authority expiry after raw CAS
+materialization, and audit rollback. Successful binding
+checks exact raw CAS/hash/size, typed rational duration and stream rows,
+immutable source identity, atomic audit/events, exact replay, and isolation of
+private evidence from public staging queries/import/reconciliation.
+
+CORE_BIND_DISCONNECT disposes the broker during the Core binding transaction.
+The callback verifies source/binary write locks survive the lost broker,
+commits historical PASS, records UNKNOWN pin release, and proves that closing
+and reopening Core inside the same Node process cannot bypass the next-dispatch
+gate. These are local fixture signatures and a fake producer; real ffprobe
+certification, public admission and whole-film production remain unproven.
 
 The pipe is created with a user-only protected DACL, network/anonymous deny
 entries, non-inheritable handle, exclusive first-instance and

@@ -2482,11 +2482,12 @@ Core aborts its outstanding private broker requests. A stale callback cannot
 advance a replaced job/attempt/owner. Recheck authority and rights after native
 completion; raw producer observations never imply metadata PASS.
 
-This preparation ends the unbound attempt ABANDONED and job UNKNOWN, retaining
+The unbound/failure path ends the attempt ABANDONED and job UNKNOWN, retaining
 hashes and bounded resource counts when transport evidence is valid. Physical
 STOPPED is recorded only from authenticated native tree-stop evidence. Lost
 transport or failed authority remains UNKNOWN. No automatic retry, cleanup,
-public activation, metadata binding or certified-pack claim is introduced.
+public activation or certified-pack claim is introduced. Guarded canonical
+binding is separately specified by ARCH-MEDIA-PROBE-CORE-BINDING-01 below.
 Native/broker paths remain proposed task-scope extensions, pending trusted
 custody/contract and independent review; registry maturity stays SPECIFIED.
 
@@ -2511,3 +2512,32 @@ This extension is private, explicitly versioned and absent from public startup.
 Legacy unbound transport remains supported and cannot produce canonical PASS.
 It conveys stable file identity, not certification, rights approval, parser
 acceptance or a producer-supplied metadata verdict. Those remain Core checks.
+
+# ARCH-MEDIA-PROBE-CORE-BINDING-01. Prepared canonical measurement commit
+
+The private dispatcher may bind only inside its authenticated binding-guard
+callback. Source/binary read references remain owned by the actual Core process
+through the commit. One process-wide Core binding lease is allowed; uncertain
+pin release blocks further dispatch until process restart. Missing trust,
+invalid/stale source/rights/owner/fence or cancellation cannot produce PASS.
+
+Core stages bounded raw stdout with MEDIA_PROBE_RAW_EVIDENCE_V1 purpose and exact
+dispatch command/attempt ownership. It never exposes these rows through the
+public intake/staging list, accepts them as imports, or applies public staging
+reconciliation to them. Raw evidence is retained; no automatic cleanup or TTL
+deletion is introduced. Registered evidence uses immutable protected managed
+CAS storage and exact SHA-256/byte size; no diagnostic content enters projections.
+
+Fresh signed authority and rights, original source descriptor/hash/size, guard
+binary size, current job/attempt versions and exact pointer/fence are rechecked
+before one transaction registers evidence identity, appends validated evidence,
+and, only after strict parsing, appends canonical metadata and stream inventory
+and completes the job. Original assets/canon/timeline/release stay unchanged.
+Parser rejection preserves UNKNOWN/CONFLICT evidence without a metadata row.
+Failure rolls back canonical binding and retains private staging for recovery.
+
+Pin release is a separately audited completion after SQL binding. Unconfirmed
+release keeps resource ownership UNKNOWN and forbids another binding lease;
+it cannot downgrade or rewrite an already committed historical measurement.
+Public admission/bootstrap/UI activation and certified-pack/production closure
+remain gated by trusted custody, real authority and independent review.
