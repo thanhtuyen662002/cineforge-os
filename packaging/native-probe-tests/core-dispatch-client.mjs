@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { CoreService } from '../../core/core.mjs';
 import { canonicalJson } from '../../core/canonical.mjs';
 import { preflightRendererToolchain } from '../../core/renderer-toolchain.mjs';
+import { listenCoreHttp } from '../../core/http.mjs';
 
 // Privileged local fixture only. The fake executable and ephemeral signer do
 // do not certify ffprobe, trusted time or public admission. The WAV case
@@ -45,13 +46,19 @@ export async function exerciseCoreDispatch(descriptor, config) {
       public_key_spki_sha256: digest(spki), state: 'ACTIVE', toolchain_ids: [manifest.toolchain_id], minimum_pack_epoch: 1,
       not_before_utc_ms: now - 10000, expires_at_utc_ms: now + 300000 }], revoked_pack_hashes: [] }));
   let core; let rightsId; let loads = 0; let revokeAfterResult = false; let closeTimer;
+  let projectionTime = null; let revokeDuringQuery = false; let observedProjection = null;
+  const projectionChecks = [];
   const options = { dbPath: path.join(root, 'core.sqlite'), assetStorePath: path.join(root, 'assets'),
     instanceEpoch: descriptor.core_epoch, rendererToolchainRoot: toolRoot, rendererToolchainManifest: manifestPath,
     mediaProbeBrokerSource: () => descriptor, mediaProbeTrustSource: () => {
       loads++;
+      if (revokeDuringQuery) {
+        revokeDuringQuery = false;
+        execute('RevokeRights', { rights_identity_id: rightsId, right_type: 'SOURCE_USE', reason: 'owned fixture revocation during read' });
+      }
       if (revokeAfterResult && loads === 6) execute('RevokeRights', { rights_identity_id: rightsId, right_type: 'SOURCE_USE', reason: 'fixture revoked before binding' });
       if (config.mode === 'CORE_STALE' && loads === 6) core.db.prepare('UPDATE media_probe_jobs SET row_version=row_version+1').run();
-      return { envelopeBytes, trustPolicyBytes, trustContext: { nowUtcMs: config.mode === 'CORE_BIND_EXPIRED' && loads >= 10 ? now + 300000 : Date.now(), minimumPolicyEpoch: 1,
+      return { envelopeBytes, trustPolicyBytes, trustContext: { nowUtcMs: projectionTime ?? (config.mode === 'CORE_BIND_EXPIRED' && loads >= 10 ? now + 300000 : Date.now()), minimumPolicyEpoch: 1,
         policySha256: digest(trustPolicyBytes), timeHealth: 'TRUSTED', trustFreshness: 'FRESH' } };
     } };
   const execute = (command_type, payload) => {
@@ -183,6 +190,29 @@ export async function exerciseCoreDispatch(descriptor, config) {
       assert.equal(raw.storage_class, 'LOCAL_MANAGED');
       assert.equal(core.db.prepare("SELECT COUNT(*) AS n FROM audit_records WHERE action_type='media_probe.bind_evidence'").get().n, 1);
       assert.equal(core.db.prepare("SELECT COUNT(*) AS n FROM domain_events WHERE event_type='MEDIA_PROBE_EVIDENCE_BOUND'").get().n, 2);
+      const query = (method, params) => {
+        const result = core.handle({ api_version: '1', request_id: crypto.randomUUID(), method, params });
+        assert.equal(result.ok, true, JSON.stringify(result.error)); return result.result;
+      };
+      const before = JSON.stringify(core.db.prepare('SELECT * FROM technical_metadata').all());
+      const verified = query('query.media_probe.metadata', { project_id: project.id, asset_revision_id: revision.id });
+      observedProjection = verified;
+      assert.equal(verified.projection_contract, 'MEDIA_PROBE_PROJECTION_V1');
+      assert.equal(verified.outcome, 'PASS', JSON.stringify(verified)); assert.equal(verified.state, 'COMPLETED');
+      assert.deepEqual(verified.metadata.duration, { num: 1, den: 500 }); assert.equal(verified.metadata.sample_rate, 8000);
+      assert.equal(verified.streams[0].codec, 'pcm_s16le'); assert.equal(verified.job.toolchain_verified, true);
+      assert.equal(verified.job.cancel_allowed, false); assert.equal(verified.execution_available, false);
+      assert.equal(JSON.stringify(verified).includes(root), false);
+      assert.equal(query('query.media_probe.get', { project_id: project.id, job_id: job.id }).job.outcome, 'PASS');
+      assert.equal(query('query.media_probe.list', { project_id: project.id, asset_revision_id: revision.id }).jobs[0].outcome, 'PASS');
+      const http = await listenCoreHttp(core, { host: '127.0.0.1', port: 0 });
+      try {
+        const response = await fetch(`http://127.0.0.1:${http.address.port}/v1/projects/${project.id}/assets/${revision.id}/technical-metadata`);
+        const body = await response.json(); assert.equal(response.status, 200); assert.equal(body.result.outcome, 'PASS');
+        assert.deepEqual(body.result.metadata.duration, { num: 1, den: 500 });
+      } finally { http.server.closeAllConnections(); await new Promise(resolve => http.server.close(resolve)); }
+      assert.equal(JSON.stringify(core.db.prepare('SELECT * FROM technical_metadata').all()), before);
+      projectionChecks.push('ACTUAL_CANONICAL_METADATA', 'JOB_AND_LIST', 'HTTP_METADATA', 'PRIVATE_FIELDS_REDACTED');
     }
     const privateStage = core.db.prepare('SELECT * FROM staging_objects WHERE job_attempt_id=?').get(attempt.id);
     if (privateStage) {
@@ -222,6 +252,60 @@ export async function exerciseCoreDispatch(descriptor, config) {
         ...core.db.prepare('SELECT * FROM audit_records WHERE command_id=?').all(dispatch.id)];
       const text = JSON.stringify(rows); assert.equal(text.includes(root), false); assert.equal(text.includes(descriptor.pipe_name), false);
     }
+    if (config.mode === 'CORE_BIND_AUDIO') {
+      const baseline = JSON.stringify(core.db.prepare('SELECT * FROM technical_metadata').all());
+      // A private request context with its aggregate I/O budget already spent.
+      // No fake canonical measurement is created to exercise this boundary.
+      const exhausted = core._mediaProbeProjection(job.id, project.id,
+        { files: new Map(), artifact: null, artifactFiles: [], readBytes: 1073741824 + 8388608 });
+      assert.equal(exhausted.state, 'UNKNOWN'); assert.equal(exhausted.metadata, null); assert.deepEqual(exhausted.streams, []);
+      projectionChecks.push('AGGREGATE_READ_BUDGET');
+      const read = expectedState => {
+        const changes = core.db.prepare('SELECT total_changes() AS n').get().n;
+        const response = core.handle({ api_version: '1', request_id: crypto.randomUUID(), method: 'query.media_probe.metadata',
+          params: { project_id: project.id, asset_revision_id: revision.id } });
+        assert.equal(response.ok, true, JSON.stringify(response.error));
+        assert.equal(response.result.state, expectedState, JSON.stringify(response.result));
+        assert.equal(core.db.prepare('SELECT total_changes() AS n').get().n, changes);
+        if (expectedState !== 'COMPLETED') {
+          assert.equal(response.result.outcome, 'UNKNOWN'); assert.equal(response.result.metadata, null);
+          assert.deepEqual(response.result.streams, []); assert.equal(response.result.job.cancel_allowed, false);
+        }
+        return response.result;
+      };
+      const tamperOwned = (file, expectedState) => {
+        assert.ok(path.resolve(file).startsWith(path.resolve(root) + path.sep));
+        const bytes = fs.readFileSync(file); const mode = fs.statSync(file).mode & 0o777;
+        try {
+          fs.chmodSync(file, 0o600); const modified = Buffer.from(bytes); modified[0] ^= 1; fs.writeFileSync(file, modified);
+          read(expectedState);
+        } finally { fs.writeFileSync(file, bytes); fs.chmodSync(file, mode); }
+        assert.equal(read('COMPLETED').outcome, 'PASS');
+      };
+      tamperOwned(managedSource, 'STALE'); projectionChecks.push('SOURCE_BYTES_CHANGED');
+      const measurement = core.db.prepare('SELECT * FROM technical_metadata').get();
+      tamperOwned(path.join(options.assetStorePath, core._objectRelativePath('SHA-256', measurement.raw_evidence_hash)), 'UNKNOWN');
+      projectionChecks.push('RAW_EVIDENCE_CHANGED');
+      tamperOwned(manifest.binaries.ffprobe.path, 'BLOCKED_TOOLCHAIN'); projectionChecks.push('BINARY_CHANGED');
+      projectionTime = now + 300000;
+      read('BLOCKED_TOOLCHAIN'); projectionTime = null; read('COMPLETED'); projectionChecks.push('TRUST_EXPIRED');
+      const stream = core.db.prepare('SELECT * FROM technical_metadata_streams').get();
+      assert.throws(() => core.db.prepare('UPDATE technical_metadata_streams SET sample_rate=sample_rate+1 WHERE id=?').run(stream.id), { code: 'ERR_SQLITE_ERROR' });
+      read('COMPLETED'); projectionChecks.push('TYPED_STREAM_IMMUTABLE');
+      const otherProject = execute('CreateProject', { code: 'other-scope', title: 'Owned scope fixture' });
+      const mismatch = core.handle({ api_version: '1', request_id: crypto.randomUUID(), method: 'query.media_probe.metadata',
+        params: { project_id: otherProject.id, asset_revision_id: revision.id } });
+      assert.equal(mismatch.ok, false); projectionChecks.push('PROJECT_SCOPE_REJECTED');
+      revokeDuringQuery = true;
+      const revoked = core.handle({ api_version: '1', request_id: crypto.randomUUID(), method: 'query.media_probe.metadata',
+        params: { project_id: project.id, asset_revision_id: revision.id } });
+      assert.equal(revoked.ok, true); assert.equal(revoked.result.state, 'BLOCKED_RIGHTS');
+      assert.equal(revoked.result.metadata, null); assert.deepEqual(revoked.result.streams, []); assert.equal(revoked.result.job.cancel_allowed, false);
+      read('BLOCKED_RIGHTS'); projectionChecks.push('RIGHTS_REVOKED_DURING_READ', 'READ_ONLY_IMMUTABLE_HISTORY');
+      assert.equal(JSON.stringify(core.db.prepare('SELECT * FROM technical_metadata').all()), baseline);
+      assert.equal(core.db.prepare('SELECT state FROM media_probe_jobs WHERE id=?').get(job.id).state, 'COMPLETED');
+      assert.equal(core.db.prepare('SELECT outcome FROM media_probe_evidence WHERE attempt_id=?').get(attempt.id).outcome, 'PASS');
+    }
     if (disconnected) {
       assert.match(job.next_step, /khởi động lại/);
       const verifyBlocked = async () => {
@@ -239,7 +323,8 @@ export async function exerciseCoreDispatch(descriptor, config) {
       assert.equal(core.db.prepare('SELECT COUNT(*) AS n FROM technical_metadata').get().n, 1);
     }
     return { mode: config.mode, core_dispatch: 'PASS', code: receipt?.code ?? config.mode,
-      native_started: receipt?.execution_started ?? true, state: job.state, metadata_rows: metadataCount, privileged_queued_fixture: true, certified_ffprobe: false };
+      native_started: receipt?.execution_started ?? true, state: job.state, metadata_rows: metadataCount, privileged_queued_fixture: true, certified_ffprobe: false,
+      projection_checks: projectionChecks, technical_metadata_projection: observedProjection };
   } finally {
     clearInterval(closeTimer); core?.close();
     assert.ok(path.resolve(root).startsWith(path.join(os.tmpdir(), 'cineforge-core-native-fixture-')));

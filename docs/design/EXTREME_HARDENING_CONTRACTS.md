@@ -7956,3 +7956,17 @@ backpressure. No failed canonical transaction may leave partial measurement,
 streams or PASS evidence, or change originals/canon/timeline. Pin release
 and its uncertainty are separately recorded. Fixture PASS is not real ffprobe
 certification, trusted production time, independent review or product closure.
+
+# MEDIA-PROBE-PROJECTION-TEST-01. Verified read and UI boundary
+
+From an actual guarded native/Core binding fixture, exercise metadata/job/list
+RPC and HTTP reads: exact typed WAV duration/sample facts and full stream
+inventory, redaction and zero query mutations. Corrupt source/raw bytes,
+unavailable or changed current toolchain, changed rights generation/revocation,
+missing audit/stream proof, ambiguous or legacy PASS rows and cross-project
+requests must not return measurement PASS. Request-local caching must observe
+changed identity and cannot become persisted freshness. Verify the client
+rejects unknown versions, partial/contradictory PASS, mismatched pins/counts,
+unsafe tokens/numbers and oversized/duplicate stream inventory. UI must display
+real phases, verified facts and cleanup warning, hide stale/offline/obsolete
+facts, and respect cancel_allowed independently of the derived blocked badge.

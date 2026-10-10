@@ -812,6 +812,7 @@ export interface ActivityItem {
 
 export interface AssetSummary {
   id: string
+  rowVersion?: number
   projectId?: string
   name: string
   assetType: string
@@ -833,6 +834,22 @@ export interface AssetSummary {
 }
 
 export type MediaProbeAdmissionState = 'UNKNOWN' | 'BLOCKED_MEDIA' | 'BLOCKED_RIGHTS' | 'BLOCKED_TOOLCHAIN' | 'STALE' | 'CANCELLED'
+  | 'QUEUED' | 'CLAIMED' | 'RUNNING' | 'PARSING' | 'VERIFYING' | 'COMPLETED' | 'CONFLICT' | 'FAILED_RETRYABLE' | 'FAILED_FINAL' | 'CANCEL_REQUESTED'
+export interface MediaProbeRatio { num: number; den: number }
+export interface TechnicalMediaStream {
+  streamIndex: number; kind: 'VIDEO' | 'AUDIO'; codec: string; timeBase: MediaProbeRatio; duration: MediaProbeRatio
+  width: number | null; height: number | null; frameRate: MediaProbeRatio | null; nominalFrameRate: MediaProbeRatio | null
+  frameCount: number | null; pixelAspect: MediaProbeRatio | null; pixelFormat: string | null
+  colorRange: string | null; colorSpace: string | null; colorTransfer: string | null; colorPrimaries: string | null
+  channels: number | null; channelLayout: string | null; sampleRate: number | null; sampleFormat: string | null
+}
+export interface TechnicalMediaMeasurement {
+  id: string; kind: 'VIDEO' | 'AUDIO' | 'AUDIO_VIDEO'; container: string; codec: string
+  width: number | null; height: number | null; pixelFormat: string | null; frameRate: MediaProbeRatio | null
+  timeBase: MediaProbeRatio; frameCount: number | null; duration: MediaProbeRatio; colorPrimaries: string | null
+  transfer: string | null; matrix: string | null; audioCodec: string | null; sampleRate: number | null; channelLayout: string | null
+  streamCount: number; normalizedHash: string; rawEvidenceHash: string; rawEvidenceBytes: number; verifiedAt: string
+}
 
 export interface MediaProbeAdmissionJob {
   id: string
@@ -840,10 +857,19 @@ export interface MediaProbeAdmissionJob {
   revisionId: string
   state: MediaProbeAdmissionState
   rowVersion: number
-  outcome: 'UNKNOWN'
-  executionStarted: false
-  toolchainVerified: false
+  outcome: 'UNKNOWN' | 'PASS' | 'CONFLICT'
+  executionStarted: boolean
+  toolchainVerified: boolean
   requestedManifestHash?: string
+  projectionContract?: 'MEDIA_PROBE_PROJECTION_V1'
+  cancelAllowed?: boolean
+  nextStepKey?: string
+  contentHash?: string
+  byteSize?: number
+  attemptId?: string
+  toolchainId?: string
+  toolchainVersion?: string
+  toolchainBinaryHash?: string
   needsUser: boolean
 }
 
@@ -854,9 +880,11 @@ export interface AssetTechnicalMetadata {
   contentHash?: string
   byteSize: number
   state: MediaProbeAdmissionState
-  outcome: 'UNKNOWN'
-  metadata: null
-  streams: []
+  outcome: 'UNKNOWN' | 'PASS' | 'CONFLICT'
+  metadata: TechnicalMediaMeasurement | null
+  streams: TechnicalMediaStream[]
+  projectionContract?: 'MEDIA_PROBE_PROJECTION_V1'
+  nextStepKey?: string
   job: MediaProbeAdmissionJob | null
   needsUser: boolean
 }

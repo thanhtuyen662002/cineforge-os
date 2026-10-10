@@ -73,6 +73,14 @@ remains disabled until that live Core is ready.
 
 ## Verification
 
+Prepared technical-media reads use `MEDIA_PROBE_PROJECTION_V1`. Core verifies
+bound evidence and each typed stream against raw CAS bytes and rechecks source,
+rights and current toolchain authority before returning measurements. Library
+shows the verified summary and stream details; stale/blocked/unknown projections
+hide measurements without rewriting immutable history. Native fixture evidence
+is explicitly fake-producer/ephemeral-signer evidence. It does not certify a
+real ffprobe pack, enable public analysis or prove end-to-end film completion.
+
 From the repository root:
 
 ```powershell

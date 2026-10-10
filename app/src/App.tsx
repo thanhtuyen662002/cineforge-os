@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, FormEvent } from 'react'
-import type { AssetTechnicalMetadata, MediaProbeAdmissionState } from './types'
+import type { AssetTechnicalMetadata, MediaProbeAdmissionState, MediaProbeRatio } from './types'
 import {
   Activity,
   AlertCircle,
@@ -1037,16 +1037,77 @@ function AssetPreview({ asset, locale, client, purpose = 'LIBRARY_PREVIEW' }: { 
   </div>
 }
 
-function technicalMediaStep(state: MediaProbeAdmissionState, locale: Locale) {
+function technicalMediaStep(state: MediaProbeAdmissionState, locale: Locale, nextStepKey?: string) {
+  if (nextStepKey === 'media_probe.next_step.restart_required') return locale === 'vi'
+    ? 'Thông tin kỹ thuật đã được xác minh. Bạn cần khởi động lại CineForge để giải phóng khóa runtime chưa xác minh được.'
+    : 'Technical information was verified. Restart CineForge to release runtime pins whose cleanup could not be confirmed.'
   const steps = {
-    UNKNOWN: ['Chưa có thông tin kỹ thuật được xác minh. CineForge cần bộ thực thi kiểm tra media được chứng nhận.', 'No verified technical information yet. CineForge needs a certified media inspection runtime.'],
+    UNKNOWN: ['Chưa có thông tin kỹ thuật được xác minh. Bạn cần tải lại riêng revision này và kiểm tra bằng chứng nếu vẫn chưa xác minh được.', 'No verified technical information yet. Refresh this exact revision and review its evidence if verification is still unavailable.'],
     BLOCKED_TOOLCHAIN: ['CineForge chưa có bộ thực thi kiểm tra media được chứng nhận. Cần bổ sung bộ thực thi trước khi phân tích.', 'CineForge needs a certified media inspection runtime before analysis can start.'],
     BLOCKED_RIGHTS: ['Bạn cần bổ sung quyền và đồng thuận cho việc kiểm tra nguồn media rồi gửi yêu cầu mới.', 'You need source inspection rights and consent before submitting a new request.'],
     BLOCKED_MEDIA: ['Bạn cần đăng ký nguồn video hoặc âm thanh khả dụng rồi gửi yêu cầu mới.', 'You need an available managed video or audio source before submitting a new request.'],
     STALE: ['Nguồn hoặc quyền đã thay đổi. Bạn cần gửi yêu cầu mới cho revision hiện tại.', 'The source or rights changed. Submit a new request for the current revision.'],
     CANCELLED: ['Đã hủy yêu cầu chưa chạy. Bạn có thể gửi yêu cầu mới khi đủ điều kiện.', 'The unexecuted request was cancelled. A new request can be submitted when prerequisites are ready.'],
+    QUEUED: ['CineForge đã ghi nhận yêu cầu và đang chờ lượt kiểm tra.', 'CineForge recorded the request and is waiting for inspection.'],
+    CLAIMED: ['CineForge đang chuẩn bị lượt kiểm tra cục bộ.', 'CineForge is preparing local inspection.'],
+    RUNNING: ['CineForge đang đọc thông tin kỹ thuật của nguồn media.', 'CineForge is reading technical media information.'],
+    PARSING: ['CineForge đang đọc và lưu evidence kỹ thuật.', 'CineForge is parsing and retaining technical evidence.'],
+    VERIFYING: ['CineForge đang xác minh metadata và quyền sử dụng.', 'CineForge is verifying metadata and source rights.'],
+    COMPLETED: ['CineForge đã xác minh thông tin kỹ thuật cho revision này.', 'CineForge verified technical information for this revision.'],
+    CONFLICT: ['Thông tin kỹ thuật có mâu thuẫn. Bạn cần kiểm tra evidence và nguồn media.', 'Technical information is contradictory. Review the evidence and source media.'],
+    FAILED_RETRYABLE: ['Lượt kiểm tra chưa hoàn tất. Bạn cần kiểm tra trạng thái trước khi chạy lại.', 'Inspection did not finish. Review its state before retrying.'],
+    FAILED_FINAL: ['CineForge không thể tiếp tục lượt kiểm tra. Bạn cần xử lý nguồn hoặc runtime.', 'CineForge cannot continue this inspection. Resolve the source or runtime problem.'],
+    CANCEL_REQUESTED: ['CineForge đang xử lý yêu cầu dừng. Chưa xác minh được lượt kiểm tra đã dừng.', 'CineForge is processing cancellation. Inspection has not yet been confirmed stopped.'],
   }
   return steps[state][locale === 'vi' ? 0 : 1]
+}
+
+function technicalMediaLabel(state: MediaProbeAdmissionState, locale: Locale) {
+  const labels: Record<MediaProbeAdmissionState, [string, string]> = {
+    UNKNOWN: ['Chưa xác định','Unknown'], BLOCKED_MEDIA: ['Cần xử lý','Action needed'], BLOCKED_RIGHTS: ['Cần xử lý','Action needed'],
+    BLOCKED_TOOLCHAIN: ['Cần xử lý','Action needed'], STALE: ['Đã cũ','Stale'], CANCELLED: ['Đã hủy','Cancelled'],
+    QUEUED: ['Đang chờ phân tích','Queued'], CLAIMED: ['Đang chuẩn bị','Preparing'], RUNNING: ['Đang đọc metadata kỹ thuật','Reading technical metadata'],
+    PARSING: ['Đang đọc evidence','Parsing evidence'], VERIFYING: ['Đang xác minh','Verifying'], COMPLETED: ['Đã xác minh metadata','Verified metadata'],
+    CONFLICT: ['Có mâu thuẫn','Conflict'], FAILED_RETRYABLE: ['Chưa hoàn tất','Incomplete'], FAILED_FINAL: ['Không thể tiếp tục','Cannot continue'],
+    CANCEL_REQUESTED: ['Đang xử lý yêu cầu dừng','Processing cancellation'],
+  }
+  return labels[state][locale === 'vi' ? 0 : 1]
+}
+function exactTechnicalRatio(ratio: MediaProbeRatio | null | undefined) { return ratio ? `${ratio.num}/${ratio.den}` : '—' }
+
+function TechnicalMediaFacts({ data, locale }: { data: AssetTechnicalMetadata; locale: Locale }) {
+  const metadata = data.metadata
+  if (!metadata || data.outcome !== 'PASS') return null
+  const number = new Intl.NumberFormat(locale === 'vi' ? 'vi-VN' : 'en-US', { maximumFractionDigits: 6 })
+  const ratioText = (ratio: MediaProbeRatio) => {
+    const value = ratio.num / ratio.den
+    if (value < 0.000001) return `< ${number.format(0.000001)}`
+    return `${(BigInt(ratio.num) * 1000000n) % BigInt(ratio.den) ? '≈ ' : ''}${number.format(value)}`
+  }
+  return <>
+    <dl className="asset-technical-facts">
+      <div><dt>{locale === 'vi' ? 'Định dạng' : 'Container'}</dt><dd>{metadata.container}</dd></div>
+      <div><dt>{locale === 'vi' ? 'Độ dài' : 'Duration'}</dt><dd>{ratioText(metadata.duration)} s</dd></div>
+      {metadata.width !== null && <div><dt>{locale === 'vi' ? 'Kích thước hình' : 'Dimensions'}</dt><dd>{metadata.width} × {metadata.height}</dd></div>}
+      {metadata.frameRate && <div><dt>{locale === 'vi' ? 'Tốc độ khung hình' : 'Frame rate'}</dt><dd>{ratioText(metadata.frameRate)} fps</dd></div>}
+      {metadata.audioCodec && <div><dt>{locale === 'vi' ? 'Âm thanh' : 'Audio'}</dt><dd>{metadata.audioCodec}</dd></div>}
+      {metadata.sampleRate !== null && <div><dt>{locale === 'vi' ? 'Tần số lấy mẫu' : 'Sample rate'}</dt><dd>{number.format(metadata.sampleRate)} Hz</dd></div>}
+      <div><dt>{locale === 'vi' ? 'Số luồng media' : 'Media streams'}</dt><dd>{metadata.streamCount}</dd></div>
+    </dl>
+    <details className="asset-technical-advanced"><summary>{locale === 'vi' ? 'Thông số từng luồng' : 'Stream details'}</summary>
+      <div className="asset-technical-stream-list">{data.streams.map(stream => <section className="asset-technical-stream" key={stream.streamIndex}>
+        <h4>{locale === 'vi' ? 'Luồng' : 'Stream'} {stream.streamIndex} · {stream.kind === 'VIDEO' ? 'Video' : locale === 'vi' ? 'Âm thanh' : 'Audio'} · {stream.codec}</h4>
+        <dl><dt>Time base</dt><dd>{exactTechnicalRatio(stream.timeBase)}</dd><dt>{locale === 'vi' ? 'Độ dài chính xác (s)' : 'Exact duration (s)'}</dt><dd>{exactTechnicalRatio(stream.duration)}</dd>
+          {stream.kind === 'VIDEO' ? <><dt>{locale === 'vi' ? 'Kích thước hình' : 'Dimensions'}</dt><dd>{stream.width} × {stream.height}</dd><dt>Frame rate</dt><dd>{exactTechnicalRatio(stream.frameRate)}</dd>
+            <dt>{locale === 'vi' ? 'Tốc độ danh định' : 'Nominal frame rate'}</dt><dd>{exactTechnicalRatio(stream.nominalFrameRate)}</dd><dt>Pixel format</dt><dd>{stream.pixelFormat ?? '—'}</dd>
+            <dt>Pixel aspect</dt><dd>{exactTechnicalRatio(stream.pixelAspect)}</dd><dt>{locale === 'vi' ? 'Số khung hình' : 'Frame count'}</dt><dd>{stream.frameCount ?? '—'}</dd>
+            <dt>{locale === 'vi' ? 'Thông tin màu' : 'Color information'}</dt><dd>{[stream.colorRange,stream.colorSpace,stream.colorTransfer,stream.colorPrimaries].filter(Boolean).join(' · ') || '—'}</dd></>
+            : <><dt>{locale === 'vi' ? 'Tần số lấy mẫu' : 'Sample rate'}</dt><dd>{number.format(stream.sampleRate!)} Hz</dd><dt>{locale === 'vi' ? 'Số kênh' : 'Channels'}</dt><dd>{stream.channels}</dd>
+              <dt>Channel layout</dt><dd>{stream.channelLayout ?? '—'}</dd><dt>Sample format</dt><dd>{stream.sampleFormat ?? '—'}</dd></>}
+        </dl>
+      </section>)}</div>
+    </details>
+  </>
 }
 
 export function AssetTechnicalMetadataPanel({ asset, locale, client, connected }: { asset: AssetSummary; locale: Locale; client: CoreClient; connected: boolean }) {
@@ -1065,7 +1126,7 @@ export function AssetTechnicalMetadataPanel({ asset, locale, client, connected }
     cancelController.current?.abort()
     setCancelling(false); setActionError(null)
     return () => cancelController.current?.abort()
-  }, [client, projectId, revisionId, live])
+  }, [client, projectId, revisionId, live, asset.rowVersion, asset.contentHash, asset.byteSize])
   useEffect(() => {
     setData(null); setError(false); setLoading(false)
     if (!open || !live || !projectId || !revisionId || !client.getAssetTechnicalMetadata) return
@@ -1073,17 +1134,21 @@ export function AssetTechnicalMetadataPanel({ asset, locale, client, connected }
     setLoading(true)
     void client.getAssetTechnicalMetadata(projectId, revisionId, controller.signal).then((next) => {
       if (controller.signal.aborted) return
-      if (next.projectId !== projectId || next.revisionId !== revisionId
-        || next.outcome !== 'UNKNOWN' || next.metadata !== null || next.streams.length !== 0
-        || !['UNKNOWN', 'BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN', 'STALE', 'CANCELLED'].includes(next.state)
-        || (next.job && (next.job.projectId !== projectId || next.job.revisionId !== revisionId
-          || next.job.outcome !== 'UNKNOWN' || next.job.executionStarted !== false || next.job.toolchainVerified !== false))
+      const verified = next.outcome === 'PASS' && next.state === 'COMPLETED' && next.projectionContract === 'MEDIA_PROBE_PROJECTION_V1'
+        && next.metadata && next.streams.length === next.metadata.streamCount && next.streams.length > 0 && next.streams.length <= 256
+        && next.job?.toolchainVerified && next.job.executionStarted && next.job.outcome === 'PASS' && next.job.state === 'COMPLETED'
+        && next.job.contentHash === next.contentHash && next.job.byteSize === next.byteSize
+      const unverified = ['UNKNOWN','CONFLICT'].includes(next.outcome) && next.state !== 'COMPLETED' && next.metadata === null && next.streams.length === 0
+      if (next.projectId !== projectId || next.revisionId !== revisionId || (!verified && !unverified)
+        || (next.job && (next.job.projectId !== projectId || next.job.revisionId !== revisionId || next.job.state !== next.state || next.job.outcome !== next.outcome))
+        || (asset.rowVersion !== undefined && asset.rowVersion > 0 && next.assetRowVersion !== asset.rowVersion)
+        || (asset.byteSize !== undefined && next.byteSize !== asset.byteSize)
         || (asset.contentHash && next.contentHash !== asset.contentHash)) throw new Error('Obsolete technical metadata projection')
       setData(next)
     }).catch(() => { if (!controller.signal.aborted) setError(true) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [open, live, client, projectId, revisionId, asset.contentHash, refresh])
+  }, [open, live, client, projectId, revisionId, asset.contentHash, asset.rowVersion, asset.byteSize, refresh])
 
   const cancelIntent = async () => {
     if (!live || cancelling || !data?.job || !projectId || data.projectId !== projectId || data.revisionId !== revisionId || !client.cancelMediaProbe) return
@@ -1102,7 +1167,10 @@ export function AssetTechnicalMetadataPanel({ asset, locale, client, connected }
       }
     } finally { if (!controller.signal.aborted) setCancelling(false) }
   }
-  const canCancel = live && client.cancelMediaProbe && data?.projectId === projectId && data?.revisionId === revisionId && data?.job && ['BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN'].includes(data.job.state)
+  const visibleData = live && data && data.projectId === projectId && data.revisionId === revisionId
+    && (!asset.contentHash || data.contentHash === asset.contentHash) && (asset.rowVersion === undefined || asset.rowVersion <= 0 || data.assetRowVersion === asset.rowVersion)
+    && (asset.byteSize === undefined || data.byteSize === asset.byteSize) ? data : null
+  const canCancel = visibleData?.job && client.cancelMediaProbe && (visibleData.job.cancelAllowed ?? (!visibleData.job.executionStarted && ['BLOCKED_MEDIA','BLOCKED_RIGHTS','BLOCKED_TOOLCHAIN'].includes(visibleData.job.state)))
   return <details className="asset-technical-panel" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>{locale === 'vi' ? 'Thông tin kỹ thuật' : 'Technical information'}</summary>
     <div className="asset-technical-body">
@@ -1110,14 +1178,21 @@ export function AssetTechnicalMetadataPanel({ asset, locale, client, connected }
         : !client.getAssetTechnicalMetadata || !projectId || !revisionId ? <p>{locale === 'vi' ? 'Chưa đọc được thông tin kỹ thuật cho revision này. Cần bridge Core hỗ trợ kiểm tra media.' : 'Technical information is unavailable for this revision. A supported Core bridge is required.'}</p>
           : loading ? <p role="status">{locale === 'vi' ? 'Đang đọc trạng thái từ Core…' : 'Reading state from Core…'}</p>
             : error ? <p role="alert">{locale === 'vi' ? 'Không đọc được trạng thái đúng revision. Bạn cần tải lại trước khi tiếp tục.' : 'Could not read the exact revision state. Refresh before continuing.'}</p>
-              : data ? <><strong>{data.state === 'CANCELLED' ? (locale === 'vi' ? 'Đã hủy' : 'Cancelled') : data.state === 'STALE' ? (locale === 'vi' ? 'Đã cũ' : 'Stale') : data.state.startsWith('BLOCKED_') ? (locale === 'vi' ? 'Cần xử lý' : 'Action needed') : (locale === 'vi' ? 'Chưa xác định' : 'Unknown')}</strong><p>{technicalMediaStep(data.state, locale)}</p><p className="readonly-note">{locale === 'vi' ? 'Chưa có kết quả phân tích được xác minh.' : 'No verified analysis result.'}</p></> : null}
+              : visibleData ? <><strong role="status">{technicalMediaLabel(visibleData.state, locale)}</strong><p>{technicalMediaStep(visibleData.state, locale, visibleData.nextStepKey)}</p>
+                {visibleData.outcome === 'PASS' ? <TechnicalMediaFacts data={visibleData} locale={locale} /> : <p className="readonly-note">{locale === 'vi' ? 'Chưa có kết quả phân tích được xác minh.' : 'No verified analysis result.'}</p>}</> : null}
       <div className="asset-technical-actions">
         <button type="button" className="subtle-button tiny" disabled={!live || !client.getAssetTechnicalMetadata || loading || !projectId || !revisionId} onClick={() => setRefresh(value => value + 1)}>{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button>
-        <button type="button" className="subtle-button tiny" disabled title={locale === 'vi' ? 'Cần bộ thực thi kiểm tra media được chứng nhận.' : 'A certified media inspection runtime is required.'}>{locale === 'vi' ? 'Phân tích kỹ thuật' : 'Analyze technical media'}</button>
+        <button type="button" className="subtle-button tiny" disabled title={locale === 'vi' ? 'Phiên bản này chưa mở tính năng chạy phân tích media.' : 'This version has not enabled media inspection execution.'}>{locale === 'vi' ? 'Phân tích kỹ thuật' : 'Analyze technical media'}</button>
         {canCancel && <button type="button" className="subtle-button tiny" disabled={cancelling || loading} onClick={() => void cancelIntent()}>{cancelling ? (locale === 'vi' ? 'Đang hủy yêu cầu…' : 'Cancelling request…') : (locale === 'vi' ? 'Hủy yêu cầu chưa chạy' : 'Cancel unexecuted request')}</button>}
       </div>
       {actionError && <p role="alert">{actionError}</p>}
-      {data && <details className="asset-technical-advanced"><summary>{locale === 'vi' ? 'Chi tiết bằng chứng' : 'Evidence details'}</summary><dl><dt>SHA-256</dt><dd>{data.contentHash ?? '—'}</dd><dt>{locale === 'vi' ? 'Manifest được yêu cầu' : 'Requested manifest'}</dt><dd>{data.job?.requestedManifestHash ?? '—'}</dd><dt>{locale === 'vi' ? 'Bộ thực thi đã xác minh' : 'Verified execution runtime'}</dt><dd>{locale === 'vi' ? 'Chưa có' : 'Unavailable'}</dd></dl></details>}
+      {visibleData && <details className="asset-technical-advanced"><summary>{locale === 'vi' ? 'Chi tiết bằng chứng' : 'Evidence details'}</summary><dl>
+        <dt>SHA-256</dt><dd>{visibleData.contentHash ?? '—'}</dd><dt>{locale === 'vi' ? 'Manifest được yêu cầu' : 'Requested manifest'}</dt><dd>{visibleData.job?.requestedManifestHash ?? '—'}</dd>
+        <dt>{locale === 'vi' ? 'Bộ công cụ đã xác minh' : 'Verified tool pack'}</dt><dd>{visibleData.job?.toolchainVerified ? (locale === 'vi' ? 'Đã xác minh' : 'Verified') : (locale === 'vi' ? 'Chưa có' : 'Unavailable')}</dd>
+        {visibleData.metadata && <><dt>{locale === 'vi' ? 'Độ dài chính xác (s)' : 'Exact duration (s)'}</dt><dd>{exactTechnicalRatio(visibleData.metadata.duration)}</dd><dt>Time base</dt><dd>{exactTechnicalRatio(visibleData.metadata.timeBase)}</dd>
+          <dt>{locale === 'vi' ? 'Evidence gốc SHA-256' : 'Raw evidence SHA-256'}</dt><dd>{visibleData.metadata.rawEvidenceHash}</dd><dt>{locale === 'vi' ? 'Hash metadata chuẩn hóa' : 'Normalized metadata hash'}</dt><dd>{visibleData.metadata.normalizedHash}</dd>
+          <dt>{locale === 'vi' ? 'Xác minh lúc' : 'Verified at'}</dt><dd>{visibleData.metadata.verifiedAt}</dd><dt>Toolchain</dt><dd>{visibleData.job?.toolchainId} · {visibleData.job?.toolchainVersion}</dd><dt>Binary SHA-256</dt><dd>{visibleData.job?.toolchainBinaryHash}</dd></>}
+      </dl></details>}
     </div>
   </details>
 }

@@ -1,6 +1,6 @@
 import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, ManagedAssetIntegrityJob, ManagedJobList, ManagedJobRetryPlan, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseBuildPlan, ReleaseBuildPlanList, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, RendererToolchainPreflight, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
-import type { AssetTechnicalMetadata, MediaProbeAdmissionJob, MediaProbeAdmissionState } from './types'
+import type { AssetTechnicalMetadata, MediaProbeAdmissionJob, MediaProbeAdmissionState, MediaProbeRatio, TechnicalMediaMeasurement, TechnicalMediaStream } from './types'
 
 // Keep the bounded local adapter available for development and tests without
 // shipping its demo project data in a production bundle. Vite replaces
@@ -805,13 +805,7 @@ export class HttpCoreClient implements CoreClient {
     if (!this.isLive()) throw new CoreClientError('Core is offline.', { code: 'CORE_OFFLINE', needsUser: true })
     const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(revisionId)}/technical-metadata`, { signal, headers: { Accept: 'application/json' } })
     const source = asRecord(await readCorePayload(response, 'technical metadata'))
-    assertMediaProbeScope(source, projectId, revisionId)
-    assertUnverifiedMediaProbe(source)
-    const state = mediaProbeAdmissionState(source.state)
-    return { projectId, revisionId, assetRowVersion: probePositiveInteger(source.asset_row_version),
-      contentHash: probeHash(source.content_hash), byteSize: probeNonnegativeInteger(source.byte_size), state,
-      outcome: 'UNKNOWN', metadata: null, streams: [], needsUser: source.needs_user === true,
-      job: source.job === null || source.job === undefined ? null : mapMediaProbeAdmissionJob(source.job, projectId, revisionId) }
+    return mapAssetTechnicalMetadata(source, projectId, revisionId)
   }
 
   async cancelMediaProbe(projectId: string, jobId: string, expectedVersion: number, idempotencyKey = crypto.randomUUID(), signal?: AbortSignal): Promise<MediaProbeAdmissionJob> {
@@ -1860,7 +1854,8 @@ function mapActivityRecord(value: unknown, projectId: string, index: number): Ac
 }
 
 function mediaProbeAdmissionState(value: unknown): MediaProbeAdmissionState {
-  if (!['UNKNOWN', 'BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN', 'STALE', 'CANCELLED'].includes(String(value))) {
+  if (!['UNKNOWN', 'BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN', 'STALE', 'CANCELLED',
+    'QUEUED', 'CLAIMED', 'RUNNING', 'PARSING', 'VERIFYING', 'COMPLETED', 'CONFLICT', 'FAILED_RETRYABLE', 'FAILED_FINAL', 'CANCEL_REQUESTED'].includes(String(value))) {
     throw new CoreClientError('This bridge cannot verify technical media measurements.', { code: 'PROBE_VERIFIER_UNAVAILABLE', needsUser: true })
   }
   return value as MediaProbeAdmissionState
@@ -1891,9 +1886,129 @@ function probeHash(value: unknown): string | undefined {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : undefined
 }
 
+function invalidProbeProjection(): never { throw new CoreClientError('Invalid technical media proof.', { code: 'INVALID_CORE_RESPONSE', needsUser: true }) }
+function probeIdentity(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(value)) invalidProbeProjection()
+  return value
+}
+function requiredProbeHash(value: unknown): string { return probeHash(value) ?? invalidProbeProjection() }
+function probeToken(value: unknown, nullable = false, layout = false): string | null {
+  if (nullable && (value === null || value === undefined)) return null
+  if (typeof value !== 'string' || !(layout ? /^[a-z0-9(). _-]{1,128}$/ : /^[a-z0-9_,.-]{1,128}$/).test(value)) invalidProbeProjection()
+  return value
+}
+function probeBounded(value: unknown, max: number, nullable = false, min = 1): number | null {
+  if (nullable && (value === null || value === undefined)) return null
+  if (!Number.isSafeInteger(value) || (value as number) < min || (value as number) > max) invalidProbeProjection()
+  return value as number
+}
+function probeRatio(value: unknown, max: number | null = null, nullable = false): MediaProbeRatio | null {
+  if (nullable && (value === null || value === undefined)) return null
+  const source = asRecord(value); const num = probePositiveInteger(source.num); const den = probePositiveInteger(source.den)
+  if (max !== null && BigInt(num) > BigInt(max) * BigInt(den)) invalidProbeProjection()
+  return { num, den }
+}
+function mapTechnicalStream(value: unknown): TechnicalMediaStream {
+  const s = asRecord(value)
+  if (!['VIDEO','AUDIO'].includes(String(s.stream_kind))) invalidProbeProjection()
+  const video = s.stream_kind === 'VIDEO'
+  return { streamIndex: probeBounded(s.stream_index, 2147483647, false, 0)!, kind: s.stream_kind as 'VIDEO' | 'AUDIO',
+    codec: probeToken(s.codec)!, timeBase: probeRatio(s.time_base, 1)!, duration: probeRatio(s.duration, 604800)!,
+    width: probeBounded(s.width, 32768, !video), height: probeBounded(s.height, 32768, !video),
+    frameRate: probeRatio(s.frame_rate, 1000, !video), nominalFrameRate: probeRatio(s.nominal_frame_rate, 1000, true),
+    frameCount: probeBounded(s.frame_count, Number.MAX_SAFE_INTEGER, true), pixelAspect: probeRatio(s.pixel_aspect, null, true),
+    pixelFormat: probeToken(s.pixel_format, true), colorRange: probeToken(s.color_range, true), colorSpace: probeToken(s.color_space, true),
+    colorTransfer: probeToken(s.color_transfer, true), colorPrimaries: probeToken(s.color_primaries, true),
+    channels: probeBounded(s.channels, 64, video), channelLayout: probeToken(s.channel_layout, true, true),
+    sampleRate: probeBounded(s.sample_rate, 384000, video), sampleFormat: probeToken(s.sample_format, true) }
+}
+function mapTechnicalMeasurement(value: unknown, streams: TechnicalMediaStream[]): TechnicalMediaMeasurement {
+  const s = asRecord(value); const video = streams.find(stream => stream.kind === 'VIDEO'); const audio = streams.find(stream => stream.kind === 'AUDIO')
+  const kind = video && audio ? 'AUDIO_VIDEO' : video ? 'VIDEO' : 'AUDIO'
+  if (streams.length < 1 || s.media_kind !== kind || s.stream_count !== streams.length
+    || typeof s.verified_at !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?Z$/.test(s.verified_at) || !Number.isFinite(Date.parse(s.verified_at))) invalidProbeProjection()
+  const metadata: TechnicalMediaMeasurement = { id: probeIdentity(s.id), kind, container: probeToken(s.container)!, codec: probeToken(s.codec)!,
+    width: probeBounded(s.width, 32768, !video), height: probeBounded(s.height, 32768, !video), pixelFormat: probeToken(s.pixel_format, true),
+    frameRate: probeRatio(s.frame_rate, 1000, !video), timeBase: probeRatio(s.time_base, 1)!, frameCount: probeBounded(s.frame_count, Number.MAX_SAFE_INTEGER, true),
+    duration: probeRatio(s.duration, 604800)!, colorPrimaries: probeToken(s.color_primaries, true), transfer: probeToken(s.transfer, true), matrix: probeToken(s.matrix, true),
+    audioCodec: probeToken(s.audio_codec, !audio), sampleRate: probeBounded(s.sample_rate, 384000, !audio), channelLayout: probeToken(s.channel_layout, true, true),
+    streamCount: streams.length, normalizedHash: requiredProbeHash(s.normalized_metadata_hash), rawEvidenceHash: requiredProbeHash(s.raw_evidence_hash),
+    rawEvidenceBytes: probeBounded(s.raw_evidence_byte_size, 8388608)!, verifiedAt: s.verified_at }
+  const primary = video ?? audio!
+  if (metadata.codec !== primary.codec || JSON.stringify(metadata.timeBase) !== JSON.stringify(primary.timeBase)
+    || metadata.width !== (video?.width ?? null) || metadata.height !== (video?.height ?? null)
+    || JSON.stringify(metadata.frameRate) !== JSON.stringify(video?.frameRate ?? null)
+    || metadata.sampleRate !== (audio?.sampleRate ?? null) || metadata.audioCodec !== (audio?.codec ?? null)
+    || metadata.pixelFormat !== (video?.pixelFormat ?? null) || metadata.frameCount !== (video?.frameCount ?? null)
+    || metadata.channelLayout !== (audio?.channelLayout ?? null) || metadata.colorPrimaries !== (video?.colorPrimaries ?? null)
+    || metadata.transfer !== (video?.colorTransfer ?? null) || metadata.matrix !== (video?.colorSpace ?? null)) invalidProbeProjection()
+  return metadata
+}
+function readTypedMediaProjection(source: Record<string, unknown>) {
+  if (source.projection_contract !== 'MEDIA_PROBE_PROJECTION_V1' || source.execution_available !== false
+    || typeof source.needs_user !== 'boolean' || !['UNKNOWN','PASS','CONFLICT'].includes(String(source.outcome))) invalidProbeProjection()
+  const state = mediaProbeAdmissionState(source.state)
+  const outcome = source.outcome as 'UNKNOWN' | 'PASS' | 'CONFLICT'
+  const expectedStep = `media_probe.next_step.${state.toLowerCase()}`
+  if (source.next_step_key !== expectedStep && !(state === 'COMPLETED' && source.needs_user && source.next_step_key === 'media_probe.next_step.restart_required')) invalidProbeProjection()
+  if (!Array.isArray(source.streams) || source.streams.length > 256) invalidProbeProjection()
+  let streams: TechnicalMediaStream[] = []; let metadata: TechnicalMediaMeasurement | null = null
+  if (outcome === 'PASS') {
+    if (state !== 'COMPLETED') invalidProbeProjection()
+    streams = source.streams.map(mapTechnicalStream)
+    if (new Set(streams.map(s => s.streamIndex)).size !== streams.length
+      || streams.some((s,i) => i > 0 && s.streamIndex <= streams[i - 1].streamIndex)) invalidProbeProjection()
+    metadata = mapTechnicalMeasurement(source.metadata, streams)
+  } else if (source.metadata !== null || source.streams.length !== 0 || state === 'COMPLETED'
+    || (outcome === 'CONFLICT' && state !== 'CONFLICT')) invalidProbeProjection()
+  return { state, outcome, metadata, streams, nextStepKey: source.next_step_key as string }
+}
+
+function mapAssetTechnicalMetadata(source: Record<string, unknown>, projectId: string, revisionId: string): AssetTechnicalMetadata {
+  assertMediaProbeScope(source, projectId, revisionId)
+  if (source.projection_contract !== undefined && source.projection_contract !== 'MEDIA_PROBE_PROJECTION_V1') invalidProbeProjection()
+  const job = source.job === null || source.job === undefined ? null : mapMediaProbeAdmissionJob(source.job, projectId, revisionId)
+  const base = { projectId, revisionId, assetRowVersion: probePositiveInteger(source.asset_row_version),
+    contentHash: probeHash(source.content_hash), byteSize: probeNonnegativeInteger(source.byte_size), job, needsUser: source.needs_user === true }
+  if (source.projection_contract !== 'MEDIA_PROBE_PROJECTION_V1') {
+    assertUnverifiedMediaProbe(source)
+    const state = mediaProbeAdmissionState(source.state)
+    if (!['UNKNOWN','BLOCKED_MEDIA','BLOCKED_RIGHTS','BLOCKED_TOOLCHAIN','STALE','CANCELLED'].includes(state)) {
+      throw new CoreClientError('This bridge cannot verify technical media measurements.', { code: 'PROBE_VERIFIER_UNAVAILABLE', needsUser: true })
+    }
+    return { ...base, state, outcome: 'UNKNOWN', metadata: null, streams: [] }
+  }
+  const facts = readTypedMediaProjection(source)
+  if (job && job.projectionContract !== 'MEDIA_PROBE_PROJECTION_V1') invalidProbeProjection()
+  if (job && (job.state !== facts.state || job.outcome !== facts.outcome || job.needsUser !== base.needsUser)) invalidProbeProjection()
+  if (facts.outcome === 'PASS') {
+    const rawJob = asRecord(source.job); const jobFacts = readTypedMediaProjection(rawJob)
+    if (!job || !job.toolchainVerified || !job.executionStarted || job.contentHash !== base.contentHash || job.byteSize !== base.byteSize
+      || !base.contentHash || JSON.stringify(jobFacts.metadata) !== JSON.stringify(facts.metadata)
+      || JSON.stringify(jobFacts.streams) !== JSON.stringify(facts.streams)) invalidProbeProjection()
+  }
+  return { ...base, ...facts, projectionContract: 'MEDIA_PROBE_PROJECTION_V1' }
+}
+
 function mapMediaProbeAdmissionJob(value: unknown, projectId: string, revisionId?: string): MediaProbeAdmissionJob {
   const source = asRecord(value)
-  assertMediaProbeScope(source, projectId, revisionId); assertUnverifiedMediaProbe(source)
+  assertMediaProbeScope(source, projectId, revisionId)
+  if (source.projection_contract !== undefined && source.projection_contract !== 'MEDIA_PROBE_PROJECTION_V1') invalidProbeProjection()
+  if (source.projection_contract === 'MEDIA_PROBE_PROJECTION_V1') {
+    const facts = readTypedMediaProjection(source)
+    if (typeof source.execution_started !== 'boolean' || typeof source.toolchain_verified !== 'boolean' || typeof source.cancel_allowed !== 'boolean'
+      || (facts.outcome === 'PASS' ? !source.toolchain_verified || !source.execution_started || source.cancel_allowed : source.toolchain_verified)
+      || (source.cancel_allowed && (!['BLOCKED_MEDIA','BLOCKED_RIGHTS','BLOCKED_TOOLCHAIN','STALE'].includes(facts.state) || source.execution_started))) invalidProbeProjection()
+    const complete = facts.outcome === 'PASS'
+    return { id: probeIdentity(source.id), projectId, revisionId: probeIdentity(source.asset_revision_id), state: facts.state,
+      rowVersion: probePositiveInteger(source.row_version), outcome: facts.outcome, toolchainVerified: source.toolchain_verified,
+      executionStarted: source.execution_started, requestedManifestHash: requiredProbeHash(source.toolchain_manifest_hash),
+      projectionContract: 'MEDIA_PROBE_PROJECTION_V1', cancelAllowed: source.cancel_allowed, nextStepKey: facts.nextStepKey,
+      contentHash: requiredProbeHash(source.content_hash), byteSize: probeNonnegativeInteger(source.byte_size),
+      ...(complete ? { attemptId: probeIdentity(source.attempt_id), toolchainId: probeToken(source.toolchain_id)!,
+        toolchainVersion: probeToken(source.toolchain_version)!, toolchainBinaryHash: requiredProbeHash(source.toolchain_binary_hash) } : {}), needsUser: source.needs_user === true }
+  }
+  assertUnverifiedMediaProbe(source)
   if (typeof source.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(source.id)
     || typeof source.asset_revision_id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(source.asset_revision_id)) {
     throw new CoreClientError('Invalid probe identity.', { code: 'INVALID_CORE_RESPONSE', needsUser: true })
@@ -1930,6 +2045,8 @@ function mapAssetRecord(value: unknown): AssetSummary {
   }
   return {
     id: stringValue(asset.id) ?? `asset-${Math.random().toString(36).slice(2)}`,
+    ...(Number.isSafeInteger(asset.row_version ?? asset.rowVersion) && Number(asset.row_version ?? asset.rowVersion) > 0
+      ? { rowVersion: Number(asset.row_version ?? asset.rowVersion) } : {}),
     projectId: stringValue(asset.project_id ?? asset.projectId),
     name: stringValue(asset.display_name ?? asset.name) ?? 'Imported asset',
     assetType: stringValue(asset.asset_type ?? asset.assetType) ?? 'GENERIC',

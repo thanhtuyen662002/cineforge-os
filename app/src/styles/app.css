@@ -457,6 +457,12 @@ h3 { font-size: 13px; font-weight: 600; }
 .asset-technical-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .asset-technical-advanced dl { display: grid; grid-template-columns: minmax(100px, 1fr) 2fr; gap: 8px; }
 .asset-technical-advanced dd { margin: 0; overflow-wrap: anywhere; font-family: monospace; }
+.asset-technical-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
+.asset-technical-facts dt { color: var(--text-soft); margin-bottom: 4px; }
+.asset-technical-facts dd { margin: 0; font-weight: 600; }
+.asset-technical-stream-list { max-height: 380px; overflow: auto; }
+.asset-technical-stream { border-top: 1px solid var(--line); padding: 8px 0; }
+.asset-technical-stream h4 { margin: 4px 0 10px; }
 @media (max-width: 620px) { .asset-technical-panel { margin-left: 12px; }.asset-technical-advanced dl { grid-template-columns: 1fr; } }
 
 .asset-integrity-action .asset-preview-hint {

@@ -85,8 +85,18 @@ const MEDIA_PROBE_NEXT_STEPS = Object.freeze({
   BLOCKED_RIGHTS: 'Cần bổ sung quyền và đồng thuận SOURCE_USE cho MEDIA_INSPECTION rồi gửi lệnh kiểm tra mới.',
   BLOCKED_TOOLCHAIN: 'CineForge chưa có bộ thực thi kiểm tra media được chứng nhận; cần bổ sung bộ thực thi trước khi kiểm tra.',
   STALE: 'Nguồn hoặc quyền đã thay đổi; cần gửi lệnh kiểm tra mới cho danh tính hiện tại.',
-  UNKNOWN: 'CineForge chưa có bằng chứng kỹ thuật được xác minh cho revision này.',
+  UNKNOWN: 'CineForge chưa có bằng chứng kỹ thuật được xác minh cho revision này. Bạn cần đọc lại riêng revision này và kiểm tra bằng chứng nếu vẫn chưa xác minh được.',
   CANCELLED: 'Đã hủy yêu cầu chưa chạy; có thể gửi yêu cầu kiểm tra mới.',
+  QUEUED: 'CineForge đã ghi nhận yêu cầu và đang chờ lượt kiểm tra.',
+  CLAIMED: 'CineForge đang chuẩn bị lượt kiểm tra cục bộ.',
+  RUNNING: 'CineForge đang đọc thông tin kỹ thuật của nguồn media.',
+  PARSING: 'CineForge đang đọc và lưu evidence kỹ thuật.',
+  VERIFYING: 'CineForge đang xác minh metadata và quyền sử dụng.',
+  COMPLETED: 'CineForge đã xác minh thông tin kỹ thuật cho revision này.',
+  CONFLICT: 'Thông tin kỹ thuật có mâu thuẫn; cần kiểm tra evidence và nguồn media.',
+  FAILED_RETRYABLE: 'Lượt kiểm tra chưa hoàn tất; cần kiểm tra trạng thái trước khi chạy lại.',
+  FAILED_FINAL: 'CineForge không thể tiếp tục lượt kiểm tra; cần xử lý nguồn hoặc runtime.',
+  CANCEL_REQUESTED: 'CineForge đang xử lý yêu cầu dừng; chưa xác minh được lượt kiểm tra đã dừng.',
 });
 // Slice 3A is deliberately a single built-in local capability.  It reads a
 // registered managed object and records bounded evidence; it never dispatches
@@ -4576,10 +4586,10 @@ export class CoreService {
       generation: crypto.createHash('sha256').update(canonicalJson(stable)).digest('hex') };
   }
 
-  #verifiedMediaProbeAuthority(job) {
+  #verifiedMediaProbeAuthority(job, verifiedArtifact = null) {
     const fail = code => { throw new CoreError(code, 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
     if (!this.#mediaProbeTrustSource) fail('PROBE_AUTHORITY_UNAVAILABLE');
-    const artifact = this._releaseRendererToolchainPreflight();
+    const artifact = verifiedArtifact ?? this._releaseRendererToolchainPreflight();
     const policyFloor = this.db.prepare('SELECT COALESCE(MAX(policy_epoch),1) AS n FROM media_probe_authorizations').get().n;
     let authority;
     try { authority = this.#mediaProbeTrustSource(); } catch { fail('PROBE_AUTHORITY_UNAVAILABLE'); }
@@ -5148,29 +5158,231 @@ export class CoreService {
     return row;
   }
 
-  _mediaProbeProjection(jobId, projectId) {
+  #mediaProbeReadFile(file, expectedHash, expectedBytes, maxBytes, context, decode = null) {
+    if (!SHA256_HEX.test(expectedHash) || !Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || expectedBytes > maxBytes) throw new Error('PROBE_PROOF_INVALID');
+    this._assertNoReparsePath(file);
+    const key = `${file}:${expectedHash}:${expectedBytes}:${decode ? 'parsed' : 'hashed'}`;
+    const cached = context.files.get(key);
+    if (cached && this._sameSourceIdentity(cached.identity, this._sourceIdentity(fs.lstatSync(file)))) return cached.value;
+    const consumedBytes = context.readBytes ?? 0;
+    if (consumedBytes + expectedBytes > 1073741824 + 8388608) throw new Error('PROBE_READ_BUDGET_EXCEEDED');
+    context.readBytes = consumedBytes + expectedBytes;
+    const stable = this._openStableSource(file);
+    try {
+      if (stable.stat.size !== expectedBytes || stable.stat.nlink !== 1) throw new Error('PROBE_CONTENT_CHANGED');
+      let value;
+      if (decode) {
+        const bytes = Buffer.alloc(expectedBytes); let offset = 0;
+        while (offset < bytes.length) {
+          const n = fs.readSync(stable.descriptor, bytes, offset, bytes.length - offset, offset);
+          if (n < 1) throw new Error('PROBE_CONTENT_CHANGED'); offset += n;
+        }
+        if (crypto.createHash('sha256').update(bytes).digest('hex') !== expectedHash) throw new Error('PROBE_CONTENT_CHANGED');
+        value = decode(bytes);
+      } else {
+        value = this._hashDescriptor(stable.descriptor, expectedBytes, 'managed-media');
+        if (value.content_hash !== expectedHash) throw new Error('PROBE_CONTENT_CHANGED');
+      }
+      this._assertNoReparsePath(file);
+      if (!this._sameSourceIdentity(stable.identity, this._sourceIdentity(fs.fstatSync(stable.descriptor)))
+        || !this._sameSourceIdentity(stable.identity, this._sourceIdentity(fs.lstatSync(file)))) throw new Error('PROBE_CONTENT_CHANGED');
+      context.files.set(key, { identity: stable.identity, value }); return value;
+    } finally { fs.closeSync(stable.descriptor); }
+  }
+
+  #mediaProbeReadArtifact(context) {
+    const unchanged = entry => {
+      try { this._assertNoReparsePath(entry.file); return this._sameSourceIdentity(entry.identity, this._sourceIdentity(fs.lstatSync(entry.file))); }
+      catch { return false; }
+    };
+    if (context.artifact && context.artifactFiles.every(unchanged)) return context.artifact;
+    const manifestPath = this.rendererToolchainManifest ?? (this.rendererToolchainRoot && path.join(this.rendererToolchainRoot, 'renderer-toolchain.json'));
+    let before = [];
+    if (manifestPath) {
+      this._assertNoReparsePath(manifestPath);
+      const stable = this._openStableSource(manifestPath);
+      let manifest;
+      try {
+        if (stable.stat.size < 1 || stable.stat.size > 65536 || stable.stat.nlink !== 1) throw new Error('PROBE_TOOLCHAIN_CHANGED');
+        const bytes = Buffer.alloc(stable.stat.size); let offset = 0;
+        while (offset < bytes.length) { const n = fs.readSync(stable.descriptor, bytes, offset, bytes.length - offset, offset); if (n < 1) throw new Error('PROBE_TOOLCHAIN_CHANGED'); offset += n; }
+        if (!this._sameSourceIdentity(stable.identity, this._sourceIdentity(fs.fstatSync(stable.descriptor)))) throw new Error('PROBE_TOOLCHAIN_CHANGED');
+        manifest = decodeBoundedMediaProbeJson(bytes, { maxBytes: 65536, maxDepth: 8, maxNodes: 256 });
+        before.push({ file: manifestPath, identity: stable.identity });
+      } finally { fs.closeSync(stable.descriptor); }
+      for (const name of ['ffprobe','ffmpeg']) {
+        const file = manifest.binaries?.[name]?.path;
+        if (typeof file !== 'string' || !path.isAbsolute(file)) throw new Error('PROBE_TOOLCHAIN_CHANGED');
+        this._assertNoReparsePath(file); const stat = fs.lstatSync(file);
+        if (!stat.isFile() || stat.nlink !== 1 || stat.size < 1 || stat.size > 536870912) throw new Error('PROBE_TOOLCHAIN_CHANGED');
+        before.push({ file, identity: this._sourceIdentity(stat) });
+      }
+    }
+    const artifact = this._releaseRendererToolchainPreflight();
+    if (!before.every(unchanged)) throw new Error('PROBE_TOOLCHAIN_CHANGED');
+    context.artifact = artifact; context.artifactFiles = before; return artifact;
+  }
+
+  #mediaProbeReadMeasurement(row, source, location, context) {
+    const invalid = () => { throw new Error('PROBE_MEASUREMENT_UNPROVEN'); };
+    const digest = value => crypto.createHash('sha256').update(canonicalJson(value)).digest('hex');
+    const attempt = this.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(row.current_attempt_id);
+    const measurement = this.db.prepare('SELECT * FROM technical_metadata WHERE probe_job_id=? AND probe_attempt_id=?').get(row.id, row.current_attempt_id);
+    if (!attempt || !measurement || attempt.state !== 'SUCCEEDED' || attempt.job_id !== row.id || attempt.fencing_token !== row.fencing_token
+      || attempt.producer_contract_version !== 'NATIVE_MEDIA_PROBE_BROKER_V1' || attempt.argv_preset_id !== 'MEDIA_PROBE_ARGV_V1') invalid();
+    const authorization = this.db.prepare('SELECT * FROM media_probe_authorizations WHERE id=?').get(attempt.authorization_id);
+    const evidenceRows = this.db.prepare("SELECT * FROM media_probe_evidence WHERE attempt_id=? AND outcome='PASS' LIMIT 2").all(attempt.id);
+    if (!authorization || evidenceRows.length !== 1 || authorization.attempt_id !== attempt.id || authorization.job_id !== row.id
+      || authorization.fencing_token !== attempt.fencing_token || authorization.core_owner_epoch !== attempt.core_owner_epoch
+      || authorization.producer_contract_version !== 'NATIVE_MEDIA_PROBE_BROKER_V1'
+      || authorization.argv_preset_id !== 'MEDIA_PROBE_ARGV_V1' || authorization.sandbox_profile_version !== 'WINDOWS_APPCONTAINER_PROBE_V1'
+      || authorization.resource_profile_version !== 'MEDIA_PROBE_RESOURCE_V1') invalid();
+    const evidence = evidenceRows[0];
+    const pins = { source_content_hash: row.source_content_hash, source_byte_size: row.source_byte_size,
+      toolchain_manifest_hash: row.toolchain_manifest_hash, toolchain_binary_hash: row.toolchain_binary_hash,
+      probe_schema_version: row.probe_schema_version, parser_policy_version: row.parser_policy_version };
+    if (Object.entries(pins).some(([field,value]) => measurement[field] !== value || evidence[field] !== value)
+      || measurement.project_id !== row.project_id || measurement.source_asset_revision_id !== row.asset_revision_id
+      || measurement.toolchain_id !== row.toolchain_id || measurement.toolchain_version !== row.toolchain_version
+      || measurement.evidence_state !== 'PASS' || measurement.metadata_json !== '{}' || measurement.stale_reason !== null
+      || evidence.evidence_code !== 'PROBE_METADATA_VERIFIED' || evidence.process_tree_state !== 'STOPPED' || evidence.exit_code !== 0
+      || evidence.cancel_outcome !== 'NOT_REQUESTED' || evidence.timeout_outcome !== 'NONE'
+      || evidence.observed_source_hash !== row.source_content_hash || evidence.observed_source_byte_size !== row.source_byte_size
+      || !Number.isSafeInteger(evidence.validated_at_utc_us) || evidence.validated_at_utc_us < authorization.not_before_utc_us
+      || evidence.validated_at_utc_us >= authorization.expires_at_utc_us || evidence.stdout_bytes !== measurement.raw_evidence_byte_size
+      || ['stdout_bytes','stderr_bytes','cpu_time_ms','memory_peak_bytes'].some(field => evidence[field] !== attempt[field])
+      || !SHA256_HEX.test(evidence.validation_snapshot_hash)) invalid();
+    for (const [field,value] of Object.entries(pins)) {
+      if (!['probe_schema_version','parser_policy_version'].includes(field) && authorization[field] !== value) invalid();
+    }
+    if (authorization.rights_generation !== row.rights_generation) invalid();
+    const audit = this.db.prepare(`SELECT c.id FROM commands c JOIN audit_records a ON a.command_id=c.id
+      WHERE c.command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1' AND c.project_id=? AND c.scope_id=?
+        AND a.action_type='media_probe.bind_evidence' AND a.target_id=?
+        AND json_extract(a.payload_json,'$.technical_metadata_id')=? AND json_extract(a.payload_json,'$.evidence_id')=? LIMIT 1`)
+      .get(row.project_id, attempt.id, row.id, measurement.id, evidence.id);
+    if (!audit || !this.db.prepare(`SELECT 1 FROM audit_records a WHERE a.command_id=?
+      AND a.action_type='media_probe.dispatch_executing' AND a.target_id=? LIMIT 1`).get(audit.id, row.id)) invalid();
+    const rawObject = this.db.prepare('SELECT * FROM storage_objects WHERE id=?').get(measurement.raw_evidence_object_id);
+    const rawLocations = this.db.prepare("SELECT * FROM storage_object_locations WHERE storage_object_id=? AND location_role='PRIMARY' LIMIT 2").all(measurement.raw_evidence_object_id);
+    const rawRelative = this._objectRelativePath('SHA-256', measurement.raw_evidence_hash).split(path.sep).join('/');
+    if (!rawObject || rawObject.hash_algorithm !== 'SHA-256' || rawObject.content_hash !== measurement.raw_evidence_hash
+      || rawObject.byte_size !== measurement.raw_evidence_byte_size || rawObject.storage_class !== 'LOCAL_MANAGED' || rawLocations.length !== 1
+      || rawLocations[0].storage_root !== 'asset-store' || rawLocations[0].relative_path !== rawRelative || rawLocations[0].state !== 'AVAILABLE') invalid();
+    const sourcePath = path.join(this.assetStorePath, location.relative_path);
+    try { this.#mediaProbeReadFile(sourcePath, row.source_content_hash, row.source_byte_size, 1073741824, context); }
+    catch (error) { if (error.message === 'PROBE_READ_BUDGET_EXCEEDED') throw error; throw new Error('PROBE_SOURCE_CHANGED'); }
+    const parsed = this.#mediaProbeReadFile(path.join(this.assetStorePath, rawRelative), measurement.raw_evidence_hash,
+      measurement.raw_evidence_byte_size, 8388608, context, parseMediaProbe);
+    if (!parsed.ok || (parsed.metadata.reported_byte_size !== null && parsed.metadata.reported_byte_size !== row.source_byte_size)
+      || parsed.probe_schema_version !== row.probe_schema_version || parsed.parser_policy_version !== row.parser_policy_version
+      || digest(parsed.metadata) !== measurement.normalized_metadata_hash || measurement.stream_count !== parsed.metadata.streams.length) invalid();
+    const streams = this.db.prepare('SELECT * FROM technical_metadata_streams WHERE technical_metadata_id=? ORDER BY stream_index LIMIT 257').all(measurement.id);
+    if (streams.length !== parsed.metadata.streams.length) invalid();
+    const ratioFields = { pixel_aspect: 'pixel_aspect', frame_rate: 'frame_rate', nominal_frame_rate: 'nominal_frame_rate', time_base: 'time_base', duration: 'duration' };
+    const streamFields = ['stream_index','stream_kind','codec','width','height','pixel_format','color_range','color_space','color_transfer','color_primaries','frame_count','sample_rate','channels','channel_layout','sample_format'];
+    for (let i = 0; i < streams.length; i++) {
+      const s = streams[i]; const facts = parsed.metadata.streams[i];
+      if (s.normalized_metadata_hash !== digest(facts) || streamFields.some(field => s[field] !== (facts[field] ?? null))) invalid();
+      for (const [field,prefix] of Object.entries(ratioFields)) if (s[prefix + '_num'] !== (facts[field]?.num ?? null) || s[prefix + '_den'] !== (facts[field]?.den ?? null)) invalid();
+      const disposition = s.disposition_json === null ? null : decodeBoundedMediaProbeJson(Buffer.from(s.disposition_json), { maxBytes: 1024, maxDepth: 3, maxNodes: 64 });
+      if (canonicalJson(disposition) !== canonicalJson(facts.disposition)) invalid();
+    }
+    const facts = parsed.metadata; const video = facts.streams.find(s => s.stream_kind === 'VIDEO'); const audio = facts.streams.find(s => s.stream_kind === 'AUDIO');
+    const summary = { media_kind: video && audio ? 'AUDIO_VIDEO' : video ? 'VIDEO' : 'AUDIO', container: facts.container,
+      codec: video?.codec ?? audio?.codec ?? null, width: video?.width ?? null, height: video?.height ?? null, pixel_format: video?.pixel_format ?? null,
+      bit_depth: null, frame_rate_num: video?.frame_rate.num ?? null, frame_rate_den: video?.frame_rate.den ?? null,
+      time_base_num: (video ?? audio).time_base.num, time_base_den: (video ?? audio).time_base.den, frame_count: video?.frame_count ?? null,
+      duration_num: facts.duration.num, duration_den: facts.duration.den, color_primaries: video?.color_primaries ?? null,
+      transfer: video?.color_transfer ?? null, matrix: video?.color_space ?? null, audio_codec: audio?.codec ?? null,
+      sample_rate: audio?.sample_rate ?? null, channel_layout: audio?.channel_layout ?? null };
+    if (Object.entries(summary).some(([field,value]) => measurement[field] !== value)) invalid();
+    let authorityPins;
+    try { ({ pins: authorityPins } = this.#verifiedMediaProbeAuthority(row, this.#mediaProbeReadArtifact(context))); }
+    catch (error) { error.projection_toolchain = true; throw error; }
+    if (Object.entries(authorityPins).some(([field,value]) => authorization[field] !== value)) throw new Error('PROBE_TOOLCHAIN_CHANGED');
+    for (const entry of context.artifactFiles) {
+      this._assertNoReparsePath(entry.file);
+      if (!this._sameSourceIdentity(entry.identity, this._sourceIdentity(fs.lstatSync(entry.file)))) throw new Error('PROBE_TOOLCHAIN_CHANGED');
+    }
+    for (const [file,expectedHash,expectedBytes,maxBytes,decode] of [[sourcePath,row.source_content_hash,row.source_byte_size,1073741824,null],
+      [path.join(this.assetStorePath,rawRelative),measurement.raw_evidence_hash,measurement.raw_evidence_byte_size,8388608,parseMediaProbe]]) {
+      try { this.#mediaProbeReadFile(file, expectedHash, expectedBytes, maxBytes, context, decode); }
+      catch (error) { if (error.message !== 'PROBE_READ_BUDGET_EXCEEDED' && file === sourcePath) throw new Error('PROBE_SOURCE_CHANGED'); throw error; }
+    }
+    return { attempt, metadata: { id: measurement.id, media_kind: summary.media_kind, container: summary.container, codec: summary.codec,
+      width: summary.width, height: summary.height, pixel_format: summary.pixel_format, frame_rate: video?.frame_rate ?? null,
+      time_base: (video ?? audio).time_base, frame_count: summary.frame_count, duration: facts.duration,
+      color_primaries: summary.color_primaries, transfer: summary.transfer, matrix: summary.matrix, audio_codec: summary.audio_codec,
+      sample_rate: summary.sample_rate, channel_layout: summary.channel_layout, stream_count: streams.length,
+      normalized_metadata_hash: measurement.normalized_metadata_hash, raw_evidence_hash: measurement.raw_evidence_hash,
+      raw_evidence_byte_size: measurement.raw_evidence_byte_size, verified_at: rfc3339FromUs(evidence.validated_at_utc_us) }, streams: facts.streams };
+  }
+
+  _mediaProbeProjection(jobId, projectId, context = { files: new Map(), artifact: null, artifactFiles: [] }) {
     const row = this._mediaProbeJob(jobId, projectId);
     const source = this._mediaProbeSource(projectId, row.asset_revision_id);
-    const rights = this._mediaProbeRights(source.asset_id);
-    let state = MEDIA_PROBE_BLOCKED_STATES.has(row.state) || row.state === 'CANCELLED' ? row.state : 'UNKNOWN';
-    if (state !== 'CANCELLED') {
-      const location = this.db.prepare('SELECT storage_object_id,state FROM storage_object_locations WHERE id=?').get(row.storage_object_location_id);
-      if (source.content_hash !== row.source_content_hash || source.byte_size !== row.source_byte_size
-        || source.storage_class !== 'LOCAL_MANAGED' || !location || location.storage_object_id !== source.storage_object_id || location.state !== 'AVAILABLE') state = 'STALE';
-      else if (source.lifecycle_state !== 'ACTIVE' || source.availability_state !== 'AVAILABLE' || !['VIDEO', 'AUDIO'].includes(source.asset_type)) state = 'BLOCKED_MEDIA';
-      else if (!rights.eligible) state = 'BLOCKED_RIGHTS';
-      else if (rights.generation !== row.rights_generation) state = 'STALE';
+    let state = Object.hasOwn(MEDIA_PROBE_NEXT_STEPS, row.state) ? row.state : 'UNKNOWN';
+    let metadata = null; let streams = []; let measured = null; let outcome = 'UNKNOWN'; let code = null;
+    const location = this.db.prepare('SELECT * FROM storage_object_locations WHERE id=?').get(row.storage_object_location_id);
+    const domainState = () => {
+      const currentSource = this._mediaProbeSource(projectId, row.asset_revision_id);
+      const currentLocation = this.db.prepare('SELECT * FROM storage_object_locations WHERE id=?').get(row.storage_object_location_id);
+      const rights = this._mediaProbeRights(currentSource.asset_id);
+      if (currentSource.content_hash !== row.source_content_hash || currentSource.byte_size !== row.source_byte_size
+        || currentSource.storage_class !== 'LOCAL_MANAGED' || currentSource.hash_algorithm !== 'SHA-256'
+        || !currentLocation || currentLocation.storage_object_id !== currentSource.storage_object_id || currentLocation.state !== 'AVAILABLE'
+        || currentLocation.storage_root !== 'asset-store' || currentLocation.location_role !== 'PRIMARY'
+        || currentLocation.relative_path !== this._objectRelativePath('SHA-256', row.source_content_hash).split(path.sep).join('/')) return 'STALE';
+      if (currentSource.lifecycle_state !== 'ACTIVE' || currentSource.availability_state !== 'AVAILABLE'
+        || !['VIDEO','AUDIO'].includes(currentSource.asset_type) || currentSource.byte_size < 1 || currentSource.byte_size > 1073741824) return 'BLOCKED_MEDIA';
+      if (!rights.eligible) return 'BLOCKED_RIGHTS';
+      if (rights.generation !== row.rights_generation) return 'STALE';
+      return null;
+    };
+    if (state !== 'CANCELLED') state = domainState() ?? state;
+    if (state === 'COMPLETED') {
+      try {
+        measured = this.#mediaProbeReadMeasurement(row, source, location, context);
+        const current = this._mediaProbeJob(jobId, projectId);
+        state = domainState() ?? (['row_version','state','current_attempt_id','fencing_token'].some(field => current[field] !== row[field]) ? 'STALE' : 'COMPLETED');
+        if (state === 'COMPLETED') { metadata = measured.metadata; streams = measured.streams; outcome = 'PASS'; }
+      } catch (error) {
+        const reason = error.code ?? error.message;
+        state = ['PROBE_SOURCE_CHANGED','PROBE_TOOLCHAIN_CHANGED','PROBE_TOOLCHAIN_STALE'].includes(reason) ? 'STALE'
+          : error.projection_toolchain ? 'BLOCKED_TOOLCHAIN' : 'UNKNOWN';
+        state = domainState() ?? state;
+      }
+    } else if (state === 'UNKNOWN') {
+      const failures = this.db.prepare(`SELECT e.outcome FROM media_probe_evidence e JOIN media_probe_attempts a ON a.id=e.attempt_id
+        WHERE a.job_id=? AND a.state='ABANDONED' AND e.outcome!='PASS' LIMIT 2`).all(row.id);
+      if (failures.length === 1 && failures[0].outcome === 'CONFLICT') { state = 'CONFLICT'; outcome = 'CONFLICT'; }
     }
+    const attempt = row.current_attempt_id && this.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(row.current_attempt_id);
+    const activeStates = { CLAIMED: ['CREATED','DISPATCHING'], RUNNING: ['EXECUTING'], PARSING: ['PARSING'], VERIFYING: ['VERIFYING'] };
+    if (activeStates[state] && (!attempt || attempt.job_id !== row.id || attempt.fencing_token !== row.fencing_token || !activeStates[state].includes(attempt.state))) state = 'UNKNOWN';
+    const started = Boolean(this.db.prepare(`SELECT 1 FROM audit_records a JOIN commands c ON c.id=a.command_id
+      WHERE a.action_type='media_probe.dispatch_executing' AND a.target_id=? AND c.project_id=?
+        AND c.command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1' LIMIT 1`).get(row.id, row.project_id));
+    const project = this._project(projectId);
+    const cancelAllowed = MEDIA_PROBE_BLOCKED_STATES.has(row.state) && row.current_attempt_id === null
+      && ['ACTIVE','PAUSED'].includes(project.lifecycle_state)
+      && !this.db.prepare('SELECT 1 FROM media_probe_attempts WHERE job_id=? LIMIT 1').get(row.id);
+    const restartRequired = outcome === 'PASS' && row.needs_user === 1;
+    const nextStepKey = restartRequired ? 'media_probe.next_step.restart_required' : `media_probe.next_step.${state.toLowerCase()}`;
+    if (outcome === 'PASS') code = 'PROBE_METADATA_VERIFIED';
+    else code = state === 'BLOCKED_TOOLCHAIN' ? 'PROBE_EXECUTION_UNAVAILABLE' : `PROBE_${state}`;
     return { id: row.id, project_id: row.project_id, asset_revision_id: row.asset_revision_id,
+      projection_contract: 'MEDIA_PROBE_PROJECTION_V1', execution_available: false, cancel_allowed: Boolean(cancelAllowed),
       content_hash: row.source_content_hash, byte_size: row.source_byte_size,
-      toolchain_manifest_hash: row.toolchain_manifest_hash, toolchain_id: null,
-      toolchain_version: null, toolchain_binary_hash: null,
-      toolchain_verified: false, probe_schema_version: row.probe_schema_version, parser_policy_version: row.parser_policy_version,
-      rights_generation: row.rights_generation, state, stored_state: row.state, outcome: 'UNKNOWN',
-      evidence_code: state === 'BLOCKED_TOOLCHAIN' ? 'PROBE_EXECUTION_UNAVAILABLE' : `PROBE_${state}`,
-      attempt_id: null, execution_started: false, metadata: null, streams: [],
-      needs_user: state !== 'CANCELLED', next_step: MEDIA_PROBE_NEXT_STEPS[state],
-      next_step_key: `media_probe.next_step.${state.toLowerCase()}`, row_version: row.row_version,
+      toolchain_manifest_hash: row.toolchain_manifest_hash, toolchain_id: outcome === 'PASS' ? row.toolchain_id : null,
+      toolchain_version: outcome === 'PASS' ? row.toolchain_version : null, toolchain_binary_hash: outcome === 'PASS' ? row.toolchain_binary_hash : null,
+      toolchain_verified: outcome === 'PASS', probe_schema_version: row.probe_schema_version, parser_policy_version: row.parser_policy_version,
+      rights_generation: row.rights_generation, state, stored_state: row.state, outcome, evidence_code: code,
+      attempt_id: outcome === 'PASS' ? measured.attempt.id : null, execution_started: started, metadata, streams,
+      needs_user: restartRequired || !['CANCELLED','COMPLETED','QUEUED','CLAIMED','RUNNING','PARSING','VERIFYING'].includes(state),
+      next_step: restartRequired ? 'Cần khởi động lại CineForge để giải phóng khóa runtime chưa xác minh được.' : MEDIA_PROBE_NEXT_STEPS[state],
+      next_step_key: nextStepKey, row_version: row.row_version,
       created_at: rfc3339FromUs(row.created_at_utc_us), updated_at: rfc3339FromUs(row.updated_at_utc_us) };
   }
 
@@ -5212,7 +5424,8 @@ export class CoreService {
     const rows = this.db.prepare(`SELECT id FROM media_probe_jobs WHERE project_id=? AND asset_revision_id=?
       ORDER BY created_at_utc_us DESC,id DESC LIMIT ? OFFSET ?`).all(params.project_id, params.asset_revision_id, limit + 1, offset);
     const hasMore = rows.length > limit;
-    return { jobs: rows.slice(0, limit).map(row => this._mediaProbeProjection(row.id, params.project_id)),
+    const context = { files: new Map(), artifact: null, artifactFiles: [] };
+    return { jobs: rows.slice(0, limit).map(row => this._mediaProbeProjection(row.id, params.project_id, context)),
       page: { limit, offset, has_more: hasMore, next_offset: hasMore && offset + limit <= 10000 ? offset + limit : null },
       projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
@@ -5223,9 +5436,12 @@ export class CoreService {
     const latestIntent = this.db.prepare(`SELECT id FROM media_probe_jobs WHERE project_id=? AND asset_revision_id=?
       ORDER BY created_at_utc_us DESC,id DESC LIMIT 1`).get(source.project_id, source.id);
     const job = latestIntent ? this._mediaProbeProjection(latestIntent.id, source.project_id) : null;
-    return { project_id: source.project_id, asset_revision_id: source.id, asset_row_version: source.row_version,
-      content_hash: source.content_hash, byte_size: source.byte_size, state: job?.state ?? 'UNKNOWN',
-      outcome: 'UNKNOWN', metadata: null, streams: [], job, needs_user: job?.needs_user ?? true,
+    const currentSource = this._mediaProbeSource(source.project_id, source.id);
+    return { projection_contract: 'MEDIA_PROBE_PROJECTION_V1', execution_available: false,
+      project_id: currentSource.project_id, asset_revision_id: currentSource.id, asset_row_version: currentSource.row_version,
+      content_hash: currentSource.content_hash, byte_size: currentSource.byte_size, state: job?.state ?? 'UNKNOWN',
+      outcome: job?.outcome ?? 'UNKNOWN', metadata: job?.metadata ?? null, streams: job?.streams ?? [], job, needs_user: job?.needs_user ?? true,
+      next_step_key: job?.next_step_key ?? 'media_probe.next_step.unknown',
       next_step: job?.next_step ?? MEDIA_PROBE_NEXT_STEPS.UNKNOWN,
       projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }

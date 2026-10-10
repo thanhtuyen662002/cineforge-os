@@ -113,6 +113,15 @@ The adapter rejects unexpected PASS/COMPLETED responses rather than trusting
 unimplemented verifier output. Raw JSON, diagnostics and private paths are not
 rendered. This is admission/UI preparation, not full probe completion.
 
+The typed `MEDIA_PROBE_PROJECTION_V1` reader displays measurements only after
+Core proves the exact immutable evidence, parsed stream inventory, source bytes,
+current rights and toolchain authority. It presents duration, format and primary
+audio/video facts in vi-VN/en-US; stream details and exact evidence hashes remain
+on demand. Stale, conflicting, unverified or offline projections hide facts.
+Cancellation uses Core's explicit `cancel_allowed`; a revoked historical result
+cannot become an unexecuted cancellable request. Public analysis/retry remain
+disabled pending trusted native activation and certification.
+
 Tests: `npm test -- --run tests/assetTechnicalMetadata.test.tsx`.
 
 ## Slice 3A integrity queue

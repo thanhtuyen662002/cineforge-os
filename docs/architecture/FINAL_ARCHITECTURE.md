@@ -2541,3 +2541,20 @@ release keeps resource ownership UNKNOWN and forbids another binding lease;
 it cannot downgrade or rewrite an already committed historical measurement.
 Public admission/bootstrap/UI activation and certified-pack/production closure
 remain gated by trusted custody, real authority and independent review.
+
+# ARCH-MEDIA-PROBE-PROJECTION-01. Current verified read boundary
+
+MEDIA_PROBE_PROJECTION_V1 is a read-only Core projection, not executable
+admission or creative approval. COMPLETED/PASS requires the exact immutable
+measurement/attempt/authorization/evidence tuple, audited binding, complete
+typed stream inventory and canonical normalized hashes. Core revalidates
+current source bytes, raw managed evidence bytes/parser and startup-pinned signed
+toolchain authority and rights. A historical PASS label alone is insufficient.
+Missing/changed/ambiguous proof never returns measurement payload as PASS.
+
+Changed source, rights generation or toolchain identity projects STALE;
+unavailable media/rights/current trust projects BLOCKED_*; corrupt/incomplete
+measurement proof projects UNKNOWN. Historical rows remain immutable. Active
+states describe only durable phases, without percentage/ETA. Request-local
+bounded verification caches do not survive a query. No query executes a tool,
+changes database state, repairs files or grants render/export/release authority.

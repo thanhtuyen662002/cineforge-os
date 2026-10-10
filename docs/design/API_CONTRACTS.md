@@ -4341,8 +4341,9 @@ new intent and is part of the canonical request digest.
 
 Lists accept decimal limit (1..100, default 25) and offset (0..10000, default 0),
 ordered by created_at descending then id descending, with has_more/next_offset.
-Projections expose requested pins and toolchain_verified false. They never
-expose legacy metadata_json or privileged SQL fixture measurements as PASS.
+Admission projections expose requested pins and toolchain_verified false.
+Verified reads additionally require API-MEDIA-PROBE-PROJECTION-01. They never
+expose legacy metadata_json or unproven privileged SQL measurements as PASS.
 
 The technical-media probe is a Core-owned, read-only capability over one exact
 managed asset revision. The project-scoped routes are:
@@ -4438,3 +4439,28 @@ completion does not approve an asset, authorize render/export or certify a pack.
 Raw MEDIA_PROBE_RAW_EVIDENCE_V1 staging is omitted from public staging queries,
 cannot be imported by staging handle, and is retained through failed binding.
 No new HTTP/RPC method or public executable admission is introduced here.
+
+# API-MEDIA-PROBE-PROJECTION-01. Typed verified projection V1
+
+Existing metadata/get/list routes add projection_contract=MEDIA_PROBE_PROJECTION_V1
+and execution_available=false. Job projections include cancel_allowed, which
+is true only for a writable project's unexecuted stored blocked intent with no
+attempt. A derived BLOCKED_RIGHTS state on historical completed work is never
+permission to cancel it. No generic database row or metadata_json is exposed.
+
+COMPLETED/PASS returns one typed metadata summary (id, media_kind, container,
+primary codec/dimensions/pixel/frame/time-base/count/duration/color facts,
+audio codec/sample-rate/channel layout, stream_count, normalized_metadata_hash,
+raw_evidence_hash/byte size and verified_at) and the complete normalized typed
+stream inventory. Source/project/revision/job/attempt and toolchain pins remain
+explicit. Invalid/currently stale or blocked evidence returns metadata=null and
+streams=[]; no historical payload is silently used. Fixed next_step_key conveys
+recovery, including restart_required after unresolved OS pin release.
+Paginated queries bound aggregate fresh source/raw reads to 1 GiB + 8 MiB;
+unverified rows after exhaustion are UNKNOWN and can be requested individually.
+
+Legacy UNKNOWN-only admission responses remain readable. A client must require
+this exact projection version, consistent PASS/job/source identities, bounded
+typed facts and complete stream count before displaying verified measurements.
+Unknown/partial verified contracts are rejected. Arbitrary diagnostics, paths,
+certificates, credentials, producer extras and free-form metadata are discarded.

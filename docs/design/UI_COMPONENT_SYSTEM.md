@@ -2952,10 +2952,10 @@ explanation; no editable manifest hash, path or tool chooser is offered.
 The panel reads admission state from Core, shows UNKNOWN and the localized
 recovery step, and permits cancellation of an unexecuted blocked intent at its
 current job version. Retry/execution remain disabled. Advanced details contain
-only exact requested hashes/versions and explicit toolchain_verified false.
-This prepared workspace does not display measurements or claim verified
-metadata; unexpected verified responses are rejected until a typed verifier
-projection is implemented. Offline controls are disabled, old bridges explain
+only exact requested hashes/versions and explicit toolchain_verified false for
+unverified jobs. Measurements require the typed verifier projection in
+UI-MEDIA-PROBE-PROJECTION-01; legacy or contradictory verified responses are
+rejected. Offline controls are disabled, old bridges explain
 the missing capability, and errors use fixed user-facing recovery messages.
 
 The Library asset inspector may show a `Technical metadata` panel only when
@@ -2981,6 +2981,21 @@ inventory. The UI never displays private paths, raw ffprobe JSON, command
 lines, credentials, provider fields or unbounded metadata. Advanced evidence
 shows exact hashes, schema/toolchain versions and attempt IDs without making
 them editable.
+
+## UI-MEDIA-PROBE-PROJECTION-01. Typed measurement and real phase display
+
+The Library panel accepts MEDIA_PROBE_PROJECTION_V1 through its typed adapter.
+Show verified container/media kind, duration and primary video/audio facts plus
+complete stream inventory only for consistent COMPLETED/PASS. Exact rational
+values, evidence hashes, verification time and toolchain pins belong in
+Advanced. Do not render raw diagnostics, producer extras or metadata_json.
+Display actual queued/running/parsing/verifying phases with no fabricated
+percentage; conflicts/stale/blocked/unknown hide measurements and explain the
+localized recovery step. An unresolved pin-release warning can accompany valid
+historical measurements. Analysis/retry remain disabled without public execution
+capability. Cancel follows Core's cancel_allowed, never a derived blocked badge.
+Abort/discard results when project/revision/version/hash/size changes, when
+offline or when an older request completes; hide facts after refresh failure.
 
 Cancel/retry controls send the current row version and an idempotency key. A
 stale response refreshes the projection and explains the conflict; it never

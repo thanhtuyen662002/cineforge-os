@@ -981,3 +981,26 @@ metadata remains historical PASS even when runtime cleanup needs user action.
 Exact replay never starts a process and requires unchanged terminal job/attempt
 identity and version. Public commands continue blocked; no production pack or
 independent review is fabricated by fixture signatures.
+
+# DESIGN-MEDIA-PROBE-PROJECTION-01. Proof-aware immutable reads
+
+The verified read joins the exact COMPLETED job pointer/fence, SUCCEEDED native
+attempt, immutable same-owner authorization and one PASS evidence, requiring
+the recorded signed validation interval and exact source/toolchain/parser pins.
+The dispatch command's started audit and binding audit must identify the exact
+attempt, evidence and measurement. Validate managed raw object/location/hash/size and strict parser
+output against the immutable root and every stream row/normalized hash; legacy
+or ambiguous rows remain UNKNOWN. Recheck current rights/source/row identities
+after startup trust callbacks and filesystem verification. Fresh current
+authority must match the historical authorization pins; it cannot substitute
+another tool, signer, trust generation or validity window.
+
+Use request-local caches only for bounded immutable raw/source reads and
+artifact preflight in a paginated list. Bound aggregate source/raw revalidation
+to 1 GiB + 8 MiB per request and retain
+only decoded facts in the cache. Exhaustion returns UNKNOWN for the unverified
+row; clients may read that exact job separately. Cache keys distinguish hash
+verification from strict decoding. Do not persist verification freshness,
+mutate measurement state, auto-select another revision or fall back to another
+measurement. A cancelled unexecuted intent remains cancelled. Public execution
+remains unavailable; successful metadata and cleanup-needs-user are independent.
