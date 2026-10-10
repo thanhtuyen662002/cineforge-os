@@ -4407,3 +4407,12 @@ PREPARED, job_id, attempt_id, authorization_id, job_version and execution_starte
 false. It exposes no source/binary path, raw output, signature, key, owner/fence
 or dispatch credential. Receipt/replay alone does not authorize native execution.
 Public ProbeMediaAsset remains blocked and public metadata remains UNKNOWN.
+
+# API-MEDIA-PROBE-RECOVERY-01. Internal reconciliation
+
+reconcileMediaProbeAttempts is startup/internal only and accepts no caller
+scope, paths, PIDs or process verdicts. It returns a frozen private summary of
+reconciled_attempts, changed_jobs, batches and ready. Its bounded internal
+command scope is the exact selected attempt IDs, not an arbitrary bulk request.
+prepareMediaProbeAttempt fails PROBE_RECOVERY_REQUIRED while reconciliation
+is incomplete. There is no HTTP/RPC method, retry permission or PASS receipt.

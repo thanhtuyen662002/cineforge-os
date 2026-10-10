@@ -860,3 +860,37 @@ It returns the stored redacted receipt without new rows or new permission to
 dispatch. Payload reuse, expired/revoked policy, source/rights drift, advanced
 attempt, superseded fence and a restarted Core fail closed. Retry/restart and
 real dispatch/binding remain separate required integration work.
+
+# DESIGN-MEDIA-PROBE-RECOVERY-01. Bounded owner-epoch reconciliation
+
+Core startup invokes internal reconcileMediaProbeAttempts after ownership and
+actor/bootstrap initialization. Repeated invocation is allowed internally;
+there is no RPC/HTTP recovery mutation. The private reservation readiness flag
+starts false and becomes true only when no stale non-terminal attempt remains.
+Reconciliation does not need or invoke a signing/trust source.
+
+Stale means CREATED/DISPATCHING/EXECUTING/PARSING/VERIFYING with a null or foreign
+core_owner_epoch. Process epochs are never reused. In each transaction, resolve
+at most 100 exact ordered attempt rows after asserting active Core ownership.
+Set each stale attempt ABANDONED with version/timestamp increment. Keep every
+authorization/identity/fence/observation and immutable metadata/evidence row.
+An affected active job whose current pointer is retired (or missing) becomes
+UNKNOWN, pointer/fence null, needs_user=1, with a human-readable next step.
+Do not change a terminal job or a job pointing to another live/current attempt.
+Use attempt-scoped events for noncurrent retirement and job-scoped versioned
+events only when its row changes; all events carry exact project/job scope.
+
+PREPARED_RECONCILE_MEDIA_PROBE_V1 command contains the exact bounded attempt
+scope and logical_only=true. Compensation requires a future fresh exact
+attempt, never resurrection of the old epoch/fence. Impacts/events/audit and
+result counts are atomic. Process tree/cancel outcome remain UNKNOWN; no PASS,
+cleanup, worker adoption, automatic retry or cancellation confirmation is made.
+Jobs eligible for UNKNOWN retirement are QUEUED/CLAIMED/RUNNING/PARSING/VERIFYING/
+CANCEL_REQUESTED/UNKNOWN/FAILED_RETRYABLE. Other stored exits keep their state;
+all stale non-terminal attempts are still logically retired. An already cleared
+UNKNOWN job with needs_user=1 is not repeatedly versioned for each stale attempt.
+
+Process at most 10 batches per invocation. If backlog remains or any batch
+fails, keep private reservation blocked as PROBE_RECOVERY_REQUIRED until a
+successful reconciliation. A later invocation may continue committed batches.
+Public blocked admission and metadata UNKNOWN remain unchanged.

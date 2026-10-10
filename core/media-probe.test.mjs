@@ -899,3 +899,150 @@ test('lost Core ownership prevents reservation and a post-proof race rolls back'
   f.db.prepare("UPDATE core_instance_ownership SET active_epoch='fixture-lost-owner' WHERE singleton_id=1").run();
   reservationRejected(f, 'CORE_OWNERSHIP_LOST');
 });
+
+for (const phase of ['CREATED', 'DISPATCHING', 'EXECUTING', 'PARSING', 'VERIFYING']) {
+  test(`startup retires the foreign ${phase} attempt with UNKNOWN and immutable history`, t => {
+    const f = reservationFixture(t);
+    const receipt = f.core.prepareMediaProbeAttempt(f.request);
+    f.db.prepare('UPDATE media_probe_attempts SET state=?,row_version=row_version+1 WHERE id=?').run(phase, receipt.attempt_id);
+    const jobState = phase === 'EXECUTING' ? 'RUNNING' : ['PARSING', 'VERIFYING'].includes(phase) ? phase : 'CLAIMED';
+    f.db.prepare('UPDATE media_probe_jobs SET state=?,row_version=row_version+1 WHERE id=?').run(jobState, f.job.id);
+    // Privileged historical fixture only; retirement must not relabel it.
+    if (phase === 'VERIFYING') insert(f.db, 'media_probe_evidence', proof(f, { attempt_id: receipt.attempt_id,
+      validated_at_utc_us: f.control.now * 1000 }));
+    const original = f.db.prepare('SELECT * FROM media_probe_attempts').get();
+    const history = f.db.prepare('SELECT * FROM media_probe_authorizations').all();
+    const evidence = f.db.prepare('SELECT * FROM media_probe_evidence').all();
+    const bytes = fs.readFileSync(path.join(f.directory, 'source.txt'));
+    const loads = f.control.loads;
+    f.core.close();
+    const reopened = new CoreService({ dbPath: path.join(f.directory, 'core.sqlite'), assetStorePath: path.join(f.directory, 'store'), ...f.options.coreOptions });
+    try {
+      const next = reopened.db.prepare('SELECT * FROM media_probe_attempts').get();
+      assert.equal(next.state, 'ABANDONED'); assert.equal(next.row_version, original.row_version + 1);
+      for (const field of ['id', 'job_id', 'attempt_no', 'core_owner_epoch', 'authorization_id', 'fencing_token',
+        'producer_contract_version', 'argv_preset_id', 'stdout_bytes', 'stderr_bytes', 'cpu_time_ms', 'memory_peak_bytes']) {
+        assert.equal(next[field], original[field], field);
+      }
+      const job = reopened.db.prepare('SELECT * FROM media_probe_jobs').get();
+      assert.equal(job.state, 'UNKNOWN'); assert.equal(job.needs_user, 1);
+      assert.equal(job.current_attempt_id, null); assert.equal(job.fencing_token, null); assert.ok(job.next_step.includes('chưa xác nhận'));
+      assert.deepEqual(reopened.db.prepare('SELECT * FROM media_probe_authorizations').all(), history);
+      assert.deepEqual(reopened.db.prepare('SELECT * FROM media_probe_evidence').all(), evidence);
+      assert.ok(fs.readFileSync(path.join(f.directory, 'source.txt')).equals(bytes)); assert.equal(f.control.loads, loads);
+      assert.equal(reopened.db.prepare('SELECT count(*) AS n FROM technical_metadata').get().n, 0);
+      const cmd = reopened.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_RECONCILE_MEDIA_PROBE_V1'").get();
+      assert.equal(cmd.status, 'SUCCEEDED'); assert.equal(cmd.schema_version, 1);
+      assert.deepEqual(JSON.parse(cmd.payload_json), { attempt_ids: [receipt.attempt_id], logical_only: true });
+      assert.equal(JSON.parse(cmd.result_json).physical_teardown, 'UNKNOWN');
+      const audit = reopened.db.prepare("SELECT * FROM audit_records WHERE action_type='media_probe.reconcile_attempts'").get();
+      assert.equal(audit.command_id, cmd.id);
+      const events = reopened.db.prepare('SELECT * FROM domain_events WHERE command_id=? ORDER BY seq').all(cmd.id);
+      assert.deepEqual(events.map(e => e.event_type), ['MEDIA_PROBE_ATTEMPT_ABANDONED', 'MEDIA_PROBE_JOB_RECOVERY_UNKNOWN']);
+      for (const event of events) assert.equal(JSON.parse(event.payload_json).project_id, f.job.project_id);
+      const recovered = { ...f, core: reopened, db: reopened.db };
+      const after = reservationSnapshot(recovered);
+      assert.deepEqual(reopened.reconcileMediaProbeAttempts(), { reconciled_attempts: 0, changed_jobs: 0, batches: 0, ready: true });
+      assert.deepEqual(reservationSnapshot(recovered), after);
+      assert.throws(() => insert(reopened.db, 'media_probe_evidence', proof(recovered, { id: 'stale-pass', attempt_id: receipt.attempt_id,
+        validated_at_utc_us: f.control.now * 1000 })), /pins|proof|authorization/);
+      reservationRejected(recovered, 'PROBE_RESERVATION_STALE');
+    } finally { reopened.close(); }
+  });
+}
+
+test('startup does not confirm a pending physical cancellation or retry it', t => {
+  const f = reservationFixture(t);
+  const receipt = f.core.prepareMediaProbeAttempt(f.request);
+  f.db.prepare("UPDATE media_probe_attempts SET state='EXECUTING',row_version=row_version+1 WHERE id=?").run(receipt.attempt_id);
+  f.db.prepare("UPDATE media_probe_jobs SET state='CANCEL_REQUESTED',row_version=row_version+1 WHERE id=?").run(f.job.id);
+  f.core.close();
+  const reopened = new CoreService({ dbPath: path.join(f.directory, 'core.sqlite'), assetStorePath: path.join(f.directory, 'store') });
+  try {
+    assert.equal(reopened.db.prepare('SELECT state FROM media_probe_jobs').get().state, 'UNKNOWN');
+    assert.equal(reopened.db.prepare('SELECT state FROM media_probe_attempts').get().state, 'ABANDONED');
+    assert.equal(reopened.db.prepare('SELECT count(*) AS n FROM media_probe_attempts').get().n, 1);
+    assert.equal(reopened.db.prepare('SELECT count(*) AS n FROM media_probe_evidence').get().n, 0);
+  } finally { reopened.close(); }
+});
+
+test('reconciliation keeps current-owner work and completed measurement unchanged while retiring noncurrent legacy work', () => {
+  const f = persistenceFixture();
+  try {
+    accepted(f); insert(f.db, 'technical_metadata_streams', stream());
+    f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run();
+    const tables = ['media_probe_jobs', 'technical_metadata', 'technical_metadata_streams', 'media_probe_evidence', 'media_probe_authorizations'];
+    const before = Object.fromEntries(tables.map(table => [table, f.db.prepare(`SELECT * FROM ${table}`).all()]));
+    insert(f.db, 'media_probe_attempts', { id: 'legacy-noncurrent', job_id: f.job.id, attempt_no: 2, retry_kind: 'RESTART',
+      idempotency_key: 'legacy-noncurrent', state: 'CREATED', created_at_utc_us: f.stamp, updated_at_utc_us: f.stamp });
+    assert.deepEqual(f.core.reconcileMediaProbeAttempts(), { reconciled_attempts: 1, changed_jobs: 0, batches: 1, ready: true });
+    for (const table of tables) assert.deepEqual(f.db.prepare(`SELECT * FROM ${table}`).all(), before[table], table);
+    assert.equal(f.db.prepare("SELECT state FROM media_probe_attempts WHERE id='attempt-1'").get().state, 'SUCCEEDED');
+    assert.equal(f.db.prepare("SELECT state FROM media_probe_attempts WHERE id='legacy-noncurrent'").get().state, 'ABANDONED');
+  } finally { f.close(); }
+});
+
+test('recovery audit failure rolls back the entire batch and blocks reservation until internal recovery succeeds', t => {
+  const f = reservationFixture(t);
+  const receipt = f.core.prepareMediaProbeAttempt(f.request);
+  f.db.exec("CREATE TRIGGER fixture_recovery_audit_failure BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.reconcile_attempts' BEGIN SELECT RAISE(ABORT,'fixture recovery audit failure'); END;");
+  const before = reservationSnapshot(f);
+  f.core.close();
+  const reopened = new CoreService({ dbPath: path.join(f.directory, 'core.sqlite'), assetStorePath: path.join(f.directory, 'store'), ...f.options.coreOptions });
+  try {
+    const recovered = { ...f, core: reopened, db: reopened.db };
+    assert.deepEqual(reservationSnapshot(recovered), before);
+    reservationRejected(recovered, 'PROBE_RECOVERY_REQUIRED');
+    reopened.db.exec('DROP TRIGGER fixture_recovery_audit_failure');
+    assert.deepEqual(reopened.reconcileMediaProbeAttempts(), { reconciled_attempts: 1, changed_jobs: 1, batches: 1, ready: true });
+    assert.equal(reopened.db.prepare('SELECT state FROM media_probe_attempts WHERE id=?').get(receipt.attempt_id).state, 'ABANDONED');
+    reservationRejected(recovered, 'PROBE_RESERVATION_STALE');
+  } finally { reopened.close(); }
+});
+
+test('recovery bounds each command and invocation, blocks backlog admission and resumes without touching live work', t => {
+  const f = reservationFixture(t);
+  const live = f.core.prepareMediaProbeAttempt(f.request);
+  for (let j = 0; j < 11; j++) {
+    const id = `backlog-job-${j}`;
+    insert(f.db, 'media_probe_jobs', { ...f.job, id, idempotency_key: id,
+      canonical_request_hash: crypto.createHash('sha256').update(id).digest('hex') });
+    for (let n = 1; n <= (j === 10 ? 10 : 100); n++) {
+      insert(f.db, 'media_probe_attempts', { id: `backlog-${j}-${n}`, job_id: id, attempt_no: n, retry_kind: 'RESTART',
+        idempotency_key: `backlog-${j}-${n}`, state: 'CREATED', created_at_utc_us: f.stamp, updated_at_utc_us: f.stamp });
+    }
+  }
+  const first = f.core.reconcileMediaProbeAttempts();
+  assert.deepEqual(first, { reconciled_attempts: 1000, changed_jobs: 11, batches: 10, ready: false });
+  reservationRejected(f, 'PROBE_RECOVERY_REQUIRED');
+  assert.equal(f.db.prepare('SELECT state FROM media_probe_attempts WHERE id=?').get(live.attempt_id).state, 'CREATED');
+  const commands = f.db.prepare("SELECT payload_json,result_json FROM commands WHERE command_type='PREPARED_RECONCILE_MEDIA_PROBE_V1'").all();
+  assert.equal(commands.length, 10);
+  const retired = new Set();
+  for (const command of commands) {
+    const scope = JSON.parse(command.payload_json); assert.equal(scope.attempt_ids.length, 100);
+    assert.equal(scope.logical_only, true); assert.equal(JSON.parse(command.result_json).physical_teardown, 'UNKNOWN');
+    for (const id of scope.attempt_ids) { assert.ok(!retired.has(id)); retired.add(id); }
+  }
+  assert.equal(retired.size, 1000);
+  const last = f.core.reconcileMediaProbeAttempts();
+  assert.deepEqual(last, { reconciled_attempts: 10, changed_jobs: 0, batches: 1, ready: true });
+  assert.deepEqual(f.core.prepareMediaProbeAttempt(f.request), live);
+  const before = reservationSnapshot(f);
+  const response = f.core.handle({ api_version: '1', request_id: 'recovery-rpc', method: 'reconcileMediaProbeAttempts', params: {} });
+  assert.equal(response.ok, false); assert.deepEqual(reservationSnapshot(f), before);
+  assert.throws(() => f.core.reconcileMediaProbeAttempts({ scope: '*' }), e => e.code === 'INVALID_ARGUMENT');
+  assert.deepEqual(reservationSnapshot(f), before);
+});
+
+test('Core cannot reuse a configured epoch to adopt an old reservation', t => {
+  const f = reservationFixture(t, (_control, options) => { options.coreOptions.instanceEpoch = 'fixture-unique-session'; });
+  f.core.prepareMediaProbeAttempt(f.request); f.core.close();
+  const db = new DatabaseSync(path.join(f.directory, 'core.sqlite'), { readOnly: true });
+  try {
+    const before = reservationSnapshot({ ...f, db });
+    assert.throws(() => new CoreService({ dbPath: path.join(f.directory, 'core.sqlite'), assetStorePath: path.join(f.directory, 'store'),
+      ...f.options.coreOptions }), /UNIQUE constraint failed: core_instances.instance_epoch/);
+    assert.deepEqual(reservationSnapshot({ ...f, db }), before);
+  } finally { db.close(); }
+});

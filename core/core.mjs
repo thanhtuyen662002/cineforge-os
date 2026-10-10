@@ -1594,6 +1594,7 @@ function isCoreOwnershipFailure(error) {
 
 export class CoreService {
   #mediaProbeTrustSource = null;
+  #mediaProbeRecoveryReady = false;
 
   constructor(options = {}) {
     if (options.mediaProbeTrustSource !== undefined && options.mediaProbeTrustSource !== null
@@ -1964,8 +1965,77 @@ export class CoreService {
     // fence therefore safely abandons an in-flight attempt and requeues the
     // exact pinned revision on the next launch before the bounded runner is
     // started.  No bytes are adopted or mutated during reconciliation.
+    try { this.reconcileMediaProbeAttempts(); } catch { /* keep probe reservation blocked; read/recovery remains available */ }
     try { this._reconcileLocalProbeJobs(); } catch { /* keep read-only Core available */ }
     this._scheduleLocalProbeRunner();
+  }
+
+  // Retire logical ownership only. No process stop, retry, cleanup or PASS is
+  // inferred from an old epoch, even for a previously requested cancellation.
+  reconcileMediaProbeAttempts() {
+    if (arguments.length !== 0) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.media_probe_identity_only', {});
+    this.#mediaProbeRecoveryReady = false;
+    if (this._closed || !this.db) throw new CoreError('PROBE_CORE_CLOSED', 'CONFLICT', 'errors.media_probe_identity_unknown', {});
+    const stale = `state IN ('CREATED','DISPATCHING','EXECUTING','PARSING','VERIFYING')
+      AND (core_owner_epoch IS NULL OR core_owner_epoch!=?)`;
+    const activeJobs = new Set(['QUEUED', 'CLAIMED', 'RUNNING', 'PARSING', 'VERIFYING', 'CANCEL_REQUESTED', 'UNKNOWN', 'FAILED_RETRYABLE']);
+    let attempts = 0; let jobs = 0; let batches = 0;
+    for (let batch = 0; batch < 10; batch++) {
+      const result = this._transaction(() => {
+        this._assertCoreOwner();
+        const rows = this.db.prepare(`SELECT * FROM media_probe_attempts WHERE ${stale}
+          ORDER BY job_id,attempt_no,id LIMIT 100`).all(this.instanceEpoch);
+        if (rows.length === 0) return { attempts: 0, jobs: 0 };
+        const commandId = uuidv7(); const now = nowUtcUs();
+        const scope = { attempt_ids: rows.map(row => row.id), logical_only: true };
+        this.db.prepare(`INSERT INTO commands
+          (id,studio_id,actor_id,command_type,schema_version,scope_type,payload_json,expected_versions_json,
+            reversibility,status,created_at_utc_us,started_at_utc_us)
+          VALUES (?,?,?,'PREPARED_RECONCILE_MEDIA_PROBE_V1',1,'SYSTEM',?,'{}','COMPENSATABLE','EXECUTING',?,?)`).run(
+          commandId, this.studioId, this.actorId, json(scope), now, now);
+        let changedJobs = 0;
+        for (const row of rows) {
+          const job = this.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(row.job_id);
+          if (!job) throw new CoreError('PROBE_RECOVERY_INCONSISTENT', 'CONFLICT', 'errors.media_probe_identity_unknown', {});
+          const changed = this.db.prepare(`UPDATE media_probe_attempts SET state='ABANDONED',row_version=row_version+1,
+            updated_at_utc_us=? WHERE id=? AND row_version=? AND ${stale}`).run(now, row.id, row.row_version, this.instanceEpoch);
+          if (Number(changed.changes) !== 1) throw new CoreError('PROBE_RECOVERY_STALE', 'CONFLICT', 'errors.media_probe_identity_unknown', {});
+          this.db.prepare(`INSERT INTO command_impacts(command_id,entity_type,entity_id,impact_type,severity,details_json)
+            VALUES (?,'MEDIA_PROBE_ATTEMPT',?,'FENCES','MEDIUM',?)`).run(commandId, row.id, json({ logical_only: true, physical_teardown: 'UNKNOWN' }));
+          this._insertEvent({ aggregateType: 'MEDIA_PROBE_ATTEMPT', aggregateId: row.id, aggregateVersion: row.row_version + 1,
+            eventType: 'MEDIA_PROBE_ATTEMPT_ABANDONED', payload: { project_id: job.project_id, job_id: job.id, attempt_id: row.id,
+              previous_state: row.state, state: 'ABANDONED', logical_only: true, physical_teardown: 'UNKNOWN' } },
+          commandId, this.actorId, job.correlation_id, job.command_id);
+          const ownsPointer = job.current_attempt_id === row.id;
+          const missingPointer = job.current_attempt_id === null
+            && (job.state !== 'UNKNOWN' || job.fencing_token !== null || job.needs_user !== 1);
+          if (activeJobs.has(job.state) && (ownsPointer || missingPointer)) {
+            const updated = this.db.prepare(`UPDATE media_probe_jobs SET state='UNKNOWN',current_attempt_id=NULL,fencing_token=NULL,
+              needs_user=1,next_step='CineForge đã khởi động lại; chưa xác nhận kết quả lượt trước. Kiểm tra evidence và runtime trước khi chạy lại.',
+              row_version=row_version+1,updated_at_utc_us=? WHERE id=? AND row_version=?`).run(now, job.id, job.row_version);
+            if (Number(updated.changes) !== 1) throw new CoreError('PROBE_RECOVERY_STALE', 'CONFLICT', 'errors.media_probe_identity_unknown', {});
+            this.db.prepare(`INSERT INTO command_impacts(command_id,entity_type,entity_id,impact_type,severity,details_json)
+              VALUES (?,'MEDIA_PROBE_JOB',?,'FENCES','MEDIUM',?)`).run(commandId, job.id, json({ logical_only: true, physical_teardown: 'UNKNOWN' }));
+            this._insertEvent({ aggregateType: 'MEDIA_PROBE_JOB', aggregateId: job.id, aggregateVersion: job.row_version + 1,
+              eventType: 'MEDIA_PROBE_JOB_RECOVERY_UNKNOWN', payload: { project_id: job.project_id, job_id: job.id, attempt_id: row.id,
+                previous_state: job.state, state: 'UNKNOWN', logical_only: true, physical_teardown: 'UNKNOWN' } },
+            commandId, this.actorId, job.correlation_id, job.command_id);
+            changedJobs++;
+          }
+        }
+        this._assertCoreOwner();
+        this._insertAudit({ actionType: 'media_probe.reconcile_attempts', targetType: 'MEDIA_PROBE_RECOVERY', targetId: commandId,
+          payload: { ...scope, changed_jobs: changedJobs, physical_teardown: 'UNKNOWN' } }, commandId, this.actorId, 'SUCCEEDED');
+        this.db.prepare("UPDATE commands SET status='SUCCEEDED',finished_at_utc_us=?,result_json=? WHERE id=?").run(
+          now, json({ reconciled_attempts: rows.length, changed_jobs: changedJobs, logical_only: true, physical_teardown: 'UNKNOWN' }), commandId);
+        return { attempts: rows.length, jobs: changedJobs };
+      });
+      if (result.attempts === 0) break;
+      attempts += result.attempts; jobs += result.jobs; batches++;
+    }
+    this._assertCoreOwner();
+    this.#mediaProbeRecoveryReady = !this.db.prepare(`SELECT id FROM media_probe_attempts WHERE ${stale} LIMIT 1`).get(this.instanceEpoch);
+    return Object.freeze({ reconciled_attempts: attempts, changed_jobs: jobs, batches, ready: this.#mediaProbeRecoveryReady });
   }
 
   _jobRow(jobId) {
@@ -4488,6 +4558,7 @@ export class CoreService {
   prepareMediaProbeAttempt(request) {
     const fail = code => { throw new CoreError(code, 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
     if (this._closed || !this.db) fail('PROBE_CORE_CLOSED');
+    if (!this.#mediaProbeRecoveryReady) fail('PROBE_RECOVERY_REQUIRED');
     if (!request || typeof request !== 'object' || Array.isArray(request)) fail('INVALID_ARGUMENT');
     this._mediaProbeFields(request, ['project_id', 'job_id', 'expected_version', 'idempotency_key']);
     for (const field of ['project_id', 'job_id', 'idempotency_key']) this._mediaProbeId(request[field], field);

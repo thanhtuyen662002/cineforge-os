@@ -3081,3 +3081,12 @@ does not mean DISPATCHING or RUNNING. Current blocked public intents cannot
 enter this lane. Exact replay is read-only after current authority checks and
 requires the same CREATED attempt, pointer/fence and Core owner. A restarted
 owner cannot replay an old reservation; no automatic retry is introduced.
+
+# STATE-MEDIA-PROBE-RECOVERY-01. Logical retirement after restart
+
+Foreign/null-epoch non-terminal attempt becomes ABANDONED. If it owns the
+active job pointer, clear pointer/fence and move job to UNKNOWN with needs_user.
+CANCEL_REQUESTED also becomes UNKNOWN; physical cancellation is not confirmed.
+Terminal job/evidence/metadata and current-owner attempts stay unchanged.
+No attempt is queued automatically. Private admission is blocked until the
+bounded reconciliation has no remaining stale non-terminal attempts.

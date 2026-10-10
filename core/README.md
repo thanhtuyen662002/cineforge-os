@@ -608,3 +608,24 @@ scope/time/trust/source/rights/owner failures, final audit rollback and stale
 attempt/job fencing. These keys do not certify real ffprobe. Production trust
 provisioning/time/recovery, dispatch/retry/reconciliation, raw evidence and
 canonical binding plus independent review remain required; maturity is unchanged.
+
+## Prepared startup media-probe recovery
+
+Owned Core startup calls `reconcileMediaProbeAttempts` before enabling private
+reservation. Foreign/null-epoch non-terminal attempts become ABANDONED; affected
+active jobs become UNKNOWN with retired pointer/fence and a human next step.
+Authorization/identity/fence/observations, historical evidence and completed
+metadata remain unchanged. Current-owner live work is preserved. No process
+stop, cancellation confirmation, cleanup, retry or PASS is inferred.
+
+Each exact transaction processes at most 100 attempts with versioned
+command/impacts/events/audit; each invocation processes at most ten batches.
+Failure rolls back the batch, and backlog/failure blocks private reservation
+until internal recovery finishes. There is no HTTP/RPC recovery mutation.
+Core epoch reuse is already rejected by durable database uniqueness.
+
+Run `node --test core/media-probe.test.mjs`. Tests cover every interrupted
+phase/cancel intent, immutable history, terminal/noncurrent/current-owner work,
+audit rollback, bounded backlog/resume and idempotent reopen. Physical teardown,
+fresh explicit retry, native dispatch/raw-evidence custody/binding, real trusted
+authority/time and independent review remain required before a public probe runs.

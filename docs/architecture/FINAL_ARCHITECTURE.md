@@ -2449,3 +2449,19 @@ CREATED attempt; expired, stale-owner or superseded receipts cannot dispatch.
 Blocked intents are never silently resumed. This internal reservation neither
 starts a process nor binds metadata; public command/bootstrap activation is
 still absent pending the native dispatch/reconciliation/binding integration.
+
+# ARCH-MEDIA-PROBE-RECOVERY-01. Prepared startup fencing
+
+An owned Core reconciles non-terminal media attempts from a foreign or missing
+Core epoch before admitting a new private reservation. It marks them ABANDONED
+without changing their identity/fence/authorization or historical evidence.
+Only the affected active job pointer is retired; its state becomes UNKNOWN
+with needs_user and a next step. Completed/cancelled/terminal jobs and a current
+owner's live attempt remain intact. No original/canon/metadata is changed.
+
+Logical retirement is not physical teardown evidence or successful cancellation.
+No process, retry, cleanup or new authorization is launched. Core epoch reuse
+is already forbidden by the unique durable core_instances.instance_epoch.
+Bounded exact batches journal versioned command/impacts/events/audit atomically;
+failure or an unprocessed backlog blocks the reservation lane while allowing
+read/recovery. Physical reconciliation and explicit fresh retry remain required.

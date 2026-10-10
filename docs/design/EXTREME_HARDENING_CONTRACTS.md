@@ -7910,3 +7910,15 @@ No failed check may insert authorization/attempt/command/event/audit or advance
 the job. Trust/paths in a request and handle/RPC entry are rejected. No process
 or metadata is produced; fixture signatures do not certify real ffprobe or
 trusted production time/recovery. Public blocked admission must stay unchanged.
+
+# MEDIA-PROBE-RECOVERY-TEST-01. Stale-owner and interrupted reconciliation
+
+Exercise actual owned Core restart from every non-terminal probe phase and
+CANCEL_REQUESTED; retire old pointers/fences without changing authorization,
+source bytes, historical evidence or terminal/canonical data. Same-owner live
+and noncurrent/terminal histories remain safe; configured epoch reuse must
+fail existing durable uniqueness. Reopening/reconciling is idempotent.
+Inject final audit failure and backlog pressure: no partial batch mutation,
+reservation blocked until recovery completes, current owner rechecked, exact
+bounded scope and no fake process-stop/PASS/cancel/retry/cleanup observations.
+Verify packaged EXE startup against an actual older prepared reservation DB.
