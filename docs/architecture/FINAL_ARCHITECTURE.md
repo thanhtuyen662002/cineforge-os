@@ -2465,3 +2465,27 @@ is already forbidden by the unique durable core_instances.instance_epoch.
 Bounded exact batches journal versioned command/impacts/events/audit atomically;
 failure or an unprocessed backlog blocks the reservation lane while allowing
 read/recovery. Physical reconciliation and explicit fresh retry remain required.
+
+# ARCH-MEDIA-PROBE-CORE-DISPATCH-01. Prepared private native dispatch
+
+An internal identity-only Core method may consume one same-owner CREATED
+reservation through the exact native broker. The broker descriptor is a private
+startup callback, never HTTP/request data. Revalidate current signed authority,
+source/location, rights, project, version, pointer and fence before journaling
+DISPATCHING and before accepting STARTED. Pin the broker session and fixed
+resource limits; estimate private-copy storage before dispatch. Core resolves
+the canonical managed object and the hash-bound startup manifest binary paths.
+
+Only authenticated STARTED means EXECUTING/RUNNING. Every transition is an
+atomic audited command continuation with exact scope and versions. Closing the
+Core aborts its outstanding private broker requests. A stale callback cannot
+advance a replaced job/attempt/owner. Recheck authority and rights after native
+completion; raw producer observations never imply metadata PASS.
+
+This preparation ends the unbound attempt ABANDONED and job UNKNOWN, retaining
+hashes and bounded resource counts when transport evidence is valid. Physical
+STOPPED is recorded only from authenticated native tree-stop evidence. Lost
+transport or failed authority remains UNKNOWN. No automatic retry, cleanup,
+public activation, metadata binding or certified-pack claim is introduced.
+Native/broker paths remain proposed task-scope extensions, pending trusted
+custody/contract and independent review; registry maturity stays SPECIFIED.

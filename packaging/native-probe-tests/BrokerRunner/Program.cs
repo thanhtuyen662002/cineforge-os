@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 
 if (!OperatingSystem.IsWindows()) throw new InvalidOperationException("Windows lane required.");
-if (args.Length != 4) throw new InvalidOperationException("Supply exact node.exe, client script, fixture EXE and evidence directory.");
+if (args.Length is not (4 or 5)) throw new InvalidOperationException("Supply exact node.exe, client script, fixture EXE, evidence directory and optional case filter.");
 var node = Path.GetFullPath(args[0]); var script = Path.GetFullPath(args[1]); var fixture = Path.GetFullPath(args[2]);
 var output = Path.GetFullPath(args[3]); Directory.CreateDirectory(output);
 var root = Path.Combine(output, "broker fixture " + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
@@ -23,7 +23,9 @@ try
         catch (InvalidOperationException failure) { rejected = failure.Message == "PROBE_BROKER_ENDPOINT_REJECTED"; }
         Require(rejected, "Pre-existing pipe was reused."); reports.Add(new { name = "ENDPOINT_COLLISION", rejected });
     }
-    foreach (var mode in new[] { "GOOD", "CANCEL", "DISCONNECT", "WRONG_KEY", "WRONG_PID", "STALE_SESSION", "WRONG_CANCEL", "REPLAY", "BAD_LENGTH" })
+    var modes = new[] { "GOOD", "CANCEL", "DISCONNECT", "WRONG_KEY", "WRONG_PID", "STALE_SESSION", "WRONG_CANCEL", "REPLAY", "BAD_LENGTH", "CORE_GOOD", "CORE_RIGHTS", "CORE_AUDIT", "CORE_CLOSE", "CORE_STALE", "CORE_TERMINAL_AUDIT", "CORE_SOURCE_SWAP" };
+    if (args.Length == 5 && !modes.Contains(args[4])) throw new InvalidOperationException("Unknown fixture case.");
+    foreach (var mode in modes.Where(mode => args.Length == 4 || mode == args[4]))
     {
         var pipeName = "CineForge.MediaProbe." + Hash(RandomNumberGenerator.GetBytes(32));
         var attempt = Guid.NewGuid().ToString(); var source = Path.Combine(root, "source-" + attempt + ".txt");
@@ -38,7 +40,7 @@ try
             budgets = new { wall_time_ms = 10000, stdout_limit = 65536, stderr_limit = 65536, memory_limit = 536870912 } };
         using var broker = new NativeProbeBroker(pipeName, key, identity);
         var start = new ProcessStartInfo(node) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        start.ArgumentList.Add(script);
+        start.ArgumentList.Add("--disable-warning=ExperimentalWarning"); start.ArgumentList.Add(script);
         start.Environment["CINEFORGE_TEST_BROKER"] = JsonSerializer.Serialize(new { pipe_name = pipeName, broker_process_id = Environment.ProcessId,
             installation_id = identity.InstallationId, library_id = identity.LibraryId, core_epoch = identity.CoreEpoch,
             session_id = identity.SessionId, key_hex = Convert.ToHexString(key).ToLowerInvariant(), request, mode });
@@ -51,8 +53,19 @@ try
         catch { client.Kill(true); throw; }
         using var clientReport = JsonDocument.Parse(await stdout);
         Console.WriteLine($"{mode}: {observed.Code}, peer={observed.PeerVerified}, auth={observed.Authenticated}, native={observed.Observation?.Code}, phase={observed.Observation?.Phase}, client={clientReport.RootElement.GetRawText()}");
-        Require(client.ExitCode == 0 && (await stderr).Length == 0, "Fixture client failed.");
-        if (mode == "GOOD") Require(observed.Code == "PROBE_BROKER_OBSERVED" && observed.PeerVerified && observed.Authenticated
+        var clientErrors = await stderr;
+        Require(client.ExitCode == 0 && clientErrors.Length == 0, "Fixture client failed: " + clientErrors);
+        if (mode.StartsWith("CORE_"))
+        {
+            Require(clientReport.RootElement.GetProperty("core_dispatch").GetString() == "PASS"
+                && observed.PeerVerified && observed.Authenticated && observed.Observation is { ProfileReleased: true }, "Core/native integration failed.");
+            if (mode == "CORE_SOURCE_SWAP") Require(observed.Code == "PROBE_BROKER_OBSERVED"
+                && observed.Observation is { Code: "PROBE_FILE_HASH_MISMATCH", ExitCode: null, AppContainerVerified: false }, "Source substitution launched native work.");
+            else Require(observed.Observation is { TreeStopped: true }, "Core native tree remains unresolved.");
+            if (mode is "CORE_GOOD" or "CORE_RIGHTS" or "CORE_STALE" or "CORE_TERMINAL_AUDIT") Require(observed.Code == "PROBE_BROKER_OBSERVED"
+                && observed.Observation is { Code: "PROBE_PROCESS_STOPPED", ExitCode: 0, AppContainerVerified: true }, "Core native result missing.");
+        }
+        else if (mode == "GOOD") Require(observed.Code == "PROBE_BROKER_OBSERVED" && observed.PeerVerified && observed.Authenticated
             && observed.Observation is { TreeStopped: true, ExitCode: 0, AppContainerVerified: true, ProfileReleased: true }
             && clientReport.RootElement.GetProperty("code").GetString() == "PROBE_PROCESS_STOPPED", "Valid broker flow failed.");
         else if (mode == "CANCEL") Require(observed.Code == "PROBE_BROKER_OBSERVED"

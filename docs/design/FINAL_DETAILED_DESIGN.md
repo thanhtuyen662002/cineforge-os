@@ -894,3 +894,31 @@ Process at most 10 batches per invocation. If backlog remains or any batch
 fails, keep private reservation blocked as PROBE_RECOVERY_REQUIRED until a
 successful reconciliation. A later invocation may continue committed batches.
 Public blocked admission and metadata UNKNOWN remain unchanged.
+
+# DESIGN-MEDIA-PROBE-CORE-DISPATCH-01. Internal unbound execution lane
+
+dispatchMediaProbeAttempt accepts project_id, job_id, attempt_id,
+expected_version and idempotency_key only. The private startup broker callback
+supplies the exact authenticated descriptor; Core checks its epoch against the
+actual active owner and clones/zeros its key. No producer function is injected.
+The actual runNativeProbeBroker performs the Windows pipe exchange.
+
+Fresh attestation must exactly match the immutable reservation authorization,
+including validity interval and certification/policy floors. Resolve source
+only from its exact asset-store SHA-256 object path. Read the bounded canonical
+startup manifest again, require its hash to match, and pass only its pinned
+ffprobe path. Check safe non-reparse parent and available storage for source
+copy + exact verified binary copy + bounded stdout/stderr + fixed overhead;
+retained staging is not deleted.
+
+One active request per Core; concurrent/duplicate dispatch is rejected before
+mutation. One PREPARED_DISPATCH_MEDIA_PROBE_V1 command journals initial
+DISPATCHING, authenticated STARTED and terminal UNKNOWN with atomic impacts,
+events and audit. Replay never sends another request. Before-launch failures
+leave the reservation unchanged. Post-dispatch failure retains uncertainty,
+clears the active pointer/fence and logically retires the unbound attempt.
+Audit failure rolls back its transition and leaves restart recovery responsible.
+No raw paths, PID, pipe descriptor, key, stdout/stderr or native diagnostics are
+projected or placed in commands. Only digests, counts and typed failure codes
+are durable. Native observation binding and canonical metadata remain future
+integration, not implied by a successful process exit.

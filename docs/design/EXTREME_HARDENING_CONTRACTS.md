@@ -7922,3 +7922,13 @@ Inject final audit failure and backlog pressure: no partial batch mutation,
 reservation blocked until recovery completes, current owner rechecked, exact
 bounded scope and no fake process-stop/PASS/cancel/retry/cleanup observations.
 Verify packaged EXE startup against an actual older prepared reservation DB.
+
+# MEDIA-PROBE-CORE-DISPATCH-TEST-01. Actual Core/native integration fixtures
+
+Use owned Core databases and ephemeral signed fixture authority with the actual
+Windows Node pipe client, C# broker and AppContainer fake executable. Assert
+DISPATCHING is durable before send, EXECUTING only after STARTED, and UNKNOWN
+after unbound completion. Cover descriptor/authority/source/right/version
+rejection before mutation, duplicate/concurrent dispatch, transport loss, close,
+stale callbacks and audit rollback. No fake executable or fixture signing key
+certifies real ffprobe, trusted production time, metadata binding or closure.

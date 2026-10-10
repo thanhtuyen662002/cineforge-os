@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { canonicalJson } from './canonical.mjs';
 import { decodeBoundedMediaProbeJson } from './media-probe.mjs';
 
-// PREPARED private transport. Not imported by Core commands or HTTP.
+// PREPARED private transport. No public Core command or HTTP activation.
 export const MEDIA_PROBE_BROKER_VERSION = 'NATIVE_MEDIA_PROBE_BROKER_V1';
 const DOMAIN = Buffer.from('CINEFORGE_MEDIA_PROBE_BROKER_FRAME_V1\0');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -92,16 +92,23 @@ function observation(value) {
 }
 
 /** Called only by the reviewed Core dispatcher, never by an HTTP/UI action. */
+export function validateProbeBrokerDescriptor(descriptor) {
+  exact(descriptor, ['pipe_name', 'broker_process_id', 'installation_id', 'library_id', 'core_epoch', 'session_id', 'key']);
+  if (!matches(/^CineForge\.MediaProbe\.[0-9a-f]{64}$/, descriptor.pipe_name)
+    || !integer(descriptor.broker_process_id, 1, 4294967295)
+    || !(descriptor.key instanceof Uint8Array) || descriptor.key.byteLength !== 32
+    || !['installation_id', 'library_id', 'core_epoch', 'session_id'].every(field => matches(UUID, descriptor[field]))) {
+    fail('PROBE_BROKER_DESCRIPTOR_INVALID');
+  }
+}
+
 export async function runNativeProbeBroker({ descriptor, request, signal, onStarted } = {}) {
   let socket; let timer; let key;
   let cancel;
   try {
     if (process.platform !== 'win32') fail('PROBE_BROKER_PLATFORM_UNSUPPORTED');
     if (signal?.aborted) fail('PROBE_BROKER_CANCELLED_BEFORE_CONNECT');
-    exact(descriptor, ['pipe_name', 'broker_process_id', 'installation_id', 'library_id', 'core_epoch', 'session_id', 'key']);
-    if (!matches(/^CineForge\.MediaProbe\.[0-9a-f]{64}$/, descriptor.pipe_name)
-      || !integer(descriptor.broker_process_id, 1, 4294967295)
-      || !(descriptor.key instanceof Uint8Array) || descriptor.key.byteLength !== 32) fail('PROBE_BROKER_DESCRIPTOR_INVALID');
+    validateProbeBrokerDescriptor(descriptor);
     key = Buffer.from(descriptor.key);
     const common = { contract: MEDIA_PROBE_BROKER_VERSION, installation_id: descriptor.installation_id,
       library_id: descriptor.library_id, core_epoch: descriptor.core_epoch, session_id: descriptor.session_id,

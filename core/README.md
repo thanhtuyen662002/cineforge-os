@@ -629,3 +629,20 @@ phase/cancel intent, immutable history, terminal/noncurrent/current-owner work,
 audit rollback, bounded backlog/resume and idempotent reopen. Physical teardown,
 fresh explicit retry, native dispatch/raw-evidence custody/binding, real trusted
 authority/time and independent review remain required before a public probe runs.
+
+### Prepared internal native dispatch
+
+`dispatchMediaProbeAttempt` consumes an exact same-owner private reservation
+through `runNativeProbeBroker`, never a caller-supplied producer. The startup
+broker callback is absent by default and no HTTP/RPC method enables it.
+Current signed trust, rights, managed source and pointer/version/fence are
+rechecked. Core journals DISPATCHING before send; authenticated STARTED alone
+can journal EXECUTING. The command records the private source/binary-copy and
+bounded-output storage estimate without paths or credentials.
+
+The current unbound lane ends ABANDONED/UNKNOWN, retaining valid observation
+digests/counts. It never inserts canonical metadata/PASS evidence or retries.
+Transport uncertainty, stale callbacks, audit failure and closing Core remain
+auditable/recoverable through the existing startup retirement. Native fixture
+integration uses a fake executable and ephemeral test signer; it does not
+certify ffprobe or promote SPECIFIED controls or production closure.

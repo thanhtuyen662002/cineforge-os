@@ -3090,3 +3090,13 @@ CANCEL_REQUESTED also becomes UNKNOWN; physical cancellation is not confirmed.
 Terminal job/evidence/metadata and current-owner attempts stay unchanged.
 No attempt is queued automatically. Private admission is blocked until the
 bounded reconciliation has no remaining stale non-terminal attempts.
+
+# STATE-MEDIA-PROBE-CORE-DISPATCH-01. Prepared unbound observation
+
+Same-owner CREATED/CLAIMED becomes DISPATCHING/CLAIMED after the durable command.
+Authenticated STARTED advances EXECUTING/RUNNING. An unbound terminal response
+or channel failure retires the attempt as ABANDONED and clears its active job
+pointer/fence into UNKNOWN with needs_user. Native process success is not
+metadata success. If a callback is stale or its atomic audit fails, it makes no
+transition; existing startup recovery fences interrupted phases. Replay never
+launches another process and no retry is queued automatically.

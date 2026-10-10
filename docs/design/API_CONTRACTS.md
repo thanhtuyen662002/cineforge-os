@@ -4416,3 +4416,14 @@ reconciled_attempts, changed_jobs, batches and ready. Its bounded internal
 command scope is the exact selected attempt IDs, not an arbitrary bulk request.
 prepareMediaProbeAttempt fails PROBE_RECOVERY_REQUIRED while reconciliation
 is incomplete. There is no HTTP/RPC method, retry permission or PASS receipt.
+
+# API-MEDIA-PROBE-CORE-DISPATCH-01. Private dispatcher receipt
+
+No HTTP/RPC route exposes dispatchMediaProbeAttempt. Its identity-only request
+contains project_id, job_id, attempt_id, expected_version and idempotency_key.
+The frozen PREPARED_MEDIA_PROBE_DISPATCH_V1 receipt contains UNKNOWN state,
+job/attempt IDs, job version, typed code, execution_started and physical_tree
+(STOPPED or UNKNOWN). It contains no broker credentials, paths, PID, producer
+output, signature or metadata. A successful receipt is an unbound observation,
+not a certification or permission for render/export/release. Active duplicate
+requests fail closed; completed exact replay is read-only and never dispatches.

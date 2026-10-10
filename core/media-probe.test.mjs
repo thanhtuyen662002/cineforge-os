@@ -724,6 +724,90 @@ function reservationFixture(t, changes = () => {}) {
   return { ...f, control, options, toolRoot, manifest,
     request: { project_id: f.job.project_id, job_id: f.job.id, expected_version: 1, idempotency_key: 'reserve-1' } };
 }
+
+function dispatchFixture(t, change = () => {}) {
+  const descriptor = { pipe_name: 'CineForge.MediaProbe.' + 'a'.repeat(64), broker_process_id: process.pid,
+    installation_id: crypto.randomUUID(), library_id: crypto.randomUUID(), core_epoch: crypto.randomUUID(),
+    session_id: crypto.randomUUID(), key: Buffer.alloc(32, 11) };
+  const f = reservationFixture(t, (c, o) => {
+    o.probePins.id = crypto.randomUUID();
+    o.coreOptions.instanceEpoch = descriptor.core_epoch;
+    o.coreOptions.mediaProbeBrokerSource = () => descriptor;
+    change(c, o, descriptor);
+  });
+  const receipt = f.core.prepareMediaProbeAttempt(f.request);
+  return { ...f, descriptor, dispatchRequest: { project_id: f.job.project_id, job_id: f.job.id,
+    attempt_id: receipt.attempt_id, expected_version: receipt.job_version, idempotency_key: 'dispatch-fixture' } };
+}
+
+test('private Core dispatcher rejects injected fields and stale identities before journaling', { skip: process.platform !== 'win32' }, async t => {
+  const f = dispatchFixture(t); const before = reservationSnapshot(f);
+  for (const field of ['descriptor', 'argv', 'source_path', 'signal', 'producer', 'trustContext']) {
+    await assert.rejects(f.core.dispatchMediaProbeAttempt({ ...f.dispatchRequest, [field]: 'private-secret' }), { code: 'INVALID_ARGUMENT' });
+  }
+  await assert.rejects(f.core.dispatchMediaProbeAttempt({ ...f.dispatchRequest, expected_version: 1 }), { code: 'STALE_REVISION' });
+  await assert.rejects(f.core.dispatchMediaProbeAttempt({ ...f.dispatchRequest, attempt_id: crypto.randomUUID() }), { code: 'PROBE_DISPATCH_STALE' });
+  const response = f.core.handle({ api_version: '1', request_id: 'no-dispatch-rpc', method: 'dispatchMediaProbeAttempt', params: f.dispatchRequest });
+  assert.equal(response.ok, false); assert.deepEqual(reservationSnapshot(f), before);
+});
+
+test('private Core dispatcher requires a current startup broker descriptor', { skip: process.platform !== 'win32' }, async t => {
+  const f = dispatchFixture(t); const before = reservationSnapshot(f);
+  f.descriptor.core_epoch = crypto.randomUUID();
+  await assert.rejects(f.core.dispatchMediaProbeAttempt(f.dispatchRequest), { code: 'PROBE_BROKER_SESSION_MISMATCH' });
+  f.descriptor.core_epoch = f.core.instanceEpoch; f.descriptor.key = Buffer.alloc(31);
+  await assert.rejects(f.core.dispatchMediaProbeAttempt(f.dispatchRequest), { code: 'PROBE_BROKER_DESCRIPTOR_INVALID' });
+  assert.deepEqual(reservationSnapshot(f), before);
+});
+
+test('private Core dispatcher rechecks signed authority and exact managed location', { skip: process.platform !== 'win32' }, async t => {
+  const f = dispatchFixture(t); f.control.revoked = true;
+  let before = reservationSnapshot(f);
+  await assert.rejects(f.core.dispatchMediaProbeAttempt(f.dispatchRequest), { code: 'PROBE_ATTESTATION_REVOKED' });
+  assert.deepEqual(reservationSnapshot(f), before);
+  f.control.revoked = false;
+  f.db.prepare("UPDATE storage_object_locations SET relative_path='escape/fixture' WHERE id=?").run(f.location.id);
+  before = reservationSnapshot(f);
+  await assert.rejects(f.core.dispatchMediaProbeAttempt(f.dispatchRequest), { code: 'PROBE_SOURCE_STALE' });
+  assert.deepEqual(reservationSnapshot(f), before);
+});
+
+test('private Core dispatcher journals transport failure as UNKNOWN and never redispatches replay', { skip: process.platform !== 'win32' }, async t => {
+  const f = dispatchFixture(t);
+  const receipt = await f.core.dispatchMediaProbeAttempt(f.dispatchRequest);
+  assert.equal(receipt.state, 'UNKNOWN'); assert.equal(receipt.execution_started, false); assert.equal(receipt.physical_tree, 'UNKNOWN');
+  assert.equal(f.db.prepare('SELECT state FROM media_probe_attempts WHERE id=?').get(receipt.attempt_id).state, 'ABANDONED');
+  const job = f.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(f.job.id);
+  assert.equal(job.state, 'UNKNOWN'); assert.equal(job.current_attempt_id, null); assert.equal(job.fencing_token, null); assert.equal(job.needs_user, 1);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_evidence').get().n, 0);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM technical_metadata').get().n, 0);
+  const before = reservationSnapshot(f);
+  assert.deepEqual(await f.core.dispatchMediaProbeAttempt(f.dispatchRequest), receipt);
+  assert.deepEqual(reservationSnapshot(f), before);
+  await assert.rejects(f.core.dispatchMediaProbeAttempt({ ...f.dispatchRequest, expected_version: 7 }), { code: 'IDEMPOTENCY_KEY_REUSE_CONFLICT' });
+  const command = f.db.prepare("SELECT payload_json,result_json FROM commands WHERE command_type='PREPARED_DISPATCH_MEDIA_PROBE_V1'").get();
+  assert.equal(JSON.stringify(command).includes(f.directory), false); assert.equal(JSON.stringify(command).includes(f.descriptor.pipe_name), false);
+});
+
+test('private Core dispatcher rolls back a failed initial audit without consuming the reservation', { skip: process.platform !== 'win32' }, async t => {
+  const f = dispatchFixture(t);
+  f.db.exec("CREATE TRIGGER fixture_dispatch_audit_failure BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.dispatch_dispatching' BEGIN SELECT RAISE(ABORT,'fixture dispatch audit failure'); END;");
+  const before = reservationSnapshot(f);
+  await assert.rejects(f.core.dispatchMediaProbeAttempt(f.dispatchRequest), /fixture dispatch audit failure/);
+  assert.deepEqual(reservationSnapshot(f), before);
+});
+
+test('private Core dispatcher estimates binary and source copy storage before consuming reservation', { skip: process.platform !== 'win32' }, async t => {
+  const f = dispatchFixture(t); const before = reservationSnapshot(f);
+  const statfs = fs.statfsSync;
+  // Enough for the source/output allowance alone, but not the verified binary.
+  const base = BigInt(f.job.source_byte_size) + 8388608n + 1048576n + 16777216n;
+  fs.statfsSync = () => ({ bavail: base, bsize: 1n });
+  try {
+    await assert.rejects(f.core.dispatchMediaProbeAttempt(f.dispatchRequest), { code: 'PROBE_STORAGE_INSUFFICIENT' });
+  } finally { fs.statfsSync = statfs; }
+  assert.deepEqual(reservationSnapshot(f), before);
+});
 const reservationTables = ['media_probe_authorizations', 'media_probe_attempts', 'media_probe_evidence', 'technical_metadata',
   'commands', 'command_impacts', 'domain_events', 'audit_records', 'media_probe_jobs'];
 function reservationSnapshot(f) {

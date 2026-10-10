@@ -11,7 +11,10 @@ const { key_hex, request, mode, ...fields } = config;
 const descriptor = { ...fields, key: Buffer.from(mode === 'WRONG_KEY' ? '00'.repeat(32) : key_hex, 'hex') };
 let socket;
 try {
-  if (['GOOD', 'CANCEL', 'DISCONNECT', 'WRONG_KEY', 'WRONG_PID'].includes(mode)) {
+  if (mode.startsWith('CORE_')) {
+    const { exerciseCoreDispatch } = await import('./core-dispatch-client.mjs');
+    console.log(JSON.stringify(await exerciseCoreDispatch(descriptor, config)));
+  } else if (['GOOD', 'CANCEL', 'DISCONNECT', 'WRONG_KEY', 'WRONG_PID'].includes(mode)) {
     const controller = new AbortController();
     const result = await runNativeProbeBroker({ descriptor, request, signal: controller.signal, onStarted() {
       if (mode === 'CANCEL') controller.abort();
@@ -41,6 +44,7 @@ try {
     console.log(JSON.stringify({ rejected: true }));
   }
 } catch (error) {
+  if (mode.startsWith('CORE_')) { console.error(error); process.exitCode = 1; }
   const code = error.code?.startsWith('PROBE_') ? error.code : 'PROBE_BROKER_UNAVAILABLE';
   console.log(JSON.stringify({ code, rejected: true }));
 } finally { socket?.destroy(); descriptor.key.fill(0); }
