@@ -187,9 +187,9 @@ test('coarse clock ticks and a one-frame count contradiction cannot hide timing 
   rejection(enormousFrame, 'PROBE_FRAME_COUNT_CONFLICT', 'CONFLICT');
 });
 
-function command(core, command_type, payload, idempotency_key) {
+function command(core, command_type, payload, idempotency_key, expected_versions = {}) {
   return core.handle({ request_id: idempotency_key, api_version: '1', method: 'command.execute',
-    params: { command_type, payload, expected_versions: {}, idempotency_key } });
+    params: { command_type, payload, expected_versions, idempotency_key } });
 }
 function insert(db, table, row) {
   const names = Object.keys(row);
@@ -221,7 +221,7 @@ function persistenceFixture(Core = CoreService, options = {}) {
   }
   const location = db.prepare('SELECT l.id,l.storage_object_id FROM storage_object_locations l JOIN asset_revisions r ON r.storage_object_id=l.storage_object_id WHERE r.id=?').get(revision.id);
   const cmd = db.prepare("SELECT * FROM commands WHERE project_id=? AND command_type='ImportAsset'").get(project.result.id);
-  insert(db, 'commands', { ...cmd, id: 'probe-command', command_type: 'ProbeMediaAsset', status: 'EXECUTING',
+  if (options.seedQueuedJob !== false) insert(db, 'commands', { ...cmd, id: 'probe-command', command_type: 'ProbeMediaAsset', status: 'EXECUTING',
     payload_json: JSON.stringify({ asset_revision_id: revision.id }), idempotency_key: 'probe-command-fixture' });
   const stamp = Date.now() * 1000;
   const job = { id: 'probe-job', project_id: project.result.id, asset_revision_id: revision.id,
@@ -233,7 +233,7 @@ function persistenceFixture(Core = CoreService, options = {}) {
     idempotency_key: 'schema-job', correlation_id: 'schema-correlation', state: 'QUEUED',
     next_step: 'Chờ kiểm thử', created_at_utc_us: stamp, updated_at_utc_us: stamp, ...options.probePins };
   if (options.withRights) job.rights_generation = core._mediaProbeRights(imported.result.asset.id).generation;
-  insert(db, 'media_probe_jobs', job);
+  if (options.seedQueuedJob !== false) insert(db, 'media_probe_jobs', job);
   return { core, db, job, stamp, location, directory, close() {
     core.close();
     assert.ok(path.resolve(directory).startsWith(path.join(os.tmpdir(), 'cineforge-probe-db-')));
@@ -625,7 +625,7 @@ test('schema 23 preserves actual v22 history without inventing authorization or 
       const before = Object.fromEntries(tables.map(table => [table, f.db.prepare(`SELECT * FROM ${table}`).all()]));
       const genericJobsSql = f.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").get().sql;
       initializeDatabase(f.db); initializeDatabase(f.db);
-      assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, 23);
+      assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, SCHEMA_VERSION);
       for (const table of tables) {
         const rows = f.db.prepare(`SELECT * FROM ${table}`).all();
         assert.equal(rows.length, before[table].length);
@@ -724,6 +724,135 @@ function reservationFixture(t, changes = () => {}) {
   return { ...f, control, options, toolRoot, manifest,
     request: { project_id: f.job.project_id, job_id: f.job.id, expected_version: 1, idempotency_key: 'reserve-1' } };
 }
+
+test('schema 24 upgrades actual v23 journals without backfill and rejects underspecified private admission owners', async t => {
+  const modules = fs.mkdtempSync(path.join(os.tmpdir(),'cineforge-schema-v23-admission-'));
+  let f;
+  try {
+    for(const name of ['core.mjs','schema.mjs']) {
+      const historical=execFileSync('git',['show',`ea2c959de8160cb38769904f7fd16ee3f47ef771:core/${name}`],{encoding:'utf8',windowsHide:true});
+      fs.writeFileSync(path.join(modules,name),historical.replace(/from (['"])(\.\/[^'"]+)\1/g,(_m,_q,specifier)=>
+        'from '+JSON.stringify((specifier==='./schema.mjs'?pathToFileURL(path.join(modules,'schema.mjs')):new URL(specifier,import.meta.url)).href)));
+    }
+    const old=await import(pathToFileURL(path.join(modules,'core.mjs')).href);f=persistenceFixture(old.CoreService);
+    assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v,23);
+    accepted(f);insert(f.db,'technical_metadata_streams',stream());
+    f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run();
+    const tables=['media_probe_jobs','media_probe_attempts','media_probe_authorizations','media_probe_evidence',
+      'technical_metadata','technical_metadata_streams','commands','audit_records','domain_events'];
+    const before=Object.fromEntries(tables.map(table=>[table,f.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+    initializeDatabase(f.db);initializeDatabase(f.db);
+    assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v,24);
+    for(const table of tables)assert.deepEqual(f.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),before[table],table);
+    const original=f.db.prepare("SELECT * FROM commands WHERE id='probe-command'").get();
+    insert(f.db,'commands',{...original,id:'underspecified-private-owner',command_type:'PREPARED_ADMIT_MEDIA_PROBE_V1',
+      idempotency_key:'private-owner-invalid',scope_type:'ASSET_REVISION',scope_id:f.job.asset_revision_id});
+    assert.throws(()=>insert(f.db,'media_probe_jobs',{...f.job,id:'invalid-private-owned-job',command_id:'underspecified-private-owner',
+      idempotency_key:'invalid-private-owned-job'}),/source\/command scope mismatch/);
+    assert.equal(f.db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');
+  }finally{f?.close();assert.ok(path.resolve(modules).startsWith(path.join(os.tmpdir(),'cineforge-schema-v23-admission-')));fs.rmSync(modules,{recursive:true,force:true});}
+});
+
+function admissionFixture(t, change = () => {}) {
+  const f = reservationFixture(t,(control,options)=>{options.seedQueuedJob=false;change(control,options);});
+  const source = f.core._mediaProbeSource(f.job.project_id,f.job.asset_revision_id);
+  return {...f,admissionRequest:{project_id:source.project_id,asset_revision_id:source.id,content_hash:source.content_hash,
+    byte_size:source.byte_size,toolchain_manifest_hash:f.job.toolchain_manifest_hash,probe_schema_version:'MEDIA_PROBE_V1',
+    parser_policy_version:'MEDIA_PROBE_PARSER_V1',expected_version:source.row_version,idempotency_key:'admit-1'}};
+}
+
+test('Core admission creates one audited exact queue intent without SQL job seed then reserves fresh authority', t => {
+  const f = admissionFixture(t); assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_jobs').get().n,0);
+  const receipt = f.core.prepareMediaProbeAdmission(f.admissionRequest);
+  assert.equal(receipt.contract,'PREPARED_MEDIA_PROBE_ADMISSION_V1');assert.equal(receipt.state,'QUEUED');
+  assert.equal(receipt.execution_started,false);assert.equal(receipt.execution_available,false);
+  assert.ok(receipt.estimated_storage_bytes > f.admissionRequest.byte_size);assert.equal(receipt.job_version,1);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_attempts').get().n,0);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_authorizations').get().n,0);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_evidence').get().n,0);
+  const job = f.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(receipt.job_id);
+  const owner = f.db.prepare('SELECT * FROM commands WHERE id=?').get(job.command_id);
+  assert.equal(owner.command_type,'PREPARED_ADMIT_MEDIA_PROBE_V1');assert.equal(owner.status,'SUCCEEDED');
+  assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM audit_records WHERE command_id=? AND action_type='media_probe.admit_prepared'").get(owner.id).n,1);
+  assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM domain_events WHERE command_id=? AND event_type='MEDIA_PROBE_PREPARED_ADMITTED'").get(owner.id).n,1);
+  const before = reservationSnapshot(f); const loads = f.control.loads; f.control.throwOnLoad=true;
+  assert.deepEqual(f.core.prepareMediaProbeAdmission(f.admissionRequest),receipt);
+  assert.deepEqual(reservationSnapshot(f),before);assert.equal(f.control.loads,loads);
+  f.control.throwOnLoad=false;
+  assert.throws(()=>f.core.prepareMediaProbeAdmission({...f.admissionRequest,idempotency_key:'admit-duplicate'}),{code:'PROBE_JOB_ALREADY_ACTIVE'});
+  assert.deepEqual(reservationSnapshot(f),before);
+  assert.throws(()=>f.core.prepareMediaProbeAdmission({...f.admissionRequest,expected_version:f.admissionRequest.expected_version+1}),{code:'IDEMPOTENCY_KEY_REUSE_CONFLICT'});
+  const reserved = f.core.prepareMediaProbeAttempt({project_id:job.project_id,job_id:job.id,expected_version:1,idempotency_key:'reserve-admitted'});
+  assert.equal(reserved.contract,'PREPARED_MEDIA_PROBE_AUTHORIZATION_V1');assert.equal(reserved.execution_started,false);
+});
+
+for (const [name,changeRequest,setup] of [
+  ['stale asset version',r=>({...r,expected_version:r.expected_version+1})],
+  ['changed source hash',r=>({...r,content_hash:'0'.repeat(64)})],
+  ['changed source size',r=>({...r,byte_size:r.byte_size+1})],
+  ['changed manifest pin',r=>({...r,toolchain_manifest_hash:'0'.repeat(64)})],
+  ['unknown rights',r=>r,(c,o)=>{o.withRights=false;}],
+  ['invalid signature',r=>r,c=>{c.invalidSignature=true;}],
+  ['expired trust',r=>r,c=>{c.now+=300000;}],
+  ['caller verdict',r=>({...r,state:'PASS'})],
+  ['caller path',r=>({...r,source_path:'C:/untrusted.wav'})],
+]) {
+  test(`Core prepared admission rejects ${name} atomically`, t => {
+    const f = admissionFixture(t,setup); const before = reservationSnapshot(f);
+    assert.throws(()=>f.core.prepareMediaProbeAdmission(changeRequest(f.admissionRequest)));
+    assert.deepEqual(reservationSnapshot(f),before);assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM media_probe_jobs').get().n,0);
+  });
+}
+
+test('Core prepared admission rechecks domain after trust callback and preserves audit atomicity and storage gate', t => {
+  const f = admissionFixture(t); const before = reservationSnapshot(f);
+  f.control.onLoad=()=>f.db.prepare("UPDATE storage_object_locations SET state='MISSING' WHERE id=?").run(f.location.id);
+  assert.throws(()=>f.core.prepareMediaProbeAdmission(f.admissionRequest),{code:'PROBE_SOURCE_STALE'});
+  assert.deepEqual(reservationSnapshot(f),before);f.control.onLoad=undefined;
+  const originalStatfs=fs.statfsSync;
+  try { fs.statfsSync=()=>({bavail:0n,bsize:1n});
+    assert.throws(()=>f.core.prepareMediaProbeAdmission(f.admissionRequest),{code:'PROBE_STORAGE_INSUFFICIENT'});
+  } finally {fs.statfsSync=originalStatfs;}
+  assert.deepEqual(reservationSnapshot(f),before);
+  f.db.exec("CREATE TRIGGER fixture_admission_audit BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.admit_prepared' BEGIN SELECT RAISE(ABORT,'owned admission audit failure'); END;");
+  assert.throws(()=>f.core.prepareMediaProbeAdmission(f.admissionRequest));assert.deepEqual(reservationSnapshot(f),before);
+  f.db.exec('DROP TRIGGER fixture_admission_audit');
+  assert.equal(f.core.handle({api_version:'1',request_id:'no-private-admission-rpc',method:'prepareMediaProbeAdmission',params:f.admissionRequest}).ok,false);
+  const {expected_version,idempotency_key,...payload}=f.admissionRequest;
+  const blocked=command(f.core,'ProbeMediaAsset',payload,'public-still-blocked',{ASSET:expected_version});
+  assert.equal(blocked.ok,true);assert.equal(blocked.result.job.state,'BLOCKED_TOOLCHAIN');
+  const originalJob=f.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(blocked.result.job.id);
+  assert.equal(f.core.prepareMediaProbeAdmission(f.admissionRequest).state,'QUEUED');
+  assert.deepEqual(f.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(originalJob.id),originalJob);
+});
+
+for(const mode of ['changed bytes','hardlink alias']) {
+  test(`Core prepared admission rejects actual managed source ${mode}`,t=>{
+    const f=admissionFixture(t);const file=path.join(f.core.assetStorePath,f.core._objectRelativePath('SHA-256',f.admissionRequest.content_hash));
+    if(mode==='changed bytes'){fs.chmodSync(file,0o600);fs.writeFileSync(file,Buffer.alloc(f.admissionRequest.byte_size,1));}
+    else fs.linkSync(file,path.join(f.directory,'owned-source-alias.wav'));
+    const before=reservationSnapshot(f);
+    assert.throws(()=>f.core.prepareMediaProbeAdmission(f.admissionRequest),{code:'PROBE_SOURCE_STALE'});
+    assert.deepEqual(reservationSnapshot(f),before);
+  });
+}
+
+test('private admission rejects unsafe replay receipt and preserves missing fingerprint on restart',t=>{
+  const f=admissionFixture(t);const receipt=f.core.prepareMediaProbeAdmission(f.admissionRequest);
+  const owner=f.db.prepare('SELECT command_id FROM media_probe_jobs WHERE id=?').get(receipt.job_id).command_id;
+  f.db.prepare('UPDATE commands SET result_json=? WHERE id=?').run(JSON.stringify({...receipt,source_path:'C:/private/source.wav'}),owner);
+  const before=reservationSnapshot(f);const loads=f.control.loads;
+  assert.throws(()=>f.core.prepareMediaProbeAdmission(f.admissionRequest),{code:'PROBE_ADMISSION_STALE'});
+  assert.deepEqual(reservationSnapshot(f),before);assert.equal(f.control.loads,loads);
+  f.db.prepare('UPDATE commands SET result_json=?,idempotency_fingerprint=NULL WHERE id=?').run(JSON.stringify(receipt),owner);
+  const damaged=f.db.prepare('SELECT * FROM commands WHERE id=?').get(owner);f.core.close();
+  const reopened=new CoreService({dbPath:path.join(f.directory,'core.sqlite'),assetStorePath:path.join(f.directory,'store')});
+  try {
+    assert.deepEqual(reopened.db.prepare('SELECT * FROM commands WHERE id=?').get(owner),damaged);
+    assert.throws(()=>reopened.prepareMediaProbeAdmission(f.admissionRequest),{code:'IDEMPOTENCY_KEY_REUSE_CONFLICT'});
+    assert.equal(reopened.db.prepare('SELECT COUNT(*) AS n FROM media_probe_jobs').get().n,1);
+  }finally{reopened.close();}
+});
 
 function dispatchFixture(t, change = () => {}) {
   const descriptor = { pipe_name: 'CineForge.MediaProbe.' + 'a'.repeat(64), broker_process_id: process.pid,

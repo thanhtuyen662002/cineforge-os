@@ -688,3 +688,18 @@ inspection of evidence/runtime rather than infer cleanup from repeated restart.
 Actual owned crash fixtures cover runtime, parsing, raw write, verification,
 canonical commit and release-before-completion-audit windows. Fixture evidence
 does not certify a real production ffprobe pack or close the full product goal.
+
+## Prepared Core queue admission
+
+prepareMediaProbeAdmission creates a new audited exact-revision QUEUED intent
+after source bytes, rights/consent, artifact/attestation and storage gates. It
+accepts identity only, exposes no RPC/HTTP route and launches no process. Replay
+returns immutable intent history; it never resumes an old blocked job. Schema 24
+extends the insert owner guard for this exact scoped private command while
+preserving old rows and excluding private identity hashes from legacy backfill.
+
+The actual CORE_BIND_ADMISSION fixture imports bytes, records rights, admits
+through Core, reserves and dispatches to the Windows sandbox, then binds typed
+WAV facts and verifies public metadata reads. It inserts no SQL queue job. The
+fake producer and ephemeral signer still cannot certify a production pack;
+public execution, runner/cancel/retry activation and product closure remain open.

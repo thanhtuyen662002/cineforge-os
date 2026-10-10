@@ -5519,6 +5519,15 @@ They use their own canonical identity fingerprints, not the generic legacy
 payload/precondition hash. Missing fingerprints remain unchanged and fail closed;
 startup never silently converts a damaged private journal into a legacy request.
 
+PREPARED_ADMIT_MEDIA_PROBE_V1 is another versioned private identity command and
+is likewise excluded from generic legacy fingerprint backfill. Schema 24 uses
+existing command/job/event/audit tables and QUEUED state and replaces the job
+insert owner guard atomically. The existing ProbeMediaAsset owner remains valid.
+The new private owner additionally requires schema 1, EXECUTING status, exact
+ASSET_REVISION scope, payload project/revision/hash/size/manifest/parser/schema
+pins and the current exact ASSET expected version. No historical job/authorization
+backfill is introduced. Reservation may resolve this audited command as owner.
+
 New stderr observations are bounded to 1 MiB. Existing larger diagnostic rows
 remain untouched; updates that change that field cannot introduce a larger
 new observation. New PASS proof cannot use an over-budget stderr observation.

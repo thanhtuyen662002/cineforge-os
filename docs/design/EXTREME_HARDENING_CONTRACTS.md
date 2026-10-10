@@ -7991,3 +7991,15 @@ advanced current job versions do not invalidate the original immutable identity.
 Exercise restart with missing authorization/dispatch fingerprints: generic legacy
 backfill must preserve their null values while genuine generic legacy requests
 retain their established migration/replay behavior.
+
+# MEDIA-PROBE-CORE-ADMISSION-TEST-01. Actual audited intent without SQL queue seed
+
+Prove Core admission from audited imported bytes and rights/consent, followed by
+actual reservation/native guarded binding. Do not insert or repair QUEUED jobs
+in this fixture. Fail stale versions/hash/size/project, changed source/location,
+unknown/revoked rights, bad/expired attestation, missing artifact, storage failure,
+duplicate active intent and final audit failure atomically. Recheck mutable
+domain after a trust callback. Exact-key replay is read-only, never fresh authority.
+Verify blocked public intents remain unchanged, no HTTP/private admission route,
+and no attempt/authorization/evidence exists before reservation. Retain explicit
+fake-producer/ephemeral-signer scope and pending public/certification boundaries.

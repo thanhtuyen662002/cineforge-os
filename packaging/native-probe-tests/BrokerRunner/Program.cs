@@ -24,7 +24,7 @@ try
         Require(rejected, "Pre-existing pipe was reused."); reports.Add(new { name = "ENDPOINT_COLLISION", rejected });
     }
     var modes = new[] { "GOOD", "CANCEL", "DISCONNECT", "WRONG_KEY", "WRONG_PID", "STALE_SESSION", "WRONG_CANCEL", "REPLAY", "BAD_LENGTH", "CORE_GOOD", "CORE_RIGHTS", "CORE_AUDIT", "CORE_CLOSE", "CORE_STALE", "CORE_TERMINAL_AUDIT", "CORE_SOURCE_SWAP", "CORE_BIND_AUDIO", "CORE_BIND_RIGHTS", "CORE_BIND_AUDIT", "CORE_SIZE_CONFLICT", "PIN_GOOD", "PIN_ABORT", "PIN_DISCONNECT", "PIN_CANCEL", "PIN_BAD_LEASE", "PIN_DEATH" };
-    modes = [.. modes, "CORE_BIND_DISCONNECT", "CORE_BIND_EXPIRED"];
+    modes = [.. modes, "CORE_BIND_DISCONNECT", "CORE_BIND_EXPIRED", "CORE_BIND_ADMISSION"];
     modes = [.. modes, "CORE_BIND_CRASH_RUNNING", "CORE_BIND_CRASH_PARSING", "CORE_BIND_CRASH_RAW_WRITTEN",
         "CORE_BIND_CRASH_VERIFYING", "CORE_BIND_CRASH_CANONICAL", "CORE_BIND_CRASH_RELEASED"];
     if (args.Length == 5 && !modes.Contains(args[4])) throw new InvalidOperationException("Unknown fixture case.");
@@ -109,6 +109,8 @@ try
             && observed.Observation is { Code: "PROBE_CANCELLED", TreeStopped: true, ProfileReleased: true }, "Broken channel left a live native tree.");
         else Require(observed.Code != "PROBE_BROKER_OBSERVED" && observed.Observation == null, "Rejected client launched native work.");
         JsonElement? crashRecovery = null;
+        if (mode == "CORE_BIND_ADMISSION") Require(clientReport.RootElement.GetProperty("prepared_core_admission").GetBoolean()
+            && !clientReport.RootElement.GetProperty("privileged_queued_fixture").GetBoolean(), "Queue was not admitted by Core.");
         if (mode.StartsWith("CORE_BIND_CRASH_"))
         {
             var checkpoint = Path.Combine(guardRoot, "core-crash-checkpoint.json");

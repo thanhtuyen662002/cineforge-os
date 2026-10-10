@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -1826,7 +1826,7 @@ export function initializeDatabase(db) {
   // lane. Their identity hash differs; missing hashes must remain fail-closed.
   const legacyCommands = db.prepare(`SELECT id, payload_json, expected_versions_json
     FROM commands WHERE idempotency_key IS NOT NULL AND idempotency_fingerprint IS NULL
-      AND command_type NOT IN ('PREPARED_AUTHORIZE_MEDIA_PROBE_V1','PREPARED_DISPATCH_MEDIA_PROBE_V1')`).all();
+      AND command_type NOT IN ('PREPARED_AUTHORIZE_MEDIA_PROBE_V1','PREPARED_DISPATCH_MEDIA_PROBE_V1','PREPARED_ADMIT_MEDIA_PROBE_V1')`).all();
   const setFingerprint = db.prepare('UPDATE commands SET idempotency_fingerprint = ? WHERE id = ?');
   for (const row of legacyCommands) {
     try {
@@ -2578,6 +2578,7 @@ export function initializeDatabase(db) {
   initializeProbePersistence(db);
   initializeProbeBinaryPins(db);
   initializeProbeAuthorizations(db);
+  initializeProbeAdmissionOwners(db);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so
   // an interrupted upgrade can be resumed safely; recording every historical
@@ -2595,6 +2596,37 @@ export function initializeDatabase(db) {
   const generatedAt = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('created_at_utc_us');
   if (!generatedAt) {
     db.prepare('INSERT INTO app_meta(key, value) VALUES (?, ?)').run('created_at_utc_us', String(nowUtcUs()));
+  }
+}
+
+function initializeProbeAdmissionOwners(db) {
+  db.exec('SAVEPOINT media_probe_schema_24');
+  try {
+    db.exec(`
+      DROP TRIGGER IF EXISTS media_probe_job_scope;
+      CREATE TRIGGER media_probe_job_scope BEFORE INSERT ON media_probe_jobs
+      WHEN NOT EXISTS (SELECT 1 FROM asset_revisions r JOIN assets a ON a.id=r.asset_id
+        JOIN storage_objects o ON o.id=r.storage_object_id
+        JOIN storage_object_locations l ON l.storage_object_id=o.id
+        JOIN commands c ON c.id=NEW.command_id
+        WHERE r.id=NEW.asset_revision_id AND a.project_id=NEW.project_id AND c.project_id=NEW.project_id
+          AND l.id=NEW.storage_object_location_id AND l.state='AVAILABLE'
+          AND o.content_hash=NEW.source_content_hash AND o.byte_size=NEW.source_byte_size
+          AND (c.command_type='ProbeMediaAsset' OR (c.command_type='PREPARED_ADMIT_MEDIA_PROBE_V1'
+            AND c.schema_version=1 AND c.status='EXECUTING' AND c.scope_type='ASSET_REVISION' AND c.scope_id=r.id
+            AND json_extract(c.payload_json,'$.project_id')=NEW.project_id
+            AND json_extract(c.payload_json,'$.asset_revision_id')=r.id
+            AND json_extract(c.payload_json,'$.content_hash')=o.content_hash
+            AND json_extract(c.payload_json,'$.byte_size')=o.byte_size
+            AND json_extract(c.payload_json,'$.toolchain_manifest_hash')=NEW.toolchain_manifest_hash
+            AND json_extract(c.payload_json,'$.probe_schema_version')=NEW.probe_schema_version
+            AND json_extract(c.payload_json,'$.parser_policy_version')=NEW.parser_policy_version
+            AND json_extract(c.expected_versions_json,'$.ASSET')=a.row_version)))
+      BEGIN SELECT RAISE(ABORT,'media_probe source/command scope mismatch'); END;
+    `);
+    db.exec('RELEASE media_probe_schema_24');
+  } catch(error) {
+    db.exec('ROLLBACK TO media_probe_schema_24'); db.exec('RELEASE media_probe_schema_24'); throw error;
   }
 }
 

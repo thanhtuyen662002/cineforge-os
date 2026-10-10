@@ -118,18 +118,34 @@ export async function exerciseCoreDispatch(descriptor, config) {
     execute('CreateRightsRecord', { rights_identity_id: rightsId, right_type: 'SOURCE_USE', status: 'ALLOWED', purpose: { allowed: ['MEDIA_INSPECTION'] } });
     execute('RecordConsent', { rights_identity_id: rightsId, consent_type: 'SOURCE_USE', granted_by: 'fixture-owner' });
     const revision = asset.latest_revision;
+    let jobId;
+    if (config.mode === 'CORE_BIND_ADMISSION') {
+      assert.equal(core.db.prepare('SELECT COUNT(*) AS n FROM media_probe_jobs').get().n,0);
+      const current = core._mediaProbeSource(project.id,revision.id);
+      const admission = core.prepareMediaProbeAdmission({project_id:project.id,asset_revision_id:revision.id,
+        content_hash:digest(source),byte_size:source.length,toolchain_manifest_hash:artifact.manifest_sha256,
+        probe_schema_version:'MEDIA_PROBE_V1',parser_policy_version:'MEDIA_PROBE_PARSER_V1',
+        expected_version:current.row_version,idempotency_key:'admit-native-fixture'});
+      assert.equal(admission.contract,'PREPARED_MEDIA_PROBE_ADMISSION_V1');assert.equal(admission.execution_started,false);
+      assert.equal(core.db.prepare('SELECT COUNT(*) AS n FROM media_probe_attempts').get().n,0);
+      assert.equal(core.db.prepare('SELECT COUNT(*) AS n FROM media_probe_authorizations').get().n,0);
+      jobId = admission.job_id;
+      const admitted = core.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(jobId);
+      assert.equal(core.db.prepare('SELECT command_type FROM commands WHERE id=?').get(admitted.command_id).command_type,'PREPARED_ADMIT_MEDIA_PROBE_V1');
+    } else {
     const location = core.db.prepare('SELECT l.id FROM storage_object_locations l JOIN asset_revisions r ON r.storage_object_id=l.storage_object_id WHERE r.id=?').get(revision.id);
     const original = core.db.prepare("SELECT * FROM commands WHERE command_type='ImportAsset'").get();
     const originalId = crypto.randomUUID();
     insert('commands', { ...original, id: originalId, command_type: 'ProbeMediaAsset', status: 'EXECUTING',
       idempotency_key: crypto.randomUUID(), payload_json: JSON.stringify({ asset_revision_id: revision.id }) });
-    const jobId = crypto.randomUUID(); const stamp = Date.now() * 1000;
+    jobId = crypto.randomUUID(); const stamp = Date.now() * 1000;
     insert('media_probe_jobs', { id: jobId, project_id: project.id, asset_revision_id: revision.id, storage_object_location_id: location.id,
       command_id: originalId, source_content_hash: digest(source), source_byte_size: source.length, toolchain_manifest_hash: artifact.manifest_sha256,
       toolchain_id: manifest.toolchain_id, toolchain_version: '1.0.0', toolchain_binary_hash: manifest.binaries.ffprobe.sha256,
       probe_schema_version: 'MEDIA_PROBE_V1', parser_policy_version: 'MEDIA_PROBE_PARSER_V1', rights_generation: core._mediaProbeRights(asset.id).generation,
       canonical_request_hash: digest('privileged queued fixture'), idempotency_key: crypto.randomUUID(), correlation_id: crypto.randomUUID(),
       state: 'QUEUED', next_step: 'Fixture', created_at_utc_us: stamp, updated_at_utc_us: stamp });
+    }
     const reservation = core.prepareMediaProbeAttempt({ project_id: project.id, job_id: jobId, expected_version: 1, idempotency_key: 'reserve-fixture' });
     const request = { project_id: project.id, job_id: jobId, attempt_id: reservation.attempt_id, expected_version: reservation.job_version, idempotency_key: 'dispatch-fixture' };
     const managedSource = path.join(options.assetStorePath, core._objectRelativePath('SHA-256', digest(source)));
@@ -212,7 +228,7 @@ export async function exerciseCoreDispatch(descriptor, config) {
     const job = core.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(jobId);
     const attempt = core.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(request.attempt_id);
     const disconnected = config.mode === 'CORE_BIND_DISCONNECT';
-    const bound = config.mode === 'CORE_BIND_AUDIO' || disconnected;
+    const bound = ['CORE_BIND_AUDIO','CORE_BIND_ADMISSION'].includes(config.mode) || disconnected;
     assert.equal(job.state, bound ? 'COMPLETED' : 'UNKNOWN'); assert.equal(job.needs_user, Number(!bound || disconnected));
     assert.equal(job.current_attempt_id, bound ? attempt.id : null); assert.equal(job.fencing_token, bound ? attempt.fencing_token : null);
     assert.equal(attempt.state, bound ? 'SUCCEEDED' : 'ABANDONED');
@@ -302,7 +318,7 @@ export async function exerciseCoreDispatch(descriptor, config) {
         ...core.db.prepare('SELECT * FROM audit_records WHERE command_id=?').all(dispatch.id)];
       const text = JSON.stringify(rows); assert.equal(text.includes(root), false); assert.equal(text.includes(descriptor.pipe_name), false);
     }
-    if (config.mode === 'CORE_BIND_AUDIO') {
+    if (['CORE_BIND_AUDIO','CORE_BIND_ADMISSION'].includes(config.mode)) {
       const baseline = JSON.stringify(core.db.prepare('SELECT * FROM technical_metadata').all());
       // A private request context with its aggregate I/O budget already spent.
       // No fake canonical measurement is created to exercise this boundary.
@@ -373,7 +389,8 @@ export async function exerciseCoreDispatch(descriptor, config) {
       assert.equal(core.db.prepare('SELECT COUNT(*) AS n FROM technical_metadata').get().n, 1);
     }
     return { mode: config.mode, core_dispatch: 'PASS', code: receipt?.code ?? config.mode,
-      native_started: receipt?.execution_started ?? true, state: job.state, metadata_rows: metadataCount, privileged_queued_fixture: true, certified_ffprobe: false,
+      native_started: receipt?.execution_started ?? true, state: job.state, metadata_rows: metadataCount,
+      privileged_queued_fixture: config.mode !== 'CORE_BIND_ADMISSION', prepared_core_admission: config.mode === 'CORE_BIND_ADMISSION', certified_ffprobe: false,
       projection_checks: projectionChecks, technical_metadata_projection: observedProjection };
   } finally {
     clearInterval(closeTimer); core?.close();

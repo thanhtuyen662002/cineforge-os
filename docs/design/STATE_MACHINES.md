@@ -3122,3 +3122,12 @@ needs_user warning; completion is not downgraded. Current-owner work remains
 live. Private staging/CAS retain their exact state and custody. No retry, adoption,
 cleanup or physical cancellation success is inferred. Failed/backlogged recovery
 keeps the private readiness gate false.
+
+# STATE-MEDIA-PROBE-CORE-ADMISSION-01. New prepared intent
+
+An explicit internal audited admission creates a distinct QUEUED job with no
+attempt/fence/authorization. It never transitions an old blocked intent to
+QUEUED. Fresh private reservation may subsequently claim that job using all
+existing checks. No runner, cancellation success or retry is inferred from
+queue admission. Replayed receipt is immutable history; current state is read
+from the job projection. Public activation remains a separate integration step.

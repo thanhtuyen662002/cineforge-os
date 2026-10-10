@@ -79,6 +79,7 @@ const TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE = 'LOCAL_TIMELINE_INTERCHANGE_DOWNL
 const TIMELINE_INTERCHANGE_MUTATING_COMMANDS = new Set(['BuildTimelineInterchangeExport']);
 const EXTERNAL_EDIT_MUTATING_COMMANDS = new Set(['RegisterExternalEdit']);
 const MEDIA_PROBE_MUTATING_COMMANDS = new Set(['ProbeMediaAsset', 'CancelMediaProbe', 'RetryMediaProbe']);
+const MEDIA_PROBE_PREPARED_ADMISSION = Symbol('Core-owned prepared media admission');
 const MEDIA_PROBE_BLOCKED_STATES = new Set(['BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN']);
 const MEDIA_PROBE_NEXT_STEPS = Object.freeze({
   BLOCKED_MEDIA: 'Cần nguồn video/âm thanh managed khả dụng; đăng ký nguồn đúng rồi gửi lệnh kiểm tra mới.',
@@ -4737,6 +4738,79 @@ export class CoreService {
     return { proof, pins, stamp, from, until };
   }
 
+  prepareMediaProbeAdmission(request) {
+    const fail = code => { throw new CoreError(code, 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
+    if (this._closed || !this.db) fail('PROBE_CORE_CLOSED');
+    if (!this.#mediaProbeRecoveryReady) fail('PROBE_RECOVERY_REQUIRED');
+    if (!this._ownershipEnabled) fail('PROBE_CORE_OWNERSHIP_REQUIRED');
+    this._mediaProbeFields(request, ['project_id','asset_revision_id','content_hash','byte_size','toolchain_manifest_hash',
+      'probe_schema_version','parser_policy_version','expected_version','idempotency_key']);
+    for (const field of ['project_id','asset_revision_id','idempotency_key']) this._mediaProbeId(request[field], field);
+    if (!Number.isSafeInteger(request.expected_version) || request.expected_version < 1) fail('EXPECTED_VERSION_REQUIRED');
+    const { expected_version, idempotency_key, ...payload } = request;
+    const identity = { ...payload, expected_version };
+    const fingerprint = crypto.createHash('sha256').update(canonicalJson(identity)).digest('hex');
+    const commandType = 'PREPARED_ADMIT_MEDIA_PROBE_V1';
+    return this._transaction(() => {
+      this._assertCoreOwner();
+      const existing = this.db.prepare('SELECT * FROM commands WHERE actor_id=? AND command_type=? AND idempotency_key=?')
+        .get(this.actorId, commandType, idempotency_key);
+      if (existing) {
+        if (existing.idempotency_fingerprint !== fingerprint || existing.status !== 'SUCCEEDED') fail('IDEMPOTENCY_KEY_REUSE_CONFLICT');
+        let receipt; let recordedPayload; let recordedExpected;
+        try {
+          receipt = decodeBoundedMediaProbeJson(Buffer.from(existing.result_json),{maxBytes:4096,maxDepth:3,maxNodes:48});
+          recordedPayload = decodeBoundedMediaProbeJson(Buffer.from(existing.payload_json),{maxBytes:4096,maxDepth:3,maxNodes:32});
+          recordedExpected = decodeBoundedMediaProbeJson(Buffer.from(existing.expected_versions_json),{maxBytes:128,maxDepth:2,maxNodes:8});
+        } catch { fail('PROBE_ADMISSION_STALE'); }
+        const job = receipt && this.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(receipt.job_id);
+        if (!job || receipt.contract !== 'PREPARED_MEDIA_PROBE_ADMISSION_V1' || receipt.state !== 'QUEUED'
+          || receipt.job_version !== 1 || !Number.isSafeInteger(receipt.estimated_storage_bytes) || receipt.estimated_storage_bytes < 1
+          || Object.keys(receipt).some(key => !['contract','state','project_id','job_id','asset_revision_id','job_version','content_hash',
+            'byte_size','toolchain_manifest_hash','toolchain_binary_hash','toolchain_id','toolchain_version','probe_schema_version',
+            'parser_policy_version','estimated_storage_bytes','execution_available','execution_started'].includes(key))
+          || receipt.execution_started !== false || receipt.execution_available !== false
+          || existing.schema_version !== 1 || existing.scope_type !== 'ASSET_REVISION'
+          || existing.scope_id !== payload.asset_revision_id || existing.project_id !== payload.project_id
+          || canonicalJson(recordedPayload) !== canonicalJson(payload) || canonicalJson(recordedExpected) !== canonicalJson({ASSET:expected_version})
+          || job.command_id !== existing.id || job.project_id !== payload.project_id || job.asset_revision_id !== payload.asset_revision_id
+          || receipt.project_id !== job.project_id || receipt.asset_revision_id !== job.asset_revision_id
+          || receipt.content_hash !== job.source_content_hash || receipt.byte_size !== job.source_byte_size
+          || ['toolchain_id','toolchain_version','toolchain_binary_hash','toolchain_manifest_hash','probe_schema_version','parser_policy_version']
+            .some(key => receipt[key] !== job[key])
+          || ['source_content_hash','source_byte_size','toolchain_manifest_hash','probe_schema_version','parser_policy_version']
+            .some(key => job[key] !== ({ source_content_hash: payload.content_hash, source_byte_size: payload.byte_size, ...payload })[key])
+          || !this.db.prepare(`SELECT 1 FROM audit_records WHERE command_id=? AND action_type='media_probe.admit_prepared'
+            AND target_id=? AND json_extract(payload_json,'$.canonical_request_hash')=?
+              AND json_extract(payload_json,'$.estimated_storage_bytes')=? LIMIT 1`)
+            .get(existing.id,job.id,job.canonical_request_hash,receipt.estimated_storage_bytes)) fail('PROBE_ADMISSION_STALE');
+        return Object.freeze({...receipt});
+      }
+      const commandId = uuidv7(); const stamp = nowUtcUs();
+      this.db.prepare(`INSERT INTO commands (id,studio_id,project_id,actor_id,command_type,schema_version,scope_type,scope_id,
+        payload_json,expected_versions_json,reversibility,status,idempotency_key,idempotency_fingerprint,created_at_utc_us,started_at_utc_us)
+        VALUES (?,?,?,?,?,1,'ASSET_REVISION',?, ?,?,'COMPENSATABLE','EXECUTING',?,?,?,?)`).run(commandId,this.studioId,
+        payload.project_id,this.actorId,commandType,payload.asset_revision_id,json(payload),json({ASSET:expected_version}),
+        idempotency_key,fingerprint,stamp,stamp);
+      const admitted = this._admitMediaProbe(payload,{ASSET:expected_version},commandId,MEDIA_PROBE_PREPARED_ADMISSION);
+      const job = this.db.prepare('SELECT * FROM media_probe_jobs WHERE command_id=?').get(commandId);
+      const receipt = Object.freeze({ contract:'PREPARED_MEDIA_PROBE_ADMISSION_V1',state:'QUEUED',project_id:job.project_id,
+        job_id:job.id,asset_revision_id:job.asset_revision_id,job_version:job.row_version,content_hash:job.source_content_hash,
+        byte_size:job.source_byte_size,toolchain_manifest_hash:job.toolchain_manifest_hash,toolchain_binary_hash:job.toolchain_binary_hash,
+        toolchain_id:job.toolchain_id,toolchain_version:job.toolchain_version,probe_schema_version:job.probe_schema_version,
+        parser_policy_version:job.parser_policy_version,estimated_storage_bytes:admitted.preparedAdmission.estimatedStorageBytes,
+        execution_available:false,execution_started:false });
+      this.db.prepare(`INSERT INTO command_impacts(command_id,entity_type,entity_id,impact_type,severity,details_json)
+        VALUES (?,'MEDIA_PROBE_JOB',?,'CREATES','MEDIUM',?)`).run(commandId,job.id,json({scope:'EXACT_REVISION',execution_started:false}));
+      this._insertEvent(admitted.event,commandId,this.actorId,job.correlation_id,commandId);
+      this._insertAudit(admitted.audit,commandId,this.actorId,'SUCCEEDED');
+      this._assertCoreOwner();
+      this.db.prepare("UPDATE commands SET status='SUCCEEDED',finished_at_utc_us=?,result_json=? WHERE id=?")
+        .run(nowUtcUs(),json(receipt),commandId);
+      return receipt;
+    });
+  }
+
   // Private integration lane: no handle/RPC/HTTP route calls this method.
   // A reservation is not dispatch authority and never executes media.
   prepareMediaProbeAttempt(request) {
@@ -4788,8 +4862,11 @@ export class CoreService {
       };
       checkRights();
       const original = this.db.prepare('SELECT command_type,project_id,status FROM commands WHERE id=?').get(job.command_id);
-      if (!original || original.command_type !== 'ProbeMediaAsset' || original.project_id !== job.project_id
+      if (!original || !['ProbeMediaAsset','PREPARED_ADMIT_MEDIA_PROBE_V1'].includes(original.command_type) || original.project_id !== job.project_id
         || !['EXECUTING', 'SUCCEEDED'].includes(original.status)) fail('PROBE_COMMAND_SCOPE_INVALID');
+      if (original.command_type === 'PREPARED_ADMIT_MEDIA_PROBE_V1' && !this.db.prepare(`SELECT 1 FROM audit_records
+        WHERE command_id=? AND action_type='media_probe.admit_prepared' AND target_id=?
+          AND json_extract(payload_json,'$.canonical_request_hash')=? LIMIT 1`).get(job.command_id,job.id,job.canonical_request_hash)) fail('PROBE_COMMAND_SCOPE_INVALID');
       const { pins, stamp, from, until } = this.#verifiedMediaProbeAuthority(job);
       checkSource(); checkRights(); this._assertCoreOwner(); checkProject();
       const currentJob = this._mediaProbeJob(job.id, job.project_id);
@@ -5235,7 +5312,7 @@ export class CoreService {
     }
   }
 
-  _admitMediaProbe(payload, expected, commandId) {
+  _admitMediaProbe(payload, expected, commandId, preparation = null) {
     this._mediaProbeFields(payload, ['project_id', 'asset_revision_id', 'content_hash', 'byte_size',
       'toolchain_manifest_hash', 'probe_schema_version', 'parser_policy_version']);
     for (const field of ['content_hash', 'toolchain_manifest_hash']) {
@@ -5260,8 +5337,44 @@ export class CoreService {
       throw new CoreError('PROBE_MEDIA_NOT_MANAGED', 'CONFLICT', 'errors.media_probe_not_managed', {}, { needsUser: true });
     }
     const rights = this._mediaProbeRights(source.asset_id);
-    const state = !['VIDEO', 'AUDIO'].includes(source.asset_type) || source.lifecycle_state !== 'ACTIVE' || source.availability_state !== 'AVAILABLE'
+    let state = !['VIDEO', 'AUDIO'].includes(source.asset_type) || source.lifecycle_state !== 'ACTIVE' || source.availability_state !== 'AVAILABLE'
       ? 'BLOCKED_MEDIA' : !rights.eligible ? 'BLOCKED_RIGHTS' : 'BLOCKED_TOOLCHAIN';
+    let preparedAdmission = null; let toolchain = null;
+    if (preparation === MEDIA_PROBE_PREPARED_ADMISSION) {
+      const fail = code => { throw new CoreError(code,'CONFLICT','errors.media_probe_identity_unknown',{}, {needsUser:true}); };
+      if (state === 'BLOCKED_MEDIA') fail('PROBE_SOURCE_STALE');
+      if (state === 'BLOCKED_RIGHTS') fail('PROBE_RIGHTS_BLOCKED');
+      if (this._project(source.project_id).lifecycle_state !== 'ACTIVE') fail('PROJECT_NOT_WRITABLE');
+      const artifact = this._releaseRendererToolchainPreflight();
+      toolchain = { toolchain_manifest_hash:payload.toolchain_manifest_hash,toolchain_id:artifact.toolchain_id,
+        toolchain_version:artifact.toolchain_version,toolchain_binary_hash:artifact.binaries?.ffprobe?.sha256,
+        probe_schema_version:MEDIA_PROBE_SCHEMA_VERSION,parser_policy_version:MEDIA_PROBE_PARSER_VERSION };
+      const { proof } = this.#verifiedMediaProbeAuthority(toolchain,artifact);
+      this._assertCoreOwner(); this._assertProjectWritable(source.project_id);
+      if (this._project(source.project_id).lifecycle_state !== 'ACTIVE') fail('PROJECT_NOT_WRITABLE');
+      const current = this._mediaProbeSource(source.project_id,source.id);
+      if (Object.keys(source).some(key => current[key] !== source[key])) fail('PROBE_SOURCE_STALE');
+      const currentRights = this._mediaProbeRights(source.asset_id);
+      if (!currentRights.eligible) fail('PROBE_RIGHTS_BLOCKED');
+      if (currentRights.generation !== rights.generation) fail('PROBE_RIGHTS_STALE');
+      const currentLocation = this.db.prepare('SELECT * FROM storage_object_locations WHERE id=?').get(location.id);
+      if (!currentLocation || currentLocation.storage_object_id !== source.storage_object_id || currentLocation.storage_root !== 'asset-store'
+        || currentLocation.location_role !== 'PRIMARY' || currentLocation.state !== 'AVAILABLE'
+        || currentLocation.relative_path !== this._objectRelativePath('SHA-256',source.content_hash).split(path.sep).join('/')) fail('PROBE_SOURCE_STALE');
+      try {
+        const sourceFile = path.resolve(this.assetStorePath,currentLocation.relative_path);
+        if (!pathIsWithin(sourceFile,this.assetStorePath)) fail('PROBE_SOURCE_STALE');
+        this.#mediaProbeReadFile(sourceFile,source.content_hash,source.byte_size,1073741824,{files:new Map()});
+      }
+      catch { fail('PROBE_SOURCE_STALE'); }
+      if (this.db.prepare(`SELECT 1 FROM media_probe_jobs WHERE project_id=? AND asset_revision_id=?
+        AND state IN ('QUEUED','CLAIMED','RUNNING','PARSING','VERIFYING') LIMIT 1`).get(source.project_id,source.id)) fail('PROBE_JOB_ALREADY_ACTIVE');
+      const estimated = BigInt(source.byte_size)+BigInt(proof.ffprobe_byte_size)+8388608n+1048576n+16777216n;
+      const dataRoot = path.dirname(path.resolve(this.dbPath)); this._assertNoReparsePath(dataRoot);
+      const storage = fs.statfsSync(dataRoot,{bigint:true});
+      if (estimated > BigInt(Number.MAX_SAFE_INTEGER) || storage.bavail*storage.bsize < estimated) fail('PROBE_STORAGE_INSUFFICIENT');
+      preparedAdmission = { estimatedStorageBytes:Number(estimated) }; state = 'QUEUED';
+    }
     const command = this.db.prepare('SELECT idempotency_key FROM commands WHERE id=?').get(commandId);
     const requestHash = crypto.createHash('sha256').update(canonicalJson({ ...payload,
       asset_row_version: source.row_version, rights_generation: rights.generation, idempotency_key: command.idempotency_key })).digest('hex');
@@ -5269,16 +5382,17 @@ export class CoreService {
     this.db.prepare(`INSERT INTO media_probe_jobs
       (id,project_id,asset_revision_id,storage_object_location_id,command_id,source_content_hash,source_byte_size,
       toolchain_manifest_hash,probe_schema_version,parser_policy_version,rights_generation,canonical_request_hash,
-      idempotency_key,correlation_id,state,needs_user,next_step,created_at_utc_us,updated_at_utc_us)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`).run(jobId, source.project_id, source.id, location.id,
+      idempotency_key,correlation_id,state,needs_user,next_step,created_at_utc_us,updated_at_utc_us,toolchain_id,toolchain_version,toolchain_binary_hash)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)`).run(jobId, source.project_id, source.id, location.id,
       commandId, source.content_hash, source.byte_size, payload.toolchain_manifest_hash, MEDIA_PROBE_SCHEMA_VERSION,
       MEDIA_PROBE_PARSER_VERSION, rights.generation, requestHash, command.idempotency_key, commandId, state,
-      MEDIA_PROBE_NEXT_STEPS[state], now, now);
-    return { projectId: source.project_id, result: { job: this._mediaProbeProjection(jobId, source.project_id) },
+      MEDIA_PROBE_NEXT_STEPS[state], now, now,toolchain?.toolchain_id??null,toolchain?.toolchain_version??null,toolchain?.toolchain_binary_hash??null);
+    return { projectId: source.project_id, result: { job: this._mediaProbeProjection(jobId, source.project_id) },preparedAdmission,
       event: { aggregateType: 'MEDIA_PROBE_JOB', aggregateId: jobId, aggregateVersion: 1,
-        eventType: 'MEDIA_PROBE_ADMISSION_BLOCKED', payload: { job_id: jobId, state, asset_revision_id: source.id } },
-      audit: { actionType: 'media_probe.admit', targetType: 'MEDIA_PROBE_JOB', targetId: jobId,
-        payload: { state, asset_revision_id: source.id, execution_started: false } } };
+        eventType: preparedAdmission ? 'MEDIA_PROBE_PREPARED_ADMITTED' : 'MEDIA_PROBE_ADMISSION_BLOCKED', payload: { job_id: jobId, state, asset_revision_id: source.id } },
+      audit: { actionType: preparedAdmission ? 'media_probe.admit_prepared' : 'media_probe.admit', targetType: 'MEDIA_PROBE_JOB', targetId: jobId,
+        payload: { state, asset_revision_id: source.id, execution_started: false,
+          ...(preparedAdmission ? {canonical_request_hash:requestHash,estimated_storage_bytes:preparedAdmission.estimatedStorageBytes} : {}) } } };
   }
 
   _mediaProbeJob(jobId, projectId) {

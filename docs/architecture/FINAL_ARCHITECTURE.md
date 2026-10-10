@@ -2581,3 +2581,19 @@ Private raw staging remains private and retained in its recorded state; no file
 is read, repaired, deleted, adopted or registered during reconciliation. Missing
 or inconsistent ownership/proof rolls back the batch and blocks private admission.
 The reservation readiness gate includes pending dispatch-command recovery.
+
+# ARCH-MEDIA-PROBE-CORE-ADMISSION-01. Prepared exact intent writer
+
+An internal Core-only admission may create a new audited QUEUED job over an
+exact managed AUDIO/VIDEO revision. It independently checks current writable
+project/asset version, rights/consent, stable bounded source bytes, startup-bound
+artifact hashes and signed fresh attestation, plus storage admission. Caller
+input supplies identity only, never a path, certificate, verdict or worker state.
+The command, exact job pins, impact, event and audit commit atomically. Existing
+blocked intents and original bytes remain unchanged. An active intent for the
+same exact revision prevents duplicate live work under another key.
+
+This admission creates no attempt, authorization, raw evidence or measurement
+and launches no process. Its immutable replay is intent history, not current
+execution authority. Reservation/dispatch/binding still revalidate their own
+gates. No HTTP/bootstrap/UI activation or certified production pack is implied.

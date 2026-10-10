@@ -1038,3 +1038,27 @@ or verified files are not adopted; registered evidence is not downgraded. No
 signing/trust callback, filesystem probe, native transport, retry or cleanup runs.
 Readiness requires no stale active attempt or pending foreign dispatch command;
 failure/backlog leaves admission blocked until internal reconciliation succeeds.
+
+# DESIGN-MEDIA-PROBE-CORE-ADMISSION-01. Core-owned queue admission
+
+prepareMediaProbeAdmission accepts project/revision/hash/size/manifest/schema/
+parser identities, exact ASSET expected version and idempotency key. Owned Core
+uses the shared admission validator; the public command path retains its blocked
+contract. Only this internal transaction supplies the private preparation token.
+Fresh attestation is matched to the artifact preflight and caller manifest pin.
+After the trust callback, recheck owner, project, asset/revision/location/rights;
+hash the bounded regular non-reparse/single-link source with stable identity.
+Estimate source/binary copies plus bounded stdout/stderr/staging and check local
+space before any durable command/job admission. Reject an already active job for
+the exact revision under a different key. Never resume or rewrite a blocked job.
+
+PREPARED_ADMIT_MEDIA_PROBE_V1 owns the new job and immutable canonical request
+digest. Store generic-shaped exact payload plus singleton ASSET expected map,
+using its private versioned identity fingerprint; exclude it from legacy hash
+backfill. Journal command/job/impact/event/audit in one transaction and preserve
+all rows on failure. Return an identity-only PREPARED_MEDIA_PROBE_ADMISSION_V1
+receipt with job ID/version, exact pins, storage estimate, no execution and no
+authority verdict. Exact-key replay validates stored scope/job/receipt and returns
+the original intent read-only without callbacks, new job or automatic retry.
+Core reservation accepts this audited owner command as well as the existing
+ProbeMediaAsset owner. All subsequent rights/trust/epoch/fence checks still apply.

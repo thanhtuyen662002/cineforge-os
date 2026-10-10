@@ -4485,3 +4485,17 @@ For an exact completed job with the recovery warning audit, the V1 public read
 uses media_probe.next_step.recovery_required. It may still return independently
 verified metadata, but asks the user to inspect evidence/runtime rather than
 claiming that repeating restart proves physical cleanup.
+
+# API-MEDIA-PROBE-CORE-ADMISSION-01. Internal identity-only queue receipt
+
+prepareMediaProbeAdmission is absent from HTTP/RPC. It accepts project_id,
+asset_revision_id, content_hash, byte_size, toolchain_manifest_hash,
+probe_schema_version, parser_policy_version, expected_version and idempotency_key.
+No aliases, paths, caller verdicts or runtime credentials are accepted.
+PREPARED_MEDIA_PROBE_ADMISSION_V1 returns QUEUED intent history, job ID/version,
+exact project/revision/source/toolchain/schema/parser pins and storage estimate;
+execution_started and execution_available are false. It is not authorization or
+current runtime status. Exact original-key replay cannot enqueue another job.
+Unknown rights/source/trust, stale versions, duplicate live intent, insufficient
+storage or failed audit leave no partial private admission. Public admission and
+retry retain their existing blocked contracts pending authorized activation.
