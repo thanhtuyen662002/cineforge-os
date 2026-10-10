@@ -66,3 +66,38 @@ promotion; it changes no existing claim owner or control maturity.
 - [Microsoft: process attributes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
 - [Microsoft: Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
 - [Microsoft: querying token information](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation)
+
+## Prepared private broker fixture
+
+`BrokerRunner` links the native worker and private named-pipe broker; its Node
+client imports `core/media-probe-broker.mjs`. Supply an explicitly chosen local
+absolute Node executable path, never a PATH-discovered product fallback:
+
+```powershell
+$nodeExe = 'C:\path\to\node.exe'
+dotnet build "$sourceRoot/packaging/native-probe-tests/BrokerRunner/BrokerRunner.csproj" -c Release -o "$nativeOutput/broker-bin"
+if ($LASTEXITCODE -ne 0) { throw 'Broker runner build failed' }
+dotnet "$nativeOutput/broker-bin/NativeBrokerTests.dll" $nodeExe "$sourceRoot/packaging/native-probe-tests/broker-client.mjs" "$nativeOutput/fixture-bin/ProbeFixture.exe" "$nativeOutput/broker-evidence"
+if ($LASTEXITCODE -ne 0) { throw 'Broker fixture suite failed' }
+node --test "$sourceRoot/core/media-probe-broker.test.mjs"
+```
+
+Ten native transport cases exercise exclusive endpoint creation, successful
+private input/output, post-start cancel/disconnect, wrong HMAC/PID/session,
+retargeted cancellation, replay and declared-size overflow. Separate Node
+tests exercise fragmented/coalesced frames, strict JSON/UTF-8/MAC/length and
+private request bounds, plus authenticated malicious-producer output hash,
+budget, sequence and missing-start evidence. These latter producer cases start
+no media tool and are distinct from the actual native fixture.
+
+The pipe is created with a user-only protected DACL, network/anonymous deny
+entries, non-inheritable handle, exclusive first-instance and
+PIPE_REJECT_REMOTE_CLIENTS. Native queries the connected OS client PID. Client
+authenticates the bootstrap PID in the HMAC challenge; it has no independent
+OS query of the server PID. Remote connections, alternate-user/elevation paths,
+PID reuse, outer-deadline pressure and arbitrary same-user malware are not
+claimed tested by these fixtures. There is no public/Core-command listener,
+production certificate or DB binding. Native staging remains retained.
+
+- [Microsoft: named-pipe creation flags](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createnamedpipea)
+- [Microsoft: querying named-pipe client PID](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeclientprocessid)

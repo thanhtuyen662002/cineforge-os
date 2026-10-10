@@ -769,3 +769,43 @@ VERIFIED state, observed size and version. It returns only typed fixed codes and
 no paths, keys, signatures or raw certificate text. A positive signature
 verdict creates no job, attempt, measurement or process. Software rights and
 runtime evidence are digest-bound, not inferred approved from opaque hashes.
+
+# DESIGN-MEDIA-PROBE-BROKER-01. Prepared one-attempt wire protocol
+
+Each frame is uint32 little-endian JSON-byte length, bounded UTF-8 JSON and a
+32-byte HMAC-SHA256 over UTF-8 `CINEFORGE_MEDIA_PROBE_BROKER_FRAME_V1` plus NUL
+plus the exact JSON bytes. Maximum JSON length is 16384, depth 8, nodes 256,
+string bytes 4096; duplicate/unknown keys and non-safe-integer numeric tokens
+are rejected. Media parser's strict byte decoder may be reused as a pure
+low-level decoder; it grants no media facts or execution authority.
+
+Common fields are contract, role, type, sequence, installation_id, library_id,
+core_epoch, session_id, client_nonce and server_nonce. IDs are lowercase UUIDs;
+nonces are 64 lowercase hex characters. CLIENT HELLO sequence 0 has an empty
+server nonce. SERVER CHALLENGE sequence 0 adds its nonce and broker_process_id.
+CLIENT AUTH sequence 0 returns that exact tuple. Client checks the startup
+broker PID bound by the authenticated challenge; it does not independently
+query Windows server PID. Native independently queries OS client PID. Arbitrary
+same-user malware/key theft remains the documented residual boundary.
+
+CLIENT PROBE sequence 1 adds scope, pins, input and budgets. Scope has project_id,
+asset_revision_id, job_id, attempt_id and fencing_token. Pins have source_hash,
+source_bytes, binary_hash, manifest_hash, certificate_hash, trust_generation and
+rights_generation. Input has source_path, binary_path and attempt_root. Budgets
+have wall_time_ms, stdout_limit, stderr_limit and memory_limit and may only
+tighten native defaults. The native attempt moniker is scope.attempt_id without
+hyphens. SHA-256 of the exact PROBE JSON is the dispatch_hash on every response
+and on CLIENT CANCEL sequence 2. CANCEL cannot retarget another dispatch.
+
+SERVER STARTED/OUTPUT/RESULT sequence numbers start at 1 and increase exactly.
+STARTED reports the actual process PID after resume. OUTPUT carries channel
+STDOUT or STDERR and at most 3072 raw bytes in canonical base64 per frame;
+the client bounds totals to admitted limits. RESULT carries observation fields
+and exact output sizes/SHA-256 hashes; no raw arrays, metadata verdict or PASS.
+The client accepts at most 4096 response frames. Transport ends after RESULT;
+there is no multiplexing, retry or fallback. Malformed control, disconnect,
+Core exit or a 150-second outer deadline cancels native work. A disconnected
+caller has UNKNOWN until Core reconciles the retained attempt and physical
+teardown, even when the local native host confirmed stop. Handshake/request
+reads are limited to 10 seconds. The untrusted media child inherits no pipe,
+Core key, DB handle or session environment.

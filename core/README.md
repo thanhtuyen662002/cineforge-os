@@ -549,3 +549,20 @@ durable attempts, source/rights rechecks, raw evidence and transactional
 metadata binding still have to be integrated and independently reviewed.
 The new module/test paths are proposed Task #64 extensions requiring the
 trusted path contract and custody before promotion. Control maturity is unchanged.
+
+## Private native broker preparation
+
+`media-probe-broker.mjs` is an internal one-attempt Windows named-pipe client,
+not a public command/API. It binds startup context/nonces/HMAC, exact dispatch
+hash, sequence and process-start observation, streams bounded private output,
+then verifies terminal output sizes/hashes. No shell, arbitrary argv, network
+endpoint discovery, retry, DB access or metadata verdict is exposed.
+
+Tests: `node --test core/media-probe-broker.test.mjs`. Actual .NET/Node/native
+fixture reproduction is in `packaging/native-probe-tests/README.md`. The pure
+low-level `decodeBoundedMediaProbeJson` helper reuses the parser's strict byte
+decoder with tightened limits and retains null-prototype objects; decoding is
+neither execution nor PASS authority. Audited durable Core dispatch/attempts,
+attestation/rights rechecks and final binding remain required before enabling
+ProbeMediaAsset. This new transport is PREPARED; its source/test scope extension
+and promotion require trusted custody/contract and independent review.

@@ -2391,3 +2391,22 @@ or certification of the local fixture. The actual broker must revalidate
 this exact policy/certificate/file tuple at launch and binding. New attestation
 source/test paths are proposed #64 scope extensions; trusted contract/custody,
 independent review and production trust provisioning still precede promotion.
+
+# ARCH-MEDIA-PROBE-BROKER-01. Prepared private native transport
+
+The proposed NATIVE_MEDIA_PROBE_BROKER_V1 channel serves one exact attempt per
+connection. The bootstrap-owned Windows named pipe is exclusive, user-scoped,
+non-inheritable and randomly named; native verifies the connected Core PID
+against the still-live process handle retained by its trusted launcher. Mutual
+session challenge and every frame bind installation/library/Core epoch/session,
+fresh nonces, direction and sequence through a 256-bit HMAC key. A stale or
+unapproved endpoint is never discovered by scanning or retried automatically.
+
+Only trusted Core supplies private descriptor-resolved input/binary paths and
+the exact job/revision/fence/source/rights/certificate/policy pins. The transport
+does not certify those pins or own the DB. Core must journal before dispatch,
+revalidate attestation/rights/source at launch and binding, and fence any unknown
+disconnect/restart. Process observations and output bytes remain untrusted.
+Public commands/bootstrap remain disconnected from this PREPARED component.
+New broker/client/test paths are proposed #64 extensions pending trusted scope,
+custody and independent review. No metadata PASS or control promotion follows.

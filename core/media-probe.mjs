@@ -1,5 +1,10 @@
 import { TextDecoder } from 'node:util';
 
+// Pure low-level decoder for the private typed broker; no media/PASS authority.
+export function decodeBoundedMediaProbeJson(bytes, overrides = {}) {
+  return decodeJson(bytes, policy({ limits: overrides }));
+}
+
 // PREPARED only: no producer, process, database, rights or PASS authority.
 export const MEDIA_PROBE_SCHEMA_VERSION = 'MEDIA_PROBE_V1';
 export const MEDIA_PROBE_PARSER_VERSION = 'MEDIA_PROBE_PARSER_V1';

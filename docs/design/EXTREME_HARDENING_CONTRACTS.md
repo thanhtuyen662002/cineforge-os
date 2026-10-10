@@ -7868,3 +7868,18 @@ binary, trusted-time health, rollback-resistant storage, software license
 approval, native module loading or runtime/Core binding. I1, AY, BV, CT and DP
 remain applicable boundaries; the verifier consumes their trusted observations
 and cannot claim to implement them merely by accepting typed test fixtures.
+
+# MEDIA-PROBE-BROKER-TEST-01. Prepared authenticated transport fixtures
+
+Exercise actual .NET/Node Windows pipe connections with the inert executable
+fixture: successful private input, cancellation after STARTED and disconnect
+while running. Reject wrong HMAC, wrong live client PID, stale session/nonces,
+replayed/out-of-order sequence, wrong dispatch cancellation and pre-existing
+pipe endpoints. Test bounded lengths, duplicate/unknown JSON, UTF-8, truncated
+frames, tampered output hashes and output totals before retaining observations.
+Secrets/raw paths remain private and never appear in public errors.
+
+These fixtures establish transport/process observations only. Core durable
+journals, rights/certification rechecks, transactional metadata/evidence binding,
+restart reconciliation and final packaged execution remain separate required
+gates. Do not present a transport fixture as a completed ProbeMediaAsset action.
