@@ -7897,3 +7897,16 @@ or completion authority. Retain generic job constraints and append-only history.
 Cryptographic signatures, actual current Core ownership, trusted clocks, fresh
 revocations, current consent and real native/source observations are separate
 Core/runtime requirements. A synthetic SQL authorization cannot close them.
+
+# MEDIA-PROBE-CORE-AUTHORIZATION-TEST-01. Trusted Core reservation fixtures
+
+Use actual owned Core databases, audited imported source and rights/consent
+commands, actual startup manifest preflight and ephemeral in-memory Ed25519
+fixture authority. Test atomic reservation/audit, exact replay and conflicting
+key reuse; missing/tampered/revoked/expired authority, unsafe time conversion,
+local epoch rollback, current rights/source/location/project/version drift,
+Core ownership loss/restart, stale attempt/fence and injected SQL failure.
+No failed check may insert authorization/attempt/command/event/audit or advance
+the job. Trust/paths in a request and handle/RPC entry are rejected. No process
+or metadata is produced; fixture signatures do not certify real ffprobe or
+trusted production time/recovery. Public blocked admission must stay unchanged.

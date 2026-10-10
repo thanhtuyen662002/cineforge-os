@@ -2429,3 +2429,23 @@ time health; Core must independently recheck them before dispatch and binding.
 Historical authorizations are not fabricated, old evidence remains unchanged,
 and rows missing the chain remain UNKNOWN. Existing blocked admission continues
 to create no executable attempt; this migration alone activates no producer.
+
+# ARCH-MEDIA-PROBE-CORE-AUTHORIZATION-01. Prepared Core reservation writer
+
+Core may prepare one INITIAL attempt for an already pinned, audited QUEUED job
+through an internal identity-only entry point. A startup-only private trust
+source supplies bounded signed bytes and trusted freshness/time context; no
+HTTP/UI/worker input can provide this authority or artifact paths. Core obtains
+artifact preflight from its own startup-bound manifest, verifies the signature,
+checks current owner/project/source/location/rights and matches every job pin.
+It writes authorization, CREATED attempt, CLAIMED job, internal versioned
+command/impact/event/audit and a redacted receipt in one transaction.
+
+Persisted policy epochs are a local monotonic floor. Certification epochs are
+floored per toolchain ID/signing-key fingerprint. This is not restore/tamper
+resistant authority: trusted startup floors and recovery reconciliation remain
+required. Exact replay revalidates trust/rights/ownership and resolves the same
+CREATED attempt; expired, stale-owner or superseded receipts cannot dispatch.
+Blocked intents are never silently resumed. This internal reservation neither
+starts a process nor binds metadata; public command/bootstrap activation is
+still absent pending the native dispatch/reconciliation/binding integration.

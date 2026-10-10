@@ -3071,3 +3071,13 @@ release, or imply rights beyond the exact checked generation. Any changed
 source hash/size, toolchain manifest, rights generation, parser policy or
 project scope moves the projection to `STALE`/`BLOCKED_*` and preserves the
 earlier measurement for audit.
+
+# STATE-MEDIA-PROBE-CORE-AUTHORIZATION-01. Prepared reservation
+
+Only a pinned QUEUED job with no attempts can be internally reserved into
+CLAIMED with one CREATED attempt and an immutable authorization. All writes
+and audit are atomic; failure leaves QUEUED with no new rows. This transition
+does not mean DISPATCHING or RUNNING. Current blocked public intents cannot
+enter this lane. Exact replay is read-only after current authority checks and
+requires the same CREATED attempt, pointer/fence and Core owner. A restarted
+owner cannot replay an old reservation; no automatic retry is introduced.

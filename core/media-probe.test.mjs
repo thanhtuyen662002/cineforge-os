@@ -10,6 +10,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { CoreService } from './core.mjs';
 import { initializeDatabase, SCHEMA_VERSION } from './schema.mjs';
 import { parseMediaProbe, MEDIA_PROBE_LIMITS } from './media-probe.mjs';
+import { canonicalJson } from './canonical.mjs';
+import { preflightRendererToolchain } from './renderer-toolchain.mjs';
 
 function fixture() {
   return { format: { format_name: 'mov,mp4,m4a,3gp,3g2,mj2', duration: '1.001000', size: '128', nb_streams: 1 },
@@ -197,20 +199,26 @@ function insert(db, table, row) {
 
 // These are privileged Kernel/SQL fixtures. They do not certify a real
 // producer, parser binding, command authorization, sandbox or rights decision.
-function persistenceFixture(Core = CoreService) {
+function persistenceFixture(Core = CoreService, options = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-probe-db-'));
-  const core = new Core({ dbPath: path.join(directory, 'core.sqlite'), assetStorePath: path.join(directory, 'store') });
+  const core = new Core({ dbPath: path.join(directory, 'core.sqlite'), assetStorePath: path.join(directory, 'store'), ...options.coreOptions });
   const db = core.db;
   const project = command(core, 'CreateProject', { code: 'probe-schema', title: 'Kiểm thử persistence' }, 'schema-project');
   assert.equal(project.ok, true);
   const sourcePath = path.join(directory, 'source.txt');
-  const sourceBytes = Buffer.from('privileged relational fixture, not certified media');
+  const sourceBytes = options.sourceBytes ?? Buffer.from('privileged relational fixture, not certified media');
   fs.writeFileSync(sourcePath, sourceBytes);
   const contentHash = crypto.createHash('sha256').update(sourceBytes).digest('hex');
   const imported = command(core, 'ImportAsset', { project_id: project.result.id, source_path: sourcePath,
-    asset_type: 'DOCUMENT', content_hash: contentHash }, 'schema-import');
+    asset_type: options.assetType ?? 'DOCUMENT', content_hash: contentHash }, 'schema-import');
   assert.equal(imported.ok, true);
   const revision = imported.result.asset.latest_revision;
+  if (options.withRights) {
+    const rightsId = db.prepare('SELECT rights_identity_id FROM assets WHERE id=?').get(imported.result.asset.id).rights_identity_id;
+    assert.equal(command(core, 'CreateRightsRecord', { rights_identity_id: rightsId, right_type: 'SOURCE_USE', status: 'ALLOWED',
+      purpose: { allowed: ['MEDIA_INSPECTION'] } }, 'schema-rights').ok, true);
+    assert.equal(command(core, 'RecordConsent', { rights_identity_id: rightsId, consent_type: 'SOURCE_USE', granted_by: 'fixture-owner' }, 'schema-consent').ok, true);
+  }
   const location = db.prepare('SELECT l.id,l.storage_object_id FROM storage_object_locations l JOIN asset_revisions r ON r.storage_object_id=l.storage_object_id WHERE r.id=?').get(revision.id);
   const cmd = db.prepare("SELECT * FROM commands WHERE project_id=? AND command_type='ImportAsset'").get(project.result.id);
   insert(db, 'commands', { ...cmd, id: 'probe-command', command_type: 'ProbeMediaAsset', status: 'EXECUTING',
@@ -223,7 +231,8 @@ function persistenceFixture(Core = CoreService) {
     probe_schema_version: 'MEDIA_PROBE_V1', parser_policy_version: 'MEDIA_PROBE_PARSER_V1',
     rights_generation: 'c'.repeat(64), canonical_request_hash: 'd'.repeat(64),
     idempotency_key: 'schema-job', correlation_id: 'schema-correlation', state: 'QUEUED',
-    next_step: 'Chờ kiểm thử', created_at_utc_us: stamp, updated_at_utc_us: stamp };
+    next_step: 'Chờ kiểm thử', created_at_utc_us: stamp, updated_at_utc_us: stamp, ...options.probePins };
+  if (options.withRights) job.rights_generation = core._mediaProbeRights(imported.result.asset.id).generation;
   insert(db, 'media_probe_jobs', job);
   return { core, db, job, stamp, location, directory, close() {
     core.close();
@@ -646,4 +655,247 @@ test('schema 23 preserves actual v22 history without inventing authorization or 
     assert.ok(path.resolve(modules).startsWith(path.join(os.tmpdir(), 'cineforge-schema-v22-')));
     fs.rmSync(modules, { recursive: true, force: true });
   }
+});
+
+// Actual signature/preflight and owned Core writes, with an ephemeral fixture
+// authority and a privileged queued-job seed. Never a real ffprobe certificate.
+function reservationFixture(t, changes = () => {}) {
+  const toolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-probe-authority-'));
+  const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+  const encode = value => Buffer.from(canonicalJson(value));
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
+  const publicDer = publicKey.export({ format: 'der', type: 'spki' });
+  const binary = Buffer.from('INERT FIXTURE; NO NATIVE EXECUTION');
+  const manifest = { manifest_type: 'CINEFORGE_RENDERER_TOOLCHAIN', manifest_schema_version: 1,
+    toolchain_id: 'fixture-inspect', toolchain_version: '1.0.0', network: false, binaries: {} };
+  for (const name of ['ffmpeg', 'ffprobe']) {
+    const binaryPath = path.join(toolRoot, process.platform === 'win32' ? name + '.exe' : name);
+    fs.writeFileSync(binaryPath, binary);
+    manifest.binaries[name] = { path: binaryPath, sha256: digest(binary), version: '1.0.0', size: binary.length };
+  }
+  const manifestPath = path.join(toolRoot, 'renderer-toolchain.json'); fs.writeFileSync(manifestPath, encode(manifest));
+  const artifact = preflightRendererToolchain({ root: toolRoot, manifestPath, allowObjectManifest: false });
+  assert.equal(artifact.state, 'READY');
+  const now = Date.now();
+  const control = { now, loads: 0, revoked: false, invalidSignature: false, throwOnLoad: false,
+    statement: { capability: 'PROBE_MEDIA_ASSET_V1', platform: 'win32-x64', toolchain_id: manifest.toolchain_id,
+      toolchain_version: manifest.toolchain_version, manifest_sha256: artifact.manifest_sha256,
+      ffprobe_sha256: digest(binary), ffprobe_byte_size: binary.length, ffprobe_version: '1.0.0',
+      probe_schema_version: 'MEDIA_PROBE_V1', parser_policy_version: 'MEDIA_PROBE_PARSER_V1',
+      native_contract: 'NATIVE_MEDIA_PROBE_V1', argv_profile_version: 'MEDIA_PROBE_ARGV_V1',
+      sandbox_profile_version: 'WINDOWS_APPCONTAINER_PROBE_V1', resource_profile_version: 'MEDIA_PROBE_RESOURCE_V1',
+      certification_epoch: 5, license_snapshot_sha256: digest('fixture license'), runtime_evidence_sha256: digest('fixture runtime'),
+      not_before_utc_ms: now - 1000, expires_at_utc_ms: now + 60000 },
+    policy: { policy_version: 'MEDIA_PROBE_TRUST_V1', policy_epoch: 8, not_before_utc_ms: now - 10000, expires_at_utc_ms: now + 120000,
+      keys: [{ key_id: 'fixture-key', purpose: 'PROBE_MEDIA_ASSET_V1', public_key_spki_base64: publicDer.toString('base64'),
+        public_key_spki_sha256: digest(publicDer), state: 'ACTIVE', toolchain_ids: ['fixture-inspect'], minimum_pack_epoch: 1,
+        not_before_utc_ms: now - 10000, expires_at_utc_ms: now + 120000 }], revoked_pack_hashes: [] },
+    context: { minimumPolicyEpoch: 1, timeHealth: 'TRUSTED', trustFreshness: 'FRESH' } };
+  const loader = () => {
+    control.loads++;
+    if (control.throwOnLoad) throw new Error('private-fixture-authority-secret');
+    control.onLoad?.();
+    const statement = structuredClone(control.statement);
+    const envelope = { envelope_version: 'MEDIA_PROBE_ATTESTATION_V1', statement, signature: { algorithm: 'ED25519',
+      key_id: 'fixture-key', signature_hex: crypto.sign(null, Buffer.from('CINEFORGE_MEDIA_PROBE_ATTESTATION_V1\0' + canonicalJson(statement)), privateKey).toString('hex') } };
+    if (control.invalidSignature) envelope.signature.signature_hex = '0'.repeat(128);
+    const envelopeBytes = encode(envelope);
+    const policy = structuredClone(control.policy);
+    if (control.revoked) policy.revoked_pack_hashes = [digest(envelopeBytes)];
+    const trustPolicyBytes = encode(policy);
+    return { envelopeBytes, trustPolicyBytes, trustContext: { ...control.context, policySha256: digest(trustPolicyBytes), nowUtcMs: control.now } };
+  };
+  const sourceBytes = Buffer.alloc(76); sourceBytes.write('RIFF'); sourceBytes.writeUInt32LE(68, 4); sourceBytes.write('WAVE', 8);
+  sourceBytes.write('fmt ', 12); sourceBytes.writeUInt32LE(16, 16); sourceBytes.writeUInt16LE(1, 20); sourceBytes.writeUInt16LE(1, 22);
+  sourceBytes.writeUInt32LE(8000, 24); sourceBytes.writeUInt32LE(16000, 28); sourceBytes.writeUInt16LE(2, 32); sourceBytes.writeUInt16LE(16, 34);
+  sourceBytes.write('data', 36); sourceBytes.writeUInt32LE(32, 40);
+  const options = { assetType: 'AUDIO', sourceBytes, withRights: true,
+    coreOptions: { rendererToolchainRoot: toolRoot, rendererToolchainManifest: manifestPath, mediaProbeTrustSource: loader },
+    probePins: { toolchain_id: manifest.toolchain_id, toolchain_version: manifest.toolchain_version,
+      toolchain_manifest_hash: artifact.manifest_sha256, toolchain_binary_hash: digest(binary) } };
+  changes(control, options);
+  let f;
+  t.after(() => {
+    f?.close();
+    assert.ok(path.resolve(toolRoot).startsWith(path.join(os.tmpdir(), 'cineforge-probe-authority-')));
+    fs.rmSync(toolRoot, { recursive: true, force: true });
+  });
+  f = persistenceFixture(CoreService, options);
+  return { ...f, control, options, toolRoot, manifest,
+    request: { project_id: f.job.project_id, job_id: f.job.id, expected_version: 1, idempotency_key: 'reserve-1' } };
+}
+const reservationTables = ['media_probe_authorizations', 'media_probe_attempts', 'media_probe_evidence', 'technical_metadata',
+  'commands', 'command_impacts', 'domain_events', 'audit_records', 'media_probe_jobs'];
+function reservationSnapshot(f) {
+  return Object.fromEntries(reservationTables.map(table => [table, f.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+}
+function reservationRejected(f, code, request = f.request) {
+  const before = reservationSnapshot(f);
+  assert.throws(() => f.core.prepareMediaProbeAttempt(request), error => error.code === code, code);
+  assert.deepEqual(reservationSnapshot(f), before, 'A failed reservation must leave every row unchanged');
+}
+
+test('Core reserves exact certificate/owner/fence atomically with audit and redacted idempotent receipt', t => {
+  const f = reservationFixture(t);
+  const before = reservationSnapshot(f);
+  const receipt = f.core.prepareMediaProbeAttempt(f.request);
+  assert.equal(receipt.contract, 'PREPARED_MEDIA_PROBE_AUTHORIZATION_V1');
+  assert.equal(receipt.execution_started, false); assert.equal(receipt.state, 'PREPARED'); assert.equal(receipt.job_version, 2);
+  const authorization = f.db.prepare('SELECT * FROM media_probe_authorizations').get();
+  const attempt = f.db.prepare('SELECT * FROM media_probe_attempts').get();
+  const job = f.db.prepare('SELECT * FROM media_probe_jobs').get();
+  assert.equal(authorization.attempt_id, attempt.id); assert.equal(attempt.id, receipt.attempt_id);
+  assert.equal(authorization.core_owner_epoch, f.core.instanceEpoch); assert.equal(attempt.core_owner_epoch, f.core.instanceEpoch);
+  assert.match(authorization.fencing_token, /^[0-9a-f]{64}$/); assert.equal(attempt.fencing_token, authorization.fencing_token);
+  assert.equal(job.fencing_token, attempt.fencing_token); assert.equal(job.current_attempt_id, attempt.id);
+  assert.equal(attempt.state, 'CREATED'); assert.equal(attempt.output_envelope_hash, null); assert.equal(attempt.stdout_bytes, null);
+  assert.equal(attempt.worker_instance_id, null); assert.equal(job.state, 'CLAIMED');
+  assert.equal(authorization.source_content_hash, f.job.source_content_hash);
+  assert.equal(authorization.toolchain_binary_hash, f.job.toolchain_binary_hash); assert.equal(authorization.policy_epoch, 8);
+  const after = reservationSnapshot(f);
+  for (const table of ['commands', 'command_impacts', 'domain_events', 'audit_records']) assert.equal(after[table].length, before[table].length + 1, table);
+  assert.equal(after.media_probe_evidence.length, 0); assert.equal(after.technical_metadata.length, 0);
+  const journal = f.db.prepare("SELECT * FROM commands WHERE command_type='PREPARED_AUTHORIZE_MEDIA_PROBE_V1'").get();
+  assert.equal(journal.status, 'SUCCEEDED'); assert.equal(journal.schema_version, 1);
+  assert.deepEqual(JSON.parse(journal.result_json), receipt);
+  const projected = JSON.stringify({ receipt, command: journal, event: after.domain_events.at(-1), audit: after.audit_records.at(-1) });
+  for (const privateValue of [f.toolRoot, 'signature_hex', 'public_key_spki_base64', authorization.fencing_token, f.core.instanceEpoch]) {
+    assert.ok(!projected.includes(privateValue), privateValue);
+  }
+  assert.equal(Object.hasOwn(f.core, 'mediaProbeTrustSource'), false);
+  assert.deepEqual(f.core.prepareMediaProbeAttempt(f.request), receipt);
+  assert.deepEqual(reservationSnapshot(f), after); assert.equal(f.control.loads, 2);
+  const view = f.core._mediaProbeProjection(job.id, job.project_id);
+  assert.equal(view.outcome, 'UNKNOWN'); assert.equal(view.metadata, null); assert.equal(view.execution_started, false);
+  reservationRejected(f, 'IDEMPOTENCY_KEY_REUSE_CONFLICT', { ...f.request, expected_version: 2 });
+});
+
+for (const [name, change, code] of [
+  ['missing startup authority', (_c, o) => { o.coreOptions.mediaProbeTrustSource = null; }, 'PROBE_AUTHORITY_UNAVAILABLE'],
+  ['private loader error', c => { c.throwOnLoad = true; }, 'PROBE_AUTHORITY_UNAVAILABLE'],
+  ['bad signed envelope', c => { c.invalidSignature = true; }, 'PROBE_ATTESTATION_SIGNATURE_REJECTED'],
+  ['revoked pack', c => { c.revoked = true; }, 'PROBE_ATTESTATION_REVOKED'],
+  ['expired pack', c => { c.now = c.statement.expires_at_utc_ms; }, 'PROBE_ATTESTATION_WINDOW_REJECTED'],
+  ['untrusted clock', c => { c.context.timeHealth = 'UNKNOWN'; }, 'PROBE_ATTESTATION_TIME_UNTRUSTED'],
+  ['stale revocation context', c => { c.context.trustFreshness = 'STALE'; }, 'PROBE_ATTESTATION_TRUST_STALE'],
+  ['missing external epoch floor', c => { delete c.context.minimumPolicyEpoch; }, 'PROBE_TRUST_CONTEXT_INVALID'],
+  ['string epoch floor', c => { c.context.minimumPolicyEpoch = '1'; }, 'PROBE_TRUST_CONTEXT_INVALID'],
+  ['unsafe microsecond conversion', c => { c.statement.expires_at_utc_ms = Number.MAX_SAFE_INTEGER;
+    c.policy.expires_at_utc_ms = Number.MAX_SAFE_INTEGER; c.policy.keys[0].expires_at_utc_ms = Number.MAX_SAFE_INTEGER; }, 'PROBE_AUTHORITY_CLOCK_INVALID'],
+  ['mismatched job binary', (_c, o) => { o.probePins.toolchain_binary_hash = '0'.repeat(64); }, 'PROBE_TOOLCHAIN_STALE'],
+]) test(`Core reservation rejects ${name} without mutation`, t => {
+  const f = reservationFixture(t, change); reservationRejected(f, code);
+});
+
+test('Core reservation refuses request authority/path injection and cannot be invoked through handle', t => {
+  const f = reservationFixture(t);
+  for (const field of ['trustContext', 'artifact', 'argv', 'source_path', 'fencing_token']) {
+    reservationRejected(f, 'INVALID_ARGUMENT', { ...f.request, [field]: 'private-fixture-secret' });
+  }
+  reservationRejected(f, 'INVALID_ARGUMENT', { ...f.request, idempotency_key: 'reserve-1\n' });
+  const before = reservationSnapshot(f);
+  const response = f.core.handle({ api_version: '1', request_id: 'forbidden', method: 'prepareMediaProbeAttempt', params: f.request });
+  assert.equal(response.ok, false); assert.deepEqual(reservationSnapshot(f), before); assert.equal(f.control.loads, 0);
+  const blocked = f.core.handle({ api_version: '1', request_id: 'public-blocked', method: 'command.execute', params: {
+    command_type: 'ProbeMediaAsset', expected_versions: { ASSET: 1 }, idempotency_key: 'public-blocked', payload: {
+    project_id: f.job.project_id, asset_revision_id: f.job.asset_revision_id,
+    content_hash: f.job.source_content_hash, byte_size: f.job.source_byte_size, toolchain_manifest_hash: f.job.toolchain_manifest_hash,
+    probe_schema_version: f.job.probe_schema_version, parser_policy_version: f.job.parser_policy_version } } });
+  assert.equal(blocked.ok, true); assert.equal(blocked.result.job.state, 'BLOCKED_TOOLCHAIN');
+  reservationRejected(f, 'PROBE_RESERVATION_NOT_AVAILABLE', { ...f.request, job_id: blocked.result.job.id, idempotency_key: 'blocked-reservation' });
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM media_probe_authorizations').get().n, 0);
+  assert.equal(f.control.loads, 0);
+});
+
+test('Core reservation rejects stale version, scope, source location and consent', t => {
+  const f = reservationFixture(t);
+  reservationRejected(f, 'STALE_REVISION', { ...f.request, expected_version: 2 });
+  const other = command(f.core, 'CreateProject', { code: 'other-reservation', title: 'Khác' }, 'other-reservation');
+  assert.equal(other.ok, true);
+  reservationRejected(f, 'ENTITY_SCOPE_MISMATCH', { ...f.request, project_id: other.result.id });
+  f.db.prepare("UPDATE storage_object_locations SET state='MISSING' WHERE id=?").run(f.location.id);
+  reservationRejected(f, 'PROBE_SOURCE_STALE');
+  f.db.prepare("UPDATE storage_object_locations SET state='AVAILABLE' WHERE id=?").run(f.location.id);
+  const rightsId = f.db.prepare('SELECT rights_identity_id FROM assets WHERE id=?').get(f.core._mediaProbeSource(f.job.project_id, f.job.asset_revision_id).asset_id).rights_identity_id;
+  assert.equal(command(f.core, 'RevokeRights', { rights_identity_id: rightsId, right_type: 'SOURCE_USE', reason: 'fixture revoked' }, 'revoke-reservation').ok, true);
+  reservationRejected(f, 'PROBE_RIGHTS_BLOCKED');
+});
+
+test('Core reservation rolls back all journals if final audit fails', t => {
+  const f = reservationFixture(t);
+  f.db.exec("CREATE TRIGGER fixture_audit_failure BEFORE INSERT ON audit_records WHEN NEW.action_type='media_probe.prepare_attempt' BEGIN SELECT RAISE(ABORT,'fixture injected audit failure'); END;");
+  const before = reservationSnapshot(f);
+  assert.throws(() => f.core.prepareMediaProbeAttempt(f.request), /fixture injected audit failure/);
+  assert.deepEqual(reservationSnapshot(f), before);
+});
+
+test('Core reservation observes current allowed rights generation and active project', t => {
+  const f = reservationFixture(t);
+  const source = f.core._mediaProbeSource(f.job.project_id, f.job.asset_revision_id);
+  const rightsId = f.db.prepare('SELECT rights_identity_id FROM assets WHERE id=?').get(source.asset_id).rights_identity_id;
+  assert.equal(command(f.core, 'RecordConsent', { rights_identity_id: rightsId, consent_type: 'SOURCE_USE', granted_by: 'second-fixture-owner' }, 'extra-consent').ok, true);
+  assert.equal(f.core._mediaProbeRights(source.asset_id).eligible, true);
+  reservationRejected(f, 'PROBE_RIGHTS_STALE');
+  f.db.prepare("UPDATE projects SET lifecycle_state='PAUSED',row_version=row_version+1 WHERE id=?").run(f.job.project_id);
+  reservationRejected(f, 'PROJECT_NOT_WRITABLE');
+});
+
+test('Core reservation rechecks startup artifact bytes and fences a changed job version on replay', t => {
+  const f = reservationFixture(t);
+  const file = f.manifest.binaries.ffprobe.path;
+  const bytes = fs.readFileSync(file);
+  fs.writeFileSync(file, Buffer.alloc(bytes.length, 120));
+  reservationRejected(f, 'PROBE_ATTESTATION_ARTIFACT_MISMATCH');
+  fs.writeFileSync(file, bytes);
+  f.core.prepareMediaProbeAttempt(f.request);
+  f.db.prepare('UPDATE media_probe_jobs SET row_version=row_version+1 WHERE id=?').run(f.job.id);
+  reservationRejected(f, 'PROBE_RESERVATION_STALE');
+});
+
+test('Core reservation replay rechecks expiry, revocation and advanced attempt', t => {
+  const f = reservationFixture(t);
+  const receipt = f.core.prepareMediaProbeAttempt(f.request);
+  f.control.now = f.control.statement.expires_at_utc_ms;
+  reservationRejected(f, 'PROBE_ATTESTATION_WINDOW_REJECTED');
+  f.control.now = Date.now(); f.control.revoked = true;
+  reservationRejected(f, 'PROBE_ATTESTATION_REVOKED');
+  f.control.revoked = false;
+  f.db.prepare("UPDATE media_probe_attempts SET state='DISPATCHING',row_version=row_version+1 WHERE id=?").run(receipt.attempt_id);
+  reservationRejected(f, 'PROBE_RESERVATION_STALE');
+});
+
+test('Core reservation history prevents policy and same-key pack epoch rollback', t => {
+  const f = reservationFixture(t);
+  f.core.prepareMediaProbeAttempt(f.request);
+  const second = { ...f.job, id: 'probe-job-second', idempotency_key: 'probe-second', canonical_request_hash: '7'.repeat(64) };
+  insert(f.db, 'media_probe_jobs', second);
+  const request = { ...f.request, job_id: second.id, idempotency_key: 'reserve-second' };
+  f.control.policy.policy_epoch = 7;
+  reservationRejected(f, 'PROBE_TRUST_POLICY_ROLLBACK', request);
+  f.control.policy.policy_epoch = 8; f.control.statement.certification_epoch = 4;
+  reservationRejected(f, 'PROBE_ATTESTATION_PACK_ROLLBACK', request);
+  f.control.statement.certification_epoch = 5;
+  const receipt = f.core.prepareMediaProbeAttempt(request);
+  assert.notEqual(receipt.attempt_id, f.db.prepare("SELECT current_attempt_id FROM media_probe_jobs WHERE id='probe-job'").get().current_attempt_id);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM media_probe_authorizations').get().n, 2);
+});
+
+test('a restarted Core cannot replay an old prepared reservation', t => {
+  const f = reservationFixture(t);
+  const oldEpoch = f.core.instanceEpoch;
+  f.core.prepareMediaProbeAttempt(f.request); f.core.close();
+  const reopened = new CoreService({ dbPath: path.join(f.directory, 'core.sqlite'), assetStorePath: path.join(f.directory, 'store'), ...f.options.coreOptions });
+  try {
+    assert.notEqual(reopened.instanceEpoch, oldEpoch);
+    reservationRejected({ ...f, core: reopened, db: reopened.db }, 'PROBE_RESERVATION_STALE');
+  } finally { reopened.close(); }
+});
+
+test('lost Core ownership prevents reservation and a post-proof race rolls back', t => {
+  const f = reservationFixture(t);
+  f.control.onLoad = () => f.db.prepare("UPDATE media_probe_jobs SET state='CANCEL_REQUESTED',row_version=row_version+1 WHERE id=?").run(f.job.id);
+  reservationRejected(f, 'PROBE_RESERVATION_STALE');
+  f.control.onLoad = undefined;
+  f.db.prepare("UPDATE core_instance_ownership SET active_epoch='fixture-lost-owner' WHERE singleton_id=1").run();
+  reservationRejected(f, 'CORE_OWNERSHIP_LOST');
 });

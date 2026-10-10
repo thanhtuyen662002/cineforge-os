@@ -4397,3 +4397,13 @@ reuses the same exact source/toolchain tuple. Replaying an identical
 idempotency key returns the same job; key reuse with different identity is a
 typed conflict. This API never renders/transcodes, creates master bytes,
 approves media, builds a release manifest or publishes.
+
+# API-MEDIA-PROBE-CORE-AUTHORIZATION-01. Internal reservation receipt
+
+prepareMediaProbeAttempt is an internal Core method; it is not a handle/RPC or
+HTTP command. Identity-only input is project_id/job_id/expected_version/
+idempotency_key. PREPARED_MEDIA_PROBE_AUTHORIZATION_V1 receipt contains state
+PREPARED, job_id, attempt_id, authorization_id, job_version and execution_started
+false. It exposes no source/binary path, raw output, signature, key, owner/fence
+or dispatch credential. Receipt/replay alone does not authorize native execution.
+Public ProbeMediaAsset remains blocked and public metadata remains UNKNOWN.

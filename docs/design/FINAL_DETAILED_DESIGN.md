@@ -826,3 +826,37 @@ Schema fixtures use privileged synthetic authorization rows to exercise guards,
 not real certificates or producer authority. The new journal does not by itself
 implement audited dispatch/retry/restart/recovery, native listener bootstrap or
 canonical producer binding; those remain necessary before a public probe works.
+
+# DESIGN-MEDIA-PROBE-CORE-AUTHORIZATION-01. Atomic reservation and replay
+
+Internal Core prepareMediaProbeAttempt accepts only project_id, job_id,
+expected_version and idempotency_key. It requires an active writable Core and
+project, an exact managed primary AVAILABLE location and active AUDIO/VIDEO
+source, current SOURCE_USE consent for MEDIA_INSPECTION, matching rights
+generation and exact source/toolchain/probe/parser pins. No bytes are executed.
+The QUEUED job must already have a ProbeMediaAsset command and all toolchain
+pins; current public blocked intents do not meet this contract.
+
+A constructor-only private mediaProbeTrustSource callback returns envelopeBytes,
+trustPolicyBytes and trustContext synchronously. Core itself reads current
+startup-bound canonical renderer manifest preflight; callback artifact or
+request trust/path/argv overrides are rejected. Missing or invalid authority
+blocks without mutation. Signature/window/freshness checks precede insertion;
+Core converts only safe exact milliseconds to positive UTC microseconds.
+
+The policy floor includes MAX(policy_epoch) from immutable authorization history;
+the pack floor includes MAX(certification_epoch) for the same toolchain ID and
+signing-key fingerprint. External trusted minimums still apply. Source/rights
+and Core ownership are rechecked in the transaction. Authorization and attempt
+are reserved once, job changes QUEUED to CLAIMED, and PREPARED_AUTHORIZE_MEDIA_PROBE_V1
+command/impact/event/audit plus PREPARED_MEDIA_PROBE_AUTHORIZATION_V1 receipt are
+atomic. Attempt is CREATED with fixed native/argv profiles and an unpredictable
+fence; no process observation, resource reservation or metadata PASS is invented.
+
+Exact actor/type/key replay must match project/job/original expected version and
+revalidate current trust/rights/pins and the same CREATED attempt/current pointer,
+Core owner, authorization certificate/trust generation and effective window.
+It returns the stored redacted receipt without new rows or new permission to
+dispatch. Payload reuse, expired/revoked policy, source/rights drift, advanced
+attempt, superseded fence and a restarted Core fail closed. Retry/restart and
+real dispatch/binding remain separate required integration work.

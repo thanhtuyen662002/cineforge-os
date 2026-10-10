@@ -585,3 +585,26 @@ The privileged SQL fixtures prove relational guards, not cryptographic trust.
 No public command writes this journal or dispatches the native broker yet.
 Trusted authority/time/ownership, fresh rights, audited dispatch/reconciliation,
 raw evidence custody and transactional canonical binding remain required.
+
+## Prepared Core attempt reservation
+
+`CoreService.prepareMediaProbeAttempt` is an internal identity-only integration
+method, absent from handle/RPC/HTTP. A constructor-only private
+`mediaProbeTrustSource` supplies raw signed fixture/authority bytes and trusted
+time/freshness/floors; Core performs actual startup-manifest file preflight and
+signature checks. Active owner/project, exact source/location/job/version and
+current inspection rights are required. Public blocked intents stay blocked.
+
+One transaction writes authorization, CREATED attempt, CLAIMED job and versioned
+command/impact/event/audit. The redacted PREPARED receipt contains no fence,
+owner, path, signature or execution credential. Exact replay repeats current
+authority/rights checks; expiry/revocation, policy/pack rollback, drift and a
+restarted owner cannot reuse the reservation. No process or metadata is created.
+
+Run `node --test core/media-probe.test.mjs`. Tests use actual owned Core databases,
+import and rights/consent commands, actual inert-file preflight and ephemeral
+Ed25519 signatures, with a privileged QUEUED-job seed. They check exact replay,
+scope/time/trust/source/rights/owner failures, final audit rollback and stale
+attempt/job fencing. These keys do not certify real ffprobe. Production trust
+provisioning/time/recovery, dispatch/retry/reconciliation, raw evidence and
+canonical binding plus independent review remain required; maturity is unchanged.

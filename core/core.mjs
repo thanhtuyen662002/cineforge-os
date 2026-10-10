@@ -9,6 +9,7 @@ import { isUuid, nowUtcUs, rfc3339FromUs, uuidv7 } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 import { preflightRendererToolchain } from './renderer-toolchain.mjs';
 import { MEDIA_PROBE_SCHEMA_VERSION, MEDIA_PROBE_PARSER_VERSION } from './media-probe.mjs';
+import { verifyMediaProbeAttestation } from './media-probe-attestation.mjs';
 
 export const API_VERSION = '1';
 export const CORE_VERSION = '0.1.0';
@@ -1592,7 +1593,12 @@ function isCoreOwnershipFailure(error) {
 }
 
 export class CoreService {
+  #mediaProbeTrustSource = null;
+
   constructor(options = {}) {
+    if (options.mediaProbeTrustSource !== undefined && options.mediaProbeTrustSource !== null
+      && typeof options.mediaProbeTrustSource !== 'function') throw new TypeError('mediaProbeTrustSource must be a startup callback');
+    this.#mediaProbeTrustSource = options.mediaProbeTrustSource ?? null;
     const dbPath = options.dbPath ?? path.join(process.cwd(), '.cineforge', 'cineforge.sqlite');
     if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
     this.dbPath = dbPath;
@@ -4428,7 +4434,7 @@ export class CoreService {
   }
 
   _mediaProbeId(value, field) {
-    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(value)) {
+    if (typeof value !== 'string' || value.length < 1 || value.length > 200 || /[^A-Za-z0-9_-]/.test(value)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
     }
     return value;
@@ -4475,6 +4481,142 @@ export class CoreService {
     const { evaluated_at, ...stable } = evaluation;
     return { eligible: evaluation.eligible === true && evaluation.status === 'ALLOWED',
       generation: crypto.createHash('sha256').update(canonicalJson(stable)).digest('hex') };
+  }
+
+  // Private integration lane: no handle/RPC/HTTP route calls this method.
+  // A reservation is not dispatch authority and never executes media.
+  prepareMediaProbeAttempt(request) {
+    const fail = code => { throw new CoreError(code, 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true }); };
+    if (this._closed || !this.db) fail('PROBE_CORE_CLOSED');
+    if (!request || typeof request !== 'object' || Array.isArray(request)) fail('INVALID_ARGUMENT');
+    this._mediaProbeFields(request, ['project_id', 'job_id', 'expected_version', 'idempotency_key']);
+    for (const field of ['project_id', 'job_id', 'idempotency_key']) this._mediaProbeId(request[field], field);
+    if (!Number.isSafeInteger(request.expected_version) || request.expected_version < 1) fail('EXPECTED_VERSION_REQUIRED');
+    const identity = { project_id: request.project_id, job_id: request.job_id, expected_version: request.expected_version };
+    const fingerprint = crypto.createHash('sha256').update(canonicalJson(identity)).digest('hex');
+    const commandType = 'PREPARED_AUTHORIZE_MEDIA_PROBE_V1';
+    return this._transaction(() => {
+      this._assertCoreOwner();
+      const job = this._mediaProbeJob(identity.job_id, identity.project_id);
+      const checkProject = () => {
+        const project = this._project(job.project_id);
+        this._assertProjectWritable(project);
+        if (project.lifecycle_state !== 'ACTIVE') fail('PROJECT_NOT_WRITABLE');
+      };
+      checkProject();
+      const existing = this.db.prepare('SELECT * FROM commands WHERE actor_id=? AND command_type=? AND idempotency_key=?')
+        .get(this.actorId, commandType, request.idempotency_key);
+      if (existing && (existing.idempotency_fingerprint !== fingerprint || existing.status !== 'SUCCEEDED')) {
+        fail('IDEMPOTENCY_KEY_REUSE_CONFLICT');
+      }
+      if (!existing) {
+        this._mediaProbeVersion({ JOB: request.expected_version }, 'JOB', job.id, job.row_version);
+        if (job.state !== 'QUEUED' || job.current_attempt_id !== null
+          || this.db.prepare('SELECT id FROM media_probe_attempts WHERE job_id=? LIMIT 1').get(job.id)) fail('PROBE_RESERVATION_NOT_AVAILABLE');
+        if (job.row_version >= Number.MAX_SAFE_INTEGER) fail('PROBE_JOB_VERSION_LIMIT');
+      }
+      const checkSource = () => {
+        const source = this._mediaProbeSource(job.project_id, job.asset_revision_id);
+        const location = this.db.prepare('SELECT * FROM storage_object_locations WHERE id=?').get(job.storage_object_location_id);
+        if (!['AUDIO', 'VIDEO'].includes(source.asset_type) || source.lifecycle_state !== 'ACTIVE' || source.availability_state !== 'AVAILABLE'
+        || source.storage_class !== 'LOCAL_MANAGED' || source.hash_algorithm !== 'SHA-256'
+        || source.content_hash !== job.source_content_hash || source.byte_size !== job.source_byte_size
+        || source.byte_size < 1 || source.byte_size > 1073741824 || !location || location.storage_object_id !== source.storage_object_id
+        || location.storage_root !== 'asset-store' || location.location_role !== 'PRIMARY' || location.state !== 'AVAILABLE') fail('PROBE_SOURCE_STALE');
+        return source;
+      };
+      const source = checkSource();
+      const checkRights = () => {
+        const rights = this._mediaProbeRights(source.asset_id);
+        if (!rights.eligible) fail('PROBE_RIGHTS_BLOCKED');
+        if (rights.generation !== job.rights_generation) fail('PROBE_RIGHTS_STALE');
+      };
+      checkRights();
+      const original = this.db.prepare('SELECT command_type,project_id,status FROM commands WHERE id=?').get(job.command_id);
+      if (!original || original.command_type !== 'ProbeMediaAsset' || original.project_id !== job.project_id
+        || !['EXECUTING', 'SUCCEEDED'].includes(original.status)) fail('PROBE_COMMAND_SCOPE_INVALID');
+      if (!this.#mediaProbeTrustSource) fail('PROBE_AUTHORITY_UNAVAILABLE');
+      const artifact = this._releaseRendererToolchainPreflight();
+      const policyFloor = this.db.prepare('SELECT COALESCE(MAX(policy_epoch),1) AS n FROM media_probe_authorizations').get().n;
+      let authority;
+      try { authority = this.#mediaProbeTrustSource(); } catch { fail('PROBE_AUTHORITY_UNAVAILABLE'); }
+      if (!authority || typeof authority !== 'object' || Array.isArray(authority)
+        || Object.keys(authority).some(key => !['envelopeBytes', 'trustPolicyBytes', 'trustContext'].includes(key))) fail('PROBE_AUTHORITY_INVALID');
+      const clock = authority.trustContext && typeof authority.trustContext === 'object' && !Array.isArray(authority.trustContext)
+        ? { ...authority.trustContext } : null;
+      const minimumPolicyEpoch = Number.isSafeInteger(clock?.minimumPolicyEpoch) && clock.minimumPolicyEpoch > 0
+        ? Math.max(clock.minimumPolicyEpoch, policyFloor) : clock?.minimumPolicyEpoch;
+      const proof = verifyMediaProbeAttestation({ envelopeBytes: authority.envelopeBytes, trustPolicyBytes: authority.trustPolicyBytes,
+        trustContext: clock && { ...clock, minimumPolicyEpoch }, artifact });
+      if (proof.state !== 'ATTESTATION_VERIFIED') fail(proof.code);
+      if (proof.manifest_sha256 !== job.toolchain_manifest_hash || proof.ffprobe_sha256 !== job.toolchain_binary_hash
+        || proof.toolchain_id !== job.toolchain_id || proof.toolchain_version !== job.toolchain_version
+        || proof.probe_schema_version !== job.probe_schema_version || proof.parser_policy_version !== job.parser_policy_version) fail('PROBE_TOOLCHAIN_STALE');
+      const packFloor = this.db.prepare(`SELECT COALESCE(MAX(z.certification_epoch),1) AS n FROM media_probe_authorizations z
+        JOIN media_probe_jobs j ON j.id=z.job_id WHERE j.toolchain_id=? AND z.key_spki_hash=?`).get(job.toolchain_id, proof.key_spki_sha256).n;
+      if (proof.certification_epoch < packFloor) fail('PROBE_ATTESTATION_PACK_ROLLBACK');
+      const stamp = clock.nowUtcMs * 1000;
+      const from = proof.valid_from_utc_ms * 1000; const until = proof.valid_until_utc_ms * 1000;
+      if (![stamp, from, until].every(value => Number.isSafeInteger(value) && value > 0)) fail('PROBE_AUTHORITY_CLOCK_INVALID');
+      checkSource(); checkRights(); this._assertCoreOwner(); checkProject();
+      const currentJob = this._mediaProbeJob(job.id, job.project_id);
+      if (['row_version', 'state', 'current_attempt_id', 'fencing_token', 'toolchain_id', 'toolchain_version', 'toolchain_binary_hash']
+        .some(field => currentJob[field] !== job[field])) fail('PROBE_RESERVATION_STALE');
+      const pins = { certificate_hash: proof.certificate_sha256, trust_generation: proof.trust_generation,
+        key_id: proof.key_id, key_spki_hash: proof.key_spki_sha256, policy_epoch: proof.policy_epoch,
+        certification_epoch: proof.certification_epoch, not_before_utc_us: from, expires_at_utc_us: until };
+      if (existing) {
+        const receipt = JSON.parse(existing.result_json);
+        const attempt = this.db.prepare('SELECT * FROM media_probe_attempts WHERE id=?').get(receipt.attempt_id);
+        const authorization = attempt && this.db.prepare('SELECT * FROM media_probe_authorizations WHERE id=?').get(attempt.authorization_id);
+        if (receipt.contract !== 'PREPARED_MEDIA_PROBE_AUTHORIZATION_V1' || receipt.execution_started !== false
+          || receipt.job_id !== job.id || !attempt || !authorization || attempt.job_id !== job.id || attempt.state !== 'CREATED'
+          || job.state !== 'CLAIMED' || job.row_version !== receipt.job_version
+          || job.current_attempt_id !== attempt.id || job.fencing_token !== attempt.fencing_token
+          || attempt.core_owner_epoch !== this.instanceEpoch || authorization.core_owner_epoch !== this.instanceEpoch
+          || authorization.attempt_id !== attempt.id || authorization.fencing_token !== attempt.fencing_token
+          || receipt.authorization_id !== authorization.id || Object.entries(pins).some(([key, value]) => authorization[key] !== value)) fail('PROBE_RESERVATION_STALE');
+        return Object.freeze(receipt);
+      }
+      const commandId = uuidv7(); const attemptId = uuidv7(); const authorizationId = uuidv7();
+      const fence = crypto.randomBytes(32).toString('hex');
+      this.db.prepare(`INSERT INTO commands
+        (id,studio_id,project_id,actor_id,command_type,schema_version,scope_type,scope_id,payload_json,
+          expected_versions_json,reversibility,status,idempotency_key,idempotency_fingerprint,created_at_utc_us,started_at_utc_us)
+        VALUES (?,?,?,?,?,1,'MEDIA_PROBE_JOB',?, ?,?,'COMPENSATABLE','EXECUTING',?,?,?,?)`).run(
+        commandId, this.studioId, job.project_id, this.actorId, commandType, job.id, json(identity),
+        json({ JOB: identity.expected_version }), request.idempotency_key, fingerprint, stamp, stamp);
+      this.db.prepare(`INSERT INTO media_probe_authorizations
+        (id,job_id,attempt_id,fencing_token,core_owner_epoch,certificate_hash,trust_generation,key_id,key_spki_hash,
+          policy_epoch,certification_epoch,source_content_hash,source_byte_size,toolchain_manifest_hash,toolchain_binary_hash,
+          rights_generation,producer_contract_version,argv_preset_id,sandbox_profile_version,resource_profile_version,
+          not_before_utc_us,expires_at_utc_us,created_at_utc_us)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'NATIVE_MEDIA_PROBE_BROKER_V1','MEDIA_PROBE_ARGV_V1',
+          'WINDOWS_APPCONTAINER_PROBE_V1','MEDIA_PROBE_RESOURCE_V1',?,?,?)`).run(
+        authorizationId, job.id, attemptId, fence, this.instanceEpoch, pins.certificate_hash, pins.trust_generation,
+        pins.key_id, pins.key_spki_hash, pins.policy_epoch, pins.certification_epoch, job.source_content_hash, job.source_byte_size,
+        job.toolchain_manifest_hash, job.toolchain_binary_hash, job.rights_generation, from, until, stamp);
+      this.db.prepare(`INSERT INTO media_probe_attempts
+        (id,job_id,attempt_no,retry_kind,idempotency_key,fencing_token,producer_contract_version,argv_preset_id,
+          state,authorization_id,core_owner_epoch,created_at_utc_us,updated_at_utc_us)
+        VALUES (?,?,1,'INITIAL',?,?,'NATIVE_MEDIA_PROBE_BROKER_V1','MEDIA_PROBE_ARGV_V1','CREATED',?,?,?,?)`).run(
+        attemptId, job.id, request.idempotency_key, fence, authorizationId, this.instanceEpoch, stamp, stamp);
+      const updated = this.db.prepare(`UPDATE media_probe_jobs SET state='CLAIMED',current_attempt_id=?,fencing_token=?,needs_user=0,
+        next_step='Đã lưu quyền kiểm tra; chờ runtime cục bộ.',row_version=row_version+1,updated_at_utc_us=? WHERE id=? AND row_version=?`).run(
+        attemptId, fence, stamp, job.id, job.row_version);
+      if (Number(updated.changes) !== 1) fail('PROBE_RESERVATION_STALE');
+      this.db.prepare(`INSERT INTO command_impacts (command_id,entity_type,entity_id,impact_type,severity,details_json)
+        VALUES (?,'MEDIA_PROBE_JOB',?,'MUTATES','LOW',?)`).run(commandId, job.id, json({ execution_started: false }));
+      this._insertEvent({ aggregateType: 'MEDIA_PROBE_JOB', aggregateId: job.id, aggregateVersion: job.row_version + 1,
+        eventType: 'MEDIA_PROBE_ATTEMPT_AUTHORIZED', payload: { job_id: job.id, attempt_id: attemptId, execution_started: false } },
+      commandId, this.actorId, job.correlation_id, job.command_id);
+      this._insertAudit({ actionType: 'media_probe.prepare_attempt', targetType: 'MEDIA_PROBE_JOB', targetId: job.id,
+        payload: { attempt_id: attemptId, execution_started: false } }, commandId, this.actorId, 'SUCCEEDED');
+      const receipt = Object.freeze({ contract: 'PREPARED_MEDIA_PROBE_AUTHORIZATION_V1', state: 'PREPARED', job_id: job.id,
+        attempt_id: attemptId, authorization_id: authorizationId, job_version: job.row_version + 1, execution_started: false });
+      this.db.prepare("UPDATE commands SET status='SUCCEEDED',finished_at_utc_us=?,result_json=? WHERE id=?").run(stamp, json(receipt), commandId);
+      return receipt;
+    });
   }
 
   _admitMediaProbe(payload, expected, commandId) {
