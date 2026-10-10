@@ -2943,6 +2943,21 @@ activate a restore or change a recovery epoch.
 
 # UI-MEDIA-TECHNICAL-METADATA-01. Technical metadata workspace
 
+## UI-MEDIA-PROBE-ADMISSION-01. Prepared blocked workspace
+
+The Library row opens technical inspection on demand. Reads bind the exact
+project/revision and discard aborted or obsolete requests. Without a certified
+probe execution capability, Phân tích kỹ thuật remains disabled with a concrete
+explanation; no editable manifest hash, path or tool chooser is offered.
+The panel reads admission state from Core, shows UNKNOWN and the localized
+recovery step, and permits cancellation of an unexecuted blocked intent at its
+current job version. Retry/execution remain disabled. Advanced details contain
+only exact requested hashes/versions and explicit toolchain_verified false.
+This prepared workspace does not display measurements or claim verified
+metadata; unexpected verified responses are rejected until a typed verifier
+projection is implemented. Offline controls are disabled, old bridges explain
+the missing capability, and errors use fixed user-facing recovery messages.
+
 The Library asset inspector may show a `Technical metadata` panel only when
 Core returns a project-scoped exact revision projection. The primary action is
 `Phân tích kỹ thuật` (`Probe technical media`) and is disabled when the Core is

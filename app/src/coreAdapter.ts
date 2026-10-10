@@ -1,5 +1,7 @@
 import type { ActivityItem, AssetSummary, AudioCueRevision, AudioCueRevisionInput, AudioCueSummary, AudioCueTiming, BackupCommandResult, BackupRestoreCheck, BackupRestoreEstimate, BackupRestoreWorkspace, BackupSummary, BackupVerification, BackupWorkspace, CharacterRevision, CharacterRevisionInput, CharacterRevisionKind, CharacterSummary, CharacterWorkspace, CoreClient, DashboardSnapshot, DecisionRequest, ExternalEdit, ExternalEditLineageConfidence, ExternalEditList, ExternalEditRegistrationInput, HandoffListItem, HandoffWorkspace, HumanReviewDecision, ImportAssetInput, ManagedAssetIntegrityJob, ManagedJobList, ManagedJobRetryPlan, MediaPreviewResolution, MediaProfileInput, MediaProfileRevision, MediaProfileWorkspace, NoteSummary, ProductionItem, ProjectSummary, ProjectWorkspace, RecoveryCheck, RecoveryStatus, ReleaseBuildPlan, ReleaseBuildPlanList, ReleaseCandidate, ReleaseCandidateList, ReleaseGate, ReleaseReadiness, RendererToolchainPreflight, ReviewSession, ReviewWorkspace, RightsState, RightsSummary, ShotLifecycleState, ShotSummary, StagedAsset, StagingEvidence, StagingWorkspace, StorageAdmission, StorageScrubHealth, SubtitleSegment, SubtitleTiming, SubtitleTrackRevision, SubtitleTrackRevisionInput, SubtitleTrackSummary, TaskStatus, TaskSummary, TimelineClip, TimelineInput, TimelineInterchangeDownload, TimelineMarker, TimelineRevision, TimelineSnapshotInput, TimelineSummary, TimelineTrack, TimelineTimingImpact, TimelineTimingLifecycleState, TimelineWorkspace, TimelineWorkingHistory, TimelineWorkingWorkspace, TimingDependencyInput, WorkspaceNoteEntityType, WorkState } from './types'
 
+import type { AssetTechnicalMetadata, MediaProbeAdmissionJob, MediaProbeAdmissionState } from './types'
+
 // Keep the bounded local adapter available for development and tests without
 // shipping its demo project data in a production bundle. Vite replaces
 // import.meta.env.PROD at build time, so the dynamic import is removed from a
@@ -797,6 +799,32 @@ export class HttpCoreClient implements CoreClient {
     if (state?.trim()) query.set('state', state.trim().toUpperCase())
     const response = await fetch(`${this.baseUrl}/v1/jobs?${query.toString()}`, { signal, headers: { Accept: 'application/json' } })
     return mapManagedJobListRecord(await readCorePayload(response, 'jobs'))
+  }
+
+  async getAssetTechnicalMetadata(projectId: string, revisionId: string, signal?: AbortSignal): Promise<AssetTechnicalMetadata> {
+    if (!this.isLive()) throw new CoreClientError('Core is offline.', { code: 'CORE_OFFLINE', needsUser: true })
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(revisionId)}/technical-metadata`, { signal, headers: { Accept: 'application/json' } })
+    const source = asRecord(await readCorePayload(response, 'technical metadata'))
+    assertMediaProbeScope(source, projectId, revisionId)
+    assertUnverifiedMediaProbe(source)
+    const state = mediaProbeAdmissionState(source.state)
+    return { projectId, revisionId, assetRowVersion: probePositiveInteger(source.asset_row_version),
+      contentHash: probeHash(source.content_hash), byteSize: probeNonnegativeInteger(source.byte_size), state,
+      outcome: 'UNKNOWN', metadata: null, streams: [], needsUser: source.needs_user === true,
+      job: source.job === null || source.job === undefined ? null : mapMediaProbeAdmissionJob(source.job, projectId, revisionId) }
+  }
+
+  async cancelMediaProbe(projectId: string, jobId: string, expectedVersion: number, idempotencyKey = crypto.randomUUID(), signal?: AbortSignal): Promise<MediaProbeAdmissionJob> {
+    if (!this.isLive()) throw new CoreClientError('Core is offline.', { code: 'CORE_OFFLINE', needsUser: true })
+    probePositiveInteger(expectedVersion)
+    const response = await fetch(`${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}/technical-media-probes/${encodeURIComponent(jobId)}/cancel`, {
+      method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ expected_version: expectedVersion }),
+    })
+    const payload = asRecord(await readCorePayload(response, 'media probe cancellation'))
+    const job = mapMediaProbeAdmissionJob(payload.job, projectId)
+    if (job.id !== jobId) throw new CoreClientError('Probe job scope mismatch.', { code: 'ENTITY_SCOPE_MISMATCH', needsUser: true })
+    return job
   }
 
   async getJob(jobId: string, projectId?: string, signal?: AbortSignal): Promise<ManagedAssetIntegrityJob> {
@@ -1826,6 +1854,51 @@ function mapActivityRecord(value: unknown, projectId: string, index: number): Ac
     updatedAt: stringValue(source.updated_at ?? source.updatedAt ?? source.created_at) ?? 'Vừa cập nhật',
     actionable: Boolean(source.actionable ?? source.needs_user),
   }
+}
+
+function mediaProbeAdmissionState(value: unknown): MediaProbeAdmissionState {
+  if (!['UNKNOWN', 'BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN', 'STALE', 'CANCELLED'].includes(String(value))) {
+    throw new CoreClientError('This bridge cannot verify technical media measurements.', { code: 'PROBE_VERIFIER_UNAVAILABLE', needsUser: true })
+  }
+  return value as MediaProbeAdmissionState
+}
+
+function assertMediaProbeScope(source: Record<string, unknown>, projectId: string, revisionId?: string) {
+  if (source.project_id !== projectId || (revisionId !== undefined && source.asset_revision_id !== revisionId)) {
+    throw new CoreClientError('Technical metadata scope mismatch.', { code: 'ENTITY_SCOPE_MISMATCH', needsUser: true })
+  }
+}
+
+function assertUnverifiedMediaProbe(source: Record<string, unknown>) {
+  if (source.outcome !== 'UNKNOWN' || source.metadata !== null || !Array.isArray(source.streams) || source.streams.length !== 0
+    || source.toolchain_verified === true || source.execution_started === true) {
+    throw new CoreClientError('This bridge cannot verify technical media measurements.', { code: 'PROBE_VERIFIER_UNAVAILABLE', needsUser: true })
+  }
+}
+
+function probePositiveInteger(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) throw new CoreClientError('Invalid probe version.', { code: 'INVALID_CORE_RESPONSE', needsUser: true })
+  return value as number
+}
+function probeNonnegativeInteger(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new CoreClientError('Invalid probe size.', { code: 'INVALID_CORE_RESPONSE', needsUser: true })
+  return value as number
+}
+function probeHash(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : undefined
+}
+
+function mapMediaProbeAdmissionJob(value: unknown, projectId: string, revisionId?: string): MediaProbeAdmissionJob {
+  const source = asRecord(value)
+  assertMediaProbeScope(source, projectId, revisionId); assertUnverifiedMediaProbe(source)
+  if (typeof source.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(source.id)
+    || typeof source.asset_revision_id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(source.asset_revision_id)) {
+    throw new CoreClientError('Invalid probe identity.', { code: 'INVALID_CORE_RESPONSE', needsUser: true })
+  }
+  return { id: source.id, projectId, revisionId: source.asset_revision_id,
+    state: mediaProbeAdmissionState(source.state), rowVersion: probePositiveInteger(source.row_version),
+    outcome: 'UNKNOWN', toolchainVerified: false, executionStarted: false,
+    requestedManifestHash: probeHash(source.toolchain_manifest_hash), needsUser: source.needs_user === true }
 }
 
 function mapAssetRecord(value: unknown): AssetSummary {

@@ -445,6 +445,15 @@ h3 { font-size: 13px; font-weight: 600; }
   gap: 3px;
 }
 
+.asset-technical-panel { margin: 0 12px 12px 42px; font-size: 12px; }
+.asset-technical-panel summary { cursor: pointer; color: var(--text-soft); padding: 8px 0; }
+.asset-technical-body { padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.asset-technical-body p { margin: 8px 0; line-height: 1.5; }
+.asset-technical-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.asset-technical-advanced dl { display: grid; grid-template-columns: minmax(100px, 1fr) 2fr; gap: 8px; }
+.asset-technical-advanced dd { margin: 0; overflow-wrap: anywhere; font-family: monospace; }
+@media (max-width: 620px) { .asset-technical-panel { margin-left: 12px; }.asset-technical-advanced dl { grid-template-columns: 1fr; } }
+
 .asset-integrity-action .asset-preview-hint {
   max-width: 150px;
   text-align: right;

@@ -829,6 +829,35 @@ export interface AssetSummary {
   latestRevision?: unknown
 }
 
+export type MediaProbeAdmissionState = 'UNKNOWN' | 'BLOCKED_MEDIA' | 'BLOCKED_RIGHTS' | 'BLOCKED_TOOLCHAIN' | 'STALE' | 'CANCELLED'
+
+export interface MediaProbeAdmissionJob {
+  id: string
+  projectId: string
+  revisionId: string
+  state: MediaProbeAdmissionState
+  rowVersion: number
+  outcome: 'UNKNOWN'
+  executionStarted: false
+  toolchainVerified: false
+  requestedManifestHash?: string
+  needsUser: boolean
+}
+
+export interface AssetTechnicalMetadata {
+  projectId: string
+  revisionId: string
+  assetRowVersion: number
+  contentHash?: string
+  byteSize: number
+  state: MediaProbeAdmissionState
+  outcome: 'UNKNOWN'
+  metadata: null
+  streams: []
+  job: MediaProbeAdmissionJob | null
+  needsUser: boolean
+}
+
 export interface MediaPreviewResolution {
   projectId: string
   revisionId: string
@@ -1355,6 +1384,8 @@ export interface CoreClient {
   getProjectWorkspace?(projectId: string, signal?: AbortSignal): Promise<ProjectWorkspace>
   getProjectActivity?(projectId: string, signal?: AbortSignal): Promise<ActivityItem[]>
   getAssets?(projectId?: string, signal?: AbortSignal): Promise<AssetSummary[]>
+  getAssetTechnicalMetadata?(projectId: string, revisionId: string, signal?: AbortSignal): Promise<AssetTechnicalMetadata>
+  cancelMediaProbe?(projectId: string, jobId: string, expectedVersion: number, idempotencyKey?: string, signal?: AbortSignal): Promise<MediaProbeAdmissionJob>
   getBackups?(signal?: AbortSignal): Promise<BackupSummary[]>
   getBackup?(backupId: string, signal?: AbortSignal): Promise<BackupWorkspace>
   getBackupRestoreEstimate?(backupId: string, signal?: AbortSignal): Promise<BackupRestoreWorkspace>

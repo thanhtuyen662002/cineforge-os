@@ -673,3 +673,16 @@ expected row version must be resolved before entering this transaction.
 A current-attempt pointer plus fencing token prevents a late old producer
 from binding even when its source hash is unchanged. Process/resource and
 rights validations are Core obligations beyond these SQL constraints.
+
+# DESIGN-MEDIA-PROBE-ADMISSION-01. Prepared command and read model
+
+ARCH-MEDIA-PROBE-ADMISSION-01, API-MEDIA-PROBE-ADMISSION-01,
+STATE-MEDIA-PROBE-ADMISSION-01 and UI-MEDIA-PROBE-ADMISSION-01 define the next
+prepared lane after persistence. This adds audited blocked admission and
+cancellation, exact project/revision projections and an on-demand Library
+panel. The owning ASSET row_version fences admission; JOB row_version fences
+cancellation. SOURCE_USE rights/consent are checked for MEDIA_INSPECTION and
+rechecked when reading effective state. The producer is still unavailable:
+no attempt/process/PASS/measurement is created. Requested manifest hashes are
+never presented as verified execution identity. These additions do not relax
+the separately required process and binding gates or close Task #64.

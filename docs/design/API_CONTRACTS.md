@@ -4321,6 +4321,29 @@ destructive cleanup/GC, restore activation and recovery-epoch machinery.
 
 # API-MEDIA-PROBE-01. Project-scoped ProbeMediaAsset API
 
+## API-MEDIA-PROBE-ADMISSION-01. Prepared admission detail
+
+The queue's expected_version is the owning ASSET row_version; cancel/retry use
+JOB row_version. Core commands are ProbeMediaAsset, CancelMediaProbe and
+RetryMediaProbe. Core payloads use the snake_case identity fields shown below,
+project_id and asset_revision_id (or job_id for job mutations). HTTP injects
+route IDs and rejects conflicting IDs or unknown fields before journaling.
+HTTP accepts expected_version and Idempotency-Key; Core receives expected_versions
+separately. No duplicate version/idempotency transport aliases are accepted.
+
+Prepared admission returns a durable blocked job with outcome UNKNOWN,
+metadata null, streams empty and attempt_id null. It does not queue an
+executable attempt. Cancellation is permitted only for blocked jobs without
+attempts; retry returns PROBE_RETRY_NOT_AVAILABLE. The original audited response
+is immutable on idempotency replay; clients must refresh the job projection for
+current rights/source state. A different explicit admission key represents a
+new intent and is part of the canonical request digest.
+
+Lists accept decimal limit (1..100, default 25) and offset (0..10000, default 0),
+ordered by created_at descending then id descending, with has_more/next_offset.
+Projections expose requested pins and toolchain_verified false. They never
+expose legacy metadata_json or privileged SQL fixture measurements as PASS.
+
 The technical-media probe is a Core-owned, read-only capability over one exact
 managed asset revision. The project-scoped routes are:
 

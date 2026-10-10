@@ -8,6 +8,7 @@ import { initializeDatabase, SCHEMA_VERSION } from './schema.mjs';
 import { isUuid, nowUtcUs, rfc3339FromUs, uuidv7 } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 import { preflightRendererToolchain } from './renderer-toolchain.mjs';
+import { MEDIA_PROBE_SCHEMA_VERSION, MEDIA_PROBE_PARSER_VERSION } from './media-probe.mjs';
 
 export const API_VERSION = '1';
 export const CORE_VERSION = '0.1.0';
@@ -75,6 +76,16 @@ const TIMELINE_INTERCHANGE_DOWNLOAD_MAX_FULL_BYTES = 32 * 1024 * 1024;
 const TIMELINE_INTERCHANGE_DOWNLOAD_AUDIENCE = 'LOCAL_TIMELINE_INTERCHANGE_DOWNLOAD';
 const TIMELINE_INTERCHANGE_MUTATING_COMMANDS = new Set(['BuildTimelineInterchangeExport']);
 const EXTERNAL_EDIT_MUTATING_COMMANDS = new Set(['RegisterExternalEdit']);
+const MEDIA_PROBE_MUTATING_COMMANDS = new Set(['ProbeMediaAsset', 'CancelMediaProbe', 'RetryMediaProbe']);
+const MEDIA_PROBE_BLOCKED_STATES = new Set(['BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN']);
+const MEDIA_PROBE_NEXT_STEPS = Object.freeze({
+  BLOCKED_MEDIA: 'Cần nguồn video/âm thanh managed khả dụng; đăng ký nguồn đúng rồi gửi lệnh kiểm tra mới.',
+  BLOCKED_RIGHTS: 'Cần bổ sung quyền và đồng thuận SOURCE_USE cho MEDIA_INSPECTION rồi gửi lệnh kiểm tra mới.',
+  BLOCKED_TOOLCHAIN: 'CineForge chưa có bộ thực thi kiểm tra media được chứng nhận; cần bổ sung bộ thực thi trước khi kiểm tra.',
+  STALE: 'Nguồn hoặc quyền đã thay đổi; cần gửi lệnh kiểm tra mới cho danh tính hiện tại.',
+  UNKNOWN: 'CineForge chưa có bằng chứng kỹ thuật được xác minh cho revision này.',
+  CANCELLED: 'Đã hủy yêu cầu chưa chạy; có thể gửi yêu cầu kiểm tra mới.',
+});
 // Slice 3A is deliberately a single built-in local capability.  It reads a
 // registered managed object and records bounded evidence; it never dispatches
 // to a provider, network endpoint or shell command.
@@ -3832,6 +3843,16 @@ export class CoreService {
   }
 
   _commandPayloadForStorage(commandType, payload) {
+    if (MEDIA_PROBE_MUTATING_COMMANDS.has(commandType)) {
+      const out = {};
+      for (const key of ['project_id', 'asset_revision_id', 'job_id', 'content_hash', 'byte_size',
+        'toolchain_manifest_hash', 'probe_schema_version', 'parser_policy_version']) {
+        const value = payload[key];
+        if (key === 'byte_size') { if (Number.isSafeInteger(value) && value >= 0) out[key] = value; }
+        else if (typeof value === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(value)) out[key] = value;
+      }
+      return out;
+    }
     if (LOCAL_PROBE_MUTATING_COMMANDS.has(commandType)) {
       return {
         ...(payload.project_id ?? payload.projectId ? { project_id: String(payload.project_id ?? payload.projectId).slice(0, 200) } : {}),
@@ -3952,7 +3973,7 @@ export class CoreService {
     if (idempotencyKey !== null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 200)) {
       throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_idempotency_key', {});
     }
-    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType) || RELEASE_BUILD_PLAN_MUTATING_COMMANDS.has(commandType) || TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType) || EXTERNAL_EDIT_MUTATING_COMMANDS.has(commandType) || LOCAL_PROBE_MUTATING_COMMANDS.has(commandType))
+    if ((TIMELINE_WORKING_MUTATING_COMMANDS.has(commandType) || TIMING_METADATA_MUTATING_COMMANDS.has(commandType) || RELEASE_CANDIDATE_MUTATING_COMMANDS.has(commandType) || RELEASE_BUILD_PLAN_MUTATING_COMMANDS.has(commandType) || TIMELINE_INTERCHANGE_MUTATING_COMMANDS.has(commandType) || EXTERNAL_EDIT_MUTATING_COMMANDS.has(commandType) || LOCAL_PROBE_MUTATING_COMMANDS.has(commandType) || MEDIA_PROBE_MUTATING_COMMANDS.has(commandType))
       && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length === 0)) {
       throw new CoreError('IDEMPOTENCY_KEY_REQUIRED', 'VALIDATION', 'errors.idempotency_key_required', {
         command_type: commandType,
@@ -3977,7 +3998,10 @@ export class CoreService {
            idempotency_fingerprint, created_at_utc_us)
           VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'RECEIVED', ?, ?, ?)`).run(
           commandId, this.studioId, projectId, this.actorId, commandType,
-          projectId ? 'PROJECT' : 'SYSTEM', projectId, json(this._commandPayloadForStorage(commandType, payload)), json(expectedVersions),
+          projectId ? 'PROJECT' : 'SYSTEM', projectId, json(this._commandPayloadForStorage(commandType, payload)),
+          json(MEDIA_PROBE_MUTATING_COMMANDS.has(commandType)
+            ? this._mediaProbeExpectedForStorage(commandType, payload, expectedVersions)
+            : expectedVersions),
           this._reversibility(commandType), idempotencyKey, requestFingerprint, created,
         );
       });
@@ -4121,6 +4145,14 @@ export class CoreService {
   }
 
   _commandProjectId(commandType, payload) {
+    if (commandType === 'ProbeMediaAsset') {
+      if (typeof payload.asset_revision_id !== 'string') return null;
+      return this.db.prepare('SELECT a.project_id FROM asset_revisions r JOIN assets a ON a.id=r.asset_id WHERE r.id=?').get(payload.asset_revision_id)?.project_id ?? null;
+    }
+    if (MEDIA_PROBE_MUTATING_COMMANDS.has(commandType)) {
+      if (typeof payload.job_id !== 'string') return null;
+      return this.db.prepare('SELECT project_id FROM media_probe_jobs WHERE id=?').get(payload.job_id)?.project_id ?? null;
+    }
     const explicitProjectId = payload.project_id ?? payload.projectId;
     // For entity-scoped commands, derive the command's project from the
     // target row.  A caller-supplied project_id is only a scope assertion and
@@ -4374,6 +4406,9 @@ export class CoreService {
       case 'CreateBackup': return this._createBackup(payload, commandId);
       case 'VerifyBackup': return this._verifyBackup(payload, commandId);
       case 'RunManagedAssetIntegrityProbe': return this._runManagedAssetIntegrityProbe(payload, commandId);
+      case 'ProbeMediaAsset': return this._admitMediaProbe(payload, expectedVersions, commandId);
+      case 'CancelMediaProbe': return this._cancelMediaProbe(payload, expectedVersions);
+      case 'RetryMediaProbe': return this._retryMediaProbe(payload, expectedVersions);
       case 'CancelManagedAssetIntegrityProbe': return this._cancelManagedAssetIntegrityProbe(payload, expectedVersions);
       case 'RetryManagedAssetIntegrityProbe': return this._retryManagedAssetIntegrityProbe(payload, expectedVersions, commandId);
       case 'AddNote':
@@ -4382,6 +4417,200 @@ export class CoreService {
       default:
         throw new CoreError('UNSUPPORTED_COMMAND', 'VALIDATION', 'errors.unsupported_command', { command_type: commandType });
     }
+  }
+
+  // PREPARED admission only. No process/producer/measurement authority is
+  // reachable here, including when renderer preflight verifies an artifact.
+  _mediaProbeFields(payload, allowed) {
+    if (Object.keys(payload).some(key => !allowed.includes(key))) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.media_probe_identity_only', {}, { needsUser: true });
+    }
+  }
+
+  _mediaProbeId(value, field) {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(value)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+    }
+    return value;
+  }
+
+  _mediaProbeExpectedForStorage(commandType, payload, expected) {
+    const kind = commandType === 'ProbeMediaAsset' ? 'ASSET' : 'JOB';
+    const id = kind === 'JOB' ? payload.job_id : typeof payload.asset_revision_id === 'string'
+      ? this.db.prepare('SELECT asset_id FROM asset_revisions WHERE id=?').get(payload.asset_revision_id)?.asset_id : null;
+    const value = expected[kind] ?? expected[kind.toLowerCase()] ?? expected[`${kind}:${id}`] ?? (id ? expected[id] : undefined);
+    return Number.isSafeInteger(value) && value >= 1 ? { [kind]: value } : {};
+  }
+
+  _mediaProbeVersion(expected, kind, id, actual) {
+    const allowed = [kind, kind.toLowerCase(), `${kind}:${id}`, id];
+    if (Object.keys(expected).some(key => !allowed.includes(key)) || Object.keys(expected).length > 1) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.media_probe_version_invalid', {});
+    }
+    const value = expected[kind] ?? expected[kind.toLowerCase()] ?? expected[`${kind}:${id}`] ?? expected[id];
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 1)) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field: 'expected_version' });
+    }
+    this._expectedVersion(expected, kind, id, actual);
+  }
+
+  _mediaProbeSource(projectId, revisionId) {
+    this._mediaProbeId(projectId, 'project_id'); this._mediaProbeId(revisionId, 'asset_revision_id');
+    const row = this.db.prepare(`SELECT r.id,r.asset_id,r.storage_object_id,r.availability_state,
+      a.project_id,a.asset_type,a.lifecycle_state,a.row_version,
+      o.content_hash,o.byte_size,o.hash_algorithm,o.storage_class
+      FROM asset_revisions r JOIN assets a ON a.id=r.asset_id
+      LEFT JOIN storage_objects o ON o.id=r.storage_object_id WHERE r.id=?`).get(revisionId);
+    if (!row) throw new CoreError('ASSET_REVISION_NOT_FOUND', 'VALIDATION', 'errors.asset_revision_not_found', {});
+    if (row.project_id !== projectId) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {}, { needsUser: true });
+    if (typeof row.content_hash !== 'string' || !/^[a-f0-9]{64}$/.test(row.content_hash)
+      || !Number.isSafeInteger(row.byte_size) || row.byte_size < 0) {
+      throw new CoreError('PROBE_MEDIA_IDENTITY_UNKNOWN', 'CONFLICT', 'errors.media_probe_identity_unknown', {}, { needsUser: true });
+    }
+    return row;
+  }
+
+  _mediaProbeRights(assetId) {
+    const evaluation = this._rightsForAsset(assetId, { right_type: 'SOURCE_USE', consent_type: 'SOURCE_USE', purpose: 'MEDIA_INSPECTION' });
+    const { evaluated_at, ...stable } = evaluation;
+    return { eligible: evaluation.eligible === true && evaluation.status === 'ALLOWED',
+      generation: crypto.createHash('sha256').update(canonicalJson(stable)).digest('hex') };
+  }
+
+  _admitMediaProbe(payload, expected, commandId) {
+    this._mediaProbeFields(payload, ['project_id', 'asset_revision_id', 'content_hash', 'byte_size',
+      'toolchain_manifest_hash', 'probe_schema_version', 'parser_policy_version']);
+    for (const field of ['content_hash', 'toolchain_manifest_hash']) {
+      if (typeof payload[field] !== 'string' || !/^[a-f0-9]{64}$/.test(payload[field])) {
+        throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.invalid_field', { field });
+      }
+    }
+    if (!Number.isSafeInteger(payload.byte_size) || payload.byte_size < 0
+      || payload.probe_schema_version !== MEDIA_PROBE_SCHEMA_VERSION || payload.parser_policy_version !== MEDIA_PROBE_PARSER_VERSION) {
+      throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.media_probe_identity_invalid', {});
+    }
+    const source = this._mediaProbeSource(payload.project_id, payload.asset_revision_id);
+    this._assertProjectWritable(source.project_id);
+    this._mediaProbeVersion(expected, 'ASSET', source.asset_id, source.row_version);
+    if (source.content_hash !== payload.content_hash || source.byte_size !== payload.byte_size) {
+      throw new CoreError('STALE_REVISION', 'STALE_REVISION', 'errors.stale_revision', {}, { needsUser: true });
+    }
+    const location = this.db.prepare(`SELECT id FROM storage_object_locations WHERE storage_object_id=?
+      AND storage_root='asset-store' AND location_role='PRIMARY' AND state='AVAILABLE'
+      ORDER BY created_at_utc_us,id LIMIT 1`).get(source.storage_object_id);
+    if (source.storage_class !== 'LOCAL_MANAGED' || source.hash_algorithm !== 'SHA-256' || !location) {
+      throw new CoreError('PROBE_MEDIA_NOT_MANAGED', 'CONFLICT', 'errors.media_probe_not_managed', {}, { needsUser: true });
+    }
+    const rights = this._mediaProbeRights(source.asset_id);
+    const state = !['VIDEO', 'AUDIO'].includes(source.asset_type) || source.lifecycle_state !== 'ACTIVE' || source.availability_state !== 'AVAILABLE'
+      ? 'BLOCKED_MEDIA' : !rights.eligible ? 'BLOCKED_RIGHTS' : 'BLOCKED_TOOLCHAIN';
+    const command = this.db.prepare('SELECT idempotency_key FROM commands WHERE id=?').get(commandId);
+    const requestHash = crypto.createHash('sha256').update(canonicalJson({ ...payload,
+      asset_row_version: source.row_version, rights_generation: rights.generation, idempotency_key: command.idempotency_key })).digest('hex');
+    const jobId = uuidv7(); const now = nowUtcUs();
+    this.db.prepare(`INSERT INTO media_probe_jobs
+      (id,project_id,asset_revision_id,storage_object_location_id,command_id,source_content_hash,source_byte_size,
+      toolchain_manifest_hash,probe_schema_version,parser_policy_version,rights_generation,canonical_request_hash,
+      idempotency_key,correlation_id,state,needs_user,next_step,created_at_utc_us,updated_at_utc_us)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`).run(jobId, source.project_id, source.id, location.id,
+      commandId, source.content_hash, source.byte_size, payload.toolchain_manifest_hash, MEDIA_PROBE_SCHEMA_VERSION,
+      MEDIA_PROBE_PARSER_VERSION, rights.generation, requestHash, command.idempotency_key, commandId, state,
+      MEDIA_PROBE_NEXT_STEPS[state], now, now);
+    return { projectId: source.project_id, result: { job: this._mediaProbeProjection(jobId, source.project_id) },
+      event: { aggregateType: 'MEDIA_PROBE_JOB', aggregateId: jobId, aggregateVersion: 1,
+        eventType: 'MEDIA_PROBE_ADMISSION_BLOCKED', payload: { job_id: jobId, state, asset_revision_id: source.id } },
+      audit: { actionType: 'media_probe.admit', targetType: 'MEDIA_PROBE_JOB', targetId: jobId,
+        payload: { state, asset_revision_id: source.id, execution_started: false } } };
+  }
+
+  _mediaProbeJob(jobId, projectId) {
+    this._mediaProbeId(jobId, 'job_id'); this._mediaProbeId(projectId, 'project_id');
+    const row = this.db.prepare('SELECT * FROM media_probe_jobs WHERE id=?').get(jobId);
+    if (!row) throw new CoreError('NOT_FOUND', 'VALIDATION', 'errors.media_probe_not_found', {});
+    if (row.project_id !== projectId) throw new CoreError('ENTITY_SCOPE_MISMATCH', 'CONFLICT', 'errors.entity_scope_mismatch', {}, { needsUser: true });
+    return row;
+  }
+
+  _mediaProbeProjection(jobId, projectId) {
+    const row = this._mediaProbeJob(jobId, projectId);
+    const source = this._mediaProbeSource(projectId, row.asset_revision_id);
+    const rights = this._mediaProbeRights(source.asset_id);
+    let state = MEDIA_PROBE_BLOCKED_STATES.has(row.state) || row.state === 'CANCELLED' ? row.state : 'UNKNOWN';
+    if (state !== 'CANCELLED') {
+      const location = this.db.prepare('SELECT storage_object_id,state FROM storage_object_locations WHERE id=?').get(row.storage_object_location_id);
+      if (source.content_hash !== row.source_content_hash || source.byte_size !== row.source_byte_size
+        || source.storage_class !== 'LOCAL_MANAGED' || !location || location.storage_object_id !== source.storage_object_id || location.state !== 'AVAILABLE') state = 'STALE';
+      else if (source.lifecycle_state !== 'ACTIVE' || source.availability_state !== 'AVAILABLE' || !['VIDEO', 'AUDIO'].includes(source.asset_type)) state = 'BLOCKED_MEDIA';
+      else if (!rights.eligible) state = 'BLOCKED_RIGHTS';
+      else if (rights.generation !== row.rights_generation) state = 'STALE';
+    }
+    return { id: row.id, project_id: row.project_id, asset_revision_id: row.asset_revision_id,
+      content_hash: row.source_content_hash, byte_size: row.source_byte_size,
+      toolchain_manifest_hash: row.toolchain_manifest_hash, toolchain_id: null,
+      toolchain_version: null, toolchain_binary_hash: null,
+      toolchain_verified: false, probe_schema_version: row.probe_schema_version, parser_policy_version: row.parser_policy_version,
+      rights_generation: row.rights_generation, state, stored_state: row.state, outcome: 'UNKNOWN',
+      evidence_code: state === 'BLOCKED_TOOLCHAIN' ? 'PROBE_EXECUTION_UNAVAILABLE' : `PROBE_${state}`,
+      attempt_id: null, execution_started: false, metadata: null, streams: [],
+      needs_user: state !== 'CANCELLED', next_step: MEDIA_PROBE_NEXT_STEPS[state],
+      next_step_key: `media_probe.next_step.${state.toLowerCase()}`, row_version: row.row_version,
+      created_at: rfc3339FromUs(row.created_at_utc_us), updated_at: rfc3339FromUs(row.updated_at_utc_us) };
+  }
+
+  _cancelMediaProbe(payload, expected) {
+    this._mediaProbeFields(payload, ['project_id', 'job_id']);
+    const row = this._mediaProbeJob(payload.job_id, payload.project_id);
+    this._assertProjectWritable(row.project_id);
+    this._mediaProbeVersion(expected, 'JOB', row.id, row.row_version);
+    if (!MEDIA_PROBE_BLOCKED_STATES.has(row.state) || row.current_attempt_id !== null
+      || this.db.prepare('SELECT id FROM media_probe_attempts WHERE job_id=? LIMIT 1').get(row.id)) {
+      throw new CoreError('PROBE_CANCEL_NOT_AVAILABLE', 'CONFLICT', 'errors.media_probe_cancel_not_available', {}, { needsUser: true });
+    }
+    this.db.prepare(`UPDATE media_probe_jobs SET state='CANCELLED',needs_user=0,next_step=?,
+      row_version=row_version+1,updated_at_utc_us=? WHERE id=? AND row_version=?`).run(MEDIA_PROBE_NEXT_STEPS.CANCELLED, nowUtcUs(), row.id, row.row_version);
+    return { projectId: row.project_id, result: { job: this._mediaProbeProjection(row.id, row.project_id) },
+      event: { aggregateType: 'MEDIA_PROBE_JOB', aggregateId: row.id, aggregateVersion: row.row_version + 1,
+        eventType: 'MEDIA_PROBE_INTENT_CANCELLED', payload: { job_id: row.id, execution_started: false } },
+      audit: { actionType: 'media_probe.cancel', targetType: 'MEDIA_PROBE_JOB', targetId: row.id, payload: { execution_started: false } } };
+  }
+
+  _retryMediaProbe(payload, expected) {
+    this._mediaProbeFields(payload, ['project_id', 'job_id']);
+    const row = this._mediaProbeJob(payload.job_id, payload.project_id);
+    this._assertProjectWritable(row.project_id);
+    this._mediaProbeVersion(expected, 'JOB', row.id, row.row_version);
+    throw new CoreError('PROBE_RETRY_NOT_AVAILABLE', 'CONFLICT', 'errors.media_probe_retry_not_available', {}, { needsUser: true });
+  }
+
+  _mediaProbeList(params) {
+    this._mediaProbeFields(params, ['project_id', 'asset_revision_id', 'limit', 'offset']);
+    this._mediaProbeSource(params.project_id, params.asset_revision_id);
+    const pageNumber = (value, fallback, min, max) => {
+      if (value === undefined) return fallback;
+      if (typeof value === 'string' && /^(0|[1-9][0-9]{0,4})$/.test(value)) value = Number(value);
+      if (!Number.isSafeInteger(value) || value < min || value > max) throw new CoreError('INVALID_ARGUMENT', 'VALIDATION', 'errors.media_probe_pagination_invalid', {});
+      return value;
+    };
+    const limit = pageNumber(params.limit, 25, 1, 100); const offset = pageNumber(params.offset, 0, 0, 10000);
+    const rows = this.db.prepare(`SELECT id FROM media_probe_jobs WHERE project_id=? AND asset_revision_id=?
+      ORDER BY created_at_utc_us DESC,id DESC LIMIT ? OFFSET ?`).all(params.project_id, params.asset_revision_id, limit + 1, offset);
+    const hasMore = rows.length > limit;
+    return { jobs: rows.slice(0, limit).map(row => this._mediaProbeProjection(row.id, params.project_id)),
+      page: { limit, offset, has_more: hasMore, next_offset: hasMore && offset + limit <= 10000 ? offset + limit : null },
+      projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
+  }
+
+  _mediaProbeMetadata(params) {
+    this._mediaProbeFields(params, ['project_id', 'asset_revision_id']);
+    const source = this._mediaProbeSource(params.project_id, params.asset_revision_id);
+    const latestIntent = this.db.prepare(`SELECT id FROM media_probe_jobs WHERE project_id=? AND asset_revision_id=?
+      ORDER BY created_at_utc_us DESC,id DESC LIMIT 1`).get(source.project_id, source.id);
+    const job = latestIntent ? this._mediaProbeProjection(latestIntent.id, source.project_id) : null;
+    return { project_id: source.project_id, asset_revision_id: source.id, asset_row_version: source.row_version,
+      content_hash: source.content_hash, byte_size: source.byte_size, state: job?.state ?? 'UNKNOWN',
+      outcome: 'UNKNOWN', metadata: null, streams: [], job, needs_user: job?.needs_user ?? true,
+      next_step: job?.next_step ?? MEDIA_PROBE_NEXT_STEPS.UNKNOWN,
+      projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
   }
 
   _runManagedAssetIntegrityProbe(payload, commandId) {
@@ -9410,6 +9639,12 @@ export class CoreService {
         params.project_id ?? params.projectId,
       );
       case 'query.release.renderer.preflight': return this._releaseRendererToolchainPreflight(params);
+      case 'query.media_probe.metadata': return this._mediaProbeMetadata(params);
+      case 'query.media_probe.list': return this._mediaProbeList(params);
+      case 'query.media_probe.get':
+        this._mediaProbeFields(params, ['project_id', 'job_id']);
+        return { job: this._mediaProbeProjection(params.job_id, params.project_id),
+          projection_seq: this._projectionSeq(), generated_at: new Date().toISOString() };
       case 'query.project.activity': return this._activity(params.project_id ?? params.projectId, params);
       case 'query.task.list': return this._tasks(params.project_id ?? params.projectId);
       case 'query.task.get': {

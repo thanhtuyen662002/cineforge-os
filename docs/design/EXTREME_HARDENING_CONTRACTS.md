@@ -7798,6 +7798,17 @@ source TOCTOU safety, restart fencing or a certified real toolchain.
 
 # MEDIA-PROBE-PERSISTENCE-TEST-01. Prepared persistence adversarial cases
 
+## MEDIA-PROBE-ADMISSION-TEST-01. Prepared Core/HTTP negative boundary
+
+Verify audited admission/cancellation, source pins and owning-asset versions,
+mandatory idempotency, exact replay/conflict, cross-project scope, bounded list
+pagination, missing/restricted/revoked rights, manifest-request versus execution
+authorization, no attempts/evidence/metadata on blocked admission, redaction of
+unknown payload fields, and refresh after source/rights changes. HTTP route
+identities cannot silently overwrite conflicting body identities. Retry must
+fail explicitly until a reviewed producer implements exact bounded attempts.
+These tests are not evidence of process containment or certified-pack execution.
+
 Executable tests must exercise a blueprint-compatible legacy row upgrade,
 repeated initialization, future-version and incompatible-layout rejection,
 unchanged integrity-job semantics, cross-project command/source links,

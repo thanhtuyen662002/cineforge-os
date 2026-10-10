@@ -3016,6 +3016,16 @@ or recovery-epoch transition.
 
 # STATE-MEDIA-PROBE-01. ProbeMediaAsset lifecycle
 
+## STATE-MEDIA-PROBE-ADMISSION-01. Unexecuted blocked intents
+
+Prepared admission has no executable attempt. BLOCKED_MEDIA | BLOCKED_RIGHTS |
+BLOCKED_TOOLCHAIN with current_attempt_id null may transition to CANCELLED by
+an explicit CancelMediaProbe command at the exact job row_version. No process
+cleanup or cancel evidence is invented. CANCELLED is immutable to these command
+handlers. New prerequisite state requires a new explicit admission command;
+blocked jobs are not automatically resumed or retried. Historical stored state
+and effective stale-sensitive projection state are returned separately.
+
 The media-probe job pins one exact project/revision/content/toolchain/schema
 tuple. Its normal path is:
 

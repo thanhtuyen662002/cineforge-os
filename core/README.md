@@ -500,13 +500,21 @@ Run adversarial tests with:
 
 `node --test core/media-probe.test.mjs`
 
-This preparation is not connected to Core commands, durable jobs, HTTP or UI.
 Schema 21 now prepares the dedicated job/attempt/evidence and immutable
 metadata/stream tables. Privileged SQL fixtures cover an actual v20 upgrade,
 legacy preservation, project/source scope, exact fences, process-fact guards
 and complete stream snapshots. These tests do not certify a real producer.
 
-No public command/worker, HTTP route or metadata UI consumes these tables yet.
-Certified producer/process containment, command authorization, actual source
-and rights rechecks, independent review and integration are still required.
+The PREPARED admission lane now exposes ProbeMediaAsset, CancelMediaProbe and
+RetryMediaProbe through the audited Command Engine and project-scoped HTTP.
+It checks exact source/asset version and Core-owned SOURCE_USE rights for
+MEDIA_INSPECTION. Admission creates only blocked intents without attempts,
+processes, raw evidence or measurements. Retry is explicitly unavailable.
+Projection reads recheck source/rights; command replay preserves the recorded
+job while clients refresh current state. The Library reads this boundary on
+demand and cancels only unexecuted blocked intents at the exact job version.
+Certified producer/process containment, actual byte verification, metadata
+binding, independent review and integration are still required.
 Parser success alone must not be used as a readiness gate.
+
+Admission/HTTP negative tests: `node --test core/media-probe-http.test.mjs`.

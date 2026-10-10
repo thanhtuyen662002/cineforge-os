@@ -110,6 +110,26 @@ function expectedVersions(body, kind, fallback) {
   return value === undefined || value === null ? {} : { [kind]: value };
 }
 
+function mediaProbeIdentityBody(body, route, fields) {
+  const allowed = [...Object.keys(route), ...fields, 'expected_version'];
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+    || Object.keys(body).some(key => !allowed.includes(key))) {
+    throw new Error('Media probe accepts only typed identity fields.');
+  }
+  if (Object.entries(route).some(([key, value]) => Object.hasOwn(body, key) && body[key] !== value)) {
+    throw new Error('Media probe route and body identities conflict.');
+  }
+  return { ...Object.fromEntries(fields.filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]])), ...route };
+}
+
+function mediaProbeQueryParams(url, allowed) {
+  if ([...url.searchParams.keys()].some(key => !allowed.includes(key))
+    || allowed.some(key => url.searchParams.getAll(key).length > 1)) {
+    throw new Error('Media probe accepts only bounded pagination parameters.');
+  }
+  return Object.fromEntries(allowed.filter(key => url.searchParams.has(key)).map(key => [key, url.searchParams.get(key)]));
+}
+
 function readString(source, ...keys) {
   for (const key of keys) {
     if (typeof source?.[key] === 'string' && source[key].length > 0) return source[key];
@@ -1809,6 +1829,26 @@ export function createCoreHttpServer(core, options = {}) {
         result = command(core, request, 'CancelManagedAssetIntegrityProbe', { ...body, job_id: parts[2] }, expectedVersions(body, 'JOB'), commandKey(request, body));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'jobs' && parts[2] && parts[3] === 'retry' && parts.length === 4) {
         result = command(core, request, 'RetryManagedAssetIntegrityProbe', { ...body, job_id: parts[2] }, expectedVersions(body, 'JOB'), commandKey(request, body));
+      } else if (parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'assets'
+        && parts[4] && parts[5] === 'technical-metadata' && (parts.length === 6 || (parts.length === 7 && parts[6] === 'probes'))
+        && ['GET', 'POST'].includes(request.method)) {
+        const route = { project_id: parts[2], asset_revision_id: parts[4] };
+        if (request.method === 'GET') {
+          const page = mediaProbeQueryParams(url, parts.length === 7 ? ['limit', 'offset'] : []);
+          result = query(core, request, parts.length === 7 ? 'query.media_probe.list' : 'query.media_probe.metadata', { ...route, ...page });
+        } else if (parts.length === 7) {
+          mediaProbeQueryParams(url, []);
+          const payload = mediaProbeIdentityBody(body, route, ['content_hash', 'byte_size', 'toolchain_manifest_hash', 'probe_schema_version', 'parser_policy_version']);
+          result = command(core, request, 'ProbeMediaAsset', payload, expectedVersions(body, 'ASSET'), commandKey(request, {}));
+        } else result = errorBody('NOT_FOUND', 'errors.route_not_found');
+      } else if (parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'technical-media-probes' && parts[4]
+        && ((request.method === 'GET' && parts.length === 5)
+          || (request.method === 'POST' && parts.length === 6 && ['cancel', 'retry'].includes(parts[5])))) {
+        mediaProbeQueryParams(url, []);
+        const route = { project_id: parts[2], job_id: parts[4] };
+        result = request.method === 'GET' ? query(core, request, 'query.media_probe.get', route)
+          : command(core, request, parts[5] === 'cancel' ? 'CancelMediaProbe' : 'RetryMediaProbe',
+            mediaProbeIdentityBody(body, route, []), expectedVersions(body, 'JOB'), commandKey(request, {}));
       } else if (request.method === 'POST' && parts[0] === 'v1' && parts[1] === 'projects' && parts[2] && parts[3] === 'assets' && parts[4] && parts[5] === 'integrity-probe' && parts.length === 6) {
         result = command(core, request, 'RunManagedAssetIntegrityProbe', {
           ...body,

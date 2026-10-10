@@ -101,6 +101,20 @@ opens the app. Signing, update manifests, and final release attestation remain
 release-pipeline responsibilities. The UI never receives direct filesystem or
 database access.
 
+## PREPARED technical media admission
+
+Library rows provide an on-demand Vietnamese/English technical-information
+panel backed by project-scoped exact-revision Core projections. Offline,
+obsolete and unsupported responses do not expose measurements. Technical
+analysis stays disabled until certified execution exists. A blocked,
+unexecuted intent may be cancelled with its job version and explicit
+idempotency key; stale conflicts refresh without silently repeating mutations.
+The adapter rejects unexpected PASS/COMPLETED responses rather than trusting
+unimplemented verifier output. Raw JSON, diagnostics and private paths are not
+rendered. This is admission/UI preparation, not full probe completion.
+
+Tests: `npm test -- --run tests/assetTechnicalMetadata.test.tsx`.
+
 ## Slice 3A integrity queue
 
 The Activity screen shows the Core-owned local integrity queue and renders

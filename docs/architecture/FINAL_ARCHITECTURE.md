@@ -2299,6 +2299,32 @@ is typed untrusted evidence only, never a technical-media gate result.
 
 # ARCH-MEDIA-PROBE-PERSISTENCE-01. Prepared Core persistence boundary
 
+## ARCH-MEDIA-PROBE-ADMISSION-01. Prepared admission without execution
+
+The prepared admission lane journals ProbeMediaAsset and resolves its exact
+managed revision through Core. It checks the owning asset row version (revisions
+are immutable), source hash/size, project scope, SOURCE_USE rights and consent
+for purpose MEDIA_INSPECTION. Rights generations hash the Core evaluation
+without its observation timestamp. No caller can override the rights decision.
+Unusable materialization is rejected before admission when no AVAILABLE managed
+location exists. A registered location is not proof of verified source bytes.
+
+Admitted jobs may be BLOCKED_MEDIA, BLOCKED_RIGHTS or BLOCKED_TOOLCHAIN. They
+have no attempt, process, raw evidence or metadata. Requested manifest hashes
+remain requested pins, never certification. Even ARTIFACT_VERIFIED renderer
+preflight does not authorize probe execution. A separately reviewed producer
+is required; this lane cannot start a process or return verified measurements.
+Cancelling an unexecuted blocked intent is a reversible audited job mutation;
+it preserves all pins and creates no attempt. A new explicit admission command
+is required after prerequisites change. Retry remains unavailable until the
+bounded exact-attempt execution protocol is implemented.
+
+Public read projections re-evaluate scope/source/rights; changed generations
+are STALE or BLOCKED without rewriting historical commands. Only fixed codes
+and next steps are public. Unbound historical technical_metadata is UNKNOWN.
+These prepared changes do not close the full executable probe task or advance
+registry maturity.
+
 Schema 21 separates technical-media jobs from Slice 3A integrity jobs.
 Only the owning Core initializes or writes these relations. UI/connectors
 receive projections, never a database handle. Parser success is not binding

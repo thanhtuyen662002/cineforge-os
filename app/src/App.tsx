@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, FormEvent } from 'react'
+import type { AssetTechnicalMetadata, MediaProbeAdmissionState } from './types'
 import {
   Activity,
   AlertCircle,
@@ -1036,6 +1037,91 @@ function AssetPreview({ asset, locale, client, purpose = 'LIBRARY_PREVIEW' }: { 
   </div>
 }
 
+function technicalMediaStep(state: MediaProbeAdmissionState, locale: Locale) {
+  const steps = {
+    UNKNOWN: ['Chưa có thông tin kỹ thuật được xác minh. CineForge cần bộ thực thi kiểm tra media được chứng nhận.', 'No verified technical information yet. CineForge needs a certified media inspection runtime.'],
+    BLOCKED_TOOLCHAIN: ['CineForge chưa có bộ thực thi kiểm tra media được chứng nhận. Cần bổ sung bộ thực thi trước khi phân tích.', 'CineForge needs a certified media inspection runtime before analysis can start.'],
+    BLOCKED_RIGHTS: ['Bạn cần bổ sung quyền và đồng thuận cho việc kiểm tra nguồn media rồi gửi yêu cầu mới.', 'You need source inspection rights and consent before submitting a new request.'],
+    BLOCKED_MEDIA: ['Bạn cần đăng ký nguồn video hoặc âm thanh khả dụng rồi gửi yêu cầu mới.', 'You need an available managed video or audio source before submitting a new request.'],
+    STALE: ['Nguồn hoặc quyền đã thay đổi. Bạn cần gửi yêu cầu mới cho revision hiện tại.', 'The source or rights changed. Submit a new request for the current revision.'],
+    CANCELLED: ['Đã hủy yêu cầu chưa chạy. Bạn có thể gửi yêu cầu mới khi đủ điều kiện.', 'The unexecuted request was cancelled. A new request can be submitted when prerequisites are ready.'],
+  }
+  return steps[state][locale === 'vi' ? 0 : 1]
+}
+
+export function AssetTechnicalMetadataPanel({ asset, locale, client, connected }: { asset: AssetSummary; locale: Locale; client: CoreClient; connected: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [refresh, setRefresh] = useState(0)
+  const [data, setData] = useState<AssetTechnicalMetadata | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+  const cancelController = useRef<AbortController | null>(null)
+  const live = connected && client.isLive?.() === true
+  const projectId = asset.projectId
+  const revisionId = asset.revisionId
+  useEffect(() => {
+    cancelController.current?.abort()
+    setCancelling(false); setActionError(null)
+    return () => cancelController.current?.abort()
+  }, [client, projectId, revisionId, live])
+  useEffect(() => {
+    setData(null); setError(false); setLoading(false)
+    if (!open || !live || !projectId || !revisionId || !client.getAssetTechnicalMetadata) return
+    const controller = new AbortController()
+    setLoading(true)
+    void client.getAssetTechnicalMetadata(projectId, revisionId, controller.signal).then((next) => {
+      if (controller.signal.aborted) return
+      if (next.projectId !== projectId || next.revisionId !== revisionId
+        || next.outcome !== 'UNKNOWN' || next.metadata !== null || next.streams.length !== 0
+        || !['UNKNOWN', 'BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN', 'STALE', 'CANCELLED'].includes(next.state)
+        || (next.job && (next.job.projectId !== projectId || next.job.revisionId !== revisionId
+          || next.job.outcome !== 'UNKNOWN' || next.job.executionStarted !== false || next.job.toolchainVerified !== false))
+        || (asset.contentHash && next.contentHash !== asset.contentHash)) throw new Error('Obsolete technical metadata projection')
+      setData(next)
+    }).catch(() => { if (!controller.signal.aborted) setError(true) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [open, live, client, projectId, revisionId, asset.contentHash, refresh])
+
+  const cancelIntent = async () => {
+    if (!live || cancelling || !data?.job || !projectId || data.projectId !== projectId || data.revisionId !== revisionId || !client.cancelMediaProbe) return
+    const controller = new AbortController(); cancelController.current = controller
+    setCancelling(true); setActionError(null)
+    try {
+      await client.cancelMediaProbe(projectId, data.job.id, data.job.rowVersion, crypto.randomUUID(), controller.signal)
+      if (!controller.signal.aborted) setRefresh(value => value + 1)
+    } catch (failure) {
+      if (!controller.signal.aborted) {
+        const stale = failure instanceof CoreClientError && failure.code === 'STALE_REVISION'
+        setActionError(stale
+          ? (locale === 'vi' ? 'Yêu cầu đã thay đổi. Đang đọc trạng thái mới; bạn có thể kiểm tra rồi hủy lại.' : 'The request changed. Refreshing its state; review it before cancelling again.')
+          : (locale === 'vi' ? 'Không hủy được yêu cầu. Bạn cần tải lại trạng thái và thử lại.' : 'Could not cancel the request. Refresh its state and try again.'))
+        if (stale) setRefresh(value => value + 1)
+      }
+    } finally { if (!controller.signal.aborted) setCancelling(false) }
+  }
+  const canCancel = live && client.cancelMediaProbe && data?.projectId === projectId && data?.revisionId === revisionId && data?.job && ['BLOCKED_MEDIA', 'BLOCKED_RIGHTS', 'BLOCKED_TOOLCHAIN'].includes(data.job.state)
+  return <details className="asset-technical-panel" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>{locale === 'vi' ? 'Thông tin kỹ thuật' : 'Technical information'}</summary>
+    <div className="asset-technical-body">
+      {!live ? <p>{locale === 'vi' ? 'Core đang ngoại tuyến. Kết nối lại để đọc trạng thái kiểm tra media.' : 'Core is offline. Reconnect to read media inspection state.'}</p>
+        : !client.getAssetTechnicalMetadata || !projectId || !revisionId ? <p>{locale === 'vi' ? 'Chưa đọc được thông tin kỹ thuật cho revision này. Cần bridge Core hỗ trợ kiểm tra media.' : 'Technical information is unavailable for this revision. A supported Core bridge is required.'}</p>
+          : loading ? <p role="status">{locale === 'vi' ? 'Đang đọc trạng thái từ Core…' : 'Reading state from Core…'}</p>
+            : error ? <p role="alert">{locale === 'vi' ? 'Không đọc được trạng thái đúng revision. Bạn cần tải lại trước khi tiếp tục.' : 'Could not read the exact revision state. Refresh before continuing.'}</p>
+              : data ? <><strong>{data.state === 'CANCELLED' ? (locale === 'vi' ? 'Đã hủy' : 'Cancelled') : data.state === 'STALE' ? (locale === 'vi' ? 'Đã cũ' : 'Stale') : data.state.startsWith('BLOCKED_') ? (locale === 'vi' ? 'Cần xử lý' : 'Action needed') : (locale === 'vi' ? 'Chưa xác định' : 'Unknown')}</strong><p>{technicalMediaStep(data.state, locale)}</p><p className="readonly-note">{locale === 'vi' ? 'Chưa có kết quả phân tích được xác minh.' : 'No verified analysis result.'}</p></> : null}
+      <div className="asset-technical-actions">
+        <button type="button" className="subtle-button tiny" disabled={!live || !client.getAssetTechnicalMetadata || loading || !projectId || !revisionId} onClick={() => setRefresh(value => value + 1)}>{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button>
+        <button type="button" className="subtle-button tiny" disabled title={locale === 'vi' ? 'Cần bộ thực thi kiểm tra media được chứng nhận.' : 'A certified media inspection runtime is required.'}>{locale === 'vi' ? 'Phân tích kỹ thuật' : 'Analyze technical media'}</button>
+        {canCancel && <button type="button" className="subtle-button tiny" disabled={cancelling || loading} onClick={() => void cancelIntent()}>{cancelling ? (locale === 'vi' ? 'Đang hủy yêu cầu…' : 'Cancelling request…') : (locale === 'vi' ? 'Hủy yêu cầu chưa chạy' : 'Cancel unexecuted request')}</button>}
+      </div>
+      {actionError && <p role="alert">{actionError}</p>}
+      {data && <details className="asset-technical-advanced"><summary>{locale === 'vi' ? 'Chi tiết bằng chứng' : 'Evidence details'}</summary><dl><dt>SHA-256</dt><dd>{data.contentHash ?? '—'}</dd><dt>{locale === 'vi' ? 'Manifest được yêu cầu' : 'Requested manifest'}</dt><dd>{data.job?.requestedManifestHash ?? '—'}</dd><dt>{locale === 'vi' ? 'Bộ thực thi đã xác minh' : 'Verified execution runtime'}</dt><dd>{locale === 'vi' ? 'Chưa có' : 'Unavailable'}</dd></dl></details>}
+    </div>
+  </details>
+}
+
 function AssetRecord({ asset, projectName, locale, client }: { asset: AssetSummary; projectName: string; locale: Locale; client: CoreClient }) {
   const [probeLoading, setProbeLoading] = useState(false)
   const [probeMessage, setProbeMessage] = useState<string | null>(null)
@@ -1172,7 +1258,7 @@ function LibraryView({ snapshot, locale, client, onOpenProject }: { snapshot: Da
       </section>
       <section className="library-records-card">
         <div className="card-heading"><div className="card-title-with-icon"><span className="card-icon amber"><Database size={16} /></span><div><h2>{locale === 'vi' ? 'Asset đã nhập' : 'Imported assets'}</h2><p>{locale === 'vi' ? 'Bản ghi canonical từ Core, không đọc trực tiếp SQLite.' : 'Canonical Core records; the UI never reads SQLite directly.'}</p></div></div><div className="card-heading-actions"><button type="button" className="subtle-button tiny" onClick={() => void loadAssets()}><RefreshCw size={13} />{locale === 'vi' ? 'Tải lại' : 'Refresh'}</button><span className="count-chip">{assets.length}</span></div></div>
-        {assetsLoading ? <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…'}</div> : assetsError ? <div className="inline-state warning"><AlertCircle size={14} />{assetsError}</div> : assets.length === 0 ? <EmptyState icon={Database} title={locale === 'vi' ? 'Chưa có asset' : 'No imported assets'} detail={locale === 'vi' ? 'Dán đường dẫn local và gửi command ImportAsset để bắt đầu.' : 'Paste a local path and send ImportAsset command to begin.'} /> : <div className="library-record-list">{assets.map((asset) => <AssetRecord key={asset.id} asset={asset} projectName={snapshot.projects.find((candidate) => candidate.id === asset.projectId)?.name ?? (locale === 'vi' ? 'Studio-wide' : 'Studio-wide')} locale={locale} client={client} />)}</div>}
+        {assetsLoading ? <div className="inline-state"><RefreshCw size={14} className="spin" />{locale === 'vi' ? 'Đang đọc asset…' : 'Loading assets…'}</div> : assetsError ? <div className="inline-state warning"><AlertCircle size={14} />{assetsError}</div> : assets.length === 0 ? <EmptyState icon={Database} title={locale === 'vi' ? 'Chưa có asset' : 'No imported assets'} detail={locale === 'vi' ? 'Dán đường dẫn local và gửi command ImportAsset để bắt đầu.' : 'Paste a local path and send ImportAsset command to begin.'} /> : <div className="library-record-list">{assets.map((asset) => <div key={asset.id}><AssetRecord asset={asset} projectName={snapshot.projects.find((candidate) => candidate.id === asset.projectId)?.name ?? (locale === 'vi' ? 'Studio-wide' : 'Studio-wide')} locale={locale} client={client} /><AssetTechnicalMetadataPanel key={asset.revisionId} asset={asset} locale={locale} client={client} connected={snapshot.system.connected && !snapshot.system.offline} /></div>)}</div>}
       </section>
       <section className="library-records-card library-production-card"><div className="card-heading"><div className="card-title-with-icon"><span className="card-icon violet"><ListChecks size={16} /></span><div><h2>{locale === 'vi' ? 'Mốc production' : 'Production records'}</h2><p>{locale === 'vi' ? 'Các mốc công việc đã được Core lưu trong project.' : 'Production milestones already saved by Core.'}</p></div></div><span className="count-chip">{records.length}</span></div>{records.length === 0 ? <EmptyState icon={ListChecks} title={locale === 'vi' ? 'Chưa có mốc' : 'No records yet'} detail={locale === 'vi' ? 'Tạo project rồi thêm production item để thấy dữ liệu ở đây.' : 'Create a project and add a production item to see data here.'} /> : <div className="library-record-list">{records.map(({ project, item }) => <button className="library-record" key={`${project.id}-${item.id}`} onClick={() => onOpenProject(project)}><span className={`record-state ${item.state}`}><CircleDot size={14} /></span><span className="library-record-main"><strong>{item.title}</strong><small>{project.name} · {item.detail}</small></span><span className={`item-state ${item.state}`}>{productionItemLabel(item.state, locale)}</span><ArrowRight size={14} /></button>)}</div>}</section>
     </div>
