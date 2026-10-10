@@ -505,6 +505,12 @@ metadata/stream tables. Privileged SQL fixtures cover an actual v20 upgrade,
 legacy preservation, project/source scope, exact fences, process-fact guards
 and complete stream snapshots. These tests do not certify a real producer.
 
+Schema 22 adds the previously missing exact binary-hash pins to evidence and
+canonical metadata. New PASS binding/completion must match job, evidence and
+measurement pins. An actual v21 upgrade retains historical rows without
+fabricating binary observations; null legacy pins cannot prove verification.
+The migration does not enable the producer or change integrity-job semantics.
+
 The PREPARED admission lane now exposes ProbeMediaAsset, CancelMediaProbe and
 RetryMediaProbe through the audited Command Engine and project-scoped HTTP.
 It checks exact source/asset version and Core-owned SOURCE_USE rights for

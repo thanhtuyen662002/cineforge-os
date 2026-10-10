@@ -686,3 +686,13 @@ rechecked when reading effective state. The producer is still unavailable:
 no attempt/process/PASS/measurement is created. Requested manifest hashes are
 never presented as verified execution identity. These additions do not relax
 the separately required process and binding gates or close Task #64.
+
+# DESIGN-MEDIA-PROBE-BINARY-PINS-01. Measurement and evidence identity
+
+ARCH-MEDIA-PROBE-BINARY-PINS-01 and SCHEMA-MEDIA-PROBE-V22-01 correct the
+schema-21 implementation's missing binary pins before a producer can bind
+canonical metadata. The owning Core must supply the exact reverified binary
+hash in both new evidence and measurements. Missing or mismatched pins prevent
+PASS binding/completion. Legacy null pins remain UNKNOWN with no fabricated
+backfill. Process containment, rights rechecks and descriptor verification are
+still required independently; matching hashes alone authorize no execution.

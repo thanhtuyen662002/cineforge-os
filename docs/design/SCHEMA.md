@@ -5466,3 +5466,20 @@ All hashes are lowercase SHA-256, scalar counts use safe integers, rates
 and temporal denominators are positive, and JSON evidence fields are bounded.
 No Core command, worker or public API/UI is enabled by the migration alone.
 All controls retain their existing maturity until integration and review.
+
+# SCHEMA-MEDIA-PROBE-V22-01. Exact binary pins without historical backfill
+
+An additive transactional migration adds nullable toolchain_binary_hash to
+media_probe_evidence and technical_metadata. Existing schema-21 rows remain
+unchanged with null pins, including historical rows labeled PASS/COMPLETED.
+Null historical pins cannot establish verified technical facts. Do not copy a
+job's binary hash into old rows or rewrite append-only evidence.
+
+Both fields accept only 64 lowercase ASCII hex bytes. For every new evidence
+row, a supplied binary hash must equal its job's immutable hash. New PASS rows
+must supply it; failures/unknown observations may retain null. Every new
+measurement requires a non-null hash equal to the job and its current PASS
+evidence. A job can newly transition to COMPLETED only with that same identity
+bound in its measurement/evidence. Existing source, fence, stream-count and
+append-only guards stay applicable. Repeated initialization is idempotent and
+does not change generic integrity-job constraints or historical rows.

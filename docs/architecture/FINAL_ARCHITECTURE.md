@@ -2332,3 +2332,18 @@ permission; proof, current fence, rights snapshot and exact source identity
 must be reconciled by Core. SQL guards reject cross-project links, immutable
 pin changes, stale/terminal attempt binding and unverified PASS insertion.
 The migration preserves legacy measurements without inferring approvals.
+
+# ARCH-MEDIA-PROBE-BINARY-PINS-01. Persisted executable identity
+
+Schema 22 closes the mismatch between the required binary identity and schema
+21's missing measurement/evidence fields. New evidence carries the exact
+toolchain_binary_hash; PASS evidence must match the immutable job pin. New
+technical_metadata carries the same hash and must match both job and PASS
+evidence. Completion checks that identity as well as the existing stream and
+attempt fence. SQL equality is a necessary safeguard, not executable attestation.
+
+Historical evidence and measurements retain null binary hashes. They are never
+backfilled from jobs: that would invent an observation absent from the original
+evidence. A later verified projection must treat rows lacking either persisted
+pin as UNKNOWN. Their immutable history and stored lifecycle state remain intact.
+The prepared admission lane still cannot execute or expose PASS metadata.

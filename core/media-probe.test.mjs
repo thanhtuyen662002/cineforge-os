@@ -197,9 +197,9 @@ function insert(db, table, row) {
 
 // These are privileged Kernel/SQL fixtures. They do not certify a real
 // producer, parser binding, command authorization, sandbox or rights decision.
-function persistenceFixture() {
+function persistenceFixture(Core = CoreService) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-probe-db-'));
-  const core = new CoreService({ dbPath: path.join(directory, 'core.sqlite'), assetStorePath: path.join(directory, 'store') });
+  const core = new Core({ dbPath: path.join(directory, 'core.sqlite'), assetStorePath: path.join(directory, 'store') });
   const db = core.db;
   const project = command(core, 'CreateProject', { code: 'probe-schema', title: 'Kiểm thử persistence' }, 'schema-project');
   assert.equal(project.ok, true);
@@ -239,7 +239,8 @@ function verifying(f) {
 function proof(f, overrides = {}) {
   return { id: 'evidence-1', attempt_id: 'attempt-1', outcome: 'PASS', evidence_code: 'PROBE_VALIDATED',
     source_content_hash: f.job.source_content_hash, source_byte_size: f.job.source_byte_size,
-    toolchain_manifest_hash: f.job.toolchain_manifest_hash, probe_schema_version: f.job.probe_schema_version,
+    toolchain_manifest_hash: f.job.toolchain_manifest_hash, toolchain_binary_hash: f.job.toolchain_binary_hash,
+    probe_schema_version: f.job.probe_schema_version,
     parser_policy_version: f.job.parser_policy_version, observed_source_hash: f.job.source_content_hash,
     observed_source_byte_size: f.job.source_byte_size, stdout_bytes: f.job.source_byte_size, stderr_bytes: 0,
     cpu_time_ms: 1, memory_peak_bytes: 1024, process_tree_state: 'STOPPED', exit_code: 0,
@@ -250,6 +251,7 @@ function measurement(f, overrides = {}) {
   return { id: 'metadata-1', project_id: f.job.project_id, source_asset_revision_id: f.job.asset_revision_id,
     source_content_hash: f.job.source_content_hash, source_byte_size: f.job.source_byte_size,
     toolchain_id: f.job.toolchain_id, toolchain_version: f.job.toolchain_version, toolchain_manifest_hash: f.job.toolchain_manifest_hash,
+    toolchain_binary_hash: f.job.toolchain_binary_hash,
     probe_schema_version: f.job.probe_schema_version, parser_policy_version: f.job.parser_policy_version,
     probe_job_id: f.job.id, probe_attempt_id: 'attempt-1', raw_evidence_object_id: f.location.storage_object_id,
     raw_evidence_hash: f.job.source_content_hash, raw_evidence_byte_size: f.job.source_byte_size,
@@ -269,7 +271,7 @@ function stream(index = 0, overrides = {}) {
     disposition_json: '{"default":1}', normalized_metadata_hash: 'f'.repeat(64), ...overrides };
 }
 
-test('schema 21 upgrades the actual v20 initializer and preserves unbound legacy facts without approval', async () => {
+test('probe migrations upgrade the actual v20 initializer and preserve unbound legacy facts without approval', async () => {
   const original = execFileSync('git', ['show', '78bdc508b28466b77a66b58757da5d3614fec87d:core/schema.mjs'], { encoding: 'utf8', windowsHide: true });
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-schema-v20-'));
   const fixturePath = path.join(fixtureDirectory, 'schema.mjs');
@@ -417,7 +419,7 @@ test('canonical measurement rejects unsafe scalars and raw extension data before
 });
 
 
-test('digest guards reject NUL suffixes in new and previously initialized schema 21', () => {
+test('digest guards reject NUL suffixes after repeated schema initialization', () => {
   const f = persistenceFixture();
   try {
     f.db.exec('DROP TRIGGER media_probe_jobs_hash_bytes_insert');
@@ -428,5 +430,76 @@ test('digest guards reject NUL suffixes in new and previously initialized schema
     verifying(f);
     assert.throws(() => f.db.prepare('UPDATE media_probe_attempts SET input_envelope_hash=?,row_version=row_version+1').run(bad), /digest|constraint/i);
     assert.equal(f.db.prepare('SELECT count(*) AS n FROM media_probe_jobs').get().n, 1);
+  } finally { f.close(); }
+});
+
+test('schema 22 upgrades real v21 PASS history without fabricating binary observations', async () => {
+  const sourceCommit = '95b126334c1c82a56bf8641e598183840463e7fe';
+  const modules = fs.mkdtempSync(path.join(os.tmpdir(), 'cineforge-schema-v21-'));
+  const modulePath = name => path.join(modules, name);
+  for (const name of ['schema.mjs', 'core.mjs']) {
+    const old = execFileSync('git', ['show', `${sourceCommit}:core/${name}`], { encoding: 'utf8', windowsHide: true });
+    const remapped = old.replace(/from (['"])(\.\/[^'"]+)\1/g, (_, quote, specifier) => {
+      const target = specifier === './schema.mjs' ? pathToFileURL(modulePath('schema.mjs')) : new URL(specifier, import.meta.url);
+      return 'from ' + JSON.stringify(target.href);
+    });
+    fs.writeFileSync(modulePath(name), remapped);
+  }
+  let f;
+  try {
+    const old = await import(pathToFileURL(modulePath('core.mjs')).href);
+    for (const historicalState of ['VERIFYING', 'COMPLETED']) {
+      f = persistenceFixture(old.CoreService);
+      assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, 21);
+      verifying(f);
+      const oldProof = proof(f); delete oldProof.toolchain_binary_hash;
+      insert(f.db, 'media_probe_evidence', oldProof);
+      f.db.prepare("UPDATE media_probe_attempts SET state='SUCCEEDED',row_version=row_version+1").run();
+      const oldMeasurement = measurement(f); delete oldMeasurement.toolchain_binary_hash;
+      insert(f.db, 'technical_metadata', oldMeasurement); insert(f.db, 'technical_metadata_streams', stream());
+      if (historicalState === 'COMPLETED') f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run();
+      const before = Object.fromEntries(['media_probe_jobs', 'media_probe_attempts', 'media_probe_evidence', 'technical_metadata',
+        'technical_metadata_streams'].map(table => [table, f.db.prepare(`SELECT * FROM ${table}`).all()]));
+      const integritySql = f.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").get().sql;
+      initializeDatabase(f.db); initializeDatabase(f.db);
+      assert.equal(f.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v, 22);
+      for (const [table, rows] of Object.entries(before)) {
+        const after = f.db.prepare(`SELECT * FROM ${table}`).all();
+        assert.equal(after.length, rows.length);
+        for (let i = 0; i < rows.length; i++) for (const [key, value] of Object.entries(rows[i])) assert.equal(after[i][key], value, `${table}.${key}`);
+        if (table === 'media_probe_evidence' || table === 'technical_metadata') assert.equal(after[0].toolchain_binary_hash, null);
+      }
+      assert.equal(f.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").get().sql, integritySql);
+      assert.throws(() => f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run(), /binary pin/);
+      assert.throws(() => f.db.prepare('UPDATE technical_metadata SET toolchain_binary_hash=?').run(f.job.toolchain_binary_hash), /append-only/);
+      assert.throws(() => f.db.prepare('UPDATE media_probe_evidence SET toolchain_binary_hash=?').run(f.job.toolchain_binary_hash), /append-only/);
+      f.close(); f = null;
+    }
+  } finally {
+    f?.close();
+    assert.ok(path.resolve(modules).startsWith(path.join(os.tmpdir(), 'cineforge-schema-v21-')));
+    fs.rmSync(modules, { recursive: true, force: true });
+  }
+});
+
+test('new evidence and canonical metadata require the exact persisted binary pin', () => {
+  const f = persistenceFixture();
+  try {
+    verifying(f);
+    const invalid = [null, '0'.repeat(64), 'B'.repeat(64), 'b'.repeat(63), 'b'.repeat(64) + '\0suffix', 'é'.repeat(64)];
+    for (const toolchain_binary_hash of invalid) {
+      assert.throws(() => insert(f.db, 'media_probe_evidence', proof(f, { toolchain_binary_hash })), /pins|digest|constraint/i);
+    }
+    // No verified executable was observed for this diagnostic; null is honest.
+    insert(f.db, 'media_probe_evidence', proof(f, { id: 'unknown-proof', outcome: 'UNKNOWN', toolchain_binary_hash: null }));
+    insert(f.db, 'media_probe_evidence', proof(f));
+    f.db.prepare("UPDATE media_probe_attempts SET state='SUCCEEDED',row_version=row_version+1").run();
+    for (const toolchain_binary_hash of invalid) {
+      assert.throws(() => insert(f.db, 'technical_metadata', measurement(f, { toolchain_binary_hash })), /pin|digest|constraint/i);
+    }
+    insert(f.db, 'technical_metadata', measurement(f)); insert(f.db, 'technical_metadata_streams', stream());
+    f.db.prepare("UPDATE media_probe_jobs SET state='COMPLETED',row_version=row_version+1").run();
+    assert.equal(f.db.prepare('SELECT toolchain_binary_hash FROM technical_metadata').get().toolchain_binary_hash, f.job.toolchain_binary_hash);
+    assert.equal(f.db.prepare('SELECT state FROM media_probe_jobs').get().state, 'COMPLETED');
   } finally { f.close(); }
 });

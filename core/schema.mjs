@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { uuidv7, nowUtcUs } from './ids.mjs';
 import { canonicalJson, idempotencyFingerprint } from './canonical.mjs';
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 /**
  * Configure and migrate the single Core writer database.
@@ -2573,6 +2573,7 @@ export function initializeDatabase(db) {
   `);
 
   initializeProbePersistence(db);
+  initializeProbeBinaryPins(db);
 
   // Keep a durable migration ledger.  The v2-v6 tables/columns above are idempotent so
   // an interrupted upgrade can be resumed safely; recording every historical
@@ -2896,6 +2897,52 @@ function initializeProbePersistence(db) {
     db.exec('RELEASE media_probe_schema_21');
   } catch (error) {
     db.exec('ROLLBACK TO media_probe_schema_21; RELEASE media_probe_schema_21');
+    throw error;
+  }
+}
+
+// Add observed binary pins without modifying append-only historical rows.
+// A legacy PASS label lacking these pins is not verification evidence.
+function initializeProbeBinaryPins(db) {
+  db.exec('SAVEPOINT media_probe_schema_22');
+  try {
+    for (const table of ['media_probe_evidence', 'technical_metadata']) {
+      const columns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name));
+      if (!columns.has('toolchain_binary_hash')) db.exec(`ALTER TABLE ${table}
+        ADD COLUMN toolchain_binary_hash TEXT CHECK(toolchain_binary_hash IS NULL OR
+          (length(CAST(toolchain_binary_hash AS BLOB))=64 AND toolchain_binary_hash NOT GLOB '*[^0-9a-f]*'))`);
+      db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_binary_hash_insert BEFORE INSERT ON ${table}
+        WHEN NEW.toolchain_binary_hash IS NOT NULL AND
+          (length(CAST(NEW.toolchain_binary_hash AS BLOB))!=64 OR NEW.toolchain_binary_hash GLOB '*[^0-9a-f]*')
+        BEGIN SELECT RAISE(ABORT,'media_probe invalid binary digest bytes'); END;`);
+    }
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS media_probe_evidence_binary_pin BEFORE INSERT ON media_probe_evidence
+      WHEN (NEW.outcome='PASS' AND NEW.toolchain_binary_hash IS NULL)
+        OR (NEW.toolchain_binary_hash IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM media_probe_attempts a JOIN media_probe_jobs j ON j.id=a.job_id
+          WHERE a.id=NEW.attempt_id AND j.toolchain_binary_hash=NEW.toolchain_binary_hash))
+      BEGIN SELECT RAISE(ABORT,'media_probe evidence binary pins mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS technical_metadata_binary_pin BEFORE INSERT ON technical_metadata
+      WHEN NEW.toolchain_binary_hash IS NULL OR NOT EXISTS (
+        SELECT 1 FROM media_probe_jobs j JOIN media_probe_attempts a ON a.job_id=j.id
+          JOIN media_probe_evidence e ON e.attempt_id=a.id AND e.outcome='PASS'
+        WHERE j.id=NEW.probe_job_id AND a.id=NEW.probe_attempt_id
+          AND j.toolchain_binary_hash=NEW.toolchain_binary_hash
+          AND e.toolchain_binary_hash=NEW.toolchain_binary_hash)
+      BEGIN SELECT RAISE(ABORT,'technical_metadata proof binary pin mismatch'); END;
+      CREATE TRIGGER IF NOT EXISTS media_probe_complete_binary_pin BEFORE UPDATE OF state ON media_probe_jobs
+      WHEN NEW.state='COMPLETED' AND NOT EXISTS (
+        SELECT 1 FROM technical_metadata m JOIN media_probe_evidence e ON e.attempt_id=m.probe_attempt_id
+        WHERE m.probe_job_id=NEW.id AND m.probe_attempt_id=NEW.current_attempt_id
+          AND m.evidence_state='PASS' AND e.outcome='PASS'
+          AND m.toolchain_binary_hash=NEW.toolchain_binary_hash
+          AND e.toolchain_binary_hash=NEW.toolchain_binary_hash)
+      BEGIN SELECT RAISE(ABORT,'media_probe completion missing metadata binary pin'); END;
+    `);
+    db.exec('RELEASE media_probe_schema_22');
+  } catch (error) {
+    db.exec('ROLLBACK TO media_probe_schema_22; RELEASE media_probe_schema_22');
     throw error;
   }
 }

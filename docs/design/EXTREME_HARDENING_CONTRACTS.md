@@ -7823,3 +7823,13 @@ Those controls remain SPECIFIED until independently reviewed integration.
 Prepared hash guards validate 64 ASCII bytes, not SQLite text length alone:
 embedded NUL suffixes must not pass digest checks. Regression fixtures cover
 new inserts and already-created schema-21 databases without rewriting rows.
+
+# MEDIA-PROBE-BINARY-PINS-TEST-01. Exact executable evidence regression
+
+Upgrade an actual schema-21 database containing privileged historical PASS
+evidence/metadata, preserving every existing field and appending null binary
+pins without inferred verification. Test repeated migration, missing/mismatched
+pins, non-ASCII/embedded-NUL digests, append-only retention and completion
+rejection for historical unpinned rows. New matching job/evidence/measurement
+pins must permit the existing relational fixture binding. These privileged
+fixtures prove database guards, not real executable attestation or runtime PASS.
